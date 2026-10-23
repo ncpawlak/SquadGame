@@ -239,7 +239,7 @@ func _new_league() -> void:
 	for pick in [team_a_pick, team_b_pick, roster_team_pick]:
 		pick.clear()
 		for t in league.teams:
-			pick.add_item("%s (%d)%s" % [t.name, t.team_ovr(), " ★" if t.user_controlled else ""])
+			pick.add_item("%s (%d)%s" % [t.name, t.team_ovr(), " (you)" if t.user_controlled else ""])
 	team_a_pick.select(0)
 	team_b_pick.select(1)
 	roster_team_pick.select(0)
@@ -259,7 +259,7 @@ func _refresh_team_names() -> void:
 	for pick in [team_a_pick, team_b_pick, roster_team_pick]:
 		for i in league.teams.size():
 			var t := league.teams[i]
-			pick.set_item_text(i, "%s (%d)%s" % [t.name, t.team_ovr(), " ★" if t.user_controlled else ""])
+			pick.set_item_text(i, "%s (%d)%s" % [t.name, t.team_ovr(), " (you)" if t.user_controlled else ""])
 
 
 func _sim_match() -> void:
@@ -301,7 +301,7 @@ func _fill_box_score(result: MatchResult) -> void:
 			var line := result.box_for(s)
 			var it := box_tree.create_item(root)
 			var hit_pct: float = 100.0 * line["hits"] / maxf(1.0, line["shots"])
-			var vals := [String(slot_id), s.short_name() + (" ★MVP" if s.id == result.mvp_id else ""),
+			var vals := [String(slot_id), s.short_name() + (" MVP" if s.id == result.mvp_id else ""),
 				line["kills"], line["deaths"], line["assists"], roundi(line["damage"]), line["shots"],
 				"%.0f%%" % hit_pct, line["headshots"], line["rounds_survived"], line["clutches"]]
 			for i in vals.size():
@@ -409,7 +409,7 @@ func _refresh_roster() -> void:
 		var slot := team.slot_of(s)
 		var pos_ovr := team.ovr_in_slot(s, slot) if slot != &"" else -1
 		it.set_text(0, team.scheme.label_for_slot(slot) if slot != &"" else "Bench")
-		it.set_text(1, s.full_name() + ("  ◆" if training_focus.has(s.id) and team.user_controlled else ""))
+		it.set_text(1, s.full_name() + ("  (focus)" if training_focus.has(s.id) and team.user_controlled else ""))
 		it.set_text(2, str(s.age))
 		it.set_text(3, str(pos_ovr) if pos_ovr >= 0 else "-")
 		if pos_ovr >= 0:

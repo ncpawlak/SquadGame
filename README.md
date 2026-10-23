@@ -10,6 +10,17 @@ progression. Built in **Godot 4.7** (GDScript). It's currently a headless-friend
 
 You can also run it from the command line: `godot --path .`
 
+### In the browser
+
+One-time setup: install the Godot 4.7.2 export templates (Editor → Manage Export Templates → Download). Then:
+
+```powershell
+godot --headless --path . --export-release "Web" build/web/index.html
+python tools/serve_web.py          # http://127.0.0.1:8060/
+```
+
+The Web preset is the no-threads build, so it runs on any static host without special server headers.
+
 Debug UI:
 - Generate a league from a seed.
 - Simulate a match and view the play-by-play and box score.
@@ -60,4 +71,4 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
 - Injuries
 - Different game modes per round
 - Visual combat
-- Web, Android and PC exports
+- Android and PC exports
