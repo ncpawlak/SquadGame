@@ -1,0 +1,8 @@
+# Godot
+.godot/
+/android/
+*.translation
+
+# Exports
+build/
+export/
