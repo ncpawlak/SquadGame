@@ -19,15 +19,15 @@ const LAST_NAMES := [
 const ARCHETYPES := {
 	Scheme.Role.FRONTMAN: {
 		&"short_acc": 10, &"strength": 9, &"toughness": 9, &"agility": 3, &"reload": 5,
-		&"grouping": 4, &"long_acc": -10, &"medium_acc": -2, &"speed": -2, &"teamwork": -3,
+		&"grouping": 4, &"composure": 3, &"long_acc": -6, &"medium_acc": -2, &"speed": -2,
 	},
 	Scheme.Role.CENTER: {
 		&"awareness": 10, &"medium_acc": 9, &"long_acc": 8, &"teamwork": 9, &"composure": 6,
-		&"short_acc": -6, &"speed": -6, &"agility": -5, &"strength": -3,
+		&"short_acc": -3, &"speed": -6,
 	},
 	Scheme.Role.FLEX: {
 		&"speed": 11, &"agility": 10, &"endurance": 8, &"medium_acc": 4, &"short_acc": 2,
-		&"strength": -6, &"toughness": -6, &"long_acc": -4,
+		&"reload": 3, &"strength": -6, &"toughness": -6, &"long_acc": -4,
 	},
 }
 
