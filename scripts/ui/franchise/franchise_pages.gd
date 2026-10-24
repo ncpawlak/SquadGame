@@ -762,29 +762,9 @@ func coming_soon(title: String, bullets: Array) -> Control:
 # --- scouting & draft --------------------------------------------------------------
 
 const TIER_COLORS := [Color("#ef4444"), Color("#f97316"), Color("#e5e7eb"), Color("#38bdf8"), Color("#22c55e")]
-const GROUP_ABBREV := {Stats.ACCURACY: "ACC", Stats.HANDLING: "HND", Stats.PHYSICALITY: "PHY", Stats.MENTALITY: "MEN", Stats.DURABILITY: "INJ"}
 
 ## Position filter shared by the scouting list and the draft room (-1 = all).
 var role_filter := -1
-
-
-## A scouted window with each end in its own grade color, e.g. blue "Athletic" - green "Freak Athlete".
-func _window_bbcode(g: StringName, w: Variant) -> String:
-	if w == null:
-		return "[color=%s]?[/color]" % UiKit.hex(UiKit.MUTED)
-	var v: Vector2i = w
-	var lo := "[color=%s]%s[/color]" % [UiKit.hex(TIER_COLORS[v.x]), UiKit.esc(Draft.tier_name(g, v.x))]
-	if v.x == v.y:
-		return lo
-	return lo + "[color=#8b97ab] - [/color][color=%s]%s[/color]" % [UiKit.hex(TIER_COLORS[v.y]), UiKit.esc(Draft.tier_name(g, v.y))]
-
-
-## "ACC Steady Aim - Sharpshooter   HND ?   ..." for a prospect's scouted windows.
-func _windows_bbcode(p: Prospect) -> String:
-	var parts: PackedStringArray = []
-	for g in Stats.GROUP_ORDER:
-		parts.append("[color=#8b97ab]%s[/color] %s" % [GROUP_ABBREV[g], _window_bbcode(g, p.reveals.get(g))])
-	return "     ".join(parts)
 
 
 func _filter_row(title: String, rebuild: Callable) -> HBoxContainer:
@@ -808,31 +788,112 @@ func _filtered(list: Array[Prospect]) -> Array[Prospect]:
 	return out
 
 
-## One prospect: an action button, a name button (opens the scouting report) and the
-## scouted grade windows underneath.
-func _prospect_row(p: Prospect, action_text: String, action_enabled: bool, action: Callable) -> Control:
-	var panel := UiKit.panel(UiKit.PANEL, 8)
-	var box := _vbox(4)
-	panel.add_child(box)
-	var top := _row(12)
-	var act := UiKit.button(action_text, action, 15)
-	act.custom_minimum_size.x = 120
-	act.disabled = not action_enabled
-	top.add_child(act)
-	var status := "%d/%d scouted" % [p.points, Draft.MAX_POINTS_PER_PROSPECT]
-	if not p.is_available():
-		status = "Pick %d - %s" % [p.pick_number, p.drafted_by.abbrev]
-	var info := UiKit.button("%s   -   age %d   -   %s   -   Proj: %s   -   %s" % [p.soldier.full_name(), p.soldier.age,
-		Scheme.ROLE_NAMES[p.listed_role], Draft.projection_text(p.projected_rank), status], func():
-			hub.open(p.soldier.full_name(), func(): return prospect(p)), 15)
-	info.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	top.add_child(info)
-	box.add_child(top)
-	var grades := UiKit.rich(_windows_bbcode(p), 14)
-	grades.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	box.add_child(grades)
+## Prospect table layout (shared by Scouting and the Draft Room): portrait, name/age/pos,
+## projection, one column per stat group, then the action button.
+const PCOL_PORTRAIT := 48
+const PCOL_NAME := 180
+const PCOL_PROJ := 104
+const PCOL_GROUP := 136
+const PCOL_ACTION := 96
+const PCOL_SEP := 10
+
+
+func _prospect_header() -> Control:
+	var panel := PanelContainer.new()
+	var sb := UiKit.flat(UiKit.PANEL_HI, 4)
+	sb.content_margin_top = 6
+	sb.content_margin_bottom = 6
+	panel.add_theme_stylebox_override("panel", sb)
+	var hb := _row(PCOL_SEP)
+	var cols := [["", PCOL_PORTRAIT], ["PROSPECT", PCOL_NAME], ["PROJECTED", PCOL_PROJ]]
+	for g in Stats.GROUP_ORDER:
+		cols.append([Stats.GROUP_LABELS[g].to_upper(), PCOL_GROUP])
+	for c in cols:
+		var l := UiKit.label(c[0], 13, UiKit.MUTED)
+		l.custom_minimum_size.x = c[1]
+		l.clip_text = true
+		hb.add_child(l)
+	panel.add_child(hb)
 	return panel
+
+
+## One grade column: a 5-segment bar (lit where his true grade could be), then the low and
+## high grade names, each in its own color.
+func _grade_cell(g: StringName, w: Variant) -> Control:
+	var v := _vbox(2)
+	v.custom_minimum_size.x = PCOL_GROUP
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bar := _row(2)
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for t in Draft.TIER_COUNT:
+		var seg := ColorRect.new()
+		seg.custom_minimum_size = Vector2((PCOL_GROUP - 2 * (Draft.TIER_COUNT - 1)) / float(Draft.TIER_COUNT), 6)
+		var lit: bool = w != null and t >= (w as Vector2i).x and t <= (w as Vector2i).y
+		seg.color = TIER_COLORS[t] if lit else UiKit.LINE
+		seg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bar.add_child(seg)
+	v.add_child(bar)
+	if w == null:
+		v.add_child(UiKit.label("?", 14, UiKit.MUTED))
+		return v
+	var wv: Vector2i = w
+	var hi := UiKit.label(Draft.tier_name(g, wv.y), 14, TIER_COLORS[wv.y])
+	hi.clip_text = true
+	v.add_child(hi)
+	if wv.x != wv.y:
+		var lo := UiKit.label(Draft.tier_name(g, wv.x), 14, TIER_COLORS[wv.x])
+		lo.clip_text = true
+		v.add_child(lo)
+	return v
+
+
+func _two_lines(top: String, top_color: Color, bottom: String, width: int, top_size := 16) -> Control:
+	var v := _vbox(2)
+	v.custom_minimum_size.x = width
+	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var a := UiKit.label(top, top_size, top_color)
+	a.clip_text = true
+	v.add_child(a)
+	var b := UiKit.label(bottom, 13, UiKit.MUTED)
+	b.clip_text = true
+	v.add_child(b)
+	return v
+
+
+## One prospect row: the row itself opens the scouting report; the action button sits at the end.
+func _prospect_row(p: Prospect, action_text: String, action_enabled: bool, action: Callable) -> Control:
+	var row := _row(PCOL_SEP)
+	var info := Button.new()
+	UiKit.style_button(info, UiKit.PANEL, UiKit.ACCENT, 6)
+	info.custom_minimum_size = Vector2(PCOL_PORTRAIT + PCOL_NAME + PCOL_PROJ + PCOL_GROUP * Stats.GROUP_ORDER.size()
+		+ PCOL_SEP * (2 + Stats.GROUP_ORDER.size()) + 28, 70)
+	info.pressed.connect(func(): hub.open(p.soldier.full_name(), func(): return prospect(p)))
+	var hb := _row(PCOL_SEP)
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hb.offset_left = 14
+	hb.offset_right = -14
+	hb.offset_top = 6
+	hb.offset_bottom = -6
+	info.add_child(hb)
+	hb.add_child(Portrait.new(p.soldier.id, PCOL_PORTRAIT))
+	hb.add_child(_two_lines(p.soldier.full_name(), Color.WHITE,
+		"age %d  -  %s" % [p.soldier.age, Scheme.ROLE_NAMES[p.listed_role]], PCOL_NAME))
+	var status := "scouted %d/%d" % [p.points, Draft.MAX_POINTS_PER_PROSPECT]
+	if not p.is_available():
+		status = "pick %d - %s" % [p.pick_number, p.drafted_by.abbrev]
+	hb.add_child(_two_lines(Draft.projection_text(p.projected_rank), UiKit.ACCENT, status, PCOL_PROJ, 15))
+	for g in Stats.GROUP_ORDER:
+		var cell := _grade_cell(g, p.reveals.get(g))
+		cell.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		hb.add_child(cell)
+	row.add_child(info)
+	var act := UiKit.button(action_text, action, 15)
+	act.custom_minimum_size = Vector2(PCOL_ACTION, 70)
+	act.disabled = not action_enabled
+	row.add_child(act)
+	return row
 
 
 func _scout_and_toast(p: Prospect) -> void:
@@ -873,12 +934,15 @@ func scouting() -> Control:
 	v.add_child(nav)
 	v.add_child(_filter_row("Scouting", scouting))
 	var list := _by_projection(_filtered(d.prospects))
-	v.add_child(_section("%d PROSPECTS  -  by projected pick" % list.size()))
+	v.add_child(_section("%d PROSPECTS  -  by projected pick  -  click a row for his full report" % list.size()))
+	var rows := _vbox(4)
+	rows.add_child(_prospect_header())
 	for p in list:
 		var prospect_ref := p
-		v.add_child(_prospect_row(p, "Scout", d.can_scout(p), func():
+		rows.add_child(_prospect_row(p, "Scout", d.can_scout(p), func():
 			_scout_and_toast(prospect_ref)
 			hub.replace("Scouting", scouting)))
+	v.add_child(rows)
 	return v
 
 
@@ -974,13 +1038,16 @@ func draft_room() -> Control:
 			v.add_child(_filter_row("Draft Room", draft_room))
 			var avail := _by_projection(_filtered(d.available()))
 			v.add_child(_section("AVAILABLE PROSPECTS  -  by projected pick"))
+			var rows := _vbox(4)
+			rows.add_child(_prospect_header())
 			for p in avail:
 				var pick := p
-				v.add_child(_prospect_row(p, "Draft", true, func():
+				rows.add_child(_prospect_row(p, "Draft", true, func():
 					d.make_pick(pick)
 					hub.app.toast("You select %s (%s)." % [pick.soldier.full_name(), Scheme.ROLE_NAMES[pick.listed_role]])
 					_after_pick()
 					refresh.call()))
+			v.add_child(rows)
 	elif user.is_over_roster_limit():
 		var over := user.roster.size() - Team.ROSTER_SIZE
 		v.add_child(UiKit.rich("[font_size=24][color=#ef4444]ROSTER CUTS[/color][/font_size]   Release %d more soldier%s to get down to %d." % [
