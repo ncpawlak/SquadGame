@@ -11,7 +11,7 @@ const AGE_CHANCE := {35: 0.15, 36: 0.35, 37: 0.6, 38: 0.85}
 const ALWAYS_AGE := 39
 const FA_MIN_OVR := 55
 const FA_MAX_AGE := 33
-const FA_POOL_LIMIT := 30
+const FA_POOL_LIMIT := 36
 
 const REASON_AGE := "Age"
 const REASON_UNSIGNED := "Unsigned"

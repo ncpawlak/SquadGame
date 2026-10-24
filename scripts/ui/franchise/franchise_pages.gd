@@ -2244,6 +2244,7 @@ func offer() -> Control:
 	v.add_child(actions)
 	if not mine.is_empty():
 		v.add_child(UiKit.label("Pending: %s x %d yr%s." % [Contracts.money(mine["salary"]), mine["years"], "" if mine["years"] == 1 else "s"], 15, UiKit.INFO))
+	v.add_child(_offer_board(s))
 	var tip := UiKit.label("Players sign the best offer that clears their bar. Money matters most (up to 30% over asking helps), then team quality and whether they'd start. Unsigned players lower their asking price over time. Negotiation (counter-offers, bonuses) is coming later.", 14, UiKit.MUTED)
 	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(tip)
@@ -2251,6 +2252,58 @@ func offer() -> Control:
 
 
 var _confirm_release: Soldier
+
+
+## Every team with an offer on `s`, best first, with his interest in each as a bar. The bar
+## reaches the white tick when the offer clears his bar to sign.
+func _offer_board(s: Soldier) -> Control:
+	var bids: Array = []
+	for o in _season().fa.offers_for(s):
+		bids.append([o, FreeAgency.score(o["team"], s, o["salary"], o["years"]) / FreeAgency.ACCEPT_SCORE])
+	bids.sort_custom(func(a, b): return a[1] > b[1])
+	var v := _vbox(8)
+	v.name = "OfferBoard"
+	v.add_child(UiKit.label("CURRENT OFFERS (%d)" % bids.size(), 15, UiKit.MUTED))
+	if bids.is_empty():
+		v.add_child(UiKit.label("No team has made an offer yet.", 15, UiKit.MUTED))
+		return v
+	const BAR_MAX := 1.3
+	const BAR_W := 320.0
+	for b in bids:
+		var o: Dictionary = b[0]
+		var team: Team = o["team"]
+		var it: Array = FreeAgency.interest(team, s, o["salary"], o["years"])
+		var row := _row(12)
+		var chip := UiKit.team_chip(team, 15)
+		chip.custom_minimum_size.x = 230
+		row.add_child(chip)
+		var terms := UiKit.label("%s x %d yr%s" % [Contracts.money(o["salary"]), o["years"], "" if o["years"] == 1 else "s"], 15, Color.WHITE if team.user_controlled else UiKit.TEXT)
+		terms.custom_minimum_size.x = 130
+		row.add_child(terms)
+		var bar := ProgressBar.new()
+		bar.max_value = BAR_MAX
+		bar.step = 0.0
+		bar.value = clampf(b[1], 0.0, BAR_MAX)
+		bar.show_percentage = false
+		bar.custom_minimum_size = Vector2(BAR_W, 14)
+		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		bar.add_theme_stylebox_override("background", UiKit.flat(UiKit.LINE, 4))
+		var fill := UiKit.flat(it[1], 4)
+		fill.content_margin_top = 0
+		fill.content_margin_bottom = 0
+		bar.add_theme_stylebox_override("fill", fill)
+		var tick := ColorRect.new()
+		tick.color = Color(1, 1, 1, 0.85)
+		tick.position = Vector2(BAR_W / BAR_MAX - 1.0, -3)
+		tick.size = Vector2(2, 20)
+		tick.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bar.add_child(tick)
+		row.add_child(bar)
+		var lab := UiKit.rich("[color=%s]%s[/color]%s" % [UiKit.hex(it[1]), it[0], "   [color=#38bdf8](your offer)[/color]" if team.user_controlled else ""], 15)
+		lab.custom_minimum_size.x = 220
+		row.add_child(lab)
+		v.add_child(row)
+	return v
 
 
 ## Your roster players at a free agent's position, compared at that position's OVR.

@@ -27,8 +27,8 @@ const OFF_FREE_AGENCY := &"free_agency"
 const OFF_DONE := &"done"
 const FA_DAYS := 3
 ## The user needs at least this many soldiers to start a season (AI teams fill to ROSTER_SIZE).
-const ROSTER_MIN := 6
-const INITIAL_FREE_AGENTS := 14
+const ROSTER_MIN := 10
+const INITIAL_FREE_AGENTS := 18
 ## Only the best undrafted prospects turn pro as free agents; the rest go home.
 const UNDRAFTED_TO_FA := 12
 
@@ -414,7 +414,7 @@ func _ai_resign() -> void:
 		var ovrs: Array = t.roster.map(func(x: Soldier): return x.best_ovr())
 		ovrs.sort()
 		ovrs.reverse()
-		var bar: int = ovrs[mini(5, ovrs.size() - 1)] if not ovrs.is_empty() else 0
+		var bar: int = ovrs[mini(8, ovrs.size() - 1)] if not ovrs.is_empty() else 0
 		var exp := Contracts.expiring(t)
 		exp.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
 		for s in exp:

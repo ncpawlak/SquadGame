@@ -2,7 +2,7 @@ class_name Team
 extends RefCounted
 ## A team: roster of soldiers plus a lineup slotting 5 of them into the scheme.
 
-const ROSTER_SIZE := 8
+const ROSTER_SIZE := 12
 
 var id: int
 var name: String

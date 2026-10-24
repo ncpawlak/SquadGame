@@ -169,7 +169,7 @@ func _advance_offseason() -> void:
 			var user := season.user_team()
 			if user.is_over_roster_limit():
 				_rebuild_and_open("Contracts & Payroll", pages.contracts)
-				app.toast("Over the roster limit: open a player (Contract tab) and release down to %d." % Team.ROSTER_SIZE)
+				app.toast("Can't start the season with %d players: release down to %d (player > Contract tab > Release)." % [user.roster.size(), Team.ROSTER_SIZE])
 				return
 			season.start_next_season()
 			page_stack.clear()
@@ -459,7 +459,27 @@ func _home_top() -> Control:
 		side.add_child(UiKit.tile("Last Result", "No matches played yet.", Vector2(300, 158), UiKit.INFO,
 			func(): app.toast("Play a match first.")))
 	h.add_child(side)
-	return h
+	var cuts := _roster_cut_banner(team)
+	if cuts == null:
+		return h
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 14)
+	v.add_child(cuts)
+	v.add_child(h)
+	return v
+
+
+## Offseason rosters can run over the limit (draft picks, extra signings); the season can't
+## start until the user cuts back down.
+func _roster_cut_banner(team: Team) -> Control:
+	if not team.is_over_roster_limit():
+		return null
+	var extra := team.roster.size() - Team.ROSTER_SIZE
+	var body := "[color=white]%d / %d players.[/color]  Release [color=#ef4444]%d player%s[/color] before you can advance to Week 1 of the %d season.  Open a player > Contract tab > Release." % [
+		team.roster.size(), Team.ROSTER_SIZE, extra, "" if extra == 1 else "s", season.year + (1 if season.phase == Season.PHASE_OFFSEASON else 0)]
+	var t := UiKit.tile("Roster Cuts Required", body, Vector2(1214, 86), UiKit.BAD, open_contracts)
+	t.name = "RosterCutBanner"
+	return t
 
 
 func _match_pane(m: ScheduledMatch, team: Team) -> Control:
@@ -896,6 +916,8 @@ func _advance_blurb() -> String:
 				return "Make your picks in the Draft Room, then open free agency." if not season.draft.is_complete() else "Expiring players and undrafted prospects hit the market."
 			Season.OFF_FREE_AGENCY:
 				return "Players answer this round of offers. Best offer (money, team, playing time) wins."
+		if season.user_team().is_over_roster_limit():
+			return "[color=#ef4444]Cut to %d players first[/color] (you have %d)." % [Team.ROSTER_SIZE, season.user_team().roster.size()]
 		return "Roll over to the %d season. Roster must be %d-%d." % [season.year + 1, Season.ROSTER_MIN, Team.ROSTER_SIZE]
 	return "Train, play every match this week and award XP.\n\n[color=white]Space / Y[/color]"
 

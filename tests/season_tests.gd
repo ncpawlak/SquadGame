@@ -493,7 +493,9 @@ func test_draft_order_and_picks() -> void:
 	check(d.order[per_round - 1] == s.champion, "champion picks last in round 1")
 	check(d.order[per_round] == s.champion, "snake: champion first in round 2")
 	for i in per_round:
-		check(d.order[i] == d.order[d.order.size() - 1 - i], "snake mirror %d" % i)
+		for r in Draft.ROUNDS:
+			var want: Team = d.order[i] if r % 2 == 0 else d.order[per_round - 1 - i]
+			check(d.order[r * per_round + i] == want, "snake round %d pick %d" % [r + 1, i])
 	var user := s.user_team()
 	var made := d.sim_to_user()
 	check(d.on_the_clock() == user, "stopped at user pick")
@@ -623,7 +625,8 @@ func test_release() -> void:
 func test_projections_and_mock() -> void:
 	check(Draft.projection_text(1, 5) == "Early 1st" and Draft.projection_text(3, 5) == "Mid 1st", "early/mid 1st")
 	check(Draft.projection_text(5, 5) == "Late 1st" and Draft.projection_text(6, 5) == "Early 2nd", "late 1st/early 2nd")
-	check(Draft.projection_text(10, 5) == "Late 2nd" and Draft.projection_text(11, 5) == "Undrafted", "late 2nd/undrafted")
+	check(Draft.projection_text(10, 5) == "Late 2nd" and Draft.projection_text(11, 5) == "Early 3rd", "late 2nd/early 3rd")
+	check(Draft.projection_text(15, 5) == "Late 3rd" and Draft.projection_text(16, 5) == "Undrafted", "late 3rd/undrafted")
 	var s := Season.new_franchise(44)
 	var d := s.draft
 	var ranks := {}

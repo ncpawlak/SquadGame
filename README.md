@@ -34,8 +34,8 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   and injuries update. AI teams auto-spend skill points and pick intensities; you set yours on the Training page
   and spend SP on the player page (or **Auto-progress all** on the Progression page). Injured starters are
   auto-replaced by the best healthy bench soldier.
-- **Scouting** (`scripts/season/draft.gd`, `prospect.gd`): each season has a class of 30 recruits (age 19–22).
-  You only see name, age and listed position. You get 12 scout points a week (unspent points carry over).
+- **Scouting** (`scripts/season/draft.gd`, `prospect.gd`): each season has a class of 36 recruits (age 19–22).
+  You only see name, age and listed position. You get 14 scout points a week (unspent points carry over).
   Each point spent on a prospect reveals a random stat group as a range of named grades, e.g. Accuracy
   "Steady Aim - Marksman". Points land on random groups: the first on a group shows 3 grades, a second narrows it to 2.
   Max 8 points per prospect; numbers and potential are never shown. Grades (worst → best) per group:
@@ -53,22 +53,23 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   board. The **Mock Draft** page (Personnel → Draft, or the Scouting page) predicts every pick from the current
   standings. The Scouting list and Draft Room are a table: portrait, name/age/position, projection, then one column per
   stat group (a 5-segment bar lit where his grade could be, best grade on top). Each grade is colored: red Poor, orange Below average, gray Average, blue Good, green Elite.
-- **Draft**: after the Final, 2 rounds in snake order. Teams that missed the playoffs pick first (worst record first),
+- **Draft**: after the Final, 3 rounds in snake order. Teams that missed the playoffs pick first (worst record first),
   then semifinal losers, the runner-up, and the champion last. AI teams pick from the consensus board with a little noise, leaning toward their weakest position.
   In the Draft Room you can sim to your pick, draft a prospect or auto-pick. Draftees get rookie contracts (cheaper
-  later in the draft). The best 12 undrafted prospects join free agency; the rest leave.
+  later in the draft; 3 years in round 1, 2 years in rounds 2-3). The best 12 undrafted prospects join free agency; the rest leave.
 - **Contracts & payroll** (`scripts/core/contract.gd`, `scripts/season/contracts.gd`): every soldier has a salary
-  and years left. Hard cap of $36M per team per season, the same for everyone (Madden-style); minimum salary
+  and years left. Hard cap of $54M per team per season, the same for everyone (Madden-style); minimum salary
   $750K always fits. Contracts tick down after the Final. Releasing a player leaves 50% of his remaining money on
   the cap as dead money, split over his remaining years. Personnel → Contracts & Payroll shows cap space, every
   contract and future commitments. Trades (later) will have to fit under the cap.
 - **Offseason** (advance button walks the stages): **Re-sign** (choose years for expiring players; AI teams re-sign
-  their keepers) → **Draft** → **Free agency** (3 days) → next season. Rosters max out at 8; you must release down to
-  8 before the season starts.
+  their keepers) → **Draft** → **Free agency** (3 days) → next season. Rosters max out at 12 (5 starters + 7 backups).
+  In the offseason your roster can run over (draft picks, extra signings), but you can't advance to Week 1 until
+  you release down to 12; Home shows a red "Roster Cuts Required" banner while you're over. In-season the limit is hard.
 - **Free agency** (`scripts/season/free_agency.gd`, League → Free Agents): unsigned soldiers with all ratings
   visible. Bidding: make offers (salary and years) during FA days or in-season. Each round every free agent scores
   his offers (70% money vs. asking, 15% team quality, 15% playing time) and signs the best one that clears his
-  bar. Unsigned players lower their asking price over time. AI teams bid too. Contract negotiation (counter-offers,
+  bar. The offer page lists every team's current offer with a bar for his interest in each (the tick marks his bar). Unsigned players lower their asking price over time. AI teams bid too. Contract negotiation (counter-offers,
   bonuses) is planned.
 - **Retirement** (`scripts/season/retirement.gd`): soldiers retire from age 35 (always by 39), more likely as
   they decline. Free agents unsigned for a season retire if they're weak or 33+, which keeps the pool churning.
@@ -148,7 +149,7 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
   - Frontman ×2, Center, Left Flex, Right Flex.
   - Each role has its own OVR weights (`scripts/core/scheme.gd`).
   - Role also drives in-sim behaviour (distance, exposure, flanking).
-- **Rosters:** 8 soldiers each (5 starters + 3 bench). The league currently has 2 teams.
+- **Rosters:** 12 soldiers each (5 starters + 7 bench). The league currently has 2 teams.
 - **Match:**
   - Best of 7 elimination rounds, 0.5s ticks.
   - Each shot is resolved on the range band, accuracy, fatigue, composure, teamwork, and the target's evasion and toughness.

@@ -116,16 +116,18 @@ static func roll_group_headroom(rng: RandomNumberGenerator, age: int, group: Str
 	return rng.randi_range(6, 20)
 
 
-## Builds a full roster that covers the scheme: 2 frontmen, 1 center, 2 flexes, plus 3 depth players.
+## Builds a full roster that covers the scheme: 2 frontmen, 1 center, 2 flexes, then 7 depth
+## players (a backup for every starter, a 2nd backup center and an extra flex).
 static func generate_roster(rng: RandomNumberGenerator, first_id: int, quality: float) -> Array[Soldier]:
 	var roles: Array = [
 		Scheme.Role.FRONTMAN, Scheme.Role.FRONTMAN, Scheme.Role.CENTER,
 		Scheme.Role.FLEX, Scheme.Role.FLEX,
 		Scheme.Role.FRONTMAN, Scheme.Role.CENTER, Scheme.Role.FLEX,
+		Scheme.Role.FRONTMAN, Scheme.Role.FLEX, Scheme.Role.CENTER, Scheme.Role.FLEX,
 	]
 	var out: Array[Soldier] = []
 	for i in roles.size():
-		# Starters a bit better than depth players.
-		var q := quality + (rng.randfn(0.0, 3.0) if i < 5 else rng.randfn(-5.0, 3.0))
+		# Starters a bit better than the first backups, who beat the deep reserves.
+		var q := quality + (rng.randfn(0.0, 3.0) if i < 5 else rng.randfn(-5.0, 3.0) if i < 8 else rng.randfn(-8.0, 3.0))
 		out.append(generate(rng, first_id + i, roles[i], q))
 	return out

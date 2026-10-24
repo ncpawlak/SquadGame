@@ -10,7 +10,7 @@ extends RefCounted
 ## - Asking salary comes from OVR, age and potential, plus a premium for deal lengths the soldier
 ##   doesn't want (see preferred_years); free agents drop their price the longer they go unsigned.
 
-const SALARY_CAP := 36000
+const SALARY_CAP := 54000
 const MIN_SALARY := 750
 const MAX_SALARY := 12000
 const MAX_YEARS := 5
@@ -20,7 +20,7 @@ const RESIGN_DISCOUNT := 0.95
 ## Rookie scale: pick 1 earns ROOKIE_TOP, the last pick ROOKIE_BOTTOM. Years by round.
 const ROOKIE_TOP := 2000
 const ROOKIE_BOTTOM := 800
-const ROOKIE_YEARS := [3, 2]
+const ROOKIE_YEARS := [3, 2, 2]
 
 
 static func money(k: int) -> String:

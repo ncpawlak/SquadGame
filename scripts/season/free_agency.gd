@@ -63,11 +63,17 @@ func offer_error(season: Season, team: Team, s: Soldier, salary: int, years: int
 	for o in offers_by(team):
 		if o["soldier"] != s:
 			pending += 1
-	if team.roster.size() + pending >= Team.ROSTER_SIZE:
+	if roster_capped(season, team) and team.roster.size() + pending >= Team.ROSTER_SIZE:
 		return "No roster space: %d on the roster + %d pending offers (max %d)." % [team.roster.size(), pending, Team.ROSTER_SIZE]
 	if not Contracts.fits(team, season.cap_year(), salary, committed(team, s)):
 		return "Not enough cap space (%s left after pending offers)." % Contracts.money(Contracts.cap_space(team, season.cap_year()) - committed(team, s))
 	return ""
+
+
+## The user may carry more than ROSTER_SIZE soldiers during the offseason (he must cut down
+## before Week 1); AI teams and everyone in-season are held to the limit.
+static func roster_capped(season: Season, team: Team) -> bool:
+	return not (team.user_controlled and season.phase == Season.PHASE_OFFSEASON)
 
 
 ## Places or replaces `team`'s offer. Returns the error text ("" on success).
@@ -170,7 +176,7 @@ func resolve(season: Season, rng: RandomNumberGenerator, when: String) -> Array:
 		var best_score := -1.0
 		for o in mine:
 			var team: Team = o["team"]
-			if team.roster.size() >= Team.ROSTER_SIZE:
+			if roster_capped(season, team) and team.roster.size() >= Team.ROSTER_SIZE:
 				continue
 			if not Contracts.fits(team, season.cap_year(), o["salary"]):
 				continue
@@ -183,7 +189,7 @@ func resolve(season: Season, rng: RandomNumberGenerator, when: String) -> Array:
 		else:
 			s.ask_mult = maxf(ASK_FLOOR, s.ask_mult * (ASK_DROP_WITH_OFFERS if not mine.is_empty() else ASK_DROP_NO_OFFERS))
 	# Offers that couldn't be honoured (roster filled up) are dropped; the rest stay pending.
-	offers = offers.filter(func(o): return season.league.free_agents.has(o["soldier"]) and o["team"].roster.size() < Team.ROSTER_SIZE)
+	offers = offers.filter(func(o): return season.league.free_agents.has(o["soldier"]) and (not roster_capped(season, o["team"]) or o["team"].roster.size() < Team.ROSTER_SIZE))
 	return signed
 
 

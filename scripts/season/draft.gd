@@ -14,9 +14,9 @@ extends RefCounted
 ## Draft: snake order (worst team first, champion last) for ROUNDS rounds. AI teams pick on a
 ## pick-day read of the consensus value plus a bonus for their weakest position.
 
-const CLASS_SIZE := 30
-const ROUNDS := 2
-const POINTS_PER_WEEK := 12
+const CLASS_SIZE := 36
+const ROUNDS := 3
+const POINTS_PER_WEEK := 14
 const MAX_POINTS_PER_PROSPECT := 8
 ## Window width (in tiers) after the 1st and 2nd scout of a group.
 const WINDOW_WIDTHS := [3, 2]
