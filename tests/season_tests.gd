@@ -21,6 +21,10 @@ func _init() -> void:
 		"test_xp_and_auto_spend",
 		"test_conditioning_over_season",
 		"test_start_next_season",
+		"test_draft_class_and_points",
+		"test_scouting_windows",
+		"test_draft_order_and_picks",
+		"test_release",
 	]
 	for t in tests:
 		_current = t
@@ -349,9 +353,120 @@ func test_start_next_season() -> void:
 	for r: StandingRow in s.standings():
 		check(r.games() == 0 and r.wins == 0 and r.streak == "-", "records reset")
 		check(s.record_text(r.team) == "0-0", "record text reset")
-	var ids_after: Array = []
+	var kept := 0
 	for so in s.league.teams[0].roster:
-		ids_after.append(so.id)
-	check(ids_after == roster_ids, "rosters kept")
+		if roster_ids.has(so.id):
+			kept += 1
+	check(s.league.teams[0].roster.size() == Team.ROSTER_SIZE, "roster cut back to limit")
+	check(kept >= Team.ROSTER_SIZE - Draft.ROUNDS, "rosters mostly kept (%d)" % kept)
 	var first := s.sim_week()
 	check(first.size() == 2 and first[0].is_played(), "new season playable")
+
+
+func test_draft_class_and_points() -> void:
+	var s := Season.new_franchise(21)
+	var d := s.draft
+	check(d.prospects.size() == Draft.CLASS_SIZE, "class size")
+	var phenoms := 0
+	var ids := {}
+	for p in d.prospects:
+		check(p.soldier.age >= 19 and p.soldier.age <= 22, "prospect age")
+		check(p.reveals.is_empty() and p.points == 0, "nothing scouted yet")
+		ids[p.soldier.id] = true
+		if p.phenom:
+			phenoms += 1
+	check(phenoms <= 2, "phenoms 0-2 (%d)" % phenoms)
+	check(ids.size() == Draft.CLASS_SIZE, "unique prospect ids")
+	for t in s.league.teams:
+		for so in t.roster:
+			check(not ids.has(so.id), "prospect id doesn't clash with roster")
+	check(d.scout_points == Draft.POINTS_PER_WEEK, "starting points")
+	s.sim_week()
+	check(d.scout_points == 2 * Draft.POINTS_PER_WEEK, "points carry over and accrue")
+	s.sim_to_end_of_season()
+	check(d.scout_points == s.total_weeks() * Draft.POINTS_PER_WEEK, "points for every week (%d)" % d.scout_points)
+	# Phenom generation across many classes: rare but present, and good at every role.
+	var total := 0
+	for i in 40:
+		var c := Draft.generate(1000 + i, 2026, 1)
+		for p in c.prospects:
+			if p.phenom:
+				total += 1
+				for role in [Scheme.Role.FRONTMAN, Scheme.Role.CENTER, Scheme.Role.FLEX]:
+					check(p.soldier.ovr_at_role(role) >= 55, "phenom good at every role")
+	check(total >= 25 and total <= 60, "about one phenom per class (%d in 40)" % total)
+
+
+func test_scouting_windows() -> void:
+	var d := Draft.generate(77, 2026, 1)
+	d.scout_points = 1000
+	for p in d.prospects:
+		var used := 0
+		while d.can_scout(p):
+			var g := d.scout(p)
+			check(g != &"", "scout returns a group")
+			used += 1
+			var w: Vector2i = p.reveals[g]
+			var n: int = p.scouts[g]
+			check(w.y - w.x + 1 == Draft.WINDOW_WIDTHS[n - 1], "window width after %d scouts" % n)
+			check(w.x >= 0 and w.y < Draft.TIER_COUNT, "window inside tiers")
+			var t := p.true_tier(g)
+			check(t >= w.x and t <= w.y, "window contains true tier")
+		check(used == Draft.MAX_POINTS_PER_PROSPECT and p.points == used, "5 points per prospect")
+		check(d.scout(p) == &"", "can't scout past max")
+	check(d.scout_points == 1000 - Draft.CLASS_SIZE * Draft.MAX_POINTS_PER_PROSPECT, "points spent")
+	# Narrowing stays inside the previous window.
+	var d2 := Draft.generate(78, 2026, 1)
+	d2.scout_points = 1000
+	var p2 := d2.prospects[0]
+	var last := {}
+	for i in 5:
+		var g := d2.scout(p2)
+		var w: Vector2i = p2.reveals[g]
+		if last.has(g):
+			var prev: Vector2i = last[g]
+			check(w.x >= prev.x and w.y <= prev.y, "narrowed window inside previous")
+		last[g] = w
+	d2.scout_points = 0
+	check(not d2.can_scout(d2.prospects[1]), "no points, no scouting")
+	check(Draft.window_text(Stats.ACCURACY, Vector2i(1, 4)) == "Inconsistent - Sharpshooter", "window text")
+	check(Draft.window_text(Stats.ACCURACY, null) == "?", "unseen text")
+	check(Draft.tier_of(49) == 0 and Draft.tier_of(50) == 1 and Draft.tier_of(80) == 4, "tier thresholds")
+
+
+func test_draft_order_and_picks() -> void:
+	var s := Season.new_franchise(33)
+	s.sim_to_end_of_season()
+	var d := s.draft
+	check(d.is_started() and not d.is_complete(), "draft order set after the final")
+	var per_round := Season.TEAM_COUNT
+	check(d.order.size() == per_round * Draft.ROUNDS, "pick count")
+	check(d.order[per_round - 1] == s.champion, "champion picks last in round 1")
+	check(d.order[per_round] == s.champion, "snake: champion first in round 2")
+	for i in per_round:
+		check(d.order[i] == d.order[d.order.size() - 1 - i], "snake mirror %d" % i)
+	var user := s.user_team()
+	var made := d.sim_to_user()
+	check(d.on_the_clock() == user, "stopped at user pick")
+	var p := d.available()[0]
+	check(d.make_pick(p), "user pick")
+	check(p.drafted_by == user and user.roster.has(p.soldier), "user got prospect")
+	check(not d.make_pick(p), "can't pick twice")
+	s.finish_draft()
+	check(d.is_complete(), "draft completed")
+	check(d.picks().size() == d.order.size(), "all picks made")
+	for t in s.league.teams:
+		check(t.roster.size() == Team.ROSTER_SIZE, "%s cut to limit" % t.abbrev)
+		check(t.lineup.size() == 5, "lineup valid after cuts")
+	check(made.size() == d.order.find(user), "AI picks before user")
+
+
+func test_release() -> void:
+	var s := Season.new_franchise(5)
+	var t := s.user_team()
+	var starter: Soldier = t.starters()[0]
+	var slot := t.slot_of(starter)
+	t.release(starter)
+	check(not t.roster.has(starter), "released")
+	check(t.lineup.has(slot) and t.lineup[slot] != starter, "slot refilled")
+	check(t.roster.size() == Team.ROSTER_SIZE - 1, "roster shrank")

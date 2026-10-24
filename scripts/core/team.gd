@@ -94,6 +94,37 @@ func fill_injured() -> bool:
 	return changed
 
 
+func is_over_roster_limit() -> bool:
+	return roster.size() > ROSTER_SIZE
+
+
+## Removes a soldier from the roster (and lineup, refilling the hole from the bench).
+func release(soldier: Soldier) -> void:
+	var slot := slot_of(soldier)
+	roster.erase(soldier)
+	if slot != &"":
+		lineup.erase(slot)
+		fill_injured()
+
+
+## AI cut-down: releases the lowest-value soldiers (current OVR plus some upside) until at
+## ROSTER_SIZE. Returns the released soldiers.
+func cut_to_limit() -> Array[Soldier]:
+	var cut: Array[Soldier] = []
+	while is_over_roster_limit():
+		var worst: Soldier = null
+		var worst_v := INF
+		for s in roster:
+			var v := float(s.best_ovr()) + 0.5 * float(s.potential_ovr() - s.best_ovr())
+			if v < worst_v:
+				worst_v = v
+				worst = s
+		roster.erase(worst)
+		cut.append(worst)
+	auto_lineup()
+	return cut
+
+
 func injured() -> Array[Soldier]:
 	var out: Array[Soldier] = []
 	for s in roster:

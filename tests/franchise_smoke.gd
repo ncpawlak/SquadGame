@@ -27,6 +27,37 @@ func _init() -> void:
 	_check(hub.tab_index == 0, "tab cycling wraps")
 
 	await _visit_pages(hub, "preseason")
+	# Scouting: press Scout buttons, then open a scouting report.
+	hub.open("Scouting", hub.pages.scouting)
+	await process_frame
+	for i in 3:
+		_check(_press(hub, "Scout"), "scout button")
+		await process_frame
+	var scouted: Prospect = null
+	for pr in hub.season.draft.prospects:
+		if pr.points > 0:
+			scouted = pr
+	_check(scouted != null and scouted.points == 3 and hub.season.draft.scout_points == Draft.POINTS_PER_WEEK - 3, "scouting spent points")
+	hub.open("p", func(): return hub.pages.prospect(scouted))
+	await process_frame
+	_check(_press(hub, "Scout ("), "report scout button")
+	await process_frame
+	_check(scouted.points == 4, "scouted from report")
+	hub.page_stack.clear()
+	hub.refresh()
+	# Auto-progress all.
+	for so in hub.season.user_team().roster:
+		so.skill_points += 3
+	hub.open("Player Progression", hub.pages.progression)
+	await process_frame
+	_check(_press(hub, "Auto-progress all"), "auto-progress button")
+	await process_frame
+	var left := 0
+	for so in hub.season.user_team().roster:
+		left += so.skill_points
+	_check(left < 3 * Team.ROSTER_SIZE, "auto-progress spent SP")
+	hub.page_stack.clear()
+	hub.refresh()
 	hub.open("Training", hub.pages.training)
 	hub.season.user_team().roster[0].intensity = Soldier.INTENSITY_HEAVY
 	hub.replace("Training", hub.pages.training)
@@ -49,9 +80,32 @@ func _init() -> void:
 	_check(hub.go_back(), "back pops page")
 	_check(not hub.go_back(), "back at tab root does nothing")
 
+	hub.advance()  # offseason: blocked until the draft is done
+	await process_frame
+	_check(hub.season.phase == Season.PHASE_OFFSEASON, "can't skip the draft")
+	var d: Draft = hub.season.draft
+	var user: Team = hub.season.user_team()
+	_check(d.is_started() and not d.is_complete(), "draft is open")
+	while not d.is_complete():
+		if d.on_the_clock() == user:
+			_check(_press(hub, "Draft"), "draft button")
+		else:
+			_check(_press(hub, "Sim "), "sim to pick button")
+		await process_frame
+	_check(user.roster.size() == Team.ROSTER_SIZE + Draft.ROUNDS, "user drafted %d" % Draft.ROUNDS)
+	for t in hub.season.league.teams:
+		if t != user:
+			_check(t.roster.size() == Team.ROSTER_SIZE, "AI cut to limit")
+	while user.is_over_roster_limit():
+		_check(_press(hub, "Release"), "release button")
+		await process_frame
+	_check(user.lineup.size() == 5, "user lineup intact after cuts")
+	await _visit_pages(hub, "post-draft")
+
 	hub.advance()  # start next season
 	await process_frame
 	_check(hub.season.year == 2027 and hub.season.phase == Season.PHASE_REGULAR, "next season started")
+	_check(hub.season.draft.year == 2027 and hub.season.draft.scout_points == Draft.POINTS_PER_WEEK, "new draft class")
 
 	app.open_debug()
 	await process_frame
@@ -71,7 +125,7 @@ func _visit_pages(hub, phase: String) -> void:
 		"standings": p.standings, "schedule": p.schedule, "roster": p.roster, "progression": p.progression,
 		"lineup": p.lineup, "training": p.training, "team_stats": p.team_stats, "leaders": p.leaders,
 		"playoffs": p.playoffs, "rankings": p.team_rankings, "news": p.news, "sim_options": p.sim_options,
-		"injuries": p.injuries,
+		"injuries": p.injuries, "scouting": p.scouting, "draft_room": p.draft_room,
 	}
 	for key in builders:
 		hub.open(key, builders[key])
@@ -91,6 +145,25 @@ func _visit_pages(hub, phase: String) -> void:
 		hub.select_tab(i)
 		await process_frame
 	hub.select_tab(0)
+
+
+## Presses the first enabled button in the current page whose text starts with `prefix`.
+func _press(hub, prefix: String) -> bool:
+	var b := _find_button(hub._content, prefix)
+	if b == null:
+		return false
+	b.pressed.emit()
+	return true
+
+
+func _find_button(n: Node, prefix: String) -> Button:
+	if n is Button and not n.disabled and (n as Button).text.begins_with(prefix):
+		return n
+	for c in n.get_children():
+		var found := _find_button(c, prefix)
+		if found != null:
+			return found
+	return null
 
 
 func _check(cond: bool, msg: String) -> void:

@@ -280,6 +280,28 @@ func _roster_table(progress_view: bool) -> Control:
 	var v := _vbox()
 	if progress_view:
 		v.add_child(_section("SELECT A SOLDIER TO SPEND SKILL POINTS  -  sorted by available SP"))
+		var with_sp := 0
+		for s in team.roster:
+			if s.skill_points > 0:
+				with_sp += 1
+		var actions := _row()
+		var auto := UiKit.button("Auto-progress all (%d with SP)" % with_sp, func():
+			var raised := 0
+			var players := 0
+			for s in team.roster:
+				if s.skill_points <= 0:
+					continue
+				var slot := team.slot_of(s)
+				var role := team.scheme.role_for_slot(slot) if slot != &"" else Scheme.best_role(s.stats)
+				var groups: Array = Progression.auto_spend(s, role)
+				if not groups.is_empty():
+					players += 1
+					raised += groups.size()
+			hub.app.toast("Auto-progressed %d players (%d group upgrades)." % [players, raised] if players > 0 else "No skill points could be spent.")
+			hub.replace("Player Progression", progression))
+		auto.disabled = with_sp == 0
+		actions.add_child(auto)
+		v.add_child(actions)
 	var list: Array = team.roster.duplicate()
 	if progress_view:
 		list.sort_custom(func(a: Soldier, b: Soldier): return a.skill_points > b.skill_points)
@@ -734,6 +756,263 @@ func coming_soon(title: String, bullets: Array) -> Control:
 	var back := UiKit.button("Back", hub.go_back)
 	back.custom_minimum_size.x = 160
 	v.add_child(back)
+	return v
+
+
+# --- scouting & draft --------------------------------------------------------------
+
+const TIER_COLORS := [Color("#ef4444"), Color("#f97316"), Color("#e5e7eb"), Color("#38bdf8"), Color("#22c55e")]
+const GROUP_ABBREV := {Stats.ACCURACY: "ACC", Stats.HANDLING: "HND", Stats.PHYSICALITY: "PHY", Stats.MENTALITY: "MEN", Stats.DURABILITY: "INJ"}
+
+## Position filter shared by the scouting list and the draft room (-1 = all).
+var role_filter := -1
+
+
+func _window_color(w: Vector2i) -> Color:
+	return TIER_COLORS[clampi(roundi((w.x + w.y) / 2.0), 0, Draft.TIER_COUNT - 1)]
+
+
+## "ACC Steady Aim - Sharpshooter   HND ?   ..." for a prospect's scouted windows.
+func _windows_bbcode(p: Prospect) -> String:
+	var parts: PackedStringArray = []
+	for g in Stats.GROUP_ORDER:
+		var w: Variant = p.reveals.get(g)
+		var text := Draft.window_text(g, w)
+		var col := UiKit.hex(_window_color(w)) if w != null else UiKit.hex(UiKit.MUTED)
+		parts.append("[color=#8b97ab]%s[/color] [color=%s]%s[/color]" % [GROUP_ABBREV[g], col, UiKit.esc(text)])
+	return "     ".join(parts)
+
+
+func _filter_row(title: String, rebuild: Callable) -> HBoxContainer:
+	var row := _row(8)
+	var options := [[-1, "All"], [Scheme.Role.FRONTMAN, "Frontman"], [Scheme.Role.CENTER, "Center"], [Scheme.Role.FLEX, "Flex"]]
+	for o in options:
+		var val: int = o[0]
+		var b := UiKit.button(("[ %s ]" % o[1]) if role_filter == val else o[1], func():
+			role_filter = val
+			hub.replace(title, rebuild), 15)
+		b.custom_minimum_size.x = 110
+		row.add_child(b)
+	return row
+
+
+func _filtered(list: Array[Prospect]) -> Array[Prospect]:
+	var out: Array[Prospect] = []
+	for p in list:
+		if role_filter == -1 or int(p.listed_role) == role_filter:
+			out.append(p)
+	return out
+
+
+## One prospect: an action button, a name button (opens the scouting report) and the
+## scouted grade windows underneath.
+func _prospect_row(p: Prospect, action_text: String, action_enabled: bool, action: Callable) -> Control:
+	var panel := UiKit.panel(UiKit.PANEL, 8)
+	var box := _vbox(4)
+	panel.add_child(box)
+	var top := _row(12)
+	var act := UiKit.button(action_text, action, 15)
+	act.custom_minimum_size.x = 120
+	act.disabled = not action_enabled
+	top.add_child(act)
+	var status := "%d/%d scouted" % [p.points, Draft.MAX_POINTS_PER_PROSPECT]
+	if not p.is_available():
+		status = "Pick %d - %s" % [p.pick_number, p.drafted_by.abbrev]
+	var info := UiKit.button("%s   -   age %d   -   %s   -   %s" % [p.soldier.full_name(), p.soldier.age,
+		Scheme.ROLE_NAMES[p.listed_role], status], func():
+			hub.open(p.soldier.full_name(), func(): return prospect(p)), 15)
+	info.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(info)
+	box.add_child(top)
+	var grades := UiKit.rich(_windows_bbcode(p), 14)
+	grades.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(grades)
+	return panel
+
+
+func _scout_and_toast(p: Prospect) -> void:
+	var g := _season().draft.scout(p)
+	if g == &"":
+		hub.app.toast("Can't scout %s." % p.soldier.short_name())
+		return
+	hub.app.toast("%s  %s: %s" % [p.soldier.short_name(), Stats.GROUP_LABELS[g], Draft.window_text(g, p.reveals[g])])
+
+
+func scouting() -> Control:
+	var d := _season().draft
+	var v := _vbox(10)
+	v.add_child(UiKit.rich("[font_size=22][color=white]%d DRAFT CLASS[/color][/font_size]     [color=#38bdf8]%d scout points[/color] available  (+%d per week, unspent points carry over)" % [
+		d.year, d.scout_points, Draft.POINTS_PER_WEEK], 16))
+	var help := UiKit.label("Each point reveals a random stat group as a range of grades; scouting a group again narrows it (4 grades, then 3, then 2). Up to %d points per prospect. Potential stays hidden until draft day." % Draft.MAX_POINTS_PER_PROSPECT, 14, UiKit.MUTED)
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(help)
+	v.add_child(_filter_row("Scouting", scouting))
+	var list := _filtered(d.prospects)
+	v.add_child(_section("%d PROSPECTS" % list.size()))
+	for p in list:
+		var prospect_ref := p
+		v.add_child(_prospect_row(p, "Scout", d.can_scout(p), func():
+			_scout_and_toast(prospect_ref)
+			hub.replace("Scouting", scouting)))
+	return v
+
+
+func prospect(p: Prospect) -> Control:
+	var d := _season().draft
+	var s := p.soldier
+	var v := _vbox(14)
+	var drafted := ""
+	if not p.is_available():
+		drafted = "   -   [color=#f59e0b]Drafted by %s, pick %d[/color]" % [UiKit.esc(p.drafted_by.name), p.pick_number]
+	v.add_child(UiKit.rich("[font_size=30][color=white]%s[/color][/font_size]   age %d  -  %s prospect%s\nScouted %d / %d   -   Potential: unknown   -   [color=#38bdf8]%d scout points[/color] available" % [
+		UiKit.esc(s.full_name()), s.age, Scheme.ROLE_NAMES[p.listed_role], drafted, p.points,
+		Draft.MAX_POINTS_PER_PROSPECT, d.scout_points], 16))
+	var actions := _row()
+	var b := UiKit.button("Scout (1 point)", func():
+		_scout_and_toast(p)
+		hub.replace(s.full_name(), func(): return prospect(p)))
+	b.disabled = not d.can_scout(p)
+	actions.add_child(b)
+	v.add_child(actions)
+	v.add_child(_section("SCOUTING REPORT  -  highlighted grades are where his true rating could be"))
+	for g in Stats.GROUP_ORDER:
+		var times: int = p.scouts.get(g, 0)
+		var w: Variant = p.reveals.get(g)
+		var head := UiKit.label("%s  -  %s" % [Stats.GROUP_LABELS[g].to_upper(),
+			"not scouted" if w == null else ("scouted %d time%s" % [times, "" if times == 1 else "s"])], 15, UiKit.MUTED)
+		v.add_child(head)
+		var ladder := _row(6)
+		for t in Draft.TIER_COUNT:
+			var inside: bool = w != null and t >= (w as Vector2i).x and t <= (w as Vector2i).y
+			var chip := UiKit.panel(TIER_COLORS[t].darkened(0.55) if inside else UiKit.PANEL, 6)
+			chip.custom_minimum_size = Vector2(170, 34)
+			var l := UiKit.label(Draft.tier_name(g, t), 15, Color.WHITE if inside else UiKit.MUTED)
+			l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			chip.add_child(l)
+			ladder.add_child(chip)
+		v.add_child(ladder)
+	return v
+
+
+## Called after every draft-room pick: once the draft ends, AI teams cut down to the roster limit.
+func _after_pick() -> void:
+	var s := _season()
+	if s.draft.is_complete():
+		for t in s.league.teams:
+			if not t.user_controlled:
+				t.cut_to_limit()
+
+
+func draft_room() -> Control:
+	var s := _season()
+	var d := s.draft
+	var user := s.user_team()
+	var v := _vbox(12)
+	if not d.is_started():
+		v.add_child(UiKit.label("The %d draft is held after the Final." % d.year, 22, Color.WHITE))
+		var rules := UiKit.label("%d rounds, snake order: teams that missed the playoffs pick first, the champion picks last. After the draft every team cuts down to %d soldiers. Use your weekly scout points until then." % [
+			Draft.ROUNDS, Team.ROSTER_SIZE], 15, UiKit.MUTED)
+		rules.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.add_child(rules)
+		v.add_child(UiKit.button("Go to Scouting", hub.open_scouting))
+		return v
+	var refresh := func(): hub.replace("Draft Room", draft_room)
+	if not d.is_complete():
+		var t := d.on_the_clock()
+		var head := "[font_size=24][color=%s]%s[/color][/font_size]   Round %d  -  Pick %d of %d" % [
+			"#f59e0b" if t.user_controlled else "white",
+			"YOU ARE ON THE CLOCK" if t.user_controlled else ("On the clock: " + UiKit.esc(t.name)),
+			d.round_of(d.next_pick), d.next_pick + 1, d.order.size()]
+		v.add_child(UiKit.rich(head, 16))
+		var actions := _row()
+		if t.user_controlled:
+			actions.add_child(UiKit.button("Auto-pick for me", func():
+				var p := d.ai_pick()
+				hub.app.toast("You select %s (%s)." % [p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role]])
+				_after_pick()
+				refresh.call()))
+		else:
+			var user_left := false
+			for i in range(d.next_pick, d.order.size()):
+				if d.order[i] == user:
+					user_left = true
+			actions.add_child(UiKit.button("Sim to my pick" if user_left else "Sim rest of draft", func():
+				var made := d.sim_to_user()
+				hub.app.toast("%d picks made." % made.size())
+				_after_pick()
+				refresh.call()))
+		actions.add_child(UiKit.button("Scouting", hub.open_scouting))
+		v.add_child(actions)
+		if t.user_controlled:
+			v.add_child(_filter_row("Draft Room", draft_room))
+			var avail := _filtered(d.available())
+			avail.sort_custom(func(a: Prospect, b: Prospect): return a.points > b.points)
+			v.add_child(_section("AVAILABLE PROSPECTS  -  most scouted first"))
+			for p in avail:
+				var pick := p
+				v.add_child(_prospect_row(p, "Draft", true, func():
+					d.make_pick(pick)
+					hub.app.toast("You select %s (%s)." % [pick.soldier.full_name(), Scheme.ROLE_NAMES[pick.listed_role]])
+					_after_pick()
+					refresh.call()))
+	elif user.is_over_roster_limit():
+		var over := user.roster.size() - Team.ROSTER_SIZE
+		v.add_child(UiKit.rich("[font_size=24][color=#ef4444]ROSTER CUTS[/color][/font_size]   Release %d more soldier%s to get down to %d." % [
+			over, "" if over == 1 else "s", Team.ROSTER_SIZE], 16))
+		var list: Array = user.roster.duplicate()
+		list.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() < b.best_ovr())
+		for so in list:
+			var row := _row(12)
+			var cut_ref: Soldier = so
+			var rel := UiKit.button("Release", func():
+				user.release(cut_ref)
+				hub.app.toast("Released %s." % cut_ref.full_name())
+				refresh.call(), 15)
+			rel.custom_minimum_size.x = 120
+			row.add_child(rel)
+			var rookie := ""
+			for p in d.picks():
+				if p.soldier == so:
+					rookie = "   -   ROOKIE (pick %d)" % p.pick_number
+			var info := UiKit.button("%s   -   age %d   -   OVR %d   -   %s   -   POT %s%s" % [so.full_name(), so.age, so.best_ovr(),
+				Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], _grade(so), rookie], func():
+					hub.open(cut_ref.full_name(), func(): return player(cut_ref)), 15)
+			info.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(info)
+			v.add_child(row)
+	else:
+		v.add_child(UiKit.label("The %d draft is complete." % d.year, 22, Color.WHITE))
+		v.add_child(UiKit.button("Start the %d season" % (s.year + 1), hub.advance, 18))
+
+	v.add_child(_section("DRAFT ORDER"))
+	var rows: Array = []
+	var hl := {}
+	var colors := {}
+	var by_pick := {}
+	for p in d.picks():
+		by_pick[p.pick_number] = p
+	for i in d.order.size():
+		var team: Team = d.order[i]
+		var p: Prospect = by_pick.get(i + 1)
+		var sel := "-"
+		var pos := ""
+		if p != null:
+			sel = p.soldier.full_name()
+			pos = Scheme.ROLE_NAMES[p.listed_role]
+		elif i == d.next_pick:
+			sel = "ON THE CLOCK"
+		rows.append([i + 1, team.name, d.round_of(i), sel, pos])
+		if team.user_controlled:
+			hl[i] = team.color.darkened(0.6)
+		if i == d.next_pick and not d.is_complete():
+			colors[i] = {3: UiKit.ACCENT}
+	v.add_child(UiKit.table(["PICK", "TEAM", "RD", "SELECTION", "POS"], rows, [50, 260, 40, 240, 110], hl, colors,
+		func(i: int):
+			var p: Prospect = by_pick.get(i + 1)
+			if p != null:
+				hub.open(p.soldier.full_name(), func(): return prospect(p))))
 	return v
 
 

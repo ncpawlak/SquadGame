@@ -1,7 +1,7 @@
 class_name Season
 extends RefCounted
 ## Franchise season loop (Madden/FIFA career style): one division, double round robin
-## regular season, top-N playoffs, then an offseason placeholder.
+## regular season, top-N playoffs, then the offseason draft (see Draft).
 ##
 ## Weekly flow (sim_week): AI teams set training intensity and lineups (resting tired/injured
 ## soldiers; the user's injured starters are auto-replaced), every team trains at each soldier's
@@ -33,6 +33,8 @@ var injury_log: Array = []
 var schedule: Array = []
 ## Semifinals (created when the regular season ends) and the final (created after the semis).
 var playoff_matches: Array = []
+## This year's draft class: scouted during the season, drafted in the offseason.
+var draft: Draft
 ## Regular-season week w -> the team on bye.
 var _byes: Array = []
 var _rng := RandomNumberGenerator.new()
@@ -238,6 +240,8 @@ func sim_week() -> Array:
 	for t in league.teams:
 		Progression.auto_spend_team(t, _rng)
 	_advance()
+	if phase != PHASE_OFFSEASON:
+		draft.scout_points += Draft.POINTS_PER_WEEK
 	return played
 
 
@@ -266,10 +270,52 @@ func start_next_season() -> void:
 	if phase != PHASE_OFFSEASON:
 		push_warning("start_next_season() is only valid in the offseason.")
 		return
+	finish_draft()
 	year += 1
 	for t in league.teams:
 		Conditioning.reset(t)
 	_begin_season()
+
+
+## Round-1 draft order: teams that missed the playoffs first (worst record first), then
+## semifinal losers, the runner-up, and the champion last.
+func draft_order() -> Array:
+	var finish := {}
+	for t in league.teams:
+		finish[t] = 0
+	for m in playoff_matches:
+		if not m.is_played():
+			continue
+		for t: Team in [m.home, m.away]:
+			finish[t] = maxi(finish[t], 1)
+		if m.stage == STAGE_FINAL:
+			finish[m.opponent_of(m.winner())] = 2
+			finish[m.winner()] = 3
+	var rows := standings()
+	rows.reverse()
+	var teams: Array = []
+	for r in rows:
+		teams.append(r.team)
+	var rank := {}
+	for i in teams.size():
+		rank[teams[i]] = i
+	teams.sort_custom(func(a: Team, b: Team) -> bool:
+		if finish[a] != finish[b]:
+			return finish[a] < finish[b]
+		return rank[a] < rank[b])
+	return teams
+
+
+## Completes the draft (AI picks for everyone still on the clock, including the user) and cuts
+## every roster down to Team.ROSTER_SIZE. Safe to call more than once.
+func finish_draft() -> void:
+	if phase != PHASE_OFFSEASON:
+		return
+	if not draft.is_started():
+		draft.set_order(draft_order())
+	draft.sim_to_end()
+	for t in league.teams:
+		t.cut_to_limit()
 
 
 # --- internals -------------------------------------------------------------
@@ -283,6 +329,9 @@ func _begin_season() -> void:
 	injury_log = []
 	_rng.seed = _mix([league.league_seed, year, 0x5EA5])
 	_build_schedule()
+	draft = Draft.generate(_mix([league.league_seed, year, 0xD2AF]), year, league.next_soldier_id)
+	league.next_soldier_id += Draft.CLASS_SIZE
+	draft.scout_points = Draft.POINTS_PER_WEEK
 
 
 func _advance() -> void:
@@ -297,6 +346,7 @@ func _advance() -> void:
 	if last_round.size() == 1:
 		champion = last_round[0].winner()
 		phase = PHASE_OFFSEASON
+		draft.set_order(draft_order())
 		return
 	var winners: Array = []
 	for m in last_round:

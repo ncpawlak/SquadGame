@@ -108,11 +108,18 @@ func open(title: String, build: Callable) -> void:
 	_show_current()
 
 
-## Replace the top page (e.g. paging between weeks) without growing the back stack.
+## Replace the top page (e.g. paging between weeks or refreshing after an action) without
+## growing the back stack. Keeps the scroll position and the focused item.
 func replace(title: String, build: Callable) -> void:
+	var focus_index := -1
+	var scroll_pos := 0
+	if _scroll and is_instance_valid(_scroll):
+		scroll_pos = _scroll.scroll_vertical
+		focus_index = app.focusables(_content).find(get_viewport().gui_get_focus_owner())
 	if not page_stack.is_empty():
 		page_stack.pop_back()
-	open(title, build)
+	page_stack.append({"title": title, "build": build})
+	_show_current(focus_index, scroll_pos)
 
 
 func go_back() -> bool:
@@ -129,6 +136,10 @@ func coming_soon(title: String, bullets: Array) -> void:
 
 func advance() -> void:
 	if season.phase == Season.PHASE_OFFSEASON:
+		if not draft_done():
+			open_draft_room()
+			app.toast("Finish the draft (and any roster cuts) before starting the next season.")
+			return
 		season.start_next_season()
 		page_stack.clear()
 		tab_index = 0
@@ -143,7 +154,7 @@ func advance() -> void:
 	open("%s Results" % label, func(): return pages.week_results(label, played))
 
 
-func _show_current() -> void:
+func _show_current(focus_index := -1, scroll_pos := 0) -> void:
 	for c in _content.get_children():
 		c.queue_free()
 	_scroll = null
@@ -154,7 +165,25 @@ func _show_current() -> void:
 		var top: Dictionary = page_stack[-1]
 		view = _page_frame(top["title"], top["build"].call())
 	_content.add_child(view)
-	app.focus_first.call_deferred(view)
+	_settle_focus(view, focus_index, scroll_pos)
+
+
+## Focus once layout has settled: autowrapped text is very tall before its first layout
+## pass, so focusing immediately made follow_focus scroll long pages to the bottom.
+func _settle_focus(view: Control, focus_index: int, scroll_pos: int) -> void:
+	await get_tree().process_frame
+	if not is_instance_valid(view) or not view.is_inside_tree():
+		return
+	var scroll := _scroll
+	if scroll:
+		scroll.scroll_vertical = scroll_pos
+	var list: Array[Control] = app.focusables(view)
+	if focus_index >= 0 and not list.is_empty():
+		list[mini(focus_index, list.size() - 1)].grab_focus()
+	else:
+		app.focus_first(view)
+	if scroll and focus_index >= 0:
+		scroll.scroll_vertical = scroll_pos
 
 
 func _page_frame(title: String, body: Control) -> Control:
@@ -265,6 +294,8 @@ func _phase_text() -> String:
 
 func _advance_text() -> String:
 	if season.phase == Season.PHASE_OFFSEASON:
+		if not draft_done():
+			return "%d DRAFT  >>" % season.year
 		return "START %d SEASON  >>" % (season.year + 1)
 	var m := season.next_match_for(season.user_team())
 	if m and m.week == season.week:
@@ -349,8 +380,31 @@ func _home_sections() -> Array:
 		UiKit.tile("Progression", ("[color=#38bdf8]%d players[/color] have skill points" % sp) if sp > 0 else "No skill points to spend",
 			SMALL, UiKit.INFO, func(): open("Player Progression", pages.progression)),
 		UiKit.tile("Injuries", hurt_text, SMALL, UiKit.BAD, func(): open("Injuries", pages.injuries)),
+		UiKit.tile("Scouting", "[color=#38bdf8]%d scout points[/color]  -  %d of %d prospects scouted" % [
+			season.draft.scout_points, _scouted_count(), Draft.CLASS_SIZE], SMALL, Color("#06b6d4"), open_scouting),
 	]
 	return [["THIS WEEK", this_week], ["AROUND THE LEAGUE", league_tiles], ["YOUR TEAM", team_tiles]]
+
+
+func _scouted_count() -> int:
+	var n := 0
+	for p in season.draft.prospects:
+		if p.points > 0:
+			n += 1
+	return n
+
+
+## The offseason can roll over once the draft is done and the user is at the roster limit.
+func draft_done() -> bool:
+	return season.draft.is_complete() and not season.user_team().is_over_roster_limit()
+
+
+func open_scouting() -> void:
+	open("Scouting", pages.scouting)
+
+
+func open_draft_room() -> void:
+	open("Draft Room", pages.draft_room)
 
 
 func _team_sections() -> Array:
@@ -416,10 +470,24 @@ func _personnel_sections() -> Array:
 			soon.call("Free Agency", "Sign available soldiers.", Color("#22c55e"), ["Free agent pool", "Bidding against AI teams", "Release / cut players"]),
 		]],
 		["DRAFT", [
-			soon.call("Scouting", "Uncover prospect ratings.", UiKit.INFO, ["Scouting points per week", "Fuzzy ratings that sharpen as you scout", "Hidden potential"]),
-			soon.call("Draft Board", "Rank prospects for draft day.", UiKit.INFO, ["Prospect class each year", "Draft order from standings", "Rookie contracts"]),
+			UiKit.tile("Scouting", "Spend scout points to uncover the %d draft class.\n[color=#38bdf8]%d points available[/color]" % [
+				season.draft.year, season.draft.scout_points], TILE, Color("#06b6d4"), open_scouting),
+			UiKit.tile("Draft Room", _draft_blurb(), TILE, UiKit.INFO, open_draft_room),
 		]],
 	]
+
+
+func _draft_blurb() -> String:
+	var d := season.draft
+	if not d.is_started():
+		return "%d rounds after the Final. Worst finish picks first, snake order." % Draft.ROUNDS
+	if d.is_complete():
+		if season.user_team().is_over_roster_limit():
+			return "[color=#ef4444]Cut your roster to %d.[/color]" % Team.ROSTER_SIZE
+		return "Draft complete."
+	var t := d.on_the_clock()
+	return "[color=%s]On the clock: %s[/color]\nPick %d of %d" % [
+		"#f59e0b" if t.user_controlled else "#8b97ab", UiKit.esc(t.name), d.next_pick + 1, d.order.size()]
 
 
 func _settings_sections() -> Array:
@@ -447,9 +515,10 @@ func open_standings() -> void:
 func _next_match_tile(team: Team) -> Button:
 	if season.phase == Season.PHASE_OFFSEASON:
 		var champ := season.champion
-		var body := "[font_size=30][color=white]%s[/color][/font_size]\n%d champions.\n\nOffseason: aging, contracts and the draft arrive in later milestones." % [
-			UiKit.esc(champ.name if champ else "-"), season.year]
-		return UiKit.tile("Season Complete", body, HERO, UiKit.ACCENT, func(): open("Playoff Picture", pages.playoffs))
+		var body := "[font_size=30][color=white]%s[/color][/font_size]\n%d champions.\n\n%s" % [
+			UiKit.esc(champ.name if champ else "-"), season.year,
+			"Draft day is here: scout the class, then make your picks." if not draft_done() else "Draft complete. Start the next season when ready."]
+		return UiKit.tile("Season Complete", body, HERO, UiKit.ACCENT, open_draft_room)
 	var m := season.next_match_for(team)
 	if m == null:
 		var out := "Your season is over."
@@ -471,7 +540,9 @@ func _next_match_tile(team: Team) -> Button:
 
 func _advance_blurb() -> String:
 	if season.phase == Season.PHASE_OFFSEASON:
-		return "Roll over to next season with the same rosters."
+		if not draft_done():
+			return "Open the Draft Room: make your picks and cut down to %d." % Team.ROSTER_SIZE
+		return "Roll over to next season with your drafted rookies."
 	return "Train, play every match this week and award XP.\n\n[color=white]Space / Y[/color]"
 
 

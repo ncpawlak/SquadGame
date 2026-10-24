@@ -180,10 +180,11 @@ func toast(text: String) -> void:
 	_toast.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_toast.position.y -= 70
 	add_child(_toast)
-	var t := _toast
+	var t: WeakRef = weakref(_toast)
 	get_tree().create_timer(2.5).timeout.connect(func():
-		if is_instance_valid(t):
-			t.queue_free())
+		var node: Node = t.get_ref()
+		if node != null:
+			node.queue_free())
 
 
 # --- input ------------------------------------------------------------------
@@ -238,14 +239,27 @@ static func focus_first(c: Node) -> void:
 
 
 static func _find_focusable(n: Node) -> Control:
-	if n is Control and n.is_visible_in_tree() and n.focus_mode == Control.FOCUS_ALL and not (n is BaseButton and n.disabled) \
-			and not n.has_meta(&"skip_autofocus"):
+	if _is_focusable(n):
 		return n
 	for ch in n.get_children():
 		var f := _find_focusable(ch)
 		if f:
 			return f
 	return null
+
+
+static func _is_focusable(n: Node) -> bool:
+	return n is Control and n.is_visible_in_tree() and n.focus_mode == Control.FOCUS_ALL \
+			and not (n is BaseButton and n.disabled) and not n.has_meta(&"skip_autofocus")
+
+
+## Every autofocus-eligible control under `n`, in tree order.
+static func focusables(n: Node, out: Array[Control] = []) -> Array[Control]:
+	if _is_focusable(n):
+		out.append(n)
+	for ch in n.get_children():
+		focusables(ch, out)
+	return out
 
 
 # --- helpers ------------------------------------------------------------------
