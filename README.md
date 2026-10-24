@@ -36,8 +36,8 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
 - **Scouting** (`scripts/season/draft.gd`, `prospect.gd`): each season has a class of 30 recruits (age 19–22).
   You only see name, age and listed position. You get 12 scout points a week (unspent points carry over).
   Each point spent on a prospect reveals a random stat group as a range of named grades, e.g. Accuracy
-  "Inconsistent - Sharpshooter". Scouting the same group again narrows it: 3 grades → 2. Max 5 points per
-  prospect; numbers and potential are never shown. Grades (worst → best) per group:
+  "Steady Aim - Marksman". Each point goes to an unscouted group first and shows a 2-grade range, so 5 points (the max per
+  prospect) covers every group; numbers and potential are never shown. Grades (worst → best) per group:
   - Accuracy: Spray & Pray, Inconsistent, Steady Aim, Marksman, Sharpshooter
   - Handling: Butterfingers, Clunky, Capable, Smooth Operator, Gunslinger
   - Physicality: Out of Shape, Average Build, Athletic, Explosive, Freak Athlete

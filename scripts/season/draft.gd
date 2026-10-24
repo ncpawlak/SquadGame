@@ -19,7 +19,7 @@ const ROUNDS := 2
 const POINTS_PER_WEEK := 12
 const MAX_POINTS_PER_PROSPECT := 5
 ## Window width (in tiers) after the 1st and 2nd scout of a group.
-const WINDOW_WIDTHS := [3, 2]
+const WINDOW_WIDTHS := [2, 1]
 ## Group rating thresholds for tiers 1..4 (tier 0 is below the first).
 const TIER_THRESHOLDS := [50, 60, 70, 80]
 const TIER_COUNT := 5
@@ -114,6 +114,8 @@ static func window_text(group: StringName, window: Variant) -> String:
 	if window == null:
 		return "?"
 	var w: Vector2i = window
+	if w.x == w.y:
+		return tier_name(group, w.x)
 	return "%s - %s" % [tier_name(group, w.x), tier_name(group, w.y)]
 
 
@@ -123,13 +125,16 @@ func can_scout(p: Prospect) -> bool:
 	return scout_points > 0 and p.is_available() and not p.fully_scouted()
 
 
-## Spends one scout point: picks a random group that can still be narrowed and reveals a
+## Spends one scout point: picks a random group (unscouted groups first) and reveals a
 ## window of WINDOW_WIDTHS[n] tiers containing the true tier, inside any earlier window.
 ## Returns the group scouted, or &"" if not allowed.
 func scout(p: Prospect) -> StringName:
 	if not can_scout(p):
 		return &""
 	var options := p.scoutable_groups()
+	var fresh := options.filter(func(x): return not p.scouts.has(x))
+	if not fresh.is_empty():
+		options = fresh
 	var g: StringName = options[_rng.randi_range(0, options.size() - 1)]
 	var n: int = p.scouts.get(g, 0)
 	var width: int = WINDOW_WIDTHS[n]
