@@ -21,7 +21,31 @@ python tools/serve_web.py          # http://127.0.0.1:8060/
 
 The Web preset is the no-threads build, so it runs on any static host without special server headers.
 
-Debug UI:
+## Franchise mode (main screen)
+
+Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-style).
+
+- **Season loop** (`scripts/season/`): 1 division ("Premier Division"), 5 teams. Double round robin: 10 weeks,
+  8 matches per team, one bye per week. Top 4 make the playoffs: semis (1v4, 2v3, higher seed hosts), then the final.
+  Then offseason → start next season (rosters and ratings carry over; aging/contracts/draft come with the offseason module).
+- **Standings**: W/L, tiebreakers head-to-head, then round differential, then rounds won.
+- **Each week**: all teams train (your 3 focus players get bonus XP), every match is played, XP is awarded.
+  AI teams auto-spend skill points; you spend yours on the player page.
+- **Hub tabs**: Home, Team, League, Personnel, Settings. Tiles marked **SOON** are laid out but not built yet
+  (injuries, trades, contracts, free agency, scouting, draft, saves, awards, history, staff, facilities).
+
+Controls:
+
+| Action | Keyboard | Controller |
+| --- | --- | --- |
+| Move | Arrows / WASD | D-pad / left stick |
+| Select | Enter | A |
+| Back | Esc / Backspace | B |
+| Switch tab | Q / E | LB / RB |
+| Advance week | Space | Y |
+| Scroll | Mouse wheel, PageUp/PageDown | Right stick |
+
+The old debug UI is still available from the title screen or Settings → Debug Sim Tools:
 - Generate a league from a seed.
 - Simulate a match and view the play-by-play and box score.
 - Train for a week (pick up to 3 focus players).
@@ -33,7 +57,9 @@ Debug UI:
 ```powershell
 godot --headless --path . --import                              # first run: builds class cache
 godot --headless --path . --script res://tests/run_tests.gd     # sim/progression tests (~5 min)
-godot --headless --path . --script res://tests/ui_smoke.gd      # UI smoke test
+godot --headless --path . --script res://tests/season_tests.gd  # season loop tests (~10 s)
+godot --headless --path . --script res://tests/ui_smoke.gd      # debug UI smoke test
+godot --headless --path . --script res://tests/franchise_smoke.gd  # franchise menus through a full season
 ```
 
 Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 matches per stat.

@@ -15,6 +15,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
+    def log_message(self, format, *args):
+        # Detached runs have no usable stderr; writing to it drops the connection.
+        pass
+
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8060
