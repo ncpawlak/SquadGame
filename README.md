@@ -50,7 +50,7 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   underrates them.
   Every prospect shows a **projected pick** (Early/Mid/Late 1st or 2nd, or Undrafted) from a noisy league-consensus
   board. The **Mock Draft** page (Personnel → Draft, or the Scouting page) predicts every pick from the current
-  standings. Grade colors: red Poor, orange Below average, gray Average, blue Good, green Elite.
+  standings. Each end of a range is colored by its grade: red Poor, orange Below average, gray Average, blue Good, green Elite.
 - **Draft**: after the Final, 2 rounds in snake order. Teams that missed the playoffs pick first (worst record first),
   then semifinal losers, the runner-up, and the champion last. AI teams pick from the consensus board with a little noise, leaning toward their weakest position.
   In the Draft Room you can sim to your pick, draft a prospect or auto-pick. Afterwards every team cuts down to

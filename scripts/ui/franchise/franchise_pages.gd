@@ -768,18 +768,22 @@ const GROUP_ABBREV := {Stats.ACCURACY: "ACC", Stats.HANDLING: "HND", Stats.PHYSI
 var role_filter := -1
 
 
-func _window_color(w: Vector2i) -> Color:
-	return TIER_COLORS[clampi(roundi((w.x + w.y) / 2.0), 0, Draft.TIER_COUNT - 1)]
+## A scouted window with each end in its own grade color, e.g. blue "Athletic" - green "Freak Athlete".
+func _window_bbcode(g: StringName, w: Variant) -> String:
+	if w == null:
+		return "[color=%s]?[/color]" % UiKit.hex(UiKit.MUTED)
+	var v: Vector2i = w
+	var lo := "[color=%s]%s[/color]" % [UiKit.hex(TIER_COLORS[v.x]), UiKit.esc(Draft.tier_name(g, v.x))]
+	if v.x == v.y:
+		return lo
+	return lo + "[color=#8b97ab] - [/color][color=%s]%s[/color]" % [UiKit.hex(TIER_COLORS[v.y]), UiKit.esc(Draft.tier_name(g, v.y))]
 
 
 ## "ACC Steady Aim - Sharpshooter   HND ?   ..." for a prospect's scouted windows.
 func _windows_bbcode(p: Prospect) -> String:
 	var parts: PackedStringArray = []
 	for g in Stats.GROUP_ORDER:
-		var w: Variant = p.reveals.get(g)
-		var text := Draft.window_text(g, w)
-		var col := UiKit.hex(_window_color(w)) if w != null else UiKit.hex(UiKit.MUTED)
-		parts.append("[color=#8b97ab]%s[/color] [color=%s]%s[/color]" % [GROUP_ABBREV[g], col, UiKit.esc(text)])
+		parts.append("[color=#8b97ab]%s[/color] %s" % [GROUP_ABBREV[g], _window_bbcode(g, p.reveals.get(g))])
 	return "     ".join(parts)
 
 
@@ -851,7 +855,7 @@ func _grade_legend() -> Control:
 	var parts: PackedStringArray = []
 	for i in names.size():
 		parts.append("[color=%s]%s[/color]" % [UiKit.hex(TIER_COLORS[i]), names[i]])
-	return UiKit.rich("[color=#8b97ab]Grade colors (middle of the scouted range):[/color]   " + "   ".join(parts) + "   [color=#8b97ab]?  = not scouted yet[/color]", 14)
+	return UiKit.rich("[color=#8b97ab]Grade colors:[/color]   " + "   ".join(parts) + "   [color=#8b97ab]?  = not scouted yet[/color]", 14)
 
 
 func scouting() -> Control:
