@@ -21,6 +21,10 @@ const ROUND_TIME_LIMIT_S := 120.0
 const START_DISTANCE := 65.0
 const MIN_DISTANCE := 6.0
 const MAX_ENGAGE_DISTANCE := 95.0
+## A teammate hit below this HP is "almost eliminated": killing his attacker within
+## SAVE_WINDOW_TICKS counts as a save.
+const SAVE_HP := 30.0
+const SAVE_WINDOW_TICKS := 6
 const CONTACT_ADVANCE_MULT := 0.5
 ## Per-tick chance of getting a shot off, before role/awareness/agility modifiers.
 const BASE_ENGAGE := 0.13
@@ -57,11 +61,15 @@ class Combatant:
 	var damage_to: Dictionary = {}
 	## 1.0 = fresh; < 1.0 scales FATIGUE_STATS for a soldier who came in tired.
 	var condition := 1.0
+	## Enemy who last dropped this soldier below SAVE_HP, and when (for teammate saves).
+	var endangered_by: Combatant = null
+	var endangered_tick := -100
 
 	func stat(s: StringName) -> float:
+		var v := float(soldier.eff_stat(s))
 		if condition < 1.0 and FATIGUE_STATS.has(s):
-			return float(soldier.stats[s]) * condition
-		return float(soldier.stats[s])
+			return v * condition
+		return v
 
 	func flanked() -> bool:
 		return role == Scheme.Role.FLEX and flank_progress >= 1.0
@@ -106,6 +114,7 @@ func _run(team_a: Team, team_b: Team, seed_value: int) -> MatchResult:
 	for squad in squads:
 		for c: Combatant in squad:
 			c.target = null
+			c.endangered_by = null
 	return _result
 
 
@@ -126,7 +135,7 @@ func _build_squad(team: Team, index: int) -> Array:
 		_result.box[s.id] = {
 			"team": index, "slot": slot_id, "kills": 0, "deaths": 0, "assists": 0, "shots": 0,
 			"hits": 0, "headshots": 0, "damage": 0.0, "rounds_played": 0, "rounds_survived": 0,
-			"clutches": 0,
+			"clutches": 0, "saves": 0,
 		}
 	return squad
 
@@ -144,6 +153,7 @@ func _play_round(squads: Array, mode: StringName) -> void:
 			c.reload_ticks = 0
 			c.flank_progress = 0.0
 			c.target = null
+			c.endangered_by = null
 			c.damage_to.clear()
 			c.fatigue *= 0.6  # partial recovery between rounds
 			_result.box[c.soldier.id]["rounds_played"] += 1
@@ -327,6 +337,9 @@ func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band:
 		target.soldier.add_usage(Stats.TOUGHNESS, dmg / 25.0)
 		if target.hp <= 0.0:
 			_kill(c, target, allies, band, dist, headshot)
+		elif target.hp < SAVE_HP:
+			target.endangered_by = c
+			target.endangered_tick = _tick
 
 
 func _kill(killer: Combatant, victim: Combatant, killer_allies: Array, band: StringName, dist: float, headshot: bool) -> void:
@@ -334,16 +347,25 @@ func _kill(killer: Combatant, victim: Combatant, killer_allies: Array, band: Str
 	victim.hp = 0.0
 	_result.box[killer.soldier.id]["kills"] += 1
 	_result.box[victim.soldier.id]["deaths"] += 1
+	var saved: Array[String] = []
+	for a: Combatant in killer_allies:
+		if a != killer and a.alive and a.endangered_by == victim and _tick - a.endangered_tick <= SAVE_WINDOW_TICKS:
+			a.endangered_by = null
+			saved.append(a.soldier.tag())
+	if not saved.is_empty():
+		_result.box[killer.soldier.id]["saves"] += saved.size()
 	var assisters: Array[String] = []
 	for a: Combatant in killer_allies:
 		if a != killer and a.damage_to.get(victim.soldier.id, 0.0) >= 20.0:
 			_result.box[a.soldier.id]["assists"] += 1
 			a.soldier.add_usage(Stats.TEAMWORK, 1.0)
-			assisters.append(a.soldier.short_name())
+			assisters.append(a.soldier.tag())
 	var line := "%s %s %s %s at %dm (%s)" % [
 		_stamp(), _name(killer), "HEADSHOT" if headshot else "killed", _name(victim), roundi(dist), band]
 	if not assisters.is_empty():
 		line += " — assist: " + ", ".join(assisters)
+	if not saved.is_empty():
+		line += " — SAVE: " + ", ".join(saved)
 	_result.events.append(line)
 
 
@@ -437,7 +459,7 @@ func _shuffle(arr: Array) -> void:
 
 
 func _name(c: Combatant) -> String:
-	return "[%s] %s (%s)" % [_result.teams[c.team].abbrev, c.soldier.short_name(), c.slot_id]
+	return "[%s] %s (%s)" % [_result.teams[c.team].abbrev, c.soldier.tag(), c.slot_id]
 
 
 func _stamp() -> String:

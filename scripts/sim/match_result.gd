@@ -10,7 +10,7 @@ var winner_index: int = -1
 var rounds: Array[Dictionary] = []
 var events: Array[String] = []
 ## soldier_id -> { team, slot, kills, deaths, assists, shots, hits, headshots, damage,
-##                 rounds_played, rounds_survived, clutches }
+##                 rounds_played, rounds_survived, clutches, saves }
 var box: Dictionary = {}
 var mvp_id: int = -1
 
@@ -34,4 +34,5 @@ func box_for(soldier: Soldier) -> Dictionary:
 ## Simple performance score used for MVP and XP.
 static func impact(line: Dictionary) -> float:
 	return line["kills"] * 100.0 + line["assists"] * 40.0 + line["damage"] * 0.5 \
-		+ line["rounds_survived"] * 20.0 + line["clutches"] * 100.0 - line["deaths"] * 20.0
+		+ line["rounds_survived"] * 20.0 + line["clutches"] * 100.0 - line["deaths"] * 20.0 \
+		+ line.get("saves", 0) * 50.0

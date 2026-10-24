@@ -85,6 +85,10 @@ static func new_franchise(seed_value: int, user_team_index := 0, start_year := 2
 		var so := PlayerGenerator.generate(crng, s.league.next_soldier_id, roles[i % roles.size()], crng.randf_range(50.0, 64.0))
 		s.league.next_soldier_id += 1
 		s.league.add_free_agent(so, start_year - 1)
+	var mrng := RandomNumberGenerator.new()
+	mrng.seed = _mix([seed_value, start_year, 0x307A1E])
+	for so in s.league.all_soldiers():
+		so.morale = mrng.randf_range(68.0, 84.0)
 	s._begin_season()
 	return s
 
@@ -262,7 +266,7 @@ func sim_week() -> Array:
 	for m in played:
 		if not m.is_played():
 			m.play()
-			Progression.award_match_xp(m.result)
+			Progression.award_match_xp(m.result, year)
 		for t: Team in [m.home, m.away]:
 			playing_teams[t] = true
 			for so in t.starters():
@@ -279,6 +283,7 @@ func sim_week() -> Array:
 			injury_log.append(inj)
 	for t in league.teams:
 		Progression.auto_spend_team(t, _rng)
+	Morale.update_week(league, played)
 	_advance()
 	if phase != PHASE_OFFSEASON:
 		draft.scout_points += Draft.POINTS_PER_WEEK
@@ -325,6 +330,8 @@ func start_next_season() -> void:
 	year += 1
 	for t in league.teams:
 		Conditioning.reset(t)
+		for so in t.roster:
+			so.morale = lerpf(so.morale, Soldier.MORALE_NEUTRAL, 0.5)
 		if t.user_controlled:
 			t.fill_injured()
 		else:
@@ -382,6 +389,7 @@ func resign_player(team: Team, s: Soldier, years: int) -> String:
 	if not Contracts.fits(team, cap_year(), salary):
 		return "Not enough cap space: he wants %s and you have %s." % [Contracts.money(salary), Contracts.money(Contracts.cap_space(team, cap_year()))]
 	s.contract = Contract.make(salary, years, year)
+	s.morale = maxf(s.morale, 82.0)
 	resign_log.append({"soldier": s, "team": team, "salary": salary, "years": years, "year": year})
 	return ""
 
@@ -503,8 +511,10 @@ func _begin_season() -> void:
 	_rng.seed = _mix([league.league_seed, year, 0x5EA5])
 	_build_schedule()
 	draft = Draft.generate(_mix([league.league_seed, year, 0xD2AF]), year, league.next_soldier_id)
+	draft.league = league
 	league.next_soldier_id += Draft.CLASS_SIZE
 	draft.scout_points = Draft.POINTS_PER_WEEK
+	league.ensure_callsigns()
 
 
 func _advance() -> void:

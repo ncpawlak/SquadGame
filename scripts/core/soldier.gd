@@ -53,8 +53,28 @@ var intensity: StringName = INTENSITY_NORMAL
 var injury_weeks: int = 0
 var injury_name: String = ""
 
+## Nickname shown on cards, rows and the kill feed (unique within the league; "" = none yet).
+var callsign: String = ""
+
+# Morale
+## 0-100 (75 = neutral). Below 75 each 5-point step drops a random stat by 1-3; above 85 each
+## 5-point step boosts one. Driven by playing time, results and contract fairness.
+var morale: float = MORALE_NEUTRAL
+var _mods_key := -999
+var _mods: Dictionary = {}
+
+const MORALE_NEUTRAL := 75.0
+const MORALE_BOOST_START := 85.0
+## Morale never touches the durability stats.
+const MORALE_EXCLUDED: Array[StringName] = [&"injury", &"toughness"]
+
 # Career totals
-var career := {"matches": 0, "rounds": 0, "kills": 0, "deaths": 0, "assists": 0, "damage": 0}
+const STAT_LINE_KEYS: Array[String] = ["matches", "rounds", "kills", "deaths", "assists", "damage", "saves",
+	"headshots", "shots", "hits", "mvps", "clutches"]
+var career := {"matches": 0, "rounds": 0, "kills": 0, "deaths": 0, "assists": 0, "damage": 0, "saves": 0,
+	"headshots": 0, "shots": 0, "hits": 0, "mvps": 0, "clutches": 0}
+## Season year -> totals with the same keys as `career` (plus "team" abbrev).
+var season_lines: Dictionary = {}
 
 
 func _init() -> void:
@@ -68,6 +88,89 @@ func full_name() -> String:
 
 func short_name() -> String:
 	return "%s. %s" % [first_name.left(1), last_name]
+
+
+## Jared "Ghost" Barrett.
+func display_name() -> String:
+	if callsign == "":
+		return full_name()
+	return "%s \"%s\" %s" % [first_name, callsign, last_name]
+
+
+## GHOST (or the short name before a callsign is given).
+func tag() -> String:
+	return callsign.to_upper() if callsign != "" else short_name()
+
+
+# --- morale -------------------------------------------------------------------
+
+## Signed number of morale steps: -N below neutral, +N above the boost line, 0 in between.
+func morale_steps() -> int:
+	if morale < MORALE_NEUTRAL:
+		return -int((MORALE_NEUTRAL - morale) / 5.0)
+	if morale > MORALE_BOOST_START:
+		return int((morale - (MORALE_BOOST_START - 5.0)) / 5.0)
+	return 0
+
+
+## stat -> temporary delta from morale. Deterministic per soldier and step.
+func morale_mods() -> Dictionary:
+	var steps := morale_steps()
+	if steps == _mods_key:
+		return _mods
+	_mods_key = steps
+	_mods = {}
+	var pool: Array[StringName] = []
+	for s in Stats.ALL:
+		if not MORALE_EXCLUDED.has(s):
+			pool.append(s)
+	var dir := 1 if steps > 0 else -1
+	var rng := RandomNumberGenerator.new()
+	for i in absi(steps):
+		rng.seed = hash([id, i, dir])
+		var stat: StringName = pool[rng.randi_range(0, pool.size() - 1)]
+		_mods[stat] = int(_mods.get(stat, 0)) + dir * rng.randi_range(1, 3)
+	return _mods
+
+
+func eff_stat(stat: StringName) -> int:
+	return clampi(int(stats[stat]) + int(morale_mods().get(stat, 0)), Stats.MIN_RATING, Stats.MAX_RATING)
+
+
+## Ratings with morale applied (what the match sim uses).
+func effective_stats() -> Dictionary:
+	var mods := morale_mods()
+	if mods.is_empty():
+		return stats
+	var out := stats.duplicate()
+	for s in mods:
+		out[s] = clampi(int(out[s]) + int(mods[s]), Stats.MIN_RATING, Stats.MAX_RATING)
+	return out
+
+
+func effective_ovr_at_role(role: Scheme.Role) -> int:
+	return Scheme.ovr_for_role(effective_stats(), role)
+
+
+## Morale's effect on an OVR at a role (e.g. -4 shows as "69 (-4)").
+func morale_ovr_delta(role: Scheme.Role) -> int:
+	return effective_ovr_at_role(role) - ovr_at_role(role)
+
+
+func add_morale(amount: float) -> void:
+	morale = clampf(morale + amount, 0.0, 100.0)
+
+
+static func morale_label(m: float) -> String:
+	if m >= 90.0:
+		return "Ecstatic"
+	if m >= 80.0:
+		return "Happy"
+	if m >= 70.0:
+		return "Content"
+	if m >= 55.0:
+		return "Unhappy"
+	return "Furious"
 
 
 func get_stat(stat: StringName) -> int:

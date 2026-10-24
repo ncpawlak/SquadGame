@@ -41,6 +41,7 @@ static func generate(seed_value: int, team_count := 2) -> League:
 		league.teams.append(t)
 	if not league.teams.is_empty():
 		league.teams[0].user_controlled = true
+	league.ensure_callsigns()
 	return league
 
 
@@ -60,6 +61,37 @@ func add_free_agent(s: Soldier, year: int) -> void:
 	s.injury_name = ""
 	if not free_agents.has(s):
 		free_agents.append(s)
+	give_callsign(s)
+
+
+## Lower-cased callsigns of every active soldier (rosters and free agents).
+func taken_callsigns(except: Soldier = null) -> Dictionary:
+	var out := {}
+	for s in all_soldiers():
+		if s != except and s.callsign != "":
+			out[s.callsign.to_lower()] = true
+	for s in free_agents:
+		if s != except and s.callsign != "":
+			out[s.callsign.to_lower()] = true
+	return out
+
+
+## Gives `s` a callsign if he doesn't have one (or his is taken by someone else).
+func give_callsign(s: Soldier) -> void:
+	var taken := taken_callsigns(s)
+	if s.callsign == "" or taken.has(s.callsign.to_lower()):
+		s.callsign = Callsigns.pick(s, taken)
+
+
+## Safety net: every active soldier gets a unique callsign.
+func ensure_callsigns() -> void:
+	var taken := {}
+	var pool: Array[Soldier] = all_soldiers()
+	pool.append_array(free_agents)
+	for s in pool:
+		if s.callsign == "" or taken.has(s.callsign.to_lower()):
+			s.callsign = Callsigns.pick(s, taken)
+		taken[s.callsign.to_lower()] = true
 
 
 func team_of(s: Soldier) -> Team:

@@ -78,10 +78,33 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   Best Frontman/Center/Flex, Rookie of the Year and a 5-man All-League team (2 FM, 1 C, 2 FX), ranked on impact
   per game (min 4 games). During the season the page shows the MVP race. It also lists potential changes and
   this year's aging declines.
-- **Roster**: a table like Scouting: portrait, name/age/best position, potential grade, OVR, the five group ratings
-  and lineup slot/status (the Progression view adds SP). The player page shows XP and fatigue bars.
+- **Home**: a big pane for this week's match (both teams' OVR and record, starter averages per group plus morale and
+  energy as head-to-head bars, and two impact players per side), the Advance and Last Result tiles, a row of this
+  week's actions (Set Training, Progress Players, Adjust Lineup, Roster, Scout, Free Agents, Contracts), then
+  League News tiles (results with MVPs, awards, signings, injuries, retirements).
+- **Roster** (2K style): a big preview pane on top (portrait, name and callsign, salary, contract, OVR/POT, fatigue
+  and morale rings, group ratings) that follows the hovered/focused row. Below it is a table you can sort by any
+  column (click a header; click again to flip). Free Agents, Progression and Contracts use the same sortable tables.
+- **Player page** (Madden style) with tabs: **Overview** (action rail, morale/health/energy/XP rings, morale
+  factors, OVR at each position and every attribute), **Ratings** (spend skill points), **Contract** (details,
+  re-sign, release with a confirm step), **Stats** (season-by-season lines and career) and **DNA** (placeholder).
+  League Leaders, box scores and Free Agents all open it.
+- **Lineup**: the Swing drawn as a formation (2 Frontmen up front, the Center behind them, the Flexes far out on each
+  side). Cards show face, OVR and POT. Click a slot, then a bench card (or another slot), to swap. "Generate Best
+  Lineup" picks the best five.
+- **Contracts & Payroll**: a sortable table (salary, years left, remaining, dead money if cut, OVR, morale...).
+  Click a row to open that player's Contract tab, where you can release him.
+- **Free agent offers** list your players at the free agent's best position with an OVR +/- column.
+- **Morale** (`scripts/sim/morale.gd`): 0-100, no effect from 75 to 84. Every 5 points below 75 lowers a random stat
+  by 1-3; every 5 points from 85 up raises one. OVR shows the effect, e.g. "69 (-4)". Each week: wins/losses (+/-2),
+  starting (+2) or sitting healthy (-1.5), match MVP (+3), pay (under 75% of market value -1), then a 20% drift
+  back toward 75.
+- **Saves**: a soldier saves a teammate when he eliminates an attacker who has the teammate nearly dead. Tracked in
+  box scores, season lines and League Leaders.
+- **Callsigns** (`scripts/core/callsigns.gd`): every soldier gets a unique callsign that fits his best group
+  (e.g. Ivan "Ironside" Hart). Used in tables, leaders and the lineup instead of jersey numbers.
 - **Hub tabs**: Home, Team, League, Personnel, Settings. Tiles marked **SOON** are laid out but not built yet
-  (trades, contract negotiation, saves, staff, facilities).
+  (trades, contract negotiation, staff, facilities).
 
 Controls:
 
@@ -106,7 +129,7 @@ The old debug UI is still available from the title screen or Settings → Debug 
 ```powershell
 godot --headless --path . --import                              # first run: builds class cache
 godot --headless --path . --script res://tests/run_tests.gd     # sim/progression tests (~5 min)
-godot --headless --path . --script res://tests/season_tests.gd  # season loop tests (~10 s)
+godot --headless --path . --script res://tests/season_tests.gd  # season loop tests (~2 min)
 godot --headless --path . --script res://tests/ui_smoke.gd      # debug UI smoke test
 godot --headless --path . --script res://tests/franchise_smoke.gd  # franchise menus through a full season
 ```
@@ -121,7 +144,7 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
   - Physicality: speed, agility, strength, endurance
   - Mentality: awareness, composure, teamwork
   - Injury: injury, toughness (view only, can't be upgraded)
-- **Scheme "Power Front":**
+- **Scheme "Swing":**
   - Frontman ×2, Center, Left Flex, Right Flex.
   - Each role has its own OVR weights (`scripts/core/scheme.gd`).
   - Role also drives in-sim behaviour (distance, exposure, flanking).

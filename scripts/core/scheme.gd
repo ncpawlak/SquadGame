@@ -62,7 +62,7 @@ var slots: Array[Dictionary] = []
 static func power_front() -> Scheme:
 	var s := Scheme.new()
 	s.id = &"power_front"
-	s.display_name = "Power Front"
+	s.display_name = "Swing"
 	s.slots = [
 		{"id": &"FM1", "label": "Frontman", "role": Role.FRONTMAN},
 		{"id": &"FM2", "label": "Frontman", "role": Role.FRONTMAN},

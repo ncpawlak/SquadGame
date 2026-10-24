@@ -194,7 +194,9 @@ func sign_player(season: Season, team: Team, s: Soldier, salary: int, years: int
 	s.contract = Contract.make(salary, years, season.year)
 	s.ask_mult = 1.0
 	s.intensity = Soldier.INTENSITY_NORMAL
+	s.morale = maxf(s.morale, 80.0)
 	team.roster.append(s)
+	season.league.give_callsign(s)
 	if team.lineup.size() < team.scheme.slot_ids().size():
 		team.auto_lineup()
 	var entry := {"soldier": s, "team": team, "salary": salary, "years": years, "year": season.year, "when": when, "user": team.user_controlled}

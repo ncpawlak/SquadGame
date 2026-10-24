@@ -52,6 +52,8 @@ var scout_points := 0
 var order: Array[Team] = []
 var next_pick := 0
 var _rng := RandomNumberGenerator.new()
+## Set by the season so drafted rookies get a league-unique callsign.
+var league: League = null
 
 
 static func generate(seed_value: int, draft_year: int, first_id: int) -> Draft:
@@ -203,6 +205,9 @@ func make_pick(p: Prospect) -> bool:
 	p.soldier.draft_year = year
 	p.soldier.contract = Contracts.rookie_contract(p.pick_number, order.size(), year)
 	team.roster.append(p.soldier)
+	p.soldier.morale = 82.0
+	if league != null:
+		league.give_callsign(p.soldier)
 	return true
 
 

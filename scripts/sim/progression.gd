@@ -147,7 +147,7 @@ static func auto_spend(soldier: Soldier, role: Scheme.Role, rng: RandomNumberGen
 
 
 ## Awards post-match XP to every soldier who played. Returns soldier_id -> gain_xp report.
-static func award_match_xp(result: MatchResult) -> Dictionary:
+static func award_match_xp(result: MatchResult, year := 0) -> Dictionary:
 	var reports := {}
 	for team_index in 2:
 		var team: Team = result.teams[team_index]
@@ -161,17 +161,27 @@ static func award_match_xp(result: MatchResult) -> Dictionary:
 			if soldier.id == result.mvp_id:
 				xp += MVP_XP
 			reports[soldier.id] = gain_xp(soldier, xp)
-			_record_career(soldier, line)
+			_record_career(soldier, line, soldier.id == result.mvp_id, year, team.abbrev)
 	return reports
 
 
-static func _record_career(soldier: Soldier, line: Dictionary) -> void:
-	soldier.career["matches"] += 1
-	soldier.career["rounds"] += line["rounds_played"]
-	soldier.career["kills"] += line["kills"]
-	soldier.career["deaths"] += line["deaths"]
-	soldier.career["assists"] += line["assists"]
-	soldier.career["damage"] += roundi(line["damage"])
+static func _record_career(soldier: Soldier, line: Dictionary, mvp := false, year := 0, team_abbrev := "") -> void:
+	var add := {"matches": 1, "rounds": line["rounds_played"], "kills": line["kills"], "deaths": line["deaths"],
+		"assists": line["assists"], "damage": roundi(line["damage"]), "saves": line.get("saves", 0),
+		"headshots": line["headshots"], "shots": line["shots"], "hits": line["hits"], "mvps": 1 if mvp else 0,
+		"clutches": line["clutches"]}
+	var targets: Array = [soldier.career]
+	if year > 0:
+		if not soldier.season_lines.has(year):
+			var fresh := {"team": team_abbrev}
+			for k in Soldier.STAT_LINE_KEYS:
+				fresh[k] = 0
+			soldier.season_lines[year] = fresh
+		soldier.season_lines[year]["team"] = team_abbrev
+		targets.append(soldier.season_lines[year])
+	for d: Dictionary in targets:
+		for k in add:
+			d[k] = int(d.get(k, 0)) + int(add[k])
 
 
 ## Runs auto_spend for every soldier on AI-controlled teams.

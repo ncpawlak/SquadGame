@@ -111,7 +111,8 @@ func _init() -> void:
 	await process_frame
 	await _visit_pages(hub, "free agency")
 	while user.is_over_roster_limit():
-		hub.open_contracts()
+		var cut: Soldier = user.bench().back()
+		hub.pages.open_player(cut, 2)
 		await process_frame
 		_check(_press(hub, "Release"), "release button")
 		await process_frame

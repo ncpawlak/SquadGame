@@ -30,6 +30,8 @@ func _init() -> void:
 		"test_retirement_and_offseason_flow",
 		"test_projections_and_mock",
 		"test_season_review_and_aging",
+		"test_morale_effects",
+		"test_callsigns_saves_and_season_lines",
 	]
 	for t in tests:
 		_current = t
@@ -652,3 +654,49 @@ func test_projections_and_mock() -> void:
 				if p.projected_rank <= 10:
 					hits += 1
 	check(hits >= total * 0.8, "first-rounders mostly projected top 10 (%d/%d)" % [hits, total])
+
+
+func test_morale_effects() -> void:
+	var s := Season.new_franchise(321)
+	var so: Soldier = s.user_team().roster[0]
+	so.morale = Soldier.MORALE_NEUTRAL
+	check(so.morale_steps() == 0, "neutral morale has no steps")
+	check(so.morale_mods().is_empty(), "neutral morale has no mods")
+	so.morale = 40.0
+	check(so.morale_steps() < 0, "low morale is negative")
+	var total := 0
+	for st in so.morale_mods():
+		total += int(so.morale_mods()[st])
+	check(total < 0, "low morale lowers stats")
+	check(so.morale_mods() == so.morale_mods(), "mods deterministic")
+	so.morale = 99.0
+	check(so.morale_steps() > 0, "high morale boosts")
+	so.add_morale(50.0)
+	check(so.morale == 100.0, "morale clamped")
+	for i in 3:
+		s.sim_week()
+	for t in s.league.teams:
+		for x in t.roster:
+			check(x.morale >= 0.0 and x.morale <= 100.0, "morale in range after weeks")
+
+
+func test_callsigns_saves_and_season_lines() -> void:
+	var s := Season.new_franchise(654)
+	var names := {}
+	for t in s.league.teams:
+		for x in t.roster:
+			check(x.callsign != "", "every rostered soldier has a callsign")
+			check(not names.has(x.callsign), "callsigns unique: " + x.callsign)
+			names[x.callsign] = true
+			check(x.display_name().contains("\"%s\"" % x.callsign), "display name shows callsign")
+			check(x.tag() == x.callsign.to_upper(), "tag is upper callsign")
+	s.sim_to_end_of_regular_season()
+	var saves := 0
+	var lines := 0
+	for t in s.league.teams:
+		for x in t.roster:
+			if x.season_lines.has(s.year):
+				lines += 1
+				saves += int(x.season_lines[s.year].get("saves", 0))
+	check(lines > 0, "season lines recorded")
+	check(saves > 0, "saves recorded over a season")
