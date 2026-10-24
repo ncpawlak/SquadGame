@@ -1,28 +1,58 @@
 class_name Training
 extends RefCounted
-## Weekly training (Madden-style): the whole roster gets base XP, and up to MAX_FOCUS_PLAYERS
-## chosen soldiers get boosted XP plus usage in a chosen focus stat (steering their breakthroughs
-## and the AI's spending).
+## Weekly training. Every soldier trains at their own intensity (Soldier.intensity):
+## harder training earns more XP but builds more fatigue (see Conditioning).
+## Injured soldiers don't train.
 
-const MAX_FOCUS_PLAYERS := 3
-const BASE_XP := 120.0
-const FOCUS_MULTIPLIER := 2.5
-const FOCUS_USAGE := 5.0
+const BASE_XP := 150.0
+
+const INTENSITIES: Array[StringName] = [
+	Soldier.INTENSITY_REST, Soldier.INTENSITY_LIGHT, Soldier.INTENSITY_NORMAL, Soldier.INTENSITY_HEAVY,
+]
+
+## xp: XP multiplier. load: fatigue added (before Endurance/age scaling).
+## recovery_bonus: extra share of fatigue shed that week.
+const INTENSITY_INFO := {
+	Soldier.INTENSITY_REST: {"label": "Rest", "xp": 0.0, "load": 0.0, "recovery_bonus": 0.25},
+	Soldier.INTENSITY_LIGHT: {"label": "Light", "xp": 0.6, "load": 3.0, "recovery_bonus": 0.0},
+	Soldier.INTENSITY_NORMAL: {"label": "Normal", "xp": 1.0, "load": 6.0, "recovery_bonus": 0.0},
+	Soldier.INTENSITY_HEAVY: {"label": "Heavy", "xp": 1.6, "load": 11.0, "recovery_bonus": 0.0},
+}
 
 
-## focus: soldier_id -> focus stat (StringName, or &"" for no specific stat).
-## Returns soldier_id -> gain_xp report (with an added "focus" bool).
-static func run_week(team: Team, focus: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
-	if focus.size() > MAX_FOCUS_PLAYERS:
-		push_warning("Only %d focus players allowed; extra ignored." % MAX_FOCUS_PLAYERS)
-	var allowed := focus.keys().slice(0, MAX_FOCUS_PLAYERS)
+static func label(intensity: StringName) -> String:
+	return INTENSITY_INFO[intensity]["label"]
+
+
+static func xp_for(intensity: StringName) -> float:
+	return BASE_XP * float(INTENSITY_INFO[intensity]["xp"])
+
+
+## Returns soldier_id -> gain_xp report (with an added "intensity").
+static func run_week(team: Team) -> Dictionary:
 	var reports := {}
 	for soldier in team.roster:
-		var is_focus := allowed.has(soldier.id)
-		var xp := BASE_XP * (FOCUS_MULTIPLIER if is_focus else 1.0)
-		if is_focus and focus[soldier.id] != &"":
-			soldier.add_usage(focus[soldier.id], FOCUS_USAGE)
-		var report := Progression.gain_xp(soldier, xp, rng)
-		report["focus"] = is_focus
+		if soldier.is_injured():
+			continue
+		var report := Progression.gain_xp(soldier, xp_for(soldier.intensity))
+		report["intensity"] = soldier.intensity
 		reports[soldier.id] = report
 	return reports
+
+
+## AI intensity: rest the exhausted, ease veterans, push fresh young players.
+static func ai_intensity(soldier: Soldier, starter: bool) -> StringName:
+	var f := soldier.fatigue
+	if f >= 70.0:
+		return Soldier.INTENSITY_REST
+	if f >= 55.0 or (soldier.age >= 31 and f >= 40.0):
+		return Soldier.INTENSITY_LIGHT
+	if f < 35.0 and (soldier.age <= 26 or not starter):
+		return Soldier.INTENSITY_HEAVY
+	return Soldier.INTENSITY_NORMAL
+
+
+static func ai_set_intensities(team: Team) -> void:
+	var starters := team.starters()
+	for soldier in team.roster:
+		soldier.intensity = ai_intensity(soldier, starters.has(soldier))

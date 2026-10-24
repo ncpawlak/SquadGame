@@ -159,6 +159,13 @@ func week_results(label: String, played: Array) -> Control:
 		v.add_child(UiKit.label("Nothing to play.", 18, UiKit.MUTED))
 	else:
 		v.add_child(UiKit.label("Bye week - your squad trained.", 22, Color.WHITE))
+	if not s.last_injuries.is_empty():
+		v.add_child(_section("INJURIES THIS WEEK"))
+		for inj in s.last_injuries:
+			var so: Soldier = inj["soldier"]
+			var t: Team = inj["team"]
+			v.add_child(UiKit.label("%s  %s  -  %s, out %d wk" % [t.abbrev, so.full_name(), inj["name"], inj["weeks"]],
+				17, UiKit.BAD if t.user_controlled else UiKit.TEXT))
 	v.add_child(_section("AROUND THE LEAGUE  -  %s" % label.to_upper()))
 	for m in played:
 		v.add_child(_score_card(m))
@@ -285,14 +292,14 @@ func _roster_table(progress_view: bool) -> Control:
 		var ovr: int = team.ovr_in_slot(s, slot) if slot != &"" else s.best_ovr()
 		var cells := [slot if slot != &"" else "BN", s.full_name(), s.age, ovr,
 			Scheme.ROLE_NAMES[Scheme.best_role(s.stats)], s.level, "%d/%d" % [s.xp, Progression.xp_to_next(s.level)],
-			s.skill_points, _grade(s)]
-		var c := {3: UiKit.ovr_color(ovr)}
+			s.skill_points, _grade(s), roundi(s.fatigue), _status_text(s)]
+		var c := {3: UiKit.ovr_color(ovr), 9: fatigue_color(s.fatigue), 10: UiKit.BAD if s.is_injured() else UiKit.MUTED}
 		if s.skill_points > 0:
 			c[7] = UiKit.INFO
 		colors[rows.size()] = c
 		rows.append(cells)
-	v.add_child(UiKit.table(["SLOT", "NAME", "AGE", "OVR", "BEST POS", "LV", "XP", "SP", "POT"], rows,
-		[50, 220, 50, 50, 110, 40, 100, 40, 50], {}, colors,
+	v.add_child(UiKit.table(["SLOT", "NAME", "AGE", "OVR", "BEST POS", "LV", "XP", "SP", "POT", "FAT", "STATUS"], rows,
+		[50, 220, 50, 50, 110, 40, 100, 40, 50, 50, 130], {}, colors,
 		func(i: int):
 			var s: Soldier = list[i]
 			hub.open(s.full_name(), func(): return player(s))))
@@ -333,47 +340,71 @@ func player(s: Soldier) -> Control:
 			hub.replace(s.full_name(), func(): return player(s))))
 		v.add_child(actions)
 
-	v.add_child(_section("RATINGS  -  white = counts toward OVR at %s  -  MAXED = at potential cap" % Scheme.ROLE_NAMES[role]))
+	var cond := UiKit.rich("CONDITION   Fatigue [color=%s]%d (%s)[/color]   -   %s   -   Training: %s" % [
+		UiKit.hex(fatigue_color(s.fatigue)), roundi(s.fatigue), Conditioning.status(s.fatigue),
+		("[color=%s]INJURED: %s, out %d wk%s[/color]" % [UiKit.hex(UiKit.BAD), UiKit.esc(s.injury_name), s.injury_weeks, "" if s.injury_weeks == 1 else "s"]) if s.is_injured() else "[color=%s]Healthy[/color]" % UiKit.hex(UiKit.GOOD),
+		Training.label(s.intensity)], 16)
+	v.add_child(cond)
+
+	v.add_child(_section("RATINGS BY GROUP  -  +1 group = random points across its stats (max +%d each)  -  white stats count toward OVR at %s" % [
+		Progression.MAX_STAT_GAIN_PER_UPGRADE, Scheme.ROLE_NAMES[role]]))
 	var weights: Dictionary = Scheme.ROLE_WEIGHTS[role]
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 30)
-	grid.add_theme_constant_override("v_separation", 8)
-	for st in Stats.ALL:
-		var cell := _row(10)
-		var name_l := UiKit.label(Stats.LABELS[st], 16, Color.WHITE if weights.has(st) else UiKit.MUTED)
-		name_l.custom_minimum_size.x = 170
-		cell.add_child(name_l)
-		var bar := ProgressBar.new()
-		bar.max_value = 99
-		bar.value = s.stats[st]
-		bar.show_percentage = false
-		bar.custom_minimum_size = Vector2(200, 14)
-		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		bar.add_theme_stylebox_override("background", UiKit.flat(UiKit.LINE, 4))
-		var fill := UiKit.flat(UiKit.ovr_color(s.stats[st]), 4)
-		fill.content_margin_top = 0
-		fill.content_margin_bottom = 0
-		bar.add_theme_stylebox_override("fill", fill)
-		cell.add_child(bar)
-		var val := UiKit.label(str(s.stats[st]), 18, UiKit.ovr_color(s.stats[st]))
-		val.custom_minimum_size.x = 34
-		cell.add_child(val)
-		if editable:
-			var stat := st
-			var plus := UiKit.button("+1 (%d SP)" % Progression.point_cost(s.stats[st]), func():
-				Progression.spend_point(s, stat)
+	grid.add_theme_constant_override("v_separation", 14)
+	for g in Stats.GROUP_ORDER:
+		var box := _vbox(4)
+		var head_row := _row(10)
+		var gr := s.group_rating(g)
+		var upgradable := Stats.UPGRADABLE_GROUPS.has(g)
+		var title := UiKit.rich("[font_size=20][color=white]%s[/color][/font_size]  [font_size=24][color=%s]%d[/color][/font_size]%s" % [
+			Stats.GROUP_LABELS[g].to_upper(), UiKit.hex(UiKit.ovr_color(gr)), gr,
+			("  [color=#8b97ab]cap %d[/color]" % s.group_cap(g)) if upgradable else "  [color=#8b97ab](age / injuries only)[/color]"], 15)
+		title.autowrap_mode = TextServer.AUTOWRAP_OFF
+		title.custom_minimum_size.x = 330
+		head_row.add_child(title)
+		if editable and upgradable:
+			var group := g
+			var up := UiKit.button("+1 (%d SP)" % Progression.upgrade_cost(s, g), func():
+				Progression.upgrade_group(s, group)
 				hub.replace(s.full_name(), func(): return player(s)), 13)
-			plus.custom_minimum_size.x = 100
-			plus.disabled = not Progression.can_raise(s, st)
-			if s.headroom(st) <= 0:
-				plus.text = "MAXED"
-			cell.add_child(plus)
-		grid.add_child(cell)
+			up.custom_minimum_size.x = 110
+			up.disabled = not Progression.can_upgrade(s, g)
+			if Progression.is_capped(s, g):
+				up.text = "CAPPED"
+			head_row.add_child(up)
+		box.add_child(head_row)
+		for st in Stats.group_stats(g):
+			box.add_child(_stat_row(s, st, weights.has(st)))
+		grid.add_child(box)
 	v.add_child(grid)
 	v.add_child(UiKit.label("Career: %d matches  -  %d K / %d D / %d A  -  %d damage" % [
 		s.career["matches"], s.career["kills"], s.career["deaths"], s.career["assists"], s.career["damage"]], 15, UiKit.MUTED))
 	return v
+
+
+func _stat_row(s: Soldier, st: StringName, counts: bool) -> Control:
+	var cell := _row(10)
+	var name_l := UiKit.label("   " + Stats.LABELS[st], 15, Color.WHITE if counts else UiKit.MUTED)
+	name_l.custom_minimum_size.x = 190
+	cell.add_child(name_l)
+	var bar := ProgressBar.new()
+	bar.max_value = 99
+	bar.value = s.stats[st]
+	bar.show_percentage = false
+	bar.custom_minimum_size = Vector2(180, 12)
+	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bar.add_theme_stylebox_override("background", UiKit.flat(UiKit.LINE, 4))
+	var fill := UiKit.flat(UiKit.ovr_color(s.stats[st]), 4)
+	fill.content_margin_top = 0
+	fill.content_margin_bottom = 0
+	bar.add_theme_stylebox_override("fill", fill)
+	cell.add_child(bar)
+	var val := UiKit.label(str(s.stats[st]), 16, UiKit.ovr_color(s.stats[st]))
+	val.custom_minimum_size.x = 34
+	cell.add_child(val)
+	return cell
 
 
 func lineup() -> Control:
@@ -398,7 +429,9 @@ func lineup() -> Control:
 		for i in team.roster.size():
 			var s: Soldier = team.roster[i]
 			var where := team.slot_of(s)
-			pick.add_item("%s  -  %d OVR here%s" % [s.full_name(), team.ovr_in_slot(s, sid), "  (%s)" % where if where != &"" and where != sid else ""])
+			pick.add_item("%s  -  %d OVR  -  FAT %d%s%s" % [s.full_name(), team.ovr_in_slot(s, sid), roundi(s.fatigue),
+				"  - INJURED" if s.is_injured() else "", "  (%s)" % where if where != &"" and where != sid else ""])
+			pick.set_item_disabled(i, s.is_injured() and s != current)
 			if s == current:
 				pick.select(i)
 		var slot_id := sid
@@ -408,10 +441,13 @@ func lineup() -> Control:
 		row.add_child(pick)
 		var o := team.ovr_in_slot(current, sid)
 		row.add_child(UiKit.label(str(o), 22, UiKit.ovr_color(o)))
+		row.add_child(UiKit.label(_status_text(current), 16, UiKit.BAD if current.is_injured() else fatigue_color(current.fatigue)))
 		v.add_child(row)
 	v.add_child(_section("BENCH"))
 	for s in team.bench():
-		v.add_child(UiKit.label("%s  -  best %s %d" % [s.full_name(), Scheme.ROLE_NAMES[Scheme.best_role(s.stats)], s.best_ovr()], 16, UiKit.MUTED))
+		v.add_child(UiKit.label("%s  -  best %s %d  -  %s" % [s.full_name(), Scheme.ROLE_NAMES[Scheme.best_role(s.stats)], s.best_ovr(), _status_text(s)],
+			16, UiKit.BAD if s.is_injured() else UiKit.MUTED))
+	v.add_child(UiKit.label("Injured starters are swapped for the best healthy bench soldier when the week is played.", 14, UiKit.MUTED))
 	return v
 
 
@@ -419,46 +455,102 @@ func training() -> Control:
 	var season := _season()
 	var team := season.user_team()
 	var v := _vbox()
-	v.add_child(UiKit.label("Every soldier gets %d XP per week. Focus players get %.1fx XP and extra usage in their focus stat." % [
-		int(Training.BASE_XP), Training.FOCUS_MULTIPLIER], 16, UiKit.MUTED))
-	var ids: Array = season.user_focus.keys()
-	for slot in Training.MAX_FOCUS_PLAYERS:
+	var info := "Each soldier trains at their own intensity every week. "
+	for it in Training.INTENSITIES:
+		var d: Dictionary = Training.INTENSITY_INFO[it]
+		info += "%s: %d XP%s.  " % [d["label"], roundi(Training.xp_for(it)),
+			", extra recovery" if it == Soldier.INTENSITY_REST else ", +%d fatigue" % roundi(float(d["load"]))]
+	var info_lbl := UiKit.label(info, 15, UiKit.MUTED)
+	info_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(info_lbl)
+	var fat_lbl := UiKit.label("Starting a match adds +%d fatigue. Endurance shrinks fatigue gain; age raises it and slows recovery. Above 50 fatigue, accuracy and speed drop (steeply above 75) and injuries get likelier." % roundi(Conditioning.MATCH_LOAD), 15, UiKit.MUTED)
+	fat_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(fat_lbl)
+	var top := _row()
+	top.add_child(UiKit.button("Auto-set intensities", func():
+		Training.ai_set_intensities(team)
+		hub.replace("Training", training)))
+	top.add_child(UiKit.button("All Normal", func():
+		for so in team.roster:
+			so.intensity = Soldier.INTENSITY_NORMAL
+		hub.replace("Training", training)))
+	v.add_child(top)
+	var list: Array = team.roster.duplicate()
+	list.sort_custom(func(a: Soldier, b: Soldier): return _slot_order(team, a) < _slot_order(team, b))
+	for so: Soldier in list:
 		var row := _row(16)
-		row.add_child(UiKit.label("FOCUS %d" % (slot + 1), 18, Color.WHITE))
-		var who := OptionButton.new()
-		who.custom_minimum_size = Vector2(340, 44)
-		UiKit.style_button(who)
-		who.add_item("(none)")
-		var current_id: int = ids[slot] if slot < ids.size() else -1
-		for i in team.roster.size():
-			var s: Soldier = team.roster[i]
-			who.add_item("%s  (Lv %d, age %d)" % [s.full_name(), s.level, s.age])
-			if s.id == current_id:
-				who.select(i + 1)
-		var stat := OptionButton.new()
-		stat.custom_minimum_size = Vector2(240, 44)
-		UiKit.style_button(stat)
-		stat.add_item("(any stat)")
-		for st in Stats.ALL:
-			stat.add_item(Stats.LABELS[st])
-		if current_id >= 0 and season.user_focus[current_id] != &"":
-			stat.select(Stats.ALL.find(season.user_focus[current_id]) + 1)
-		stat.disabled = current_id < 0
-		var old_id := current_id
-		var apply := func():
-			if old_id >= 0:
-				season.user_focus.erase(old_id)
-			if who.selected > 0:
-				var s: Soldier = team.roster[who.selected - 1]
-				season.user_focus[s.id] = &"" if stat.selected <= 0 else Stats.ALL[stat.selected - 1]
-			hub.replace("Training", training)
-		who.item_selected.connect(func(_i): apply.call())
-		stat.item_selected.connect(func(_i): apply.call())
-		row.add_child(who)
-		row.add_child(stat)
+		var slot := team.slot_of(so)
+		var name_l := UiKit.label("%s  %s" % [slot if slot != &"" else "BN", so.full_name()], 17, Color.WHITE)
+		name_l.custom_minimum_size.x = 270
+		row.add_child(name_l)
+		var age_l := UiKit.label("age %d" % so.age, 15, UiKit.MUTED)
+		age_l.custom_minimum_size.x = 70
+		row.add_child(age_l)
+		var fat := UiKit.label("FAT %d  %s" % [roundi(so.fatigue), Conditioning.status(so.fatigue)], 16, fatigue_color(so.fatigue))
+		fat.custom_minimum_size.x = 170
+		row.add_child(fat)
+		if so.is_injured():
+			row.add_child(UiKit.label("INJURED (%s, %d wk) - rehab, no training" % [so.injury_name, so.injury_weeks], 16, UiKit.BAD))
+		else:
+			var pick := OptionButton.new()
+			pick.custom_minimum_size = Vector2(200, 44)
+			UiKit.style_button(pick)
+			for it in Training.INTENSITIES:
+				pick.add_item(Training.label(it))
+			pick.select(Training.INTENSITIES.find(so.intensity))
+			var who := so
+			pick.item_selected.connect(func(i: int):
+				who.intensity = Training.INTENSITIES[i]
+				hub.replace("Training", training))
+			row.add_child(pick)
 		v.add_child(row)
-	v.add_child(UiKit.label("Training runs automatically when you advance the week.", 14, UiKit.MUTED))
+	v.add_child(UiKit.label("Training runs automatically when you advance the week. Spend the skill points earned in Player Progression.", 14, UiKit.MUTED))
 	return v
+
+
+func injuries() -> Control:
+	var s := _season()
+	var v := _vbox()
+	v.add_child(_section("INJURY REPORT  -  chance from the Injury rating and fatigue; time out from Toughness"))
+	var rows: Array = []
+	var colors := {}
+	var hl := {}
+	for t in s.league.teams:
+		for so in t.injured():
+			if t.user_controlled:
+				hl[rows.size()] = t.color.darkened(0.6)
+			colors[rows.size()] = {4: UiKit.BAD}
+			rows.append([t.abbrev, so.full_name(), so.age, so.injury_name, "%d wk" % so.injury_weeks, so.stats[Stats.INJURY], so.stats[Stats.TOUGHNESS]])
+	if rows.is_empty():
+		v.add_child(UiKit.label("No current injuries.", 18, UiKit.MUTED))
+	else:
+		v.add_child(UiKit.table(["TEAM", "NAME", "AGE", "INJURY", "OUT", "INJ", "TGH"], rows, [60, 220, 50, 220, 70, 50, 50], hl, colors))
+	v.add_child(_section("THIS SEASON"))
+	var log_rows: Array = []
+	for i in range(s.injury_log.size() - 1, -1, -1):
+		var e: Dictionary = s.injury_log[i]
+		var so: Soldier = e["soldier"]
+		var t: Team = e["team"]
+		log_rows.append([s.week_label(e["week"]), t.abbrev, so.full_name(), e["name"], "%d wk" % e["weeks"]])
+	if log_rows.is_empty():
+		v.add_child(UiKit.label("No injuries yet this season.", 16, UiKit.MUTED))
+	else:
+		v.add_child(UiKit.table(["WHEN", "TEAM", "NAME", "INJURY", "OUT"], log_rows, [110, 60, 220, 220, 70]))
+	return v
+
+
+func _status_text(s: Soldier) -> String:
+	if s.is_injured():
+		return "INJ %dw" % s.injury_weeks
+	return Conditioning.status(s.fatigue)
+
+
+static func fatigue_color(f: float) -> Color:
+	if f < 50.0:
+		return UiKit.GOOD
+	if f < 75.0:
+		return Color("#eab308")
+	return UiKit.BAD
 
 
 func team_stats() -> Control:

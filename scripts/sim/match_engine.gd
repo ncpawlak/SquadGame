@@ -11,7 +11,8 @@ extends RefCounted
 ##   a burst: first bullet uses range accuracy, follow-ups use Grouping + Strength (recoil).
 ## - Endurance limits fatigue, Reload sets reload time, Composure matters when outnumbered,
 ##   Teamwork drives focus fire and a small squad-wide bonus, Toughness reduces damage taken.
-## - Injury is not used yet (injuries come in a later milestone).
+## - Weekly fatigue (Soldier.fatigue) scales down accuracy, speed and reaction stats via
+##   Conditioning.penalty(); Injury/Toughness drive weekly injuries outside the match (Conditioning).
 
 const ROUNDS_TO_WIN := 4
 const MAX_ROUNDS := 7
@@ -34,6 +35,10 @@ const MODE_ELIMINATION := &"elimination"
 
 const RANGE_BASE_HIT := {&"short": 0.30, &"medium": 0.20, &"long": 0.11}
 const RANGE_STAT := {&"short": &"short_acc", &"medium": &"medium_acc", &"long": &"long_acc"}
+## Stats reduced by pre-match fatigue.
+const FATIGUE_STATS: Array[StringName] = [
+	&"short_acc", &"medium_acc", &"long_acc", &"grouping", &"speed", &"agility", &"awareness", &"reload",
+]
 
 
 class Combatant:
@@ -50,8 +55,12 @@ class Combatant:
 	var target: Combatant = null
 	## victim soldier id -> damage dealt this round (for assists)
 	var damage_to: Dictionary = {}
+	## 1.0 = fresh; < 1.0 scales FATIGUE_STATS for a soldier who came in tired.
+	var condition := 1.0
 
 	func stat(s: StringName) -> float:
+		if condition < 1.0 and FATIGUE_STATS.has(s):
+			return float(soldier.stats[s]) * condition
 		return float(soldier.stats[s])
 
 	func flanked() -> bool:
@@ -112,6 +121,7 @@ func _build_squad(team: Team, index: int) -> Array:
 		c.team = index
 		c.slot_id = slot_id
 		c.role = team.scheme.role_for_slot(slot_id)
+		c.condition = 1.0 - Conditioning.penalty(s.fatigue)
 		squad.append(c)
 		_result.box[s.id] = {
 			"team": index, "slot": slot_id, "kills": 0, "deaths": 0, "assists": 0, "shots": 0,

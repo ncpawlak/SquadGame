@@ -29,10 +29,11 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   8 matches per team, one bye per week. Top 4 make the playoffs: semis (1v4, 2v3, higher seed hosts), then the final.
   Then offseason → start next season (rosters and ratings carry over; aging/contracts/draft come with the offseason module).
 - **Standings**: W/L, tiebreakers head-to-head, then round differential, then rounds won.
-- **Each week**: all teams train (your 3 focus players get bonus XP), every match is played, XP is awarded.
-  AI teams auto-spend skill points; you spend yours on the player page.
+- **Each week**: all teams train at each soldier's intensity, every match is played, XP is awarded, then fatigue
+  and injuries update. AI teams auto-spend skill points and pick intensities; you set yours on the Training page
+  and spend SP on the player page. Injured starters are auto-replaced by the best healthy bench soldier.
 - **Hub tabs**: Home, Team, League, Personnel, Settings. Tiles marked **SOON** are laid out but not built yet
-  (injuries, trades, contracts, free agency, scouting, draft, saves, awards, history, staff, facilities).
+  (trades, contracts, free agency, scouting, draft, saves, awards, history, staff, facilities).
 
 Controls:
 
@@ -48,8 +49,8 @@ Controls:
 The old debug UI is still available from the title screen or Settings → Debug Sim Tools:
 - Generate a league from a seed.
 - Simulate a match and view the play-by-play and box score.
-- Train for a week (pick up to 3 focus players).
-- Spend skill points, swap lineup slots.
+- Train for a week (set each soldier's intensity).
+- Upgrade stat groups with skill points, swap lineup slots.
 - Batch-sim 200 matches.
 
 ## Tests
@@ -66,10 +67,12 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
 
 ## Model (Milestone 1)
 
-- **Stats (0–99):**
-  - Accuracy: awareness, short/medium/long-range acc, grouping
-  - Physical: speed, strength, agility, endurance
-  - Other: reload, composure, toughness, injury, teamwork
+- **Stats (0–99), in groups (MLB The Show style).** Each group's rating is the average of its stats (`scripts/core/stats.gd`):
+  - Accuracy: short, medium and long-range acc
+  - Handling: reload, grouping
+  - Physicality: speed, agility, strength, endurance
+  - Mentality: awareness, composure, teamwork
+  - Injury: injury, toughness (view only, can't be upgraded)
 - **Scheme "Power Front":**
   - Frontman ×2, Center, Left Flex, Right Flex.
   - Each role has its own OVR weights (`scripts/core/scheme.gd`).
@@ -80,12 +83,26 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
   - Each shot is resolved on the range band, accuracy, fatigue, composure, teamwork, and the target's evasion and toughness.
   - Deterministic for a given match seed (`scripts/sim/match_engine.gd`).
 - **Progression:**
-  - XP from matches and weekly training gives levels, and levels give skill points.
-  - Skill points cost more as a stat rises, and each stat has a hidden cap.
-  - Stats used heavily in matches can get random breakthroughs.
+  - XP from matches and weekly training gives levels, and levels give skill points (SP).
+  - SP buy +1 to a whole group. That spreads N points (N = stats in the group) randomly across the group, at most +2 per stat.
+  - Cost rises with the group rating: 2 SP below 60, up to 6 SP at 90+.
+  - Each group has a hidden cap (CFB27 style). Young players have more headroom, and the headroom also depends on the group's peak age (Physicality 29, Accuracy/Handling 33, Mentality 36).
   - Young players gain XP faster.
-  - AI teams spend their points automatically (`scripts/sim/progression.gd`, `training.gd`).
-- **Injury stat:** higher means less likely to get injured. Toughness reduces damage and will set injury length. Actual injuries aren't simulated yet.
+  - AI teams spend their points automatically, favouring groups their role uses (`scripts/sim/progression.gd`).
+- **Training intensity** (`scripts/sim/training.gd`), per soldier, per week:
+  - Rest: 0 XP, extra recovery.
+  - Light: 0.6× XP.
+  - Normal: 1×.
+  - Heavy: 1.6× XP, much more fatigue.
+- **Fatigue (0–100)** (`scripts/sim/conditioning.gd`):
+  - Builds from training and matches, and recovers weekly (byes recover more).
+  - Endurance and age scale load and recovery.
+  - In-match penalty: nothing below 50, mild from 50 to 75, steep above 75.
+- **Injuries:**
+  - Rolled each week. The Injury stat sets the chance: 99 means rarely injured, 70 means more often.
+  - High fatigue multiplies the chance.
+  - Toughness sets how many weeks the soldier is out.
+  - Injured soldiers can't play or train. League injuries are on the Injuries page.
 
 ## Roadmap
 
@@ -93,8 +110,7 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
 - Contracts, salaries, yearly money pools
 - In-season trades
 - End-of-season draft
-- Age-based decline
-- Injuries
+- Age-based decline (including shrinking group caps)
 - Different game modes per round
 - Visual combat
 - Android and PC exports

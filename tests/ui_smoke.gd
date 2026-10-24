@@ -17,17 +17,17 @@ func _init() -> void:
 
 	var user: Team = main._user_team()
 	var s: Soldier = user.roster[0]
-	main.training_focus[s.id] = Stats.LONG_ACC
+	s.intensity = Soldier.INTENSITY_HEAVY
 	main._train_week()
 	await process_frame
-	ok = _check(main.progress_text.text.contains("(focus)"), "training focus shown") and ok
+	ok = _check(main.progress_text.text.contains("(Heavy)"), "training intensity shown") and ok
 
-	s.skill_points = 5
+	s.skill_points = 50
 	main.selected = s
 	main._refresh_card()
-	var before: int = s.stats[Stats.SHORT_ACC]
-	Progression.spend_point(s, Stats.SHORT_ACC)
-	ok = _check(s.stats[Stats.SHORT_ACC] == before + 1 or s.headroom(Stats.SHORT_ACC) == 0, "spend point") and ok
+	var before: int = s.group_rating(Stats.ACCURACY)
+	Progression.upgrade_group(s, Stats.ACCURACY, main.rng)
+	ok = _check(s.group_rating(Stats.ACCURACY) == before + 1 or Progression.is_capped(s, Stats.ACCURACY), "group upgrade") and ok
 
 	var bench: Soldier = user.bench()[0]
 	user.assign(&"CTR", bench)

@@ -21,9 +21,12 @@ func _init() -> void:
 		"test_each_combat_stat_matters",
 		"test_xp_levels_and_points",
 		"test_age_scales_xp",
-		"test_spend_respects_caps_and_costs",
-		"test_auto_spend_prefers_role_stats",
-		"test_training_focus",
+		"test_stat_groups",
+		"test_group_upgrade_rules",
+		"test_auto_spend_prefers_role_groups",
+		"test_training_intensity",
+		"test_fatigue_model",
+		"test_injury_model",
 		"test_match_awards_xp",
 	]
 	for t in tests:
@@ -56,7 +59,8 @@ func make_soldier(id: int, value: int, overrides := {}) -> Soldier:
 	s.stats = Stats.make_uniform(value)
 	for k in overrides:
 		s.stats[k] = overrides[k]
-	s.caps = Stats.make_uniform(99)
+	for g in Stats.UPGRADABLE_GROUPS:
+		s.group_caps[g] = 99
 	return s
 
 
@@ -94,7 +98,9 @@ func test_generator_ranges() -> void:
 			check(s.age >= PlayerGenerator.MIN_AGE and s.age <= PlayerGenerator.MAX_AGE, "age out of range")
 			for stat in Stats.ALL:
 				check(s.stats[stat] >= 0 and s.stats[stat] <= 99, "%s out of range" % stat)
-				check(s.caps[stat] >= s.stats[stat] and s.caps[stat] <= 99, "cap invalid for %s" % stat)
+			for g in Stats.UPGRADABLE_GROUPS:
+				check(s.group_cap(g) >= s.group_rating(g) and s.group_cap(g) <= 99, "group cap invalid for %s" % g)
+			check(s.potential_ovr() >= s.best_ovr(), "potential below current OVR")
 
 
 func test_ovr_depends_on_position() -> void:
@@ -190,72 +196,167 @@ func test_each_combat_stat_matters() -> void:
 
 
 func test_xp_levels_and_points() -> void:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 1
 	var s := make_soldier(1, 50)
 	s.age = 27  # multiplier 1.0
-	var r := Progression.gain_xp(s, Progression.xp_to_next(1) - 1, rng)
+	var r := Progression.gain_xp(s, Progression.xp_to_next(1) - 1)
 	check(r["levels"] == 0 and s.level == 1, "just under threshold: no level")
-	r = Progression.gain_xp(s, 1, rng)
+	r = Progression.gain_xp(s, 1)
 	check(r["levels"] == 1 and s.level == 2 and s.xp == 0, "level up exactly at threshold")
 	check(s.skill_points == Progression.SKILL_POINTS_PER_LEVEL, "points granted")
-	Progression.gain_xp(s, Progression.xp_to_next(2) + Progression.xp_to_next(3), rng)
+	Progression.gain_xp(s, Progression.xp_to_next(2) + Progression.xp_to_next(3))
 	check(s.level == 4, "multi-level gain (level %d)" % s.level)
 
 
 func test_age_scales_xp() -> void:
-	var rng := RandomNumberGenerator.new()
 	var young := make_soldier(1, 50)
 	young.age = 20
 	var old := make_soldier(2, 50)
 	old.age = 33
-	var ry := Progression.gain_xp(young, 100, rng)
-	var ro := Progression.gain_xp(old, 100, rng)
+	var ry := Progression.gain_xp(young, 100)
+	var ro := Progression.gain_xp(old, 100)
 	check(ry["xp"] > ro["xp"], "young player gains more xp (%d vs %d)" % [ry["xp"], ro["xp"]])
 
 
-func test_spend_respects_caps_and_costs() -> void:
-	var s := make_soldier(1, 50)
-	s.caps[&"speed"] = 51
-	s.skill_points = 10
-	check(Progression.spend_point(s, &"speed"), "can raise below cap")
-	check(s.stats[&"speed"] == 51 and s.skill_points == 9, "raised by 1 for 1 point")
-	check(not Progression.spend_point(s, &"speed"), "cannot pass cap")
-	s.stats[&"awareness"] = 85
-	check(Progression.spend_point(s, &"awareness"), "can raise 85")
-	check(s.skill_points == 6, "85 costs 3 points (have %d)" % s.skill_points)
-	s.skill_points = 2
-	s.stats[&"grouping"] = 95
-	check(not Progression.spend_point(s, &"grouping"), "unaffordable upgrade refused")
+func test_stat_groups() -> void:
+	var covered := {}
+	for g in Stats.GROUP_ORDER:
+		for st in Stats.group_stats(g):
+			check(not covered.has(st), "%s in two groups" % st)
+			covered[st] = true
+	check(covered.size() == Stats.ALL.size(), "every stat belongs to a group")
+	var s := make_soldier(1, 50, {&"short_acc": 60, &"medium_acc": 70, &"long_acc": 80})
+	check(s.group_rating(Stats.ACCURACY) == 70, "group rating is the average")
+	check(not Stats.UPGRADABLE_GROUPS.has(Stats.DURABILITY), "injury group is view-only")
 
 
-func test_auto_spend_prefers_role_stats() -> void:
+func test_group_upgrade_rules() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	for trial in 50:
+		var s := make_soldier(1, 50)
+		s.skill_points = 100
+		var before := s.stats.duplicate()
+		var gains := Progression.upgrade_group(s, Stats.PHYSICALITY, rng)
+		var total := 0
+		for st in Stats.ALL:
+			var d: int = s.stats[st] - before[st]
+			if Stats.group_of(st) != Stats.PHYSICALITY:
+				check(d == 0, "upgrade touched %s outside the group" % st)
+			else:
+				check(d >= 0 and d <= Progression.MAX_STAT_GAIN_PER_UPGRADE, "%s gained %d" % [st, d])
+				total += d
+		check(total == 4 and gains.size() == 4, "physicality upgrade adds 4 points (got %d)" % total)
+		check(s.group_rating(Stats.PHYSICALITY) == 51, "group rating rises by 1")
+		check(s.skill_points == 100 - Progression.group_cost(50), "charged the group cost")
+	# Caps and costs.
+	var c := make_soldier(2, 50)
+	c.group_caps[Stats.HANDLING] = 51
+	c.skill_points = 100
+	check(not Progression.upgrade_group(c, Stats.HANDLING, rng).is_empty(), "can upgrade below cap")
+	check(Progression.is_capped(c, Stats.HANDLING), "capped after reaching cap")
+	check(Progression.upgrade_group(c, Stats.HANDLING, rng).is_empty(), "cannot pass cap")
+	check(Progression.upgrade_group(c, Stats.DURABILITY, rng).is_empty(), "durability not upgradable")
+	check(Progression.group_cost(85) > Progression.group_cost(65), "cost scales with rating")
+	c.skill_points = Progression.group_cost(50) - 1
+	check(Progression.upgrade_group(c, Stats.MENTALITY, rng).is_empty(), "unaffordable upgrade refused")
+	# Stats never pass 99.
+	var top := make_soldier(3, 98)
+	top.skill_points = 100
+	Progression.upgrade_group(top, Stats.ACCURACY, rng)
+	for st in Stats.group_stats(Stats.ACCURACY):
+		check(top.stats[st] <= 99, "%s over 99" % st)
+
+
+func test_auto_spend_prefers_role_groups() -> void:
 	var s := make_soldier(1, 50)
 	s.skill_points = 12
-	var raised := Progression.auto_spend(s, Scheme.Role.FRONTMAN)
-	check(s.skill_points == 0, "spends all points when possible")
-	check(raised.has(&"short_acc"), "frontman spending includes short range acc")
-	check(not raised.has(&"long_acc"), "frontman should not spend on long range acc first")
+	var raised := Progression.auto_spend(s, Scheme.Role.FLEX)
+	check(s.skill_points < Progression.group_cost(50), "spends until it can't afford more (left %d)" % s.skill_points)
+	check(raised.size() > 0 and raised[0] == Stats.PHYSICALITY, "flex spends on physicality first (%s)" % [raised])
 	var capped := make_soldier(2, 50)
-	capped.caps = capped.stats.duplicate()
+	for g in Stats.UPGRADABLE_GROUPS:
+		capped.group_caps[g] = capped.group_rating(g)
 	capped.skill_points = 5
 	Progression.auto_spend(capped, Scheme.Role.CENTER)
 	check(capped.skill_points == 5, "fully capped player keeps points")
 
 
-func test_training_focus() -> void:
-	var rng := RandomNumberGenerator.new()
+func test_training_intensity() -> void:
 	var t := make_team(1, 50)
 	for s in t.roster:
 		s.age = 27
-	var focus_id := t.roster[0].id
-	var reports := Training.run_week(t, {focus_id: &"long_acc"}, rng)
-	check(reports[focus_id]["xp"] > reports[t.roster[1].id]["xp"], "focus player gains more xp")
-	check(t.roster[0].usage[&"long_acc"] > 0.0 or reports[focus_id]["levels"] > 0, "focus stat gets usage")
+	t.roster[0].intensity = Soldier.INTENSITY_HEAVY
+	t.roster[1].intensity = Soldier.INTENSITY_NORMAL
+	t.roster[2].intensity = Soldier.INTENSITY_REST
+	t.roster[3].injury_weeks = 2
+	var reports := Training.run_week(t)
+	check(reports[t.roster[0].id]["xp"] > reports[t.roster[1].id]["xp"], "heavy earns more xp than normal")
+	check(reports[t.roster[2].id]["xp"] == 0, "rest earns no xp")
+	check(not reports.has(t.roster[3].id), "injured soldiers don't train")
+
+
+func test_fatigue_model() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3
+	check(Conditioning.penalty(30.0) < 0.01 and Conditioning.penalty(60.0) < 0.05, "little effect below 75")
+	check(Conditioning.penalty(90.0) > 0.1, "steep effect above 75")
+	var heavy := make_soldier(1, 60)
+	heavy.intensity = Soldier.INTENSITY_HEAVY
+	var rest := make_soldier(2, 60)
+	rest.intensity = Soldier.INTENSITY_REST
+	rest.fatigue = 60.0
+	var t := Team.new()
+	t.roster.append(heavy)
+	t.roster.append(rest)
+	heavy.stats[Stats.INJURY] = 99  # keep the test about fatigue
+	rest.stats[Stats.INJURY] = 99
+	Conditioning.end_week(t, {heavy.id: true}, false, rng)
+	check(heavy.fatigue > 15.0, "match + heavy training builds fatigue (%.1f)" % heavy.fatigue)
+	check(rest.fatigue < 40.0, "rest recovers (%.1f)" % rest.fatigue)
+	# Settles below exhaustion for a normal-training starter with average endurance.
+	var s := make_soldier(3, 60)
+	for w in 30:
+		s.fatigue = clampf(s.fatigue * (1.0 - Conditioning.weekly_recovery(s, false)) + Conditioning.weekly_load(s, true), 0.0, 100.0)
+	check(s.fatigue > 40.0 and s.fatigue < 75.0, "normal starter equilibrium %.1f" % s.fatigue)
+	var old := make_soldier(4, 60)
+	old.age = 34
+	check(Conditioning.weekly_load(old, true) > Conditioning.weekly_load(s, true), "age raises load")
+	var tough := make_soldier(5, 60, {&"endurance": 90})
+	check(Conditioning.weekly_load(tough, true) < Conditioning.weekly_load(s, true), "endurance lowers load")
+	# Tired soldiers play worse.
+	var fresh_team := make_team(6, 60)
+	var tired_team := make_team(7, 60)
+	for so in tired_team.roster:
+		so.fatigue = 95.0
+	check(win_rate(fresh_team, tired_team, 100, 7000) > 0.6, "fresh team beats an exhausted one")
+
+
+func test_injury_model() -> void:
+	check(Conditioning.base_injury_chance(99) < Conditioning.base_injury_chance(70), "higher Injury rating = fewer injuries")
+	check(Conditioning.fatigue_injury_mult(90.0) > 2.5 and Conditioning.fatigue_injury_mult(40.0) == 1.0, "fatigue multiplies injury chance")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var tough_total := 0
+	var soft_total := 0
+	for i in 2000:
+		tough_total += Conditioning.roll_injury_weeks(95, rng)
+		soft_total += Conditioning.roll_injury_weeks(45, rng)
+	check(soft_total > tough_total * 1.3, "low toughness = longer injuries (%d vs %d)" % [soft_total, tough_total])
+	# Injured soldiers are skipped by auto_lineup and replaced by fill_injured.
+	var t := make_team(1, 60)
+	var star: Soldier = t.lineup[t.scheme.slot_ids()[0]]
+	star.injury_weeks = 2
+	check(t.fill_injured(), "fill_injured swaps the injured starter")
+	check(not t.starters().has(star), "injured starter benched")
+	t.auto_lineup()
+	check(not t.starters().has(star), "auto_lineup skips injured")
+	# Injury countdown.
+	var weeks_before := star.injury_weeks
+	Conditioning.end_week(t, {}, false, rng)
+	check(star.injury_weeks == weeks_before - 1, "injury counts down weekly")
 
 
 func test_match_awards_xp() -> void:
-	var rng := RandomNumberGenerator.new()
 	var league := League.generate(3)
 	var a := league.teams[0]
 	var b := league.teams[1]
@@ -263,7 +364,7 @@ func test_match_awards_xp() -> void:
 	for s in a.starters() + b.starters():
 		before[s.id] = s.level * 100000 + s.xp
 	var r := MatchEngine.simulate(a, b, 1)
-	var reports := Progression.award_match_xp(r, rng)
+	var reports := Progression.award_match_xp(r)
 	check(reports.size() == 10, "all 10 starters get xp")
 	for s in a.starters() + b.starters():
 		check(s.level * 100000 + s.xp > before[s.id], "%s gained xp" % s.full_name())

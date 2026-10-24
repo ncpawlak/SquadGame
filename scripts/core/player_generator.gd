@@ -58,18 +58,28 @@ static func generate(rng: RandomNumberGenerator, id: int, role: Scheme.Role, qua
 		if stat == Stats.INJURY:
 			base = rng.randf_range(70.0, 95.0)
 		s.stats[stat] = Stats.clamp_rating(base + rng.randfn(0.0, 6.0))
-		s.caps[stat] = mini(Stats.MAX_RATING, s.stats[stat] + _roll_headroom(rng, s.age))
+	for g in Stats.UPGRADABLE_GROUPS:
+		s.group_caps[g] = mini(Stats.MAX_RATING, s.group_rating(g) + roll_group_headroom(rng, s.age, g))
 	return s
 
 
-static func _roll_headroom(rng: RandomNumberGenerator, age: int) -> int:
-	if age <= 22:
-		return rng.randi_range(6, 25)
-	if age <= 26:
-		return rng.randi_range(3, 15)
-	if age <= 29:
-		return rng.randi_range(1, 8)
-	return rng.randi_range(0, 4)
+## Group cap headroom by age. Physical peak ends ~29, skill peak ~33; mentality keeps growing.
+static func roll_group_headroom(rng: RandomNumberGenerator, age: int, group: StringName) -> int:
+	var peak := 33
+	if group == Stats.PHYSICALITY:
+		peak = 29
+	elif group == Stats.MENTALITY:
+		peak = 36
+	var years_left := peak - age
+	if years_left <= 0:
+		return rng.randi_range(0, 1)
+	if years_left <= 3:
+		return rng.randi_range(1, 4)
+	if years_left <= 7:
+		return rng.randi_range(2, 9)
+	if years_left <= 10:
+		return rng.randi_range(4, 14)
+	return rng.randi_range(6, 20)
 
 
 ## Builds a full roster that covers the scheme: 2 frontmen, 1 center, 2 flexes, plus 3 depth players.

@@ -329,18 +329,26 @@ func _home_sections() -> Array:
 		func(): open("Playoff Picture", pages.playoffs)))
 
 	var sp := 0
+	var tired := 0
+	var total_fat := 0.0
 	for s in team.roster:
 		if s.skill_points > 0:
 			sp += 1
+		if s.fatigue >= 50.0 and not s.is_injured():
+			tired += 1
+		total_fat += s.fatigue
+	var hurt := team.injured()
+	var hurt_text := "No injuries"
+	if not hurt.is_empty():
+		hurt_text = "[color=#ef4444]%d injured[/color]: %s" % [hurt.size(), ", ".join(PackedStringArray(hurt.map(func(x: Soldier): return x.short_name())))]
 	var team_tiles: Array = [
 		UiKit.tile("Roster", "%d players  -  OVR %d" % [team.roster.size(), team.team_ovr()], SMALL, team.color,
 			func(): open("Roster", pages.roster)),
-		UiKit.tile("Training Focus", "%d / %d focus players set" % [season.user_focus.size(), Training.MAX_FOCUS_PLAYERS],
+		UiKit.tile("Training", "Avg fatigue %d  -  %d tired" % [roundi(total_fat / maxi(1, team.roster.size())), tired],
 			SMALL, Color("#22c55e"), func(): open("Training", pages.training)),
 		UiKit.tile("Progression", ("[color=#38bdf8]%d players[/color] have skill points" % sp) if sp > 0 else "No skill points to spend",
 			SMALL, UiKit.INFO, func(): open("Player Progression", pages.progression)),
-		UiKit.tile("Injuries", "Injury reports", SMALL, UiKit.BAD,
-			func(): coming_soon("Injuries", ["Injury chance from the Injury rating", "Time out from Toughness", "Injured reserve and return dates"]), "SOON"),
+		UiKit.tile("Injuries", hurt_text, SMALL, UiKit.BAD, func(): open("Injuries", pages.injuries)),
 	]
 	return [["THIS WEEK", this_week], ["AROUND THE LEAGUE", league_tiles], ["YOUR TEAM", team_tiles]]
 
@@ -351,8 +359,9 @@ func _team_sections() -> Array:
 		["SQUAD", [
 			UiKit.tile("Roster", "View every soldier, ratings and levels.", TILE, team.color, func(): open("Roster", pages.roster)),
 			UiKit.tile("Lineup", "Set your Power Front starters:\n2 Frontmen, Center, 2 Flex.", TILE, Color("#f97316"), func(): open("Lineup", pages.lineup)),
-			UiKit.tile("Player Progression", "Spend skill points earned from matches and training.", TILE, UiKit.INFO, func(): open("Player Progression", pages.progression)),
-			UiKit.tile("Training", "Pick up to 3 focus players each week for bonus XP.", TILE, Color("#22c55e"), func(): open("Training", pages.training)),
+			UiKit.tile("Player Progression", "Spend skill points on stat groups.", TILE, UiKit.INFO, func(): open("Player Progression", pages.progression)),
+			UiKit.tile("Training", "Set each soldier's training intensity and watch fatigue.", TILE, Color("#22c55e"), func(): open("Training", pages.training)),
+			UiKit.tile("Injuries", "Injury report for your team and the league.", TILE, UiKit.BAD, func(): open("Injuries", pages.injuries)),
 		]],
 		["PERFORMANCE", [
 			UiKit.tile("Team Stats", "Season totals for your soldiers.", TILE, Color("#eab308"), func(): open("Team Stats", pages.team_stats)),

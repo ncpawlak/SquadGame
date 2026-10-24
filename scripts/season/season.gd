@@ -3,9 +3,11 @@ extends RefCounted
 ## Franchise season loop (Madden/FIFA career style): one division, double round robin
 ## regular season, top-N playoffs, then an offseason placeholder.
 ##
-## Weekly flow (sim_week): every team trains (user team uses `user_focus`), the week's matches
-## are simulated, match XP is awarded, then AI teams auto-spend skill points. Records and
-## standings are derived from the played fixtures, so there is no separate record state.
+## Weekly flow (sim_week): AI teams set training intensity and lineups (resting tired/injured
+## soldiers; the user's injured starters are auto-replaced), every team trains at each soldier's
+## intensity, the week's matches are simulated and match XP awarded, then fatigue/injuries are
+## updated (Conditioning) and AI teams auto-spend skill points. Records and standings are
+## derived from the played fixtures, so there is no separate record state.
 
 const DIVISION_NAME := "Premier Division"
 const TEAM_COUNT := 5
@@ -23,8 +25,10 @@ var year: int = 2026
 var week: int = 1
 var phase: StringName = PHASE_REGULAR
 var champion: Team = null
-## soldier id -> stat; used for the user team's training each week.
-var user_focus: Dictionary = {}
+## Injuries from the most recent sim_week, and every injury this season.
+## Each is {soldier, team, weeks, name, week, year}.
+var last_injuries: Array = []
+var injury_log: Array = []
 ## schedule[w - 1] is the Array of ScheduledMatch for regular-season week w.
 var schedule: Array = []
 ## Semifinals (created when the regular season ends) and the final (created after the semis).
@@ -208,16 +212,44 @@ func sim_week() -> Array:
 	if phase == PHASE_OFFSEASON:
 		return []
 	var played := matches_for_week(week)
+	_prepare_lineups()
 	for t in league.teams:
-		Training.run_week(t, user_focus if t.user_controlled else {}, _rng)
+		Training.run_week(t)
+	var played_ids := {}
+	var playing_teams := {}
 	for m in played:
 		if not m.is_played():
 			m.play()
-			Progression.award_match_xp(m.result, _rng)
+			Progression.award_match_xp(m.result)
+		for t: Team in [m.home, m.away]:
+			playing_teams[t] = true
+			for so in t.starters():
+				played_ids[so.id] = true
+	last_injuries = []
 	for t in league.teams:
-		Progression.auto_spend_team(t)
+		# Teams without a match this week (bye, or knocked out of the playoffs) recover extra.
+		var bye := not playing_teams.has(t)
+		for inj in Conditioning.end_week(t, played_ids, bye, _rng):
+			inj["team"] = t
+			inj["week"] = week
+			inj["year"] = year
+			last_injuries.append(inj)
+			injury_log.append(inj)
+	for t in league.teams:
+		Progression.auto_spend_team(t, _rng)
 	_advance()
 	return played
+
+
+## AI teams pick intensities and rest tired/injured starters; every team (including the user's)
+## gets injured starters swapped out so a match is never played by an injured soldier.
+func _prepare_lineups() -> void:
+	for t in league.teams:
+		if t.user_controlled:
+			t.fill_injured()
+		else:
+			t.auto_lineup(true)
+			Training.ai_set_intensities(t)
 
 
 func sim_to_end_of_regular_season() -> void:
@@ -235,6 +267,8 @@ func start_next_season() -> void:
 		push_warning("start_next_season() is only valid in the offseason.")
 		return
 	year += 1
+	for t in league.teams:
+		Conditioning.reset(t)
 	_begin_season()
 
 
@@ -245,6 +279,8 @@ func _begin_season() -> void:
 	phase = PHASE_REGULAR
 	champion = null
 	playoff_matches = []
+	last_injuries = []
+	injury_log = []
 	_rng.seed = _mix([league.league_seed, year, 0x5EA5])
 	_build_schedule()
 

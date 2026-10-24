@@ -56,31 +56,70 @@ func assign(slot_id: StringName, soldier: Soldier) -> void:
 			lineup.erase(previous_slot)
 
 
-## Exhaustively picks the 5 starters/slots that maximise total positional OVR.
-func auto_lineup() -> void:
+## Exhaustively picks the 5 starters/slots that maximise total positional OVR. Injured soldiers
+## are skipped unless there aren't enough healthy ones. With `consider_fatigue`, OVR is scaled
+## by match fatigue penalty so tired starters can be rested.
+func auto_lineup(consider_fatigue := false) -> void:
 	var slot_ids := scheme.slot_ids()
-	var best := {"score": -1, "pick": []}
-	_search(slot_ids, 0, [], 0, best)
+	var pool: Array[Soldier] = []
+	for s in roster:
+		if not s.is_injured():
+			pool.append(s)
+	if pool.size() < slot_ids.size():
+		pool = roster.duplicate()
+	var best := {"score": -1.0, "pick": []}
+	_search(pool, slot_ids, 0, [], 0.0, best, consider_fatigue)
 	lineup.clear()
 	for i in slot_ids.size():
-		lineup[slot_ids[i]] = roster[best["pick"][i]]
+		lineup[slot_ids[i]] = pool[best["pick"][i]]
 
 
-func _search(slot_ids: Array[StringName], depth: int, picked: Array, score: int, best: Dictionary) -> void:
+## Replaces injured starters with the best healthy bench soldier for that slot.
+## Returns true if the lineup changed.
+func fill_injured() -> bool:
+	var changed := false
+	for slot_id in scheme.slot_ids():
+		var current: Soldier = lineup.get(slot_id)
+		if current != null and not current.is_injured():
+			continue
+		var best: Soldier = null
+		for s in bench():
+			if s.is_injured():
+				continue
+			if best == null or ovr_in_slot(s, slot_id) > ovr_in_slot(best, slot_id):
+				best = s
+		if best != null:
+			lineup[slot_id] = best
+			changed = true
+	return changed
+
+
+func injured() -> Array[Soldier]:
+	var out: Array[Soldier] = []
+	for s in roster:
+		if s.is_injured():
+			out.append(s)
+	return out
+
+
+func _search(pool: Array[Soldier], slot_ids: Array[StringName], depth: int, picked: Array, score: float, best: Dictionary, fatigue: bool) -> void:
 	if depth == slot_ids.size():
 		if score > best["score"]:
 			best["score"] = score
 			best["pick"] = picked.duplicate()
 		return
 	var role := scheme.role_for_slot(slot_ids[depth])
-	for i in roster.size():
+	for i in pool.size():
 		if picked.has(i):
 			continue
 		# Identical adjacent slots (FM1/FM2) are interchangeable: enforce ordering to prune.
 		if depth > 0 and scheme.role_for_slot(slot_ids[depth - 1]) == role and i < picked[depth - 1]:
 			continue
+		var value := float(pool[i].ovr_at_role(role))
+		if fatigue:
+			value *= 1.0 - Conditioning.penalty(pool[i].fatigue)
 		picked.append(i)
-		_search(slot_ids, depth + 1, picked, score + roster[i].ovr_at_role(role), best)
+		_search(pool, slot_ids, depth + 1, picked, score + value, best, fatigue)
 		picked.pop_back()
 
 

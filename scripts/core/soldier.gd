@@ -1,22 +1,38 @@
 class_name Soldier
 extends RefCounted
-## A single player/soldier. Ratings live in `stats`; each stat has a hidden cap in `caps`
-## (their potential) that progression can never push past.
+## A single player/soldier. Ratings live in `stats`. Each upgradable stat group has a hidden
+## potential cap in `group_caps` (CFB-style): skill points can't raise a group past its cap.
+
+const INTENSITY_REST := &"rest"
+const INTENSITY_LIGHT := &"light"
+const INTENSITY_NORMAL := &"normal"
+const INTENSITY_HEAVY := &"heavy"
 
 var id: int
 var first_name: String
 var last_name: String
 var age: int
 var stats: Dictionary = {}
-var caps: Dictionary = {}
+## group id -> cap (0-99) for each of Stats.UPGRADABLE_GROUPS.
+var group_caps: Dictionary = {}
 
 # Progression
 var level: int = 1
 var xp: int = 0
 var skill_points: int = 0
-## Per-stat "usage" accumulated from match actions and training focus since the last level-up.
-## Biases which stat gets the random breakthrough on level-up and how the AI spends points.
+## Per-stat "usage" accumulated from match actions since the last level-up.
+## Nudges how the AI spends skill points.
 var usage: Dictionary = {}
+
+# Condition
+## 0-100. Builds from matches and training, recovers each week. Hurts performance above ~50
+## and raises injury chance.
+var fatigue: float = 0.0
+## Weekly training intensity (Soldier.INTENSITY_*).
+var intensity: StringName = INTENSITY_NORMAL
+## Weeks left on the injury list (0 = healthy).
+var injury_weeks: int = 0
+var injury_name: String = ""
 
 # Career totals
 var career := {"matches": 0, "rounds": 0, "kills": 0, "deaths": 0, "assists": 0, "damage": 0}
@@ -47,13 +63,37 @@ func best_ovr() -> int:
 	return ovr_at_role(Scheme.best_role(stats))
 
 
-func headroom(stat: StringName) -> int:
-	return caps[stat] - stats[stat]
+func group_rating(group: StringName) -> int:
+	return Stats.group_rating(stats, group)
 
 
-## Average of caps at the soldier's best role: a rough "potential" OVR.
+func group_cap(group: StringName) -> int:
+	return int(group_caps.get(group, group_rating(group)))
+
+
+## Group upgrades left before the cap (0 = capped).
+func group_headroom(group: StringName) -> int:
+	return maxi(0, group_cap(group) - group_rating(group))
+
+
+func is_injured() -> bool:
+	return injury_weeks > 0
+
+
+## Ratings if every upgradable group reached its cap (each stat raised by the group's headroom).
+func potential_stats() -> Dictionary:
+	var out := stats.duplicate()
+	for g in Stats.UPGRADABLE_GROUPS:
+		var room := group_headroom(g)
+		for s in Stats.group_stats(g):
+			out[s] = mini(Stats.MAX_RATING, int(stats[s]) + room)
+	return out
+
+
+## Best-role OVR at full potential.
 func potential_ovr() -> int:
-	return Scheme.ovr_for_role(caps, Scheme.best_role(caps))
+	var p := potential_stats()
+	return Scheme.ovr_for_role(p, Scheme.best_role(p))
 
 
 func add_usage(stat: StringName, amount: float) -> void:

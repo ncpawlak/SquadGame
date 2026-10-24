@@ -19,6 +19,7 @@ func _init() -> void:
 		"test_full_season_champion",
 		"test_determinism",
 		"test_xp_and_auto_spend",
+		"test_conditioning_over_season",
 		"test_start_next_season",
 	]
 	for t in tests:
@@ -271,7 +272,7 @@ func test_determinism() -> void:
 func test_xp_and_auto_spend() -> void:
 	var s := Season.new_franchise(321)
 	var user := s.user_team()
-	s.user_focus = {user.roster[0].id: Stats.SHORT_ACC}
+	user.roster[0].intensity = Soldier.INTENSITY_HEAVY
 	for i in 4:
 		s.sim_week()
 	var user_pts := 0
@@ -299,6 +300,37 @@ func test_xp_and_auto_spend() -> void:
 	check(matches > 0, "match XP/career recorded for user starters")
 	# Focus player got more XP than an unfocused bench player of similar age? Just ensure levels.
 	check(user.roster[0].level >= 2, "focus player progressed")
+
+
+func test_conditioning_over_season() -> void:
+	var total_injuries := 0
+	var max_fatigue := 0.0
+	var fat_sum := 0.0
+	var fat_n := 0
+	for seed_value in [11, 22, 33]:
+		var s := Season.new_franchise(seed_value)
+		while s.phase != Season.PHASE_OFFSEASON:
+			var injured_ids := {}
+			for t in s.league.teams:
+				for so in t.roster:
+					if so.is_injured():
+						injured_ids[so.id] = true
+			var played := s.sim_week()
+			for m in played:
+				for sid in m.result.box:
+					check(not injured_ids.has(sid), "injured soldier %d played in %s" % [sid, s.week_label(m.week)])
+			for t in s.league.teams:
+				for so in t.starters():
+					fat_sum += so.fatigue
+					fat_n += 1
+					max_fatigue = maxf(max_fatigue, so.fatigue)
+		total_injuries += s.injury_log.size()
+		for e in s.injury_log:
+			check(e["weeks"] >= 1, "injury lasts at least a week")
+	var per_team := total_injuries / 15.0
+	print("    injuries/team/season %.2f, avg starter fatigue %.1f, max %.1f" % [per_team, fat_sum / fat_n, max_fatigue])
+	check(per_team >= 0.5 and per_team <= 5.0, "injuries per team per season in range (%.2f)" % per_team)
+	check(fat_sum / fat_n < 70.0, "starters aren't constantly exhausted")
 
 
 func test_start_next_season() -> void:

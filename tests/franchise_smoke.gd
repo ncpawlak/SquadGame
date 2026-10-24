@@ -28,7 +28,7 @@ func _init() -> void:
 
 	await _visit_pages(hub, "preseason")
 	hub.open("Training", hub.pages.training)
-	hub.season.user_focus[hub.season.user_team().roster[0].id] = Stats.SPEED
+	hub.season.user_team().roster[0].intensity = Soldier.INTENSITY_HEAVY
 	hub.replace("Training", hub.pages.training)
 	await process_frame
 
@@ -71,6 +71,7 @@ func _visit_pages(hub, phase: String) -> void:
 		"standings": p.standings, "schedule": p.schedule, "roster": p.roster, "progression": p.progression,
 		"lineup": p.lineup, "training": p.training, "team_stats": p.team_stats, "leaders": p.leaders,
 		"playoffs": p.playoffs, "rankings": p.team_rankings, "news": p.news, "sim_options": p.sim_options,
+		"injuries": p.injuries,
 	}
 	for key in builders:
 		hub.open(key, builders[key])

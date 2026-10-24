@@ -1,15 +1,16 @@
 class_name Progression
 extends RefCounted
-## XP -> levels -> skill points, in the style of College Football 27.
-## - XP comes from matches (performance-based) and weekly training.
+## XP -> levels -> skill points (SP), spent on stat GROUPS (MLB The Show / CFB27 style).
+## - XP comes from matches (performance-based) and weekly training (scaled by intensity).
 ## - Age scales XP gain: young players develop faster.
-## - Each level grants SKILL_POINTS_PER_LEVEL points to spend on stats (by the user, or by the AI).
-## - Raising a stat costs more the higher it already is, and can never pass its hidden cap.
-## - Light randomness: a level-up can trigger a free +1 "breakthrough" in a stat the soldier
-##   has been using a lot (weighted by usage).
+## - Each level grants SKILL_POINTS_PER_LEVEL SP.
+## - Upgrading a group raises its rating (the average of its stats) by 1: the group's N stats
+##   receive N points, handed out one at a time at random (max +2 per stat per upgrade, 99 max).
+## - Cost scales with the group's current rating. A group can't be upgraded past its cap.
 
 const SKILL_POINTS_PER_LEVEL := 3
-const BREAKTHROUGH_CHANCE := 0.35
+## Max points one stat can get from a single group upgrade.
+const MAX_STAT_GAIN_PER_UPGRADE := 2
 
 const MATCH_BASE_XP := 150.0
 const MATCH_WIN_XP := 100.0
@@ -33,22 +34,25 @@ static func age_multiplier(age: int) -> float:
 	return 0.6
 
 
-## Skill points needed to raise a stat by 1 from its current value.
-static func point_cost(current_rating: int) -> int:
-	if current_rating < 70:
+## SP needed to upgrade a group by 1 from its current rating.
+static func group_cost(group_rating: int) -> int:
+	if group_rating < 60:
 		return 1
-	if current_rating < 80:
+	if group_rating < 80:
 		return 2
-	if current_rating < 90:
+	if group_rating < 90:
 		return 3
 	return 4
 
 
-## Adds XP (after the age multiplier). Returns a report:
-## { xp, levels, points, breakthroughs: Array[StringName] }
-static func gain_xp(soldier: Soldier, base_xp: float, rng: RandomNumberGenerator) -> Dictionary:
+static func upgrade_cost(soldier: Soldier, group: StringName) -> int:
+	return group_cost(soldier.group_rating(group))
+
+
+## Adds XP (after the age multiplier). Returns a report: { xp, levels, points }.
+static func gain_xp(soldier: Soldier, base_xp: float) -> Dictionary:
 	var amount := roundi(base_xp * age_multiplier(soldier.age))
-	var report := {"xp": amount, "levels": 0, "points": 0, "breakthroughs": [] as Array[StringName]}
+	var report := {"xp": amount, "levels": 0, "points": 0}
 	soldier.xp += amount
 	while soldier.xp >= xp_to_next(soldier.level):
 		soldier.xp -= xp_to_next(soldier.level)
@@ -56,79 +60,93 @@ static func gain_xp(soldier: Soldier, base_xp: float, rng: RandomNumberGenerator
 		soldier.skill_points += SKILL_POINTS_PER_LEVEL
 		report["levels"] += 1
 		report["points"] += SKILL_POINTS_PER_LEVEL
-		if rng.randf() < BREAKTHROUGH_CHANCE:
-			var stat := _pick_breakthrough_stat(soldier, rng)
-			if stat != &"":
-				soldier.stats[stat] += 1
-				report["breakthroughs"].append(stat)
 		# Usage decays so recent play matters most.
 		for s in Stats.ALL:
 			soldier.usage[s] *= 0.5
 	return report
 
 
-static func _pick_breakthrough_stat(soldier: Soldier, rng: RandomNumberGenerator) -> StringName:
-	var options: Array[StringName] = []
-	var weights: Array[float] = []
-	for s in Stats.ALL:
-		if soldier.headroom(s) > 0:
-			options.append(s)
-			weights.append(1.0 + soldier.usage[s])
-	if options.is_empty():
-		return &""
-	var total := 0.0
-	for w in weights:
-		total += w
-	var roll := rng.randf() * total
-	for i in options.size():
-		roll -= weights[i]
-		if roll <= 0.0:
-			return options[i]
-	return options[-1]
-
-
-static func can_raise(soldier: Soldier, stat: StringName) -> bool:
-	return soldier.headroom(stat) > 0 and soldier.skill_points >= point_cost(soldier.stats[stat])
-
-
-## Spends points to raise `stat` by 1. Returns false if capped or unaffordable.
-static func spend_point(soldier: Soldier, stat: StringName) -> bool:
-	if not can_raise(soldier, stat):
-		return false
-	soldier.skill_points -= point_cost(soldier.stats[stat])
-	soldier.stats[stat] += 1
+static func is_capped(soldier: Soldier, group: StringName) -> bool:
+	if not Stats.UPGRADABLE_GROUPS.has(group):
+		return true
+	if soldier.group_headroom(group) <= 0:
+		return true
+	for s in Stats.group_stats(group):
+		if soldier.stats[s] < Stats.MAX_RATING:
+			return false
 	return true
 
 
-## AI spending: favour stats that matter for the soldier's role, nudged by recent usage.
-## Spends until nothing affordable with headroom remains. Returns the stats raised (in order).
-static func auto_spend(soldier: Soldier, role: Scheme.Role) -> Array[StringName]:
+static func can_upgrade(soldier: Soldier, group: StringName) -> bool:
+	return not is_capped(soldier, group) and soldier.skill_points >= upgrade_cost(soldier, group)
+
+
+## Spends SP to raise `group` by 1. Returns stat -> points gained (empty if refused).
+static func upgrade_group(soldier: Soldier, group: StringName, rng: RandomNumberGenerator = null) -> Dictionary:
+	if not can_upgrade(soldier, group):
+		return {}
+	if rng == null:
+		rng = RandomNumberGenerator.new()
+		rng.randomize()
+	soldier.skill_points -= upgrade_cost(soldier, group)
+	var members: Array = Stats.group_stats(group)
+	var gains := {}
+	for s in members:
+		gains[s] = 0
+	for i in members.size():
+		var open: Array = []
+		for s in members:
+			if gains[s] < MAX_STAT_GAIN_PER_UPGRADE and soldier.stats[s] + gains[s] < Stats.MAX_RATING:
+				open.append(s)
+		if open.is_empty():
+			break
+		var pick: StringName = open[rng.randi_range(0, open.size() - 1)]
+		gains[pick] += 1
+	for s in members:
+		soldier.stats[s] += gains[s]
+	return gains
+
+
+## How much a group matters to a role's OVR: the sum of the role's weights on its stats
+## (an upgrade adds ~1 to each stat in the group).
+static func group_value(role: Scheme.Role, group: StringName) -> float:
+	var weights: Dictionary = Scheme.ROLE_WEIGHTS[role]
+	var total := 0.0
+	for s in Stats.group_stats(group):
+		total += float(weights.get(s, 0.0))
+	return total
+
+
+## AI spending: best OVR gain per SP for the soldier's role, nudged by recent usage.
+## Spends until nothing affordable remains. Returns the groups upgraded (in order).
+static func auto_spend(soldier: Soldier, role: Scheme.Role, rng: RandomNumberGenerator = null) -> Array[StringName]:
 	var raised: Array[StringName] = []
-	var role_weights: Dictionary = Scheme.ROLE_WEIGHTS[role]
 	var usage_total := 0.0
 	for s in Stats.ALL:
 		usage_total += soldier.usage[s]
 	while true:
 		var best: StringName = &""
 		var best_score := -INF
-		for s in Stats.ALL:
-			if not can_raise(soldier, s):
+		for g in Stats.UPGRADABLE_GROUPS:
+			if not can_upgrade(soldier, g):
 				continue
-			var usage_share: float = soldier.usage[s] / usage_total if usage_total > 0.0 else 0.0
-			# Value per point spent: cheaper upgrades on important stats first.
-			var score: float = (float(role_weights.get(s, 0.1)) + usage_share * 2.0) / point_cost(soldier.stats[s])
+			var usage_share := 0.0
+			if usage_total > 0.0:
+				for s in Stats.group_stats(g):
+					usage_share += soldier.usage[s] / usage_total
+			var score: float = (group_value(role, g) + 0.2 + usage_share * 2.0) / upgrade_cost(soldier, g)
 			if score > best_score:
 				best_score = score
-				best = s
+				best = g
 		if best == &"":
 			break
-		spend_point(soldier, best)
+		upgrade_group(soldier, best, rng)
 		raised.append(best)
 	return raised
 
 
 ## Awards post-match XP to every soldier who played. Returns soldier_id -> gain_xp report.
-static func award_match_xp(result: MatchResult, rng: RandomNumberGenerator) -> Dictionary:
+static func award_match_xp(result: MatchResult) -> Dictionary:
 	var reports := {}
 	for team_index in 2:
 		var team: Team = result.teams[team_index]
@@ -141,7 +159,7 @@ static func award_match_xp(result: MatchResult, rng: RandomNumberGenerator) -> D
 				xp += MATCH_WIN_XP
 			if soldier.id == result.mvp_id:
 				xp += MVP_XP
-			reports[soldier.id] = gain_xp(soldier, xp, rng)
+			reports[soldier.id] = gain_xp(soldier, xp)
 			_record_career(soldier, line)
 	return reports
 
@@ -156,10 +174,10 @@ static func _record_career(soldier: Soldier, line: Dictionary) -> void:
 
 
 ## Runs auto_spend for every soldier on AI-controlled teams.
-static func auto_spend_team(team: Team) -> void:
+static func auto_spend_team(team: Team, rng: RandomNumberGenerator = null) -> void:
 	if team.user_controlled:
 		return
 	for soldier in team.roster:
 		var slot := team.slot_of(soldier)
 		var role := team.scheme.role_for_slot(slot) if slot != &"" else Scheme.best_role(soldier.stats)
-		auto_spend(soldier, role)
+		auto_spend(soldier, role, rng)

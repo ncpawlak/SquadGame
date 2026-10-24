@@ -1,11 +1,9 @@
 extends Control
-## Milestone 1 debug UI: league generation, rosters/lineups, player cards with skill-point
-## spending, weekly training focus, single-match sim with play-by-play/box score, and batch sims.
+## Milestone 1 debug UI: league generation, rosters/lineups, player cards with group skill-point
+## spending and training intensity, single-match sim with play-by-play/box score, and batch sims.
 
 var league: League
 var rng := RandomNumberGenerator.new()
-## soldier_id -> focus stat for the user's team (max Training.MAX_FOCUS_PLAYERS entries)
-var training_focus := {}
 var selected: Soldier
 var week := 1
 var show_caps := false
@@ -233,7 +231,6 @@ func _ovr_color(v: int) -> Color:
 
 func _new_league() -> void:
 	league = League.generate(int(league_seed_spin.value))
-	training_focus.clear()
 	selected = null
 	week = 1
 	for pick in [team_a_pick, team_b_pick, roster_team_pick]:
@@ -251,8 +248,8 @@ func _new_league() -> void:
 
 
 func _update_status() -> void:
-	status_label.text = "Week %d  |  Your team: %s  |  Training focus: %d/%d" % [
-		week, _user_team().name, training_focus.size(), Training.MAX_FOCUS_PLAYERS]
+	status_label.text = "Week %d  |  Your team: %s  |  Set training intensity on each player card" % [
+		week, _user_team().name]
 
 
 func _refresh_team_names() -> void:
@@ -270,9 +267,9 @@ func _sim_match() -> void:
 		return
 	var seed_value := int(match_seed_spin.value)
 	var result := MatchEngine.simulate(a, b, seed_value)
-	var reports := Progression.award_match_xp(result, rng)
+	var reports := Progression.award_match_xp(result)
 	for t in [a, b]:
-		Progression.auto_spend_team(t)
+		Progression.auto_spend_team(t, rng)
 
 	var lines: Array[String] = []
 	for e in result.events:
@@ -317,12 +314,10 @@ func _show_progress(title: String, reports: Dictionary) -> void:
 				continue
 			var r: Dictionary = reports[s.id]
 			var txt := "  %s (age %d): +%d XP" % [s.full_name(), s.age, r["xp"]]
-			if r.get("focus", false):
-				txt += " [color=#38bdf8](focus)[/color]"
+			if r.has("intensity"):
+				txt += " [color=#38bdf8](%s)[/color]" % Training.label(r["intensity"])
 			if r["levels"] > 0:
 				txt += "  [color=#22c55e]LEVEL UP → %d (+%d SP)[/color]" % [s.level, r["points"]]
-			for b in r["breakthroughs"]:
-				txt += "  [color=#facc15]Breakthrough: +1 %s[/color]" % Stats.LABELS[b]
 			team_lines.append(txt)
 		if not team_lines.is_empty():
 			lines.append("[color=#%s][b]%s[/b][/color]%s" % [t.color.to_html(false), _esc(t.name),
@@ -334,25 +329,16 @@ func _show_progress(title: String, reports: Dictionary) -> void:
 func _train_week() -> void:
 	var all_reports := {}
 	for t in league.teams:
-		var focus := training_focus if t.user_controlled else _ai_training_focus(t)
-		all_reports.merge(Training.run_week(t, focus, rng))
-		Progression.auto_spend_team(t)
+		if not t.user_controlled:
+			Training.ai_set_intensities(t)
+		all_reports.merge(Training.run_week(t))
+		Progression.auto_spend_team(t, rng)
 	_show_progress("Training — week %d" % week, all_reports)
 	week += 1
 	right_tabs.current_tab = 2
 	_refresh_team_names()
 	_refresh_roster()
 	_update_status()
-
-
-## AI picks its youngest high-potential players as training focus.
-func _ai_training_focus(t: Team) -> Dictionary:
-	var sorted := t.roster.duplicate()
-	sorted.sort_custom(func(x: Soldier, y: Soldier): return x.potential_ovr() - x.best_ovr() > y.potential_ovr() - y.best_ovr())
-	var focus := {}
-	for i in mini(Training.MAX_FOCUS_PLAYERS, sorted.size()):
-		focus[sorted[i].id] = &""
-	return focus
 
 
 func _batch_sim() -> void:
@@ -409,7 +395,7 @@ func _refresh_roster() -> void:
 		var slot := team.slot_of(s)
 		var pos_ovr := team.ovr_in_slot(s, slot) if slot != &"" else -1
 		it.set_text(0, team.scheme.label_for_slot(slot) if slot != &"" else "Bench")
-		it.set_text(1, s.full_name() + ("  (focus)" if training_focus.has(s.id) and team.user_controlled else ""))
+		it.set_text(1, s.full_name())
 		it.set_text(2, str(s.age))
 		it.set_text(3, str(pos_ovr) if pos_ovr >= 0 else "-")
 		if pos_ovr >= 0:
@@ -478,38 +464,36 @@ func _refresh_card() -> void:
 			_refresh_team_names()
 			_refresh_roster()))
 		actions.add_child(_button("Auto-spend SP", func():
-			Progression.auto_spend(s, team.scheme.role_for_slot(slot) if slot != &"" else Scheme.best_role(s.stats))
+			Progression.auto_spend(s, team.scheme.role_for_slot(slot) if slot != &"" else Scheme.best_role(s.stats), rng)
 			_refresh_roster()))
 		card_box.add_child(actions)
 
-		var focus_row := HBoxContainer.new()
-		var focus_check := CheckBox.new()
-		focus_check.text = "Training focus"
-		focus_check.button_pressed = training_focus.has(s.id)
-		focus_check.disabled = not training_focus.has(s.id) and training_focus.size() >= Training.MAX_FOCUS_PLAYERS
-		var focus_stat := OptionButton.new()
-		focus_stat.add_item("(any stat)")
-		for st in Stats.ALL:
-			focus_stat.add_item(Stats.LABELS[st])
-		if training_focus.has(s.id) and training_focus[s.id] != &"":
-			focus_stat.select(Stats.ALL.find(training_focus[s.id]) + 1)
-		var apply_focus := func():
-			if focus_check.button_pressed:
-				training_focus[s.id] = &"" if focus_stat.selected == 0 else Stats.ALL[focus_stat.selected - 1]
-			else:
-				training_focus.erase(s.id)
-			_update_status()
-			_refresh_roster()
-		focus_check.toggled.connect(func(_on): apply_focus.call())
-		focus_stat.item_selected.connect(func(_i):
-			if focus_check.button_pressed:
-				apply_focus.call())
-		focus_row.add_child(focus_check)
-		focus_row.add_child(focus_stat)
-		focus_row.add_child(_label("(max %d players; focus = %.1f× XP)" % [Training.MAX_FOCUS_PLAYERS, Training.FOCUS_MULTIPLIER]))
-		card_box.add_child(focus_row)
+		var intensity_row := HBoxContainer.new()
+		intensity_row.add_child(_label("Training intensity:"))
+		var intensity_pick := OptionButton.new()
+		for it in Training.INTENSITIES:
+			intensity_pick.add_item(Training.label(it))
+		intensity_pick.select(Training.INTENSITIES.find(s.intensity))
+		intensity_pick.item_selected.connect(func(i: int): s.intensity = Training.INTENSITIES[i])
+		intensity_row.add_child(intensity_pick)
+		intensity_row.add_child(_label("Fatigue %d (%s)%s" % [roundi(s.fatigue), Conditioning.status(s.fatigue),
+			"  INJURED %d wk" % s.injury_weeks if s.is_injured() else ""]))
+		card_box.add_child(intensity_row)
 	else:
 		card_box.add_child(_label("AI-controlled team: skill points are auto-spent after each match/training."))
+
+	var groups := HBoxContainer.new()
+	for g in Stats.UPGRADABLE_GROUPS:
+		var group := g
+		var txt := "%s %d%s" % [Stats.GROUP_LABELS[g], s.group_rating(g), " / cap %d" % s.group_cap(g) if show_caps else ""]
+		var up := _button("%s  +1 (%d SP)" % [txt, Progression.upgrade_cost(s, g)], func():
+			Progression.upgrade_group(s, group, rng)
+			_refresh_roster())
+		up.disabled = not editable or not Progression.can_upgrade(s, g)
+		if Progression.is_capped(s, g):
+			up.text = txt + "  CAPPED"
+		groups.add_child(up)
+	card_box.add_child(groups)
 
 	var grid := GridContainer.new()
 	grid.columns = 4
@@ -521,18 +505,11 @@ func _refresh_card() -> void:
 		var name_l := _label(Stats.LABELS[st] + (" •" if weights.has(st) else ""))
 		name_l.custom_minimum_size.x = 170
 		grid.add_child(name_l)
-		var val := _label(str(s.stats[st]) + ("  / cap %d" % s.caps[st] if show_caps else ""))
+		var val := _label(str(s.stats[st]))
 		val.add_theme_color_override("font_color", _ovr_color(s.stats[st]))
-		val.custom_minimum_size.x = 110
+		val.custom_minimum_size.x = 60
 		grid.add_child(val)
-		var cost := Progression.point_cost(s.stats[st])
-		var plus := _button("+1  (%d SP)" % cost, func():
-			Progression.spend_point(s, st)
-			_refresh_roster())
-		plus.disabled = not editable or not Progression.can_raise(s, st)
-		if s.headroom(st) <= 0:
-			plus.text = "MAXED"
-		grid.add_child(plus)
+		grid.add_child(_label(Stats.GROUP_LABELS[Stats.group_of(st)]))
 		grid.add_child(_label("usage %.0f" % s.usage[st]))
 	card_box.add_child(_label("• = stat counts toward OVR at current position. Career: %d matches, %d K / %d D / %d A" % [
 		s.career["matches"], s.career["kills"], s.career["deaths"], s.career["assists"]]))

@@ -61,6 +61,58 @@ const ABBREV := {
 }
 
 
+## Stat groups (MLB The Show style). A group's rating is the average of its stats.
+## Skill points upgrade whole groups; the Durability group is view-only (age/injuries only).
+const ACCURACY := &"accuracy"
+const HANDLING := &"handling"
+const PHYSICALITY := &"physicality"
+const MENTALITY := &"mentality"
+const DURABILITY := &"durability"
+
+const GROUP_ORDER: Array[StringName] = [ACCURACY, HANDLING, PHYSICALITY, MENTALITY, DURABILITY]
+const UPGRADABLE_GROUPS: Array[StringName] = [ACCURACY, HANDLING, PHYSICALITY, MENTALITY]
+
+const GROUPS := {
+	ACCURACY: [SHORT_ACC, MEDIUM_ACC, LONG_ACC],
+	HANDLING: [RELOAD, GROUPING],
+	PHYSICALITY: [SPEED, AGILITY, STRENGTH, ENDURANCE],
+	MENTALITY: [AWARENESS, COMPOSURE, TEAMWORK],
+	DURABILITY: [INJURY, TOUGHNESS],
+}
+
+const GROUP_LABELS := {
+	ACCURACY: "Accuracy",
+	HANDLING: "Handling",
+	PHYSICALITY: "Physicality",
+	MENTALITY: "Mentality",
+	DURABILITY: "Injury",
+}
+
+
+static func group_stats(group: StringName) -> Array:
+	return GROUPS[group]
+
+
+static func group_of(stat: StringName) -> StringName:
+	for g in GROUP_ORDER:
+		if GROUPS[g].has(stat):
+			return g
+	return &""
+
+
+## Exact (unrounded) average of the group's stats.
+static func group_average(stats: Dictionary, group: StringName) -> float:
+	var members: Array = GROUPS[group]
+	var total := 0.0
+	for s in members:
+		total += float(stats[s])
+	return total / members.size()
+
+
+static func group_rating(stats: Dictionary, group: StringName) -> int:
+	return roundi(group_average(stats, group))
+
+
 static func clamp_rating(value: float) -> int:
 	return clampi(roundi(value), MIN_RATING, MAX_RATING)
 
