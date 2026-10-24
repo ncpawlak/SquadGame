@@ -307,26 +307,128 @@ func _roster_table(progress_view: bool) -> Control:
 		list.sort_custom(func(a: Soldier, b: Soldier): return a.skill_points > b.skill_points)
 	else:
 		list.sort_custom(func(a: Soldier, b: Soldier): return _slot_order(team, a) < _slot_order(team, b))
-	var rows: Array = []
-	var colors := {}
+	var table := _vbox(4)
+	table.add_child(_roster_header(progress_view))
 	for s in list:
-		var slot := team.slot_of(s)
-		var ovr: int = team.ovr_in_slot(s, slot) if slot != &"" else s.best_ovr()
-		var cells := [slot if slot != &"" else "BN", s.full_name(), s.age, ovr,
-			Scheme.ROLE_NAMES[Scheme.best_role(s.stats)], s.level, "%d/%d" % [s.xp, Progression.xp_to_next(s.level)],
-			s.skill_points, _grade(s), roundi(s.fatigue), _status_text(s)]
-		var c := {3: UiKit.ovr_color(ovr), 9: fatigue_color(s.fatigue), 10: UiKit.BAD if s.is_injured() else UiKit.MUTED}
-		if s.skill_points > 0:
-			c[7] = UiKit.INFO
-		colors[rows.size()] = c
-		rows.append(cells)
-	v.add_child(UiKit.table(["SLOT", "NAME", "AGE", "OVR", "BEST POS", "LV", "XP", "SP", "POT", "FAT", "STATUS"], rows,
-		[50, 220, 50, 50, 110, 40, 100, 40, 50, 50, 130], {}, colors,
-		func(i: int):
-			var s: Soldier = list[i]
-			hub.open(s.full_name(), func(): return player(s))))
+		table.add_child(_roster_row(team, s, progress_view))
+	v.add_child(table)
+	v.add_child(_potential_legend())
 	return v
 
+
+## Roster table layout: portrait, name/age/pos, potential, OVR, one column per stat group,
+## (SP in the progression view), then lineup slot / status.
+const RCOL_NAME := 190
+const RCOL_POT := 44
+const RCOL_OVR := 52
+const RCOL_GROUP := 104
+const RCOL_SP := 44
+const RCOL_STATUS := 150
+
+
+func _roster_cols(progress_view: bool) -> Array:
+	var cols := [["", PCOL_PORTRAIT], ["SOLDIER", RCOL_NAME], ["POT", RCOL_POT], ["OVR", RCOL_OVR]]
+	for g in Stats.GROUP_ORDER:
+		cols.append([Stats.GROUP_LABELS[g].to_upper(), RCOL_GROUP])
+	if progress_view:
+		cols.append(["SP", RCOL_SP])
+	cols.append(["SLOT / STATUS", RCOL_STATUS])
+	return cols
+
+
+func _roster_header(progress_view: bool) -> Control:
+	var panel := PanelContainer.new()
+	var sb := UiKit.flat(UiKit.PANEL_HI, 4)
+	sb.content_margin_top = 6
+	sb.content_margin_bottom = 6
+	sb.content_margin_left = 14
+	panel.add_theme_stylebox_override("panel", sb)
+	var hb := _row(PCOL_SEP)
+	for c in _roster_cols(progress_view):
+		var l := UiKit.label(c[0], 13, UiKit.MUTED)
+		l.custom_minimum_size.x = c[1]
+		l.clip_text = true
+		hb.add_child(l)
+	panel.add_child(hb)
+	return panel
+
+
+func _roster_row(team: Team, s: Soldier, progress_view: bool) -> Control:
+	var cols := _roster_cols(progress_view)
+	var width := 28
+	for c in cols:
+		width += c[1] + PCOL_SEP
+	var info := Button.new()
+	UiKit.style_button(info, UiKit.PANEL, UiKit.ACCENT, 6)
+	info.custom_minimum_size = Vector2(width, 62)
+	info.pressed.connect(func(): hub.open(s.full_name(), func(): return player(s)))
+	var hb := _row(PCOL_SEP)
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hb.offset_left = 14
+	hb.offset_right = -14
+	hb.offset_top = 6
+	hb.offset_bottom = -6
+	info.add_child(hb)
+	hb.add_child(Portrait.new(s.id, PCOL_PORTRAIT))
+	hb.add_child(_two_lines(s.full_name(), Color.WHITE,
+		"age %d  -  %s" % [s.age, Scheme.ROLE_NAMES[Scheme.best_role(s.stats)]], RCOL_NAME))
+	hb.add_child(_big_cell(s.potential_letter(), potential_color(s.potential), RCOL_POT))
+	var slot := team.slot_of(s)
+	var ovr: int = team.ovr_in_slot(s, slot) if slot != &"" else s.best_ovr()
+	hb.add_child(_big_cell(str(ovr), UiKit.ovr_color(ovr), RCOL_OVR))
+	for g in Stats.GROUP_ORDER:
+		hb.add_child(_rating_cell(s.group_rating(g), RCOL_GROUP))
+	if progress_view:
+		hb.add_child(_big_cell(str(s.skill_points), UiKit.INFO if s.skill_points > 0 else UiKit.MUTED, RCOL_SP))
+	var slot_text := team.scheme.label_for_slot(slot) if slot != &"" else "Bench"
+	hb.add_child(_two_lines(slot_text, Color.WHITE if slot != &"" else UiKit.MUTED, _status_text(s), RCOL_STATUS, 15))
+	return info
+
+
+func _big_cell(text: String, color: Color, width: int) -> Control:
+	var l := UiKit.label(text, 24, color)
+	l.custom_minimum_size.x = width
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+
+## A group rating: the number over a thin bar filled to the rating, both in the rating color.
+func _rating_cell(value: int, width: int) -> Control:
+	var v := _vbox(3)
+	v.custom_minimum_size.x = width
+	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(UiKit.label(str(value), 18, UiKit.ovr_color(value)))
+	var bar := _row(0)
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var full := width - 16
+	var lit := ColorRect.new()
+	lit.color = UiKit.ovr_color(value)
+	lit.custom_minimum_size = Vector2(maxf(1.0, full * value / 99.0), 5)
+	lit.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar.add_child(lit)
+	var rest := ColorRect.new()
+	rest.color = UiKit.LINE
+	rest.custom_minimum_size = Vector2(full - lit.custom_minimum_size.x, 5)
+	rest.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar.add_child(rest)
+	v.add_child(bar)
+	return v
+
+
+## Potential grades share the scouting grade colors: F red .. A green.
+static func potential_color(grade: int) -> Color:
+	return TIER_COLORS[clampi(grade, 0, TIER_COLORS.size() - 1)]
+
+
+func _potential_legend() -> Control:
+	var parts: PackedStringArray = []
+	for i in range(Soldier.POTENTIAL_A, -1, -1):
+		parts.append("[color=%s]%s[/color] %sx" % [UiKit.hex(potential_color(i)), Soldier.POTENTIAL_LETTERS[i], str(Progression.POTENTIAL_XP[i])])
+	return UiKit.rich("[color=#8b97ab]POT = potential (XP gain):[/color]   " + "   ".join(parts)
+		+ "   [color=#8b97ab]Grades move each offseason with awards, performance and age.[/color]", 14)
 
 func _slot_order(team: Team, s: Soldier) -> int:
 	var slot := team.slot_of(s)
@@ -341,10 +443,23 @@ func player(s: Soldier) -> Control:
 	var slot := team.slot_of(s)
 	var role := team.scheme.role_for_slot(slot) if slot != &"" else Scheme.best_role(s.stats)
 	var v := _vbox(14)
-	var head := UiKit.rich("[font_size=30][color=white]%s[/color][/font_size]   age %d  -  %s  -  %s\nLevel %d   -   XP %d / %d   -   [color=#38bdf8]%d skill points[/color]   -   Potential %s" % [
+	var top := _row(16)
+	top.add_child(Portrait.new(s.id, 84, team.color))
+	var head := UiKit.rich("[font_size=30][color=white]%s[/color][/font_size]   age %d  -  %s  -  %s\nPotential [font_size=22][color=%s]%s[/color][/font_size]   -   [color=#38bdf8]%d skill points[/color]%s" % [
 		UiKit.esc(s.full_name()), s.age, UiKit.esc(team.name), team.scheme.label_for_slot(slot) if slot != &"" else "Bench",
-		s.level, s.xp, Progression.xp_to_next(s.level), s.skill_points, _grade(s)], 16)
-	v.add_child(head)
+		UiKit.hex(potential_color(s.potential)), s.potential_letter(), s.skill_points,
+		("   -   [color=#f59e0b]%s[/color]" % ", ".join(_awards_of(s))) if not _awards_of(s).is_empty() else ""], 16)
+	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top.add_child(head)
+	v.add_child(top)
+	var bars := _row(30)
+	var xp: Array = Progression.xp_progress(s)
+	bars.add_child(_meter("XP", float(xp[0]), float(xp[1]), UiKit.INFO,
+		"%d / %d  (+%d SP)  -  %sx XP from potential" % [xp[0], xp[1], Progression.SKILL_POINTS_PER_LEVEL, str(Progression.xp_multiplier(s))]))
+	bars.add_child(_meter("FATIGUE", s.fatigue, 100.0, fatigue_color(s.fatigue),
+		"%d  -  %s" % [roundi(s.fatigue), Conditioning.status(s.fatigue)]))
+	v.add_child(bars)
 	var ovrs := _row(14)
 	for r in Scheme.ROLE_NAMES:
 		var o := s.ovr_at_role(r)
@@ -362,8 +477,7 @@ func player(s: Soldier) -> Control:
 			hub.replace(s.full_name(), func(): return player(s))))
 		v.add_child(actions)
 
-	var cond := UiKit.rich("CONDITION   Fatigue [color=%s]%d (%s)[/color]   -   %s   -   Training: %s" % [
-		UiKit.hex(fatigue_color(s.fatigue)), roundi(s.fatigue), Conditioning.status(s.fatigue),
+	var cond := UiKit.rich("CONDITION   %s   -   Training: %s" % [
 		("[color=%s]INJURED: %s, out %d wk%s[/color]" % [UiKit.hex(UiKit.BAD), UiKit.esc(s.injury_name), s.injury_weeks, "" if s.injury_weeks == 1 else "s"]) if s.is_injured() else "[color=%s]Healthy[/color]" % UiKit.hex(UiKit.GOOD),
 		Training.label(s.intensity)], 16)
 	v.add_child(cond)
@@ -404,6 +518,39 @@ func player(s: Soldier) -> Control:
 	v.add_child(UiKit.label("Career: %d matches  -  %d K / %d D / %d A  -  %d damage" % [
 		s.career["matches"], s.career["kills"], s.career["deaths"], s.career["assists"], s.career["damage"]], 15, UiKit.MUTED))
 	return v
+
+
+## A labelled bar: "LABEL  [=====-----]  detail".
+func _meter(label: String, value: float, max_value: float, color: Color, detail: String) -> Control:
+	var h := _row(10)
+	var l := UiKit.label(label, 15, UiKit.MUTED)
+	l.custom_minimum_size.x = 76
+	h.add_child(l)
+	var bar := ProgressBar.new()
+	bar.max_value = max_value
+	bar.value = value
+	bar.show_percentage = false
+	bar.custom_minimum_size = Vector2(220, 14)
+	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bar.add_theme_stylebox_override("background", UiKit.flat(UiKit.LINE, 4))
+	var fill := UiKit.flat(color, 4)
+	fill.content_margin_top = 0
+	fill.content_margin_bottom = 0
+	bar.add_theme_stylebox_override("fill", fill)
+	h.add_child(bar)
+	h.add_child(UiKit.label(detail, 15, UiKit.TEXT))
+	return h
+
+
+## Every award a soldier has won, newest first, e.g. "2026 Season MVP".
+func _awards_of(s: Soldier) -> Array:
+	var out: Array = []
+	var history: Array = _season().review_history
+	for i in range(history.size() - 1, -1, -1):
+		var rev: SeasonReview = history[i]
+		for a in rev.award_for(s):
+			out.append("%d %s" % [rev.year, a])
+	return out
 
 
 func _stat_row(s: Soldier, st: StringName, counts: bool) -> Control:
@@ -1146,33 +1293,108 @@ func mock_draft() -> Control:
 	return v
 
 
+# --- awards / development ----------------------------------------------------------
+
+func awards() -> Control:
+	var s := _season()
+	var v := _vbox(14)
+	var latest: SeasonReview = s.review_history[-1] if not s.review_history.is_empty() else null
+	if s.review == null:
+		v.add_child(_section("%d AWARD RACE  -  awards and potential re-grades are handed out after the final" % s.year))
+		v.add_child(_award_race())
+	if latest != null:
+		v.add_child(_section("%d AWARDS" % latest.year))
+		var rows: Array = []
+		var targets: Array = []
+		for a in latest.awards:
+			rows.append([a["award"], a["soldier"].full_name(), a["team"].abbrev if a["team"] != null else "-", a["line"]])
+			targets.append(a["soldier"])
+		v.add_child(_soldier_table(["AWARD", "SOLDIER", "TEAM", "SEASON"], rows, [200, 220, 70, 330], targets))
+		v.add_child(_section("%d ALL-LEAGUE TEAM" % latest.year))
+		rows = []
+		targets = []
+		for a in latest.all_league:
+			rows.append([Scheme.ROLE_NAMES[a["role"]], a["soldier"].full_name(), a["team"].abbrev if a["team"] != null else "-", a["line"]])
+			targets.append(a["soldier"])
+		v.add_child(_soldier_table(["POS", "SOLDIER", "TEAM", "SEASON"], rows, [200, 220, 70, 330], targets))
+		v.add_child(_section("%d POTENTIAL CHANGES  -  awards and outplaying your rating raise it; underperforming and age lower it" % latest.year))
+		rows = []
+		targets = []
+		var colors := {}
+		for c in latest.potential_changes:
+			var so: Soldier = c["soldier"]
+			colors[rows.size()] = {3: potential_color(c["from"]), 4: potential_color(c["to"])}
+			rows.append([so.full_name(), c["team"].abbrev if c["team"] != null else "-", so.age,
+				Soldier.POTENTIAL_LETTERS[c["from"]], Soldier.POTENTIAL_LETTERS[c["to"]], ", ".join(c["reasons"])])
+			targets.append(so)
+		if rows.is_empty():
+			v.add_child(UiKit.label("No changes.", 15, UiKit.MUTED))
+		else:
+			v.add_child(_soldier_table(["SOLDIER", "TEAM", "AGE", "FROM", "TO", "WHY"], rows, [220, 70, 50, 60, 60, 380], targets, colors))
+	if not s.aging_report.is_empty():
+		v.add_child(_section("AGING  -  declines at the start of the %d season (groups decline after their peak age)" % s.year))
+		var rows: Array = []
+		var targets: Array = []
+		for r in s.aging_report:
+			var so: Soldier = r["soldier"]
+			var parts: PackedStringArray = []
+			for g in r["changes"]:
+				parts.append("%s %d" % [Stats.GROUP_LABELS[g], r["changes"][g]])
+			rows.append([so.full_name(), r["team"].abbrev, r["age"], ", ".join(parts)])
+			targets.append(so)
+		v.add_child(_soldier_table(["SOLDIER", "TEAM", "AGE", "DECLINE"], rows, [220, 70, 50, 480], targets))
+	if s.review_history.size() > 1:
+		v.add_child(_section("PAST MVPs"))
+		var rows: Array = []
+		var targets: Array = []
+		for i in range(s.review_history.size() - 1, -1, -1):
+			var rev: SeasonReview = s.review_history[i]
+			if rev.awards.is_empty():
+				continue
+			rows.append([rev.year, rev.awards[0]["soldier"].full_name(), rev.awards[0]["line"]])
+			targets.append(rev.awards[0]["soldier"])
+		v.add_child(_soldier_table(["YEAR", "MVP", "SEASON"], rows, [70, 220, 330], targets))
+	return v
+
+
+func _award_race() -> Control:
+	var all := season_totals()
+	var most := 0
+	for t in all:
+		most = maxi(most, t["matches"])
+	var rows := all.filter(func(t): return t["matches"] >= maxi(1, ceili(most / 2.0)))
+	rows.sort_custom(func(a, b): return a["impact"] / a["matches"] > b["impact"] / b["matches"])
+	rows = rows.slice(0, 8)
+	if rows.is_empty():
+		return UiKit.label("No matches played yet.", 15, UiKit.MUTED)
+	var cells: Array = []
+	var targets: Array = []
+	for i in rows.size():
+		var t: Dictionary = rows[i]
+		cells.append([i + 1, t["soldier"].full_name(), t["team"].abbrev, Scheme.ROLE_NAMES[t["role"]] if t["role"] >= 0 else "-",
+			t["matches"], t["kills"], "%.0f" % (t["impact"] / t["matches"])])
+		targets.append(t["soldier"])
+	return _soldier_table(["#", "SOLDIER", "TEAM", "POS", "GP", "K", "IMP/G"], cells, [40, 220, 70, 110, 50, 50, 80], targets)
+
+
+func _soldier_table(headers: Array, rows: Array, widths: Array, targets: Array, colors := {}) -> Control:
+	var hl := {}
+	for i in targets.size():
+		var team := _team_of(targets[i])
+		if team != null and team.user_controlled:
+			hl[i] = team.color.darkened(0.6)
+	return UiKit.table(headers, rows, widths, hl, colors, func(i: int):
+		var so: Soldier = targets[i]
+		if _team_of(so) != null:
+			hub.open(so.full_name(), func(): return player(so)))
+
+
 # --- data helpers --------------------------------------------------------------------
 
 ## Per-soldier totals for the current season: Array of dicts
 ## {soldier, team, matches, kills, deaths, assists, damage, shots, hits, headshots, mvps}.
 func season_totals() -> Array:
-	var s := _season()
-	var by_id := {}
-	for w in range(1, s.total_weeks() + 1):
-		for m in s.matches_for_week(w):
-			if not m.is_played():
-				continue
-			var r: MatchResult = m.result
-			for sid in r.box:
-				var line: Dictionary = r.box[sid]
-				if not by_id.has(sid):
-					var so := _soldier(sid)
-					if so == null:
-						continue
-					by_id[sid] = {"soldier": so, "team": r.teams[line["team"]], "matches": 0, "kills": 0, "deaths": 0,
-						"assists": 0, "damage": 0, "shots": 0, "hits": 0, "headshots": 0, "mvps": 0}
-				var t: Dictionary = by_id[sid]
-				t["matches"] += 1
-				for k in ["kills", "deaths", "assists", "damage", "shots", "hits", "headshots"]:
-					t[k] += line[k]
-				if sid == r.mvp_id:
-					t["mvps"] += 1
-	return by_id.values()
+	return SeasonReview.totals(_season())
 
 
 func _soldier(id: int) -> Soldier:
@@ -1191,13 +1413,4 @@ func _team_of(s: Soldier) -> Team:
 
 
 func _grade(s: Soldier) -> String:
-	var gap := s.potential_ovr() - s.best_ovr()
-	if gap >= 12:
-		return "A"
-	if gap >= 8:
-		return "B"
-	if gap >= 4:
-		return "C"
-	if gap >= 2:
-		return "D"
-	return "F"
+	return s.potential_letter()

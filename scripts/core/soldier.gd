@@ -1,12 +1,17 @@
 class_name Soldier
 extends RefCounted
-## A single player/soldier. Ratings live in `stats`. Each upgradable stat group has a hidden
-## potential cap in `group_caps` (CFB-style): skill points can't raise a group past its cap.
+## A single player/soldier. Ratings live in `stats`. `potential` is an A-F grade that scales XP
+## gain; each upgradable stat group also has a hidden cap in `group_caps` (rolled at random but
+## larger for higher potential): skill points can't raise a group past its cap.
 
 const INTENSITY_REST := &"rest"
 const INTENSITY_LIGHT := &"light"
 const INTENSITY_NORMAL := &"normal"
 const INTENSITY_HEAVY := &"heavy"
+
+## Potential grades, worst to best (index = Soldier.potential).
+const POTENTIAL_LETTERS := ["F", "D", "C", "B", "A"]
+const POTENTIAL_A := 4
 
 var id: int
 var first_name: String
@@ -15,8 +20,12 @@ var age: int
 var stats: Dictionary = {}
 ## group id -> cap (0-99) for each of Stats.UPGRADABLE_GROUPS.
 var group_caps: Dictionary = {}
+## 0 (F) .. 4 (A). Scales XP gain; moves with end-of-season performance and age.
+var potential: int = 2
+## Year he was drafted (0 = not a draftee). Used for Rookie of the Year.
+var draft_year: int = 0
 
-# Progression
+# Progression (levels are internal: each one just grants skill points)
 var level: int = 1
 var xp: int = 0
 var skill_points: int = 0
@@ -78,6 +87,10 @@ func group_headroom(group: StringName) -> int:
 
 func is_injured() -> bool:
 	return injury_weeks > 0
+
+
+func potential_letter() -> String:
+	return POTENTIAL_LETTERS[clampi(potential, 0, POTENTIAL_A)]
 
 
 ## Ratings if every upgradable group reached its cap (each stat raised by the group's headroom).

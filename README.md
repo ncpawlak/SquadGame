@@ -27,7 +27,8 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
 
 - **Season loop** (`scripts/season/`): 1 division ("Premier Division"), 5 teams. Double round robin: 10 weeks,
   8 matches per team, one bye per week. Top 4 make the playoffs: semis (1v4, 2v3, higher seed hosts), then the final.
-  Then the offseason draft → start next season (rosters and ratings carry over; aging and contracts come later).
+  Then the end-of-season review (awards and potential changes), the offseason draft, and aging → next season
+  (rosters and ratings carry over; contracts come later).
 - **Standings**: W/L, tiebreakers head-to-head, then round differential, then rounds won.
 - **Each week**: all teams train at each soldier's intensity, every match is played, XP is awarded, then fatigue
   and injuries update. AI teams auto-spend skill points and pick intensities; you set yours on the Training page
@@ -56,8 +57,14 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   then semifinal losers, the runner-up, and the champion last. AI teams pick from the consensus board with a little noise, leaning toward their weakest position.
   In the Draft Room you can sim to your pick, draft a prospect or auto-pick. Afterwards every team cuts down to
   8 soldiers (you choose who to release). The next season can't start until the draft and cuts are done.
+- **Awards** (scripts/season/season_review.gd, Home → Awards): after the Final the league hands out Season MVP,
+  Best Frontman/Center/Flex, Rookie of the Year and a 5-man All-League team (2 FM, 1 C, 2 FX), ranked on impact
+  per game (min 4 games). During the season the page shows the MVP race. It also lists potential changes and
+  this year's aging declines.
+- **Roster**: a table like Scouting: portrait, name/age/best position, potential grade, OVR, the five group ratings
+  and lineup slot/status (the Progression view adds SP). The player page shows XP and fatigue bars.
 - **Hub tabs**: Home, Team, League, Personnel, Settings. Tiles marked **SOON** are laid out but not built yet
-  (trades, contracts, free agency, saves, awards, history, staff, facilities).
+  (trades, contracts, free agency, saves, history, staff, facilities).
 
 Controls:
 
@@ -107,11 +114,22 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
   - Each shot is resolved on the range band, accuracy, fatigue, composure, teamwork, and the target's evasion and toughness.
   - Deterministic for a given match seed (`scripts/sim/match_engine.gd`).
 - **Progression:**
-  - XP from matches and weekly training gives levels, and levels give skill points (SP).
+  - XP from matches and weekly training gives skill points (SP): every 500 XP (+150 per batch) = 3 SP.
+    Levels are internal; the UI shows an XP bar toward the next SP.
   - SP buy +1 to a whole group. That spreads N points (N = stats in the group) randomly across the group, at most +2 per stat.
   - Cost rises with the group rating: 2 SP below 60, up to 6 SP at 90+.
-  - Each group has a hidden cap (CFB27 style). Young players have more headroom, and the headroom also depends on the group's peak age (Physicality 29, Accuracy/Handling 33, Mentality 36).
-  - Young players gain XP faster.
+  - **Potential** is an A–F grade that scales XP gain: A 1.5×, B 1.25×, C 1×, D 0.8×, F 0.6×. It's rolled by age
+    (young players skew higher); draft phenoms are A (sometimes B).
+  - Each group has a hidden cap (CFB27 style). Headroom comes from age, is multiplied by the potential grade
+    (A 1.7× … F 0.4×) and by a random per-group factor, so a high grade means more room overall but which
+    groups get it is random.
+  - **End-of-season re-grade**: MVP +1 (50% chance of +2); a position award, All-League or Rookie of the Year +1;
+    performance well above/below the rating rank (impact-per-game percentile vs OVR percentile, ±0.3) ±1;
+    age 30–32 50% chance of −1, 33+ −1 (award winners exempt). Max ±2 a year. Each step up adds 2–6 to a
+    random group's cap; each step down removes 2–6 (never below the current rating).
+  - **Aging** (scripts/sim/aging.gd): everyone ages a year each offseason. Past a group's peak age
+    (Physicality 28, Injury 29, Accuracy 31, Handling 32, Mentality 34) its stats drop each year, ~1 per stat
+    the first year and faster after (up to 6). Caps drop with them.
   - AI teams spend their points automatically, favouring groups their role uses (`scripts/sim/progression.gd`).
 - **Training intensity** (`scripts/sim/training.gd`), per soldier, per week:
   - Rest: 0 XP, extra recovery.
@@ -134,7 +152,7 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
 - Scouting and the end-of-season draft (done: basic version; next: rookie contracts, draft-day trades)
 - Contracts, salaries, yearly money pools
 - In-season trades
-- Age-based decline (including shrinking group caps)
+- Retirement
 - Different game modes per round
 - Visual combat
 - Android and PC exports

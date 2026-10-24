@@ -1,9 +1,9 @@
 class_name Progression
 extends RefCounted
-## XP -> levels -> skill points (SP), spent on stat GROUPS (MLB The Show / CFB27 style).
+## XP -> skill points (SP), spent on stat GROUPS (MLB The Show / CFB27 style).
 ## - XP comes from matches (performance-based) and weekly training (scaled by intensity).
-## - Age scales XP gain: young players develop faster.
-## - Each level grants SKILL_POINTS_PER_LEVEL SP.
+## - The soldier's potential grade scales XP gain (A 1.5x .. F 0.6x).
+## - Every xp_to_next() XP grants SKILL_POINTS_PER_LEVEL SP (levels are internal, not shown).
 ## - Upgrading a group raises its rating (the average of its stats) by 1: the group's N stats
 ##   receive N points, handed out one at a time at random (max +2 per stat per upgrade, 99 max).
 ## - Cost scales with the group's current rating. A group can't be upgraded past its cap.
@@ -18,20 +18,21 @@ const MATCH_IMPACT_XP_SCALE := 0.25
 const MVP_XP := 75.0
 
 
+## XP multiplier per potential grade (F..A).
+const POTENTIAL_XP := [0.6, 0.8, 1.0, 1.25, 1.5]
+
+
 static func xp_to_next(level: int) -> int:
 	return 500 + 150 * (level - 1)
 
 
-static func age_multiplier(age: int) -> float:
-	if age <= 22:
-		return 1.25
-	if age <= 26:
-		return 1.1
-	if age <= 29:
-		return 1.0
-	if age <= 32:
-		return 0.8
-	return 0.6
+static func xp_multiplier(soldier: Soldier) -> float:
+	return POTENTIAL_XP[clampi(soldier.potential, 0, POTENTIAL_XP.size() - 1)]
+
+
+## Progress toward the next batch of skill points: [xp, needed].
+static func xp_progress(soldier: Soldier) -> Array:
+	return [soldier.xp, xp_to_next(soldier.level)]
 
 
 ## SP needed to upgrade a group by 1 from its current rating.
@@ -49,9 +50,9 @@ static func upgrade_cost(soldier: Soldier, group: StringName) -> int:
 	return group_cost(soldier.group_rating(group))
 
 
-## Adds XP (after the age multiplier). Returns a report: { xp, levels, points }.
+## Adds XP (after the potential multiplier). Returns a report: { xp, levels, points }.
 static func gain_xp(soldier: Soldier, base_xp: float) -> Dictionary:
-	var amount := roundi(base_xp * age_multiplier(soldier.age))
+	var amount := roundi(base_xp * xp_multiplier(soldier))
 	var report := {"xp": amount, "levels": 0, "points": 0}
 	soldier.xp += amount
 	while soldier.xp >= xp_to_next(soldier.level):

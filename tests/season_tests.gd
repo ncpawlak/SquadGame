@@ -26,6 +26,7 @@ func _init() -> void:
 		"test_draft_order_and_picks",
 		"test_release",
 		"test_projections_and_mock",
+		"test_season_review_and_aging",
 	]
 	for t in tests:
 		_current = t
@@ -362,6 +363,48 @@ func test_start_next_season() -> void:
 	check(kept >= Team.ROSTER_SIZE - Draft.ROUNDS, "rosters mostly kept (%d)" % kept)
 	var first := s.sim_week()
 	check(first.size() == 2 and first[0].is_played(), "new season playable")
+
+
+func test_season_review_and_aging() -> void:
+	var s := Season.new_franchise(77)
+	check(s.review == null, "no review during the season")
+	var ages := {}
+	for t in s.league.teams:
+		for so in t.roster:
+			check(so.potential >= 0 and so.potential <= Soldier.POTENTIAL_A, "grade in range")
+	s.sim_to_end_of_season()
+	var rev := s.review
+	check(rev != null and rev.year == 2026, "review created at season end")
+	check(s.review_history.size() == 1, "review stored in history")
+	check(rev.awards.size() >= 4 and rev.awards[0]["award"] == "Season MVP", "MVP + position awards (%d)" % rev.awards.size())
+	check(rev.all_league.size() == SeasonReview.ALL_LEAGUE_ROLES.size(), "All-League team of 5")
+	for c in rev.potential_changes:
+		check(absi(c["to"] - c["from"]) <= SeasonReview.MAX_GRADE_CHANGE, "grade change clamped")
+		check(c["soldier"].potential == c["to"], "grade applied")
+		check(not c["reasons"].is_empty(), "change has reasons")
+	var mvp: Soldier = rev.awards[0]["soldier"]
+	var mvp_change := rev.potential_changes.filter(func(c): return c["soldier"] == mvp)
+	check(mvp.potential == Soldier.POTENTIAL_A or (not mvp_change.is_empty() and mvp_change[0]["to"] > mvp_change[0]["from"]), "MVP's grade rises (or is already A)")
+	s.finish_draft()
+	for t in s.league.teams:
+		for so in t.roster:
+			ages[so] = so.age
+	s.start_next_season()
+	for so in ages:
+		check(so.age == ages[so] + 1, "everyone ages a year")
+	for r in s.aging_report:
+		var so: Soldier = r["soldier"]
+		for g in r["changes"]:
+			check(r["changes"][g] < 0, "aging only declines")
+			check(so.age > Aging.PEAK_AGE[g], "declines only past peak")
+	check(s.review == null and s.review_history.size() == 1, "review cleared for the new season, history kept")
+	# Rookies get their draft year.
+	var rookies := 0
+	for t in s.league.teams:
+		for so in t.roster:
+			if so.draft_year == 2026:
+				rookies += 1
+	check(rookies > 0, "drafted soldiers record their draft year")
 
 
 func test_draft_class_and_points() -> void:

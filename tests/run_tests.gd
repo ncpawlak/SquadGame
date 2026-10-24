@@ -20,7 +20,8 @@ func _init() -> void:
 		"test_better_team_wins_more",
 		"test_each_combat_stat_matters",
 		"test_xp_levels_and_points",
-		"test_age_scales_xp",
+		"test_potential_scales_xp",
+		"test_aging_decline",
 		"test_stat_groups",
 		"test_group_upgrade_rules",
 		"test_auto_spend_prefers_role_groups",
@@ -197,7 +198,7 @@ func test_each_combat_stat_matters() -> void:
 
 func test_xp_levels_and_points() -> void:
 	var s := make_soldier(1, 50)
-	s.age = 27  # multiplier 1.0
+	s.potential = 2  # C: multiplier 1.0
 	var r := Progression.gain_xp(s, Progression.xp_to_next(1) - 1)
 	check(r["levels"] == 0 and s.level == 1, "just under threshold: no level")
 	r = Progression.gain_xp(s, 1)
@@ -207,14 +208,77 @@ func test_xp_levels_and_points() -> void:
 	check(s.level == 4, "multi-level gain (level %d)" % s.level)
 
 
-func test_age_scales_xp() -> void:
-	var young := make_soldier(1, 50)
+func test_potential_scales_xp() -> void:
+	var high := make_soldier(1, 50)
+	high.potential = Soldier.POTENTIAL_A
+	var low := make_soldier(2, 50)
+	low.potential = 0
+	var rh := Progression.gain_xp(high, 100)
+	var rl := Progression.gain_xp(low, 100)
+	check(rh["xp"] == 150 and rl["xp"] == 60, "A gains 1.5x, F 0.6x (%d vs %d)" % [rh["xp"], rl["xp"]])
+	# Age no longer matters for XP.
+	var young := make_soldier(3, 50)
 	young.age = 20
-	var old := make_soldier(2, 50)
+	var old := make_soldier(4, 50)
 	old.age = 33
-	var ry := Progression.gain_xp(young, 100)
-	var ro := Progression.gain_xp(old, 100)
-	check(ry["xp"] > ro["xp"], "young player gains more xp (%d vs %d)" % [ry["xp"], ro["xp"]])
+	check(Progression.gain_xp(young, 100)["xp"] == Progression.gain_xp(old, 100)["xp"], "same grade, same xp at any age")
+	# Grades skew high for young players, and higher grades get more cap room on average.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var young_sum := 0
+	var old_sum := 0
+	for i in 400:
+		young_sum += PlayerGenerator.roll_potential(rng, 20)
+		old_sum += PlayerGenerator.roll_potential(rng, 32)
+	check(young_sum > old_sum * 1.5, "young players roll higher grades (%d vs %d)" % [young_sum, old_sum])
+	var room := [0, 0]
+	for i in 200:
+		for k in 2:
+			var so := make_soldier(10 + i, 50)
+			so.age = 22
+			so.potential = Soldier.POTENTIAL_A if k == 0 else 0
+			PlayerGenerator.roll_caps(so, rng)
+			for g in Stats.UPGRADABLE_GROUPS:
+				room[k] += so.group_headroom(g)
+	check(room[0] > room[1] * 2, "A caps well above F caps (%d vs %d)" % [room[0], room[1]])
+	# Grade changes move caps, never below the current rating.
+	var s := make_soldier(5, 70)
+	s.potential = 2
+	for g in Stats.UPGRADABLE_GROUPS:
+		s.group_caps[g] = 72
+	SeasonReview.set_potential(s, 4, rng)
+	var total := 0
+	for g in Stats.UPGRADABLE_GROUPS:
+		total += s.group_cap(g)
+	check(s.potential == 4 and total >= 72 * 4 + 4, "grade up raises caps (%d)" % total)
+	SeasonReview.set_potential(s, 0, rng)
+	for g in Stats.UPGRADABLE_GROUPS:
+		check(s.group_cap(g) >= s.group_rating(g), "grade down never drops cap below rating")
+
+
+func test_aging_decline() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	var young := make_soldier(1, 70)
+	young.age = 24
+	var r := Aging.age_soldier(young, rng)
+	check(young.age == 25 and r["changes"].is_empty(), "no decline before peak")
+	var vet := make_soldier(2, 70)
+	vet.age = 33
+	var before := {}
+	for g in Stats.GROUP_ORDER:
+		before[g] = vet.group_rating(g)
+	r = Aging.age_soldier(vet, rng)
+	check(vet.age == 34, "aged")
+	check(vet.group_rating(Stats.PHYSICALITY) < before[Stats.PHYSICALITY], "physicality declines first")
+	check(vet.group_rating(Stats.MENTALITY) == before[Stats.MENTALITY], "mentality holds until later")
+	for g in Stats.UPGRADABLE_GROUPS:
+		check(vet.group_cap(g) >= vet.group_rating(g), "cap stays at or above rating")
+	check(Aging.decline_rate(6) > Aging.decline_rate(1), "decline speeds up with age")
+	# Ten more years: everything falls, and steeply.
+	for i in 10:
+		Aging.age_soldier(vet, rng)
+	check(vet.group_rating(Stats.PHYSICALITY) < 50, "old soldier's physicality collapses (%d)" % vet.group_rating(Stats.PHYSICALITY))
 
 
 func test_stat_groups() -> void:

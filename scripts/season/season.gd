@@ -35,6 +35,12 @@ var schedule: Array = []
 var playoff_matches: Array = []
 ## This year's draft class: scouted during the season, drafted in the offseason.
 var draft: Draft
+## Awards and potential changes, set when the final is played (null during the season).
+var review: SeasonReview = null
+## Every past review, oldest first (includes `review` once the season is over).
+var review_history: Array = []
+## Who declined with age at the start of this season: Array of Aging.age_soldier reports.
+var aging_report: Array = []
 ## Regular-season week w -> the team on bye.
 var _byes: Array = []
 var _rng := RandomNumberGenerator.new()
@@ -271,6 +277,9 @@ func start_next_season() -> void:
 		push_warning("start_next_season() is only valid in the offseason.")
 		return
 	finish_draft()
+	var arng := RandomNumberGenerator.new()
+	arng.seed = _mix([league.league_seed, year, 0xA6E])
+	aging_report = Aging.age_league(league, arng)
 	year += 1
 	for t in league.teams:
 		Conditioning.reset(t)
@@ -332,6 +341,7 @@ func _begin_season() -> void:
 	week = 1
 	phase = PHASE_REGULAR
 	champion = null
+	review = null
 	playoff_matches = []
 	last_injuries = []
 	injury_log = []
@@ -354,6 +364,10 @@ func _advance() -> void:
 	if last_round.size() == 1:
 		champion = last_round[0].winner()
 		phase = PHASE_OFFSEASON
+		var rrng := RandomNumberGenerator.new()
+		rrng.seed = _mix([league.league_seed, year, 0x4E71])
+		review = SeasonReview.run(self, rrng)
+		review_history.append(review)
 		draft.set_order(draft_order())
 		return
 	var winners: Array = []

@@ -90,9 +90,8 @@ func _make_phenom(p: Prospect) -> void:
 		if st == Stats.INJURY or st == Stats.TOUGHNESS:
 			continue
 		s.stats[st] = maxi(s.stats[st], _rng.randi_range(PHENOM_STAT_MIN, PHENOM_STAT_MAX))
-	for g in Stats.UPGRADABLE_GROUPS:
-		var room := PlayerGenerator.roll_group_headroom(_rng, s.age, g) + PHENOM_EXTRA_HEADROOM
-		s.group_caps[g] = mini(Stats.MAX_RATING, s.group_rating(g) + room)
+	s.potential = Soldier.POTENTIAL_A if _rng.randf() < 0.7 else Soldier.POTENTIAL_A - 1
+	PlayerGenerator.roll_caps(s, _rng, PHENOM_EXTRA_HEADROOM)
 
 
 # --- tiers -------------------------------------------------------------------------
@@ -201,6 +200,7 @@ func make_pick(p: Prospect) -> bool:
 	next_pick += 1
 	p.drafted_by = team
 	p.pick_number = next_pick
+	p.soldier.draft_year = year
 	team.roster.append(p.soldier)
 	return true
 

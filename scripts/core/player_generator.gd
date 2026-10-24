@@ -58,9 +58,43 @@ static func generate(rng: RandomNumberGenerator, id: int, role: Scheme.Role, qua
 		if stat == Stats.INJURY:
 			base = rng.randf_range(70.0, 95.0)
 		s.stats[stat] = Stats.clamp_rating(base + rng.randfn(0.0, 6.0))
-	for g in Stats.UPGRADABLE_GROUPS:
-		s.group_caps[g] = mini(Stats.MAX_RATING, s.group_rating(g) + roll_group_headroom(rng, s.age, g))
+	s.potential = roll_potential(rng, s.age)
+	roll_caps(s, rng)
 	return s
+
+
+## Chance weights for F, D, C, B, A by age band: young players skew high.
+const POTENTIAL_WEIGHTS := [
+	[22, [5, 15, 35, 30, 15]],
+	[26, [10, 25, 35, 22, 8]],
+	[30, [25, 35, 30, 8, 2]],
+	[99, [50, 35, 13, 2, 0]],
+]
+## Cap headroom multiplier per potential grade (F..A).
+const POTENTIAL_HEADROOM := [0.4, 0.7, 1.0, 1.35, 1.7]
+
+
+static func roll_potential(rng: RandomNumberGenerator, age: int) -> int:
+	for band in POTENTIAL_WEIGHTS:
+		if age <= band[0]:
+			var weights: Array = band[1]
+			var total := 0
+			for w in weights:
+				total += w
+			var roll := rng.randi_range(1, total)
+			for i in weights.size():
+				roll -= weights[i]
+				if roll <= 0:
+					return i
+	return 0
+
+
+## Rolls every group cap: age-based headroom x the potential multiplier x a random per-group
+## factor, so higher potential means higher caps overall but which groups get them is random.
+static func roll_caps(s: Soldier, rng: RandomNumberGenerator, extra := 0) -> void:
+	for g in Stats.UPGRADABLE_GROUPS:
+		var room: float = float(roll_group_headroom(rng, s.age, g)) * POTENTIAL_HEADROOM[s.potential] * rng.randf_range(0.3, 1.7)
+		s.group_caps[g] = mini(Stats.MAX_RATING, s.group_rating(g) + roundi(room) + extra)
 
 
 ## Group cap headroom by age. Physical peak ends ~29, skill peak ~33; mentality keeps growing.

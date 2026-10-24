@@ -460,8 +460,7 @@ func _league_sections() -> Array:
 		["HISTORY", [
 			UiKit.tile("Records & History", "Past champions and records.", TILE, UiKit.MUTED,
 				func(): coming_soon("Records & History", ["Past champions by year", "Single-season and career records", "Hall of Fame"]), "SOON"),
-			UiKit.tile("Awards", "MVP, best Frontman, rookie of the year.", TILE, UiKit.MUTED,
-				func(): coming_soon("Awards", ["Season MVP", "Best player at each position", "Rookie of the Year", "All-League teams"]), "SOON"),
+			UiKit.tile("Awards", _awards_blurb(), TILE, Color("#f59e0b"), func(): open("Awards & Development", pages.awards)),
 		]],
 	]
 
@@ -590,6 +589,13 @@ func _leader_blurb() -> String:
 	top.sort_custom(func(a, b): return a["kills"] > b["kills"])
 	var s: Soldier = top[0]["soldier"]
 	return "Kills leader:\n[color=white]%s[/color] (%s)  %d K" % [UiKit.esc(s.full_name()), top[0]["team"].abbrev, top[0]["kills"]]
+
+
+func _awards_blurb() -> String:
+	if season.review != null and not season.review.awards.is_empty():
+		var mvp: Dictionary = season.review.awards[0]
+		return "%d MVP:\n[color=white]%s[/color] (%s)" % [season.review.year, UiKit.esc(mvp["soldier"].full_name()), mvp["team"].abbrev]
+	return "MVP race, position awards, potential changes and aging."
 
 
 func _playoff_blurb() -> String:

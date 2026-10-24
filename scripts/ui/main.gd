@@ -105,7 +105,7 @@ func _build_ui() -> void:
 	roster_tree.hide_root = true
 	roster_tree.column_titles_visible = true
 	roster_tree.select_mode = Tree.SELECT_ROW
-	var cols: Array[String] = ["Slot", "Name", "Age", "Pos OVR", "Best", "Lv", "SP"]
+	var cols: Array[String] = ["Slot", "Name", "Age", "Pos OVR", "Best", "Pot", "SP"]
 	for s in Stats.ALL:
 		cols.append(Stats.ABBREV[s])
 	roster_tree.columns = cols.size()
@@ -317,7 +317,7 @@ func _show_progress(title: String, reports: Dictionary) -> void:
 			if r.has("intensity"):
 				txt += " [color=#38bdf8](%s)[/color]" % Training.label(r["intensity"])
 			if r["levels"] > 0:
-				txt += "  [color=#22c55e]LEVEL UP → %d (+%d SP)[/color]" % [s.level, r["points"]]
+				txt += "  [color=#22c55e]+%d SP[/color]" % r["points"]
 			team_lines.append(txt)
 		if not team_lines.is_empty():
 			lines.append("[color=#%s][b]%s[/b][/color]%s" % [t.color.to_html(false), _esc(t.name),
@@ -401,7 +401,7 @@ func _refresh_roster() -> void:
 		if pos_ovr >= 0:
 			it.set_custom_color(3, _ovr_color(pos_ovr))
 		it.set_text(4, "%d %s" % [s.best_ovr(), Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].left(3)])
-		it.set_text(5, str(s.level))
+		it.set_text(5, s.potential_letter())
 		it.set_text(6, str(s.skill_points))
 		for i in Stats.ALL.size():
 			var v: int = s.stats[Stats.ALL[i]]
@@ -439,10 +439,10 @@ func _refresh_card() -> void:
 	title.bbcode_enabled = true
 	title.fit_content = true
 	var slot := team.slot_of(s)
-	title.text = "[font_size=20][b]%s[/b][/font_size]  age %d  •  %s  •  %s\nLevel %d  •  XP %d / %d  •  [color=#38bdf8]%d skill points[/color]  •  Best OVR %d  •  Potential %s" % [
+	title.text = "[font_size=20][b]%s[/b][/font_size]  age %d  •  %s  •  %s\nXP %d / %d  •  [color=#38bdf8]%d skill points[/color]  •  Best OVR %d  •  Potential %s" % [
 		_esc(s.full_name()), s.age, _esc(team.name),
 		team.scheme.label_for_slot(slot) if slot != &"" else "Bench",
-		s.level, s.xp, Progression.xp_to_next(s.level), s.skill_points, s.best_ovr(), _potential_grade(s)]
+		s.xp, Progression.xp_to_next(s.level), s.skill_points, s.best_ovr(), s.potential_letter()]
 	card_box.add_child(title)
 
 	var ovr_line := HBoxContainer.new()
@@ -514,16 +514,3 @@ func _refresh_card() -> void:
 	card_box.add_child(_label("• = stat counts toward OVR at current position. Career: %d matches, %d K / %d D / %d A" % [
 		s.career["matches"], s.career["kills"], s.career["deaths"], s.career["assists"]]))
 
-
-## Letter grade for remaining growth room — caps themselves stay hidden like CFB.
-func _potential_grade(s: Soldier) -> String:
-	var gap := s.potential_ovr() - s.best_ovr()
-	if gap >= 12:
-		return "A"
-	if gap >= 8:
-		return "B"
-	if gap >= 4:
-		return "C"
-	if gap >= 2:
-		return "D"
-	return "F"

@@ -106,6 +106,7 @@ func _init() -> void:
 	await process_frame
 	_check(hub.season.year == 2027 and hub.season.phase == Season.PHASE_REGULAR, "next season started")
 	_check(hub.season.draft.year == 2027 and hub.season.draft.scout_points == Draft.POINTS_PER_WEEK, "new draft class")
+	await _visit_pages(hub, "new season")
 
 	app.open_debug()
 	await process_frame
@@ -126,6 +127,7 @@ func _visit_pages(hub, phase: String) -> void:
 		"lineup": p.lineup, "training": p.training, "team_stats": p.team_stats, "leaders": p.leaders,
 		"playoffs": p.playoffs, "rankings": p.team_rankings, "news": p.news, "sim_options": p.sim_options,
 		"injuries": p.injuries, "scouting": p.scouting, "draft_room": p.draft_room, "mock_draft": p.mock_draft,
+		"awards": p.awards,
 	}
 	for key in builders:
 		hub.open(key, builders[key])
