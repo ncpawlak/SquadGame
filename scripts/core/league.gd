@@ -20,6 +20,8 @@ var league_seed: int
 var rng := RandomNumberGenerator.new()
 var teams: Array[Team] = []
 var next_soldier_id := 1
+## Unsigned soldiers: undrafted prospects, cuts and expired contracts.
+var free_agents: Array[Soldier] = []
 
 
 static func generate(seed_value: int, team_count := 2) -> League:
@@ -47,3 +49,21 @@ func all_soldiers() -> Array[Soldier]:
 	for t in teams:
 		out.append_array(t.roster)
 	return out
+
+
+## Puts a soldier into the free-agent pool (clearing his contract).
+func add_free_agent(s: Soldier, year: int) -> void:
+	s.contract = null
+	s.fa_since = year
+	s.ask_mult = 1.0
+	s.injury_weeks = 0
+	s.injury_name = ""
+	if not free_agents.has(s):
+		free_agents.append(s)
+
+
+func team_of(s: Soldier) -> Team:
+	for t in teams:
+		if t.roster.has(s):
+			return t
+	return null

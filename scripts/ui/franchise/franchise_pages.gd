@@ -171,6 +171,13 @@ func week_results(label: String, played: Array) -> Control:
 		v.add_child(_score_card(m))
 	if s.champion and s.phase == Season.PHASE_OFFSEASON:
 		v.add_child(UiKit.rich("[font_size=30][color=#f59e0b]%s are the %d champions![/color][/font_size]" % [UiKit.esc(s.champion.name), s.year], 18))
+		var ret := s.retirements_in(s.year)
+		if not ret.is_empty():
+			v.add_child(UiKit.button("%d retirement%s announced - view" % [ret.size(), "" if ret.size() == 1 else "s"], hub.open_retirements, 15))
+		v.add_child(UiKit.button("Re-sign your expiring players", hub.open_resign, 15))
+	if not s.last_signings.is_empty():
+		v.add_child(_section("FREE-AGENT SIGNINGS"))
+		v.add_child(_signings_table(s.last_signings))
 	v.add_child(_section("STANDINGS"))
 	v.add_child(UiKit.label(hub._mini_standings().replace("[color=white]", "").replace("[color=#8b97ab]", "").replace("[/color]", ""), 16))
 	return v
@@ -275,8 +282,10 @@ func progression() -> Control:
 	return _roster_table(true)
 
 
-func _roster_table(progress_view: bool) -> Control:
-	var team := _season().user_team()
+func _roster_table(progress_view: bool, team: Team = null) -> Control:
+	if team == null:
+		team = _season().user_team()
+	var mode := &"progress" if progress_view else &"roster"
 	var v := _vbox()
 	if progress_view:
 		v.add_child(_section("SELECT A SOLDIER TO SPEND SKILL POINTS  -  sorted by available SP"))
@@ -308,35 +317,45 @@ func _roster_table(progress_view: bool) -> Control:
 	else:
 		list.sort_custom(func(a: Soldier, b: Soldier): return _slot_order(team, a) < _slot_order(team, b))
 	var table := _vbox(4)
-	table.add_child(_roster_header(progress_view))
+	table.add_child(_roster_header(mode))
 	for s in list:
-		table.add_child(_roster_row(team, s, progress_view))
+		table.add_child(_roster_row(team, s, mode))
 	v.add_child(table)
 	v.add_child(_potential_legend())
 	return v
 
 
-## Roster table layout: portrait, name/age/pos, potential, OVR, one column per stat group,
-## (SP in the progression view), then lineup slot / status.
+## Roster table layout: portrait, name/age/pos, potential, OVR, one column per stat group, then
+## per mode: roster = contract + lineup slot / status; progress = SP + slot / status;
+## fa = asking price + offers.
 const RCOL_NAME := 190
 const RCOL_POT := 44
 const RCOL_OVR := 52
-const RCOL_GROUP := 104
+const RCOL_GROUP := 96
 const RCOL_SP := 44
 const RCOL_STATUS := 150
+const RCOL_CONTRACT := 110
+const RCOL_OFFERS := 150
 
 
-func _roster_cols(progress_view: bool) -> Array:
+func _roster_cols(mode: StringName) -> Array:
 	var cols := [["", PCOL_PORTRAIT], ["SOLDIER", RCOL_NAME], ["POT", RCOL_POT], ["OVR", RCOL_OVR]]
 	for g in Stats.GROUP_ORDER:
 		cols.append([Stats.GROUP_LABELS[g].to_upper(), RCOL_GROUP])
-	if progress_view:
-		cols.append(["SP", RCOL_SP])
-	cols.append(["SLOT / STATUS", RCOL_STATUS])
+	match mode:
+		&"progress":
+			cols.append(["SP", RCOL_SP])
+			cols.append(["SLOT / STATUS", RCOL_STATUS])
+		&"fa":
+			cols.append(["ASKING", RCOL_CONTRACT])
+			cols.append(["OFFERS", RCOL_OFFERS])
+		_:
+			cols.append(["CONTRACT", RCOL_CONTRACT])
+			cols.append(["SLOT / STATUS", RCOL_STATUS])
 	return cols
 
 
-func _roster_header(progress_view: bool) -> Control:
+func _roster_header(mode: StringName) -> Control:
 	var panel := PanelContainer.new()
 	var sb := UiKit.flat(UiKit.PANEL_HI, 4)
 	sb.content_margin_top = 6
@@ -344,7 +363,7 @@ func _roster_header(progress_view: bool) -> Control:
 	sb.content_margin_left = 14
 	panel.add_theme_stylebox_override("panel", sb)
 	var hb := _row(PCOL_SEP)
-	for c in _roster_cols(progress_view):
+	for c in _roster_cols(mode):
 		var l := UiKit.label(c[0], 13, UiKit.MUTED)
 		l.custom_minimum_size.x = c[1]
 		l.clip_text = true
@@ -353,15 +372,19 @@ func _roster_header(progress_view: bool) -> Control:
 	return panel
 
 
-func _roster_row(team: Team, s: Soldier, progress_view: bool) -> Control:
-	var cols := _roster_cols(progress_view)
+## One soldier row. `team` is null for free agents (mode "fa"), which open the offer page.
+func _roster_row(team: Team, s: Soldier, mode: StringName) -> Control:
+	var cols := _roster_cols(mode)
 	var width := 28
 	for c in cols:
 		width += c[1] + PCOL_SEP
 	var info := Button.new()
 	UiKit.style_button(info, UiKit.PANEL, UiKit.ACCENT, 6)
 	info.custom_minimum_size = Vector2(width, 62)
-	info.pressed.connect(func(): hub.open(s.full_name(), func(): return player(s)))
+	if mode == &"fa":
+		info.pressed.connect(func(): open_offer(s))
+	else:
+		info.pressed.connect(func(): hub.open(s.full_name(), func(): return player(s)))
 	var hb := _row(PCOL_SEP)
 	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -374,16 +397,38 @@ func _roster_row(team: Team, s: Soldier, progress_view: bool) -> Control:
 	hb.add_child(_two_lines(s.full_name(), Color.WHITE,
 		"age %d  -  %s" % [s.age, Scheme.ROLE_NAMES[Scheme.best_role(s.stats)]], RCOL_NAME))
 	hb.add_child(_big_cell(s.potential_letter(), potential_color(s.potential), RCOL_POT))
-	var slot := team.slot_of(s)
+	var slot := team.slot_of(s) if team != null else &""
 	var ovr: int = team.ovr_in_slot(s, slot) if slot != &"" else s.best_ovr()
 	hb.add_child(_big_cell(str(ovr), UiKit.ovr_color(ovr), RCOL_OVR))
 	for g in Stats.GROUP_ORDER:
 		hb.add_child(_rating_cell(s.group_rating(g), RCOL_GROUP))
-	if progress_view:
+	if mode == &"fa":
+		var yrs := Contracts.preferred_years(s)
+		hb.add_child(_two_lines(Contracts.money(Contracts.asking(s, yrs)), Color.WHITE, "%d yr%s" % [yrs, "" if yrs == 1 else "s"], RCOL_CONTRACT, 16))
+		var season := _season()
+		var mine := season.fa.offer_of(season.user_team(), s)
+		var n := season.fa.offers_for(s).size()
+		hb.add_child(_two_lines("%d team%s" % [n, "" if n == 1 else "s"], Color.WHITE if n > 0 else UiKit.MUTED,
+			("YOUR OFFER %s" % Contracts.money(mine["salary"])) if not mine.is_empty() else ("unsigned since %d" % s.fa_since if s.fa_since < season.year else ""),
+			RCOL_OFFERS, 15))
+		if not mine.is_empty():
+			UiKit.style_button(info, UiKit.INFO.darkened(0.7), UiKit.ACCENT, 6)
+		return info
+	if mode == &"progress":
 		hb.add_child(_big_cell(str(s.skill_points), UiKit.INFO if s.skill_points > 0 else UiKit.MUTED, RCOL_SP))
+	else:
+		hb.add_child(_contract_cell(s, RCOL_CONTRACT))
 	var slot_text := team.scheme.label_for_slot(slot) if slot != &"" else "Bench"
 	hb.add_child(_two_lines(slot_text, Color.WHITE if slot != &"" else UiKit.MUTED, _status_text(s), RCOL_STATUS, 15))
 	return info
+
+
+func _contract_cell(s: Soldier, width: int) -> Control:
+	var c := s.contract
+	if c == null:
+		return _two_lines("-", UiKit.MUTED, "", width, 16)
+	var yrs_text := "EXPIRING" if c.is_expiring() else "%d yr%s left" % [c.years, "" if c.years == 1 else "s"]
+	return _two_lines(Contracts.money(c.salary), Color.WHITE, yrs_text + (" (R)" if c.rookie else ""), width, 16)
 
 
 func _big_cell(text: String, color: Color, width: int) -> Control:
@@ -439,20 +484,26 @@ func _slot_order(team: Team, s: Soldier) -> int:
 func player(s: Soldier) -> Control:
 	var season := _season()
 	var team := _team_of(s)
-	var editable := team.user_controlled
-	var slot := team.slot_of(s)
+	var editable := team != null and team.user_controlled
+	var slot := team.slot_of(s) if team != null else &""
 	var role := team.scheme.role_for_slot(slot) if slot != &"" else Scheme.best_role(s.stats)
+	var where := "Bench"
+	if team == null:
+		where = ("Retired %d" % s.retired_year) if s.retired_year > 0 else "Free agent"
+	elif slot != &"":
+		where = team.scheme.label_for_slot(slot)
 	var v := _vbox(14)
 	var top := _row(16)
-	top.add_child(Portrait.new(s.id, 84, team.color))
+	top.add_child(Portrait.new(s.id, 84, team.color if team != null else UiKit.MUTED))
 	var head := UiKit.rich("[font_size=30][color=white]%s[/color][/font_size]   age %d  -  %s  -  %s\nPotential [font_size=22][color=%s]%s[/color][/font_size]   -   [color=#38bdf8]%d skill points[/color]%s" % [
-		UiKit.esc(s.full_name()), s.age, UiKit.esc(team.name), team.scheme.label_for_slot(slot) if slot != &"" else "Bench",
+		UiKit.esc(s.full_name()), s.age, UiKit.esc(team.name if team != null else Scheme.ROLE_NAMES[Scheme.best_role(s.stats)]), where,
 		UiKit.hex(potential_color(s.potential)), s.potential_letter(), s.skill_points,
 		("   -   [color=#f59e0b]%s[/color]" % ", ".join(_awards_of(s))) if not _awards_of(s).is_empty() else ""], 16)
 	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top.add_child(head)
 	v.add_child(top)
+	v.add_child(_contract_line(s, team))
 	var bars := _row(30)
 	var xp: Array = Progression.xp_progress(s)
 	bars.add_child(_meter("XP", float(xp[0]), float(xp[1]), UiKit.INFO,
@@ -518,6 +569,38 @@ func player(s: Soldier) -> Control:
 	v.add_child(UiKit.label("Career: %d matches  -  %d K / %d D / %d A  -  %d damage" % [
 		s.career["matches"], s.career["kills"], s.career["deaths"], s.career["assists"], s.career["damage"]], 15, UiKit.MUTED))
 	return v
+
+
+## Contract summary plus the actions that apply: Make Offer (free agent), Re-sign / Release (yours).
+func _contract_line(s: Soldier, team: Team) -> Control:
+	var season := _season()
+	var h := _row(14)
+	var text := ""
+	if s.retired_year > 0:
+		text = "[color=#8b97ab]Retired after the %d season.[/color]" % s.retired_year
+	elif team == null:
+		var yrs := Contracts.preferred_years(s)
+		text = "CONTRACT   [color=#14b8a6]FREE AGENT[/color]   -   asking [color=white]%s[/color] x %d yr%s   -   %d team%s bidding" % [
+			Contracts.money(Contracts.asking(s, yrs)), yrs, "" if yrs == 1 else "s",
+			season.fa.offers_for(s).size(), "" if season.fa.offers_for(s).size() == 1 else "s"]
+	elif s.contract != null:
+		var c := s.contract
+		text = "CONTRACT   [color=white]%s[/color] / yr   -   %s%s   -   signed %d" % [
+			Contracts.money(c.salary), "[color=#f59e0b]EXPIRING[/color]" if c.is_expiring() else "%d yr%s left" % [c.years, "" if c.years == 1 else "s"],
+			"   -   rookie deal" if c.rookie else "", c.signed_year]
+	var l := UiKit.rich(text, 16)
+	l.autowrap_mode = TextServer.AUTOWRAP_OFF
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(l)
+	if s.retired_year > 0:
+		return h
+	if team == null:
+		h.add_child(UiKit.button("Make Offer", func(): open_offer(s), 15))
+	elif team.user_controlled:
+		if s.contract != null and s.contract.is_expiring() and season.can_resign():
+			h.add_child(UiKit.button("Re-sign", hub.open_resign, 15))
+		h.add_child(UiKit.button("Release (%s dead money)" % Contracts.money(Contracts.dead_money_if_released(s)), hub.open_contracts, 15))
+	return h
 
 
 ## A labelled bar: "LABEL  [=====-----]  detail".
@@ -1131,13 +1214,9 @@ func prospect(p: Prospect) -> Control:
 	return v
 
 
-## Called after every draft-room pick: once the draft ends, AI teams cut down to the roster limit.
+## Called after every draft-room pick. Roster cut-downs now happen when free agency opens.
 func _after_pick() -> void:
-	var s := _season()
-	if s.draft.is_complete():
-		for t in s.league.teams:
-			if not t.user_controlled:
-				t.cut_to_limit()
+	pass
 
 
 func draft_room() -> Control:
@@ -1147,11 +1226,22 @@ func draft_room() -> Control:
 	var v := _vbox(12)
 	if not d.is_started():
 		v.add_child(UiKit.label("The %d draft is held after the Final." % d.year, 22, Color.WHITE))
-		var rules := UiKit.label("%d rounds, snake order: teams that missed the playoffs pick first, the champion picks last. After the draft every team cuts down to %d soldiers. Use your weekly scout points until then." % [
-			Draft.ROUNDS, Team.ROSTER_SIZE], 15, UiKit.MUTED)
+		var rules := UiKit.label("%d rounds, snake order: teams that missed the playoffs pick first, the champion picks last. Rookies sign cheap %d-%d year deals. Use your weekly scout points until then." % [
+			Draft.ROUNDS, Contracts.ROOKIE_YEARS[1], Contracts.ROOKIE_YEARS[0]], 15, UiKit.MUTED)
 		rules.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(rules)
 		v.add_child(UiKit.button("Go to Scouting", hub.open_scouting))
+		return v
+	if s.offseason_stage == Season.OFF_RESIGN:
+		v.add_child(UiKit.label("Re-signing window: the draft starts when you advance.", 22, Color.WHITE))
+		var rules := UiKit.label("Lock up your expiring players first - anyone you don't re-sign hits free agency after the draft. You pick in the order below.", 15, UiKit.MUTED)
+		rules.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.add_child(rules)
+		var nav := _row()
+		nav.add_child(UiKit.button("Re-sign Players", hub.open_resign))
+		nav.add_child(UiKit.button("Scouting", hub.open_scouting))
+		nav.add_child(UiKit.button("Mock Draft", hub.open_mock_draft))
+		v.add_child(nav)
 		return v
 	var refresh := func(): hub.replace("Draft Room", draft_room)
 	if not d.is_complete():
@@ -1195,35 +1285,10 @@ func draft_room() -> Control:
 					_after_pick()
 					refresh.call()))
 			v.add_child(rows)
-	elif user.is_over_roster_limit():
-		var over := user.roster.size() - Team.ROSTER_SIZE
-		v.add_child(UiKit.rich("[font_size=24][color=#ef4444]ROSTER CUTS[/color][/font_size]   Release %d more soldier%s to get down to %d." % [
-			over, "" if over == 1 else "s", Team.ROSTER_SIZE], 16))
-		var list: Array = user.roster.duplicate()
-		list.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() < b.best_ovr())
-		for so in list:
-			var row := _row(12)
-			var cut_ref: Soldier = so
-			var rel := UiKit.button("Release", func():
-				user.release(cut_ref)
-				hub.app.toast("Released %s." % cut_ref.full_name())
-				refresh.call(), 15)
-			rel.custom_minimum_size.x = 120
-			row.add_child(rel)
-			var rookie := ""
-			for p in d.picks():
-				if p.soldier == so:
-					rookie = "   -   ROOKIE (pick %d)" % p.pick_number
-			var info := UiKit.button("%s   -   age %d   -   OVR %d   -   %s   -   POT %s%s" % [so.full_name(), so.age, so.best_ovr(),
-				Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], _grade(so), rookie], func():
-					hub.open(cut_ref.full_name(), func(): return player(cut_ref)), 15)
-			info.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			row.add_child(info)
-			v.add_child(row)
 	else:
 		v.add_child(UiKit.label("The %d draft is complete." % d.year, 22, Color.WHITE))
-		v.add_child(UiKit.button("Start the %d season" % (s.year + 1), hub.advance, 18))
+		if s.offseason_stage == Season.OFF_DRAFT:
+			v.add_child(UiKit.button("Open free agency", hub.advance, 18))
 
 	v.add_child(_section("DRAFT ORDER"))
 	var rows: Array = []
@@ -1385,8 +1450,419 @@ func _soldier_table(headers: Array, rows: Array, widths: Array, targets: Array, 
 			hl[i] = team.color.darkened(0.6)
 	return UiKit.table(headers, rows, widths, hl, colors, func(i: int):
 		var so: Soldier = targets[i]
-		if _team_of(so) != null:
-			hub.open(so.full_name(), func(): return player(so)))
+		hub.open(so.full_name(), func(): return player(so)))
+
+
+# --- league players: teams, free agency, contracts, retirements -----------------------
+
+func teams() -> Control:
+	var s := _season()
+	var v := _vbox(12)
+	v.add_child(_section("ALL TEAMS  -  %s season cap %s (hard cap, same for every team)" % [s.cap_year(), Contracts.money(Contracts.SALARY_CAP)]))
+	var rows: Array = []
+	var hl := {}
+	var colors := {}
+	var list: Array = s.league.teams.duplicate()
+	list.sort_custom(func(a: Team, b: Team): return a.team_ovr() > b.team_ovr())
+	for i in list.size():
+		var t: Team = list[i]
+		var space := Contracts.cap_space(t, s.cap_year())
+		var ages: Array = t.roster.map(func(x: Soldier): return x.age)
+		var avg_age := 0.0
+		for a in ages:
+			avg_age += a
+		rows.append([t.name, s.record_text(t), t.team_ovr(), t.roster.size(), "%.1f" % (avg_age / maxi(1, ages.size())),
+			Contracts.money(Contracts.payroll(t, s.cap_year())), Contracts.money(space)])
+		colors[i] = {2: UiKit.ovr_color(t.team_ovr()), 6: UiKit.GOOD if space >= 0 else UiKit.BAD}
+		if t.user_controlled:
+			hl[i] = t.color.darkened(0.6)
+	v.add_child(UiKit.table(["TEAM", "RECORD", "OVR", "PLAYERS", "AVG AGE", "PAYROLL", "CAP SPACE"], rows, [280, 90, 60, 80, 90, 120, 120], hl, colors,
+		func(i: int):
+			var t: Team = list[i]
+			hub.open(t.name, func(): return team_roster(t))))
+	return v
+
+
+func team_roster(t: Team) -> Control:
+	var s := _season()
+	var v := _vbox(12)
+	var top := _row(14)
+	top.add_child(UiKit.team_chip(t, 18))
+	var info := UiKit.rich("%s   -   OVR [color=white]%d[/color]   -   %d players   -   payroll [color=white]%s[/color]   -   cap space %s%s" % [
+		s.record_text(t), t.team_ovr(), t.roster.size(), Contracts.money(Contracts.payroll(t, s.cap_year())),
+		Contracts.money(Contracts.cap_space(t, s.cap_year())),
+		("   -   dead money %s" % Contracts.money(int(t.dead_money.get(s.cap_year(), 0)))) if t.dead_money.get(s.cap_year(), 0) > 0 else ""], 16)
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top.add_child(info)
+	v.add_child(top)
+	v.add_child(_roster_table(false, t))
+	return v
+
+
+var fa_role_filter := -1
+
+
+func free_agents() -> Control:
+	var s := _season()
+	var user := s.user_team()
+	var v := _vbox(12)
+	var status := "Bidding is open: offers are answered at the start of each week." if s.phase != Season.PHASE_OFFSEASON \
+		else ("FREE AGENCY DAY %d of %d: offers are answered when you advance." % [s.fa_day, Season.FA_DAYS] if s.offseason_stage == Season.OFF_FREE_AGENCY
+		else ("Free agency is over; unsigned soldiers still take offers until the season starts." if s.offseason_stage == Season.OFF_DONE
+		else "Free agency opens after the draft. Expiring contracts and undrafted prospects join this pool."))
+	v.add_child(UiKit.label(status, 18, Color.WHITE))
+	var pending := s.fa.offers_by(user)
+	v.add_child(UiKit.rich("Cap space [color=white]%s[/color]   -   committed in offers [color=#38bdf8]%s[/color]   -   roster %d / %d   -   %d pending offer%s   -   [color=#8b97ab]players weigh money (70%%), team quality and playing time[/color]" % [
+		Contracts.money(Contracts.cap_space(user, s.cap_year())), Contracts.money(s.fa.committed(user)), user.roster.size(), Team.ROSTER_SIZE,
+		pending.size(), "" if pending.size() == 1 else "s"], 15))
+	var filters := _row(8)
+	filters.add_child(UiKit.label("POSITION", 13, UiKit.MUTED))
+	for r in [-1] + range(Scheme.ROLE_NAMES.size()):
+		var role: int = r
+		var b := UiKit.button("All" if role < 0 else Scheme.ROLE_NAMES[role], func():
+			fa_role_filter = role
+			hub.replace("Free Agents", free_agents), 14)
+		if role == fa_role_filter:
+			UiKit.style_button(b, UiKit.ACCENT.darkened(0.45), Color.WHITE, 6)
+		filters.add_child(b)
+	v.add_child(filters)
+	var list: Array = s.league.free_agents.filter(func(x: Soldier): return fa_role_filter < 0 or Scheme.best_role(x.stats) == fa_role_filter)
+	list.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
+	if list.is_empty():
+		v.add_child(UiKit.label("No free agents.", 16, UiKit.MUTED))
+		return v
+	var table := _vbox(4)
+	table.add_child(_roster_header(&"fa"))
+	for so in list:
+		table.add_child(_roster_row(null, so, &"fa"))
+	v.add_child(table)
+	v.add_child(_potential_legend())
+	return v
+
+
+## Offer builder state (salary in $K, years) for the soldier on the offer page.
+var _offer_soldier: Soldier
+var _offer_salary := 0
+var _offer_years := 1
+
+
+func open_offer(s: Soldier) -> void:
+	var season := _season()
+	var mine := season.fa.offer_of(season.user_team(), s)
+	_offer_soldier = s
+	_offer_years = mine.get("years", Contracts.preferred_years(s))
+	_offer_salary = mine.get("salary", Contracts.asking(s, _offer_years))
+	hub.open("Offer: " + s.full_name(), offer)
+
+
+func offer() -> Control:
+	var season := _season()
+	var user := season.user_team()
+	var s := _offer_soldier
+	var v := _vbox(14)
+	if s == null:
+		v.add_child(UiKit.label("Pick a free agent to make an offer.", 18, UiKit.MUTED))
+		return v
+	if not season.league.free_agents.has(s):
+		var t := _team_of(s)
+		v.add_child(UiKit.label("%s is no longer a free agent%s." % [s.full_name(), (" - he signed with " + t.name) if t != null else ""], 20, Color.WHITE))
+		return v
+	var top := _row(16)
+	top.add_child(Portrait.new(s.id, 72))
+	var yrs_pref := Contracts.preferred_years(s)
+	top.add_child(UiKit.rich("[font_size=26][color=white]%s[/color][/font_size]   age %d  -  %s  -  OVR [color=%s]%d[/color]  -  POT [color=%s]%s[/color]\nAsking [color=white]%s[/color] / yr for %d yr%s  -  market value %s  -  %d team%s bidding" % [
+		UiKit.esc(s.full_name()), s.age, Scheme.ROLE_NAMES[Scheme.best_role(s.stats)], UiKit.hex(UiKit.ovr_color(s.best_ovr())), s.best_ovr(),
+		UiKit.hex(potential_color(s.potential)), s.potential_letter(), Contracts.money(Contracts.asking(s, yrs_pref)), yrs_pref, "" if yrs_pref == 1 else "s",
+		Contracts.money(Contracts.market_value(s)), season.fa.offers_for(s).size(), "" if season.fa.offers_for(s).size() == 1 else "s"], 16))
+	top.get_child(1).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_child(top)
+	var rebuild := func(): hub.replace("Offer: " + s.full_name(), offer)
+	var step := maxi(50, roundi(Contracts.asking(s, _offer_years) * 0.05 / 50.0) * 50)
+	var sal_row := _row(12)
+	var sal_l := UiKit.label("SALARY", 15, UiKit.MUTED)
+	sal_l.custom_minimum_size.x = 90
+	sal_row.add_child(sal_l)
+	sal_row.add_child(UiKit.button("  -  ", func():
+		_offer_salary = maxi(Contracts.MIN_SALARY, _offer_salary - step)
+		rebuild.call(), 18))
+	var sv := UiKit.label(Contracts.money(_offer_salary) + " / yr", 24, Color.WHITE)
+	sv.custom_minimum_size.x = 170
+	sv.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sal_row.add_child(sv)
+	sal_row.add_child(UiKit.button("  +  ", func():
+		_offer_salary = mini(Contracts.MAX_SALARY, _offer_salary + step)
+		rebuild.call(), 18))
+	sal_row.add_child(UiKit.button("Match asking", func():
+		_offer_salary = Contracts.asking(s, _offer_years)
+		rebuild.call(), 14))
+	v.add_child(sal_row)
+	var yr_row := _row(12)
+	var yr_l := UiKit.label("YEARS", 15, UiKit.MUTED)
+	yr_l.custom_minimum_size.x = 90
+	yr_row.add_child(yr_l)
+	yr_row.add_child(UiKit.button("  -  ", func():
+		_offer_years = maxi(1, _offer_years - 1)
+		rebuild.call(), 18))
+	var yv := UiKit.label("%d yr%s" % [_offer_years, "" if _offer_years == 1 else "s"], 24, Color.WHITE)
+	yv.custom_minimum_size.x = 170
+	yv.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	yr_row.add_child(yv)
+	yr_row.add_child(UiKit.button("  +  ", func():
+		_offer_years = mini(Contracts.MAX_YEARS, _offer_years + 1)
+		rebuild.call(), 18))
+	yr_row.add_child(UiKit.label("asking at %d yr%s: %s (longer or shorter than he wants costs more)" % [
+		_offer_years, "" if _offer_years == 1 else "s", Contracts.money(Contracts.asking(s, _offer_years))], 14, UiKit.MUTED))
+	v.add_child(yr_row)
+	var it: Array = FreeAgency.interest(user, s, _offer_salary, _offer_years)
+	var role_text := "would START for you" if FreeAgency.would_start(user, s) else "would be a backup for you"
+	v.add_child(UiKit.rich("INTEREST   [font_size=24][color=%s]%s[/color][/font_size]   -   he %s   -   your team OVR %d   -   total value %s" % [
+		UiKit.hex(it[1]), it[0], role_text, user.team_ovr(), Contracts.money(_offer_salary * _offer_years)], 16))
+	var err := season.fa.offer_error(season, user, s, _offer_salary, _offer_years)
+	if err != "":
+		v.add_child(UiKit.label(err, 15, UiKit.BAD))
+	var actions := _row()
+	var mine := season.fa.offer_of(user, s)
+	var submit := UiKit.button("Update Offer" if not mine.is_empty() else "Submit Offer", func():
+		var e := season.fa.make_offer(season, user, s, _offer_salary, _offer_years)
+		if e != "":
+			hub.app.toast(e)
+		else:
+			hub.app.toast("Offer sent to %s: %s x %d. He answers %s." % [s.full_name(), Contracts.money(_offer_salary), _offer_years,
+				"at the start of next week" if season.phase != Season.PHASE_OFFSEASON else "when you advance"])
+		rebuild.call(), 18)
+	submit.disabled = err != ""
+	actions.add_child(submit)
+	if not mine.is_empty():
+		actions.add_child(UiKit.button("Withdraw Offer", func():
+			season.fa.withdraw(user, s)
+			hub.app.toast("Offer withdrawn.")
+			rebuild.call(), 16))
+	actions.add_child(UiKit.button("Full Ratings", func(): hub.open(s.full_name(), func(): return player(s)), 16))
+	v.add_child(actions)
+	if not mine.is_empty():
+		v.add_child(UiKit.label("Pending: %s x %d yr%s." % [Contracts.money(mine["salary"]), mine["years"], "" if mine["years"] == 1 else "s"], 15, UiKit.INFO))
+	var tip := UiKit.label("Players sign the best offer that clears their bar. Money matters most (up to 30% over asking helps), then team quality and whether they'd start. Unsigned players lower their asking price over time. Negotiation (counter-offers, bonuses) is coming later.", 14, UiKit.MUTED)
+	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(tip)
+	return v
+
+
+var _confirm_release: Soldier
+
+
+func contracts() -> Control:
+	var s := _season()
+	var user := s.user_team()
+	var cy := s.cap_year()
+	var v := _vbox(12)
+	var payroll := Contracts.payroll(user, cy)
+	var dead := int(user.dead_money.get(cy, 0))
+	var space := Contracts.cap_space(user, cy)
+	var summary := _row(14)
+	for item in [["%d CAP" % cy, Contracts.money(Contracts.SALARY_CAP), Color.WHITE], ["PAYROLL", Contracts.money(payroll), Color.WHITE],
+			["DEAD MONEY", Contracts.money(dead), UiKit.BAD if dead > 0 else UiKit.MUTED], ["CAP SPACE", Contracts.money(space), UiKit.GOOD if space >= 0 else UiKit.BAD],
+			["ROSTER", "%d / %d" % [user.roster.size(), Team.ROSTER_SIZE], UiKit.BAD if user.is_over_roster_limit() else Color.WHITE]]:
+		var p := UiKit.panel(UiKit.PANEL_HI, 8)
+		var box := _vbox(2)
+		box.add_child(UiKit.label(item[0], 13, UiKit.MUTED))
+		box.add_child(UiKit.label(item[1], 24, item[2]))
+		box.custom_minimum_size.x = 170
+		p.add_child(box)
+		summary.add_child(p)
+	v.add_child(summary)
+	if user.is_over_roster_limit():
+		v.add_child(UiKit.label("Over the roster limit: release %d player%s before the season starts." % [
+			user.roster.size() - Team.ROSTER_SIZE, "" if user.roster.size() - Team.ROSTER_SIZE == 1 else "s"], 16, UiKit.BAD))
+	v.add_child(_section("CONTRACTS  -  releasing a player leaves %d%% of his remaining salary on the cap as dead money" % roundi(Contracts.DEAD_MONEY_SHARE * 100)))
+	var list: Array = user.roster.duplicate()
+	list.sort_custom(func(a: Soldier, b: Soldier):
+		var sa := a.contract.salary if a.contract != null else 0
+		var sb := b.contract.salary if b.contract != null else 0
+		return sa > sb)
+	var refresh := func(): hub.replace("Contracts & Payroll", contracts)
+	var min_roster := user.scheme.slot_ids().size()
+	for so: Soldier in list:
+		var row := _row(12)
+		var ref: Soldier = so
+		var dm := Contracts.dead_money_if_released(so)
+		var confirming: bool = _confirm_release == so
+		var rel := UiKit.button(("Confirm: %s dead" % Contracts.money(dm)) if confirming else "Release", func():
+			if _confirm_release != ref:
+				_confirm_release = ref
+			else:
+				_confirm_release = null
+				var charged := s.release_player(user, ref)
+				hub.app.toast("Released %s. %s dead money." % [ref.full_name(), Contracts.money(charged)])
+			refresh.call(), 14)
+		rel.custom_minimum_size.x = 190
+		rel.disabled = user.roster.size() <= min_roster
+		if confirming:
+			UiKit.style_button(rel, UiKit.BAD.darkened(0.5), Color.WHITE, 6)
+		row.add_child(rel)
+		var c: Contract = so.contract
+		var deal := "no contract"
+		if c != null:
+			deal = "%s / yr  -  %s%s  -  %s remaining" % [Contracts.money(c.salary),
+				"EXPIRING" if c.is_expiring() else "%d yr%s" % [c.years, "" if c.years == 1 else "s"], "  (rookie)" if c.rookie else "",
+				Contracts.money(c.remaining_value())]
+		var info := UiKit.button("%s   -   age %d   -   OVR %d   -   %s   -   %s" % [so.full_name(), so.age, so.best_ovr(),
+			Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], deal], func(): hub.open(ref.full_name(), func(): return player(ref)), 15)
+		info.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(info)
+		v.add_child(row)
+	v.add_child(_section("FUTURE COMMITMENTS"))
+	var rows: Array = []
+	var colors := {}
+	for k in 4:
+		var yr := cy + k
+		var committed := Contracts.payroll(user, cy, k)
+		var under := 0
+		for so in user.roster:
+			if so.contract != null and so.contract.years > k:
+				under += 1
+		rows.append([yr, under, Contracts.money(int(user.dead_money.get(yr, 0))), Contracts.money(committed), Contracts.money(Contracts.SALARY_CAP - committed)])
+		colors[k] = {4: UiKit.GOOD if committed <= Contracts.SALARY_CAP else UiKit.BAD}
+	v.add_child(UiKit.table(["SEASON", "UNDER CONTRACT", "DEAD MONEY", "COMMITTED", "SPACE"], rows, [90, 150, 120, 130, 130], {}, colors))
+	return v
+
+
+var _resign_years := {}
+
+
+func resign() -> Control:
+	var s := _season()
+	var user := s.user_team()
+	var v := _vbox(12)
+	var expiring := Contracts.expiring(user)
+	if s.phase != Season.PHASE_OFFSEASON:
+		v.add_child(UiKit.label("Re-signing opens after the Final.", 22, Color.WHITE))
+		var upcoming: Array = user.roster.filter(func(x: Soldier): return x.contract != null and x.contract.years == 1)
+		v.add_child(UiKit.label("Contracts ending this season: %s" % (", ".join(PackedStringArray(upcoming.map(func(x: Soldier): return x.full_name()))) if not upcoming.is_empty() else "none"), 16, UiKit.MUTED))
+		return v
+	v.add_child(UiKit.rich("[font_size=22][color=white]%s[/color][/font_size]   cap space for %d: [color=white]%s[/color]" % [
+		"RE-SIGN WINDOW OPEN" if s.can_resign() else "RE-SIGN WINDOW CLOSED", s.cap_year(), Contracts.money(Contracts.cap_space(user, s.cap_year()))], 16))
+	var help := UiKit.label("Expiring players give you a %d%% hometown discount. Anyone you don't re-sign before free agency opens joins the free-agent pool." % roundi((1.0 - Contracts.RESIGN_DISCOUNT) * 100), 14, UiKit.MUTED)
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(help)
+	if expiring.is_empty():
+		v.add_child(UiKit.label("No expiring contracts.", 16, UiKit.MUTED))
+	var refresh := func(): hub.replace("Re-sign Players", resign)
+	for so in expiring:
+		var ref: Soldier = so
+		var yrs: int = _resign_years.get(so.id, Contracts.preferred_years(so))
+		var row := _row(10)
+		var info := UiKit.button("%s   -   age %d   -   OVR %d   -   POT %s   -   %s" % [so.full_name(), so.age, so.best_ovr(), so.potential_letter(),
+			Scheme.ROLE_NAMES[Scheme.best_role(so.stats)]], func(): hub.open(ref.full_name(), func(): return player(ref)), 15)
+		info.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		info.custom_minimum_size.x = 520
+		row.add_child(info)
+		row.add_child(UiKit.button("-", func():
+			_resign_years[ref.id] = maxi(1, yrs - 1)
+			refresh.call(), 15))
+		var yl := UiKit.label("%d yr%s" % [yrs, "" if yrs == 1 else "s"], 18, Color.WHITE)
+		yl.custom_minimum_size.x = 60
+		yl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		row.add_child(yl)
+		row.add_child(UiKit.button("+", func():
+			_resign_years[ref.id] = mini(Contracts.MAX_YEARS, yrs + 1)
+			refresh.call(), 15))
+		var ask := UiKit.label("%s / yr" % Contracts.money(Contracts.resign_asking(so, yrs)), 18, Color.WHITE)
+		ask.custom_minimum_size.x = 130
+		row.add_child(ask)
+		var b := UiKit.button("Re-sign", func():
+			var err := s.resign_player(user, ref, yrs)
+			hub.app.toast(err if err != "" else "%s re-signed: %s x %d." % [ref.full_name(), Contracts.money(ref.contract.salary), yrs])
+			refresh.call(), 15)
+		b.disabled = not s.can_resign()
+		row.add_child(b)
+		v.add_child(row)
+	var done: Array = s.resign_log.filter(func(r): return r["year"] == s.year)
+	if not done.is_empty():
+		v.add_child(_section("RE-SIGNED THIS OFFSEASON  -  league-wide"))
+		var rows: Array = []
+		var targets: Array = []
+		for r in done:
+			rows.append([r["team"].abbrev, r["soldier"].full_name(), r["soldier"].age, r["soldier"].best_ovr(), "%s x %d" % [Contracts.money(r["salary"]), r["years"]]])
+			targets.append(r["soldier"])
+		v.add_child(_soldier_table(["TEAM", "SOLDIER", "AGE", "OVR", "DEAL"], rows, [70, 220, 50, 50, 160], targets))
+	return v
+
+
+var retire_scope_team := true
+
+
+func retirements() -> Control:
+	var s := _season()
+	var user := s.user_team()
+	var v := _vbox(12)
+	var toggle := _row(8)
+	for opt in [[true, "Your Team"], [false, "League"]]:
+		var mine: bool = opt[0]
+		var b := UiKit.button(opt[1], func():
+			retire_scope_team = mine
+			hub.replace("Retirements", retirements), 15)
+		if mine == retire_scope_team:
+			UiKit.style_button(b, UiKit.ACCENT.darkened(0.45), Color.WHITE, 6)
+		toggle.add_child(b)
+	v.add_child(toggle)
+	var help := UiKit.label("Soldiers retire from age %d (always by %d). Free agents who go a full season unsigned retire if they're below %d OVR or %d+." % [
+		Retirement.AGE_CHANCE.keys().min(), Retirement.ALWAYS_AGE, Retirement.FA_MIN_OVR, Retirement.FA_MAX_AGE], 14, UiKit.MUTED)
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(help)
+	var list: Array = s.retirements.filter(func(r): return not retire_scope_team or r["team"] == user)
+	if list.is_empty():
+		v.add_child(UiKit.label("No retirements yet. They happen after the Final.", 16, UiKit.MUTED))
+		return v
+	var years: Array = []
+	for r in list:
+		if not years.has(r["year"]):
+			years.append(r["year"])
+	years.sort()
+	years.reverse()
+	for y in years:
+		var of_year: Array = list.filter(func(r): return r["year"] == y)
+		of_year.sort_custom(func(a, b): return a["ovr"] > b["ovr"])
+		v.add_child(_section("%d  -  %d retirement%s" % [y, of_year.size(), "" if of_year.size() == 1 else "s"]))
+		var rows: Array = []
+		var targets: Array = []
+		for r in of_year:
+			var so: Soldier = r["soldier"]
+			rows.append([so.full_name(), r["team"].abbrev if r["team"] != null else "FA", r["age"], Scheme.ROLE_NAMES[r["role"]], r["ovr"],
+				r["reason"], r["matches"], r["kills"], ", ".join(r["awards"]) if not r["awards"].is_empty() else "-"])
+			targets.append(so)
+		v.add_child(_soldier_table(["SOLDIER", "TEAM", "AGE", "POS", "OVR", "REASON", "GP", "K", "HONOURS"], rows, [210, 60, 50, 100, 50, 90, 50, 60, 300], targets))
+	return v
+
+
+## Free-agent signings from one round of offers (FA day or in-season week).
+func signings(label: String, signed: Array) -> Control:
+	var s := _season()
+	var v := _vbox(12)
+	v.add_child(UiKit.label("%d signing%s on %s." % [signed.size(), "" if signed.size() == 1 else "s", label], 20, Color.WHITE))
+	if not signed.is_empty():
+		v.add_child(_signings_table(signed))
+	var user := s.user_team()
+	var pending := s.fa.offers_by(user)
+	if not pending.is_empty():
+		v.add_child(UiKit.label("Still pending: %s" % ", ".join(PackedStringArray(pending.map(func(o): return o["soldier"].full_name()))), 15, UiKit.INFO))
+	var nav := _row()
+	nav.add_child(UiKit.button("Free Agents", hub.open_free_agents))
+	nav.add_child(UiKit.button("Contracts & Payroll", hub.open_contracts))
+	v.add_child(nav)
+	return v
+
+
+func _signings_table(signed: Array) -> Control:
+	var rows: Array = []
+	var targets: Array = []
+	for e in signed:
+		var so: Soldier = e["soldier"]
+		rows.append([e["team"].abbrev, so.full_name(), so.age, Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], so.best_ovr(),
+			"%s x %d" % [Contracts.money(e["salary"]), e["years"]]])
+		targets.append(so)
+	return _soldier_table(["TEAM", "SOLDIER", "AGE", "POS", "OVR", "DEAL"], rows, [70, 220, 50, 100, 50, 160], targets)
 
 
 # --- data helpers --------------------------------------------------------------------
@@ -1406,10 +1882,7 @@ func _soldier(id: int) -> Soldier:
 
 
 func _team_of(s: Soldier) -> Team:
-	for t in _season().league.teams:
-		if t.roster.has(s):
-			return t
-	return null
+	return _season().league.team_of(s)
 
 
 func _grade(s: Soldier) -> String:

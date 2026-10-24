@@ -27,8 +27,8 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
 
 - **Season loop** (`scripts/season/`): 1 division ("Premier Division"), 5 teams. Double round robin: 10 weeks,
   8 matches per team, one bye per week. Top 4 make the playoffs: semis (1v4, 2v3, higher seed hosts), then the final.
-  Then the end-of-season review (awards and potential changes), the offseason draft, and aging → next season
-  (rosters and ratings carry over; contracts come later).
+  Then the end-of-season review (awards and potential changes), the offseason (re-sign → draft → free agency),
+  and aging → next season (rosters, ratings and contracts carry over).
 - **Standings**: W/L, tiebreakers head-to-head, then round differential, then rounds won.
 - **Each week**: all teams train at each soldier's intensity, every match is played, XP is awarded, then fatigue
   and injuries update. AI teams auto-spend skill points and pick intensities; you set yours on the Training page
@@ -55,8 +55,25 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   stat group (a 5-segment bar lit where his grade could be, best grade on top). Each grade is colored: red Poor, orange Below average, gray Average, blue Good, green Elite.
 - **Draft**: after the Final, 2 rounds in snake order. Teams that missed the playoffs pick first (worst record first),
   then semifinal losers, the runner-up, and the champion last. AI teams pick from the consensus board with a little noise, leaning toward their weakest position.
-  In the Draft Room you can sim to your pick, draft a prospect or auto-pick. Afterwards every team cuts down to
-  8 soldiers (you choose who to release). The next season can't start until the draft and cuts are done.
+  In the Draft Room you can sim to your pick, draft a prospect or auto-pick. Draftees get rookie contracts (cheaper
+  later in the draft). The best 12 undrafted prospects join free agency; the rest leave.
+- **Contracts & payroll** (`scripts/core/contract.gd`, `scripts/season/contracts.gd`): every soldier has a salary
+  and years left. Hard cap of $36M per team per season, the same for everyone (Madden-style); minimum salary
+  $750K always fits. Contracts tick down after the Final. Releasing a player leaves 50% of his remaining money on
+  the cap as dead money, split over his remaining years. Personnel → Contracts & Payroll shows cap space, every
+  contract and future commitments. Trades (later) will have to fit under the cap.
+- **Offseason** (advance button walks the stages): **Re-sign** (choose years for expiring players; AI teams re-sign
+  their keepers) → **Draft** → **Free agency** (3 days) → next season. Rosters max out at 8; you must release down to
+  8 before the season starts.
+- **Free agency** (`scripts/season/free_agency.gd`, League → Free Agents): unsigned soldiers with all ratings
+  visible. Bidding: make offers (salary and years) during FA days or in-season. Each round every free agent scores
+  his offers (70% money vs. asking, 15% team quality, 15% playing time) and signs the best one that clears his
+  bar. Unsigned players lower their asking price over time. AI teams bid too. Contract negotiation (counter-offers,
+  bonuses) is planned.
+- **Retirement** (`scripts/season/retirement.gd`): soldiers retire from age 35 (always by 39), more likely as
+  they decline. Free agents unsigned for a season retire if they're weak or 33+, which keeps the pool churning.
+  Home/League → Retirements lists them by year, toggling between your team and the league.
+- **Other teams**: League → Teams lists every club's record, OVR, payroll and cap space; click one for its roster.
 - **Awards** (scripts/season/season_review.gd, Home → Awards): after the Final the league hands out Season MVP,
   Best Frontman/Center/Flex, Rookie of the Year and a 5-man All-League team (2 FM, 1 C, 2 FX), ranked on impact
   per game (min 4 games). During the season the page shows the MVP race. It also lists potential changes and
@@ -64,7 +81,7 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
 - **Roster**: a table like Scouting: portrait, name/age/best position, potential grade, OVR, the five group ratings
   and lineup slot/status (the Progression view adds SP). The player page shows XP and fatigue bars.
 - **Hub tabs**: Home, Team, League, Personnel, Settings. Tiles marked **SOON** are laid out but not built yet
-  (trades, contracts, free agency, saves, history, staff, facilities).
+  (trades, contract negotiation, saves, staff, facilities).
 
 Controls:
 
@@ -149,10 +166,9 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
 ## Roadmap
 
 - Seasons and schedules
-- Scouting and the end-of-season draft (done: basic version; next: rookie contracts, draft-day trades)
-- Contracts, salaries, yearly money pools
-- In-season trades
-- Retirement
+- Scouting and the end-of-season draft (done; next: draft-day trades)
+- Contracts, hard cap, free agency, retirement (done; next: contract negotiation with counter-offers and bonuses)
+- In-season trades (must fit under the cap)
 - Different game modes per round
 - Visual combat
 - Android and PC exports

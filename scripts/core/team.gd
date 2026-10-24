@@ -14,6 +14,8 @@ var scheme: Scheme = Scheme.power_front()
 var lineup: Dictionary = {}
 ## True for the team the user controls (skill points are not auto-spent).
 var user_controlled := false
+## Cap year -> dead money ($K) still owed to released soldiers.
+var dead_money: Dictionary = {}
 
 
 func starters() -> Array[Soldier]:
@@ -108,10 +110,10 @@ func release(soldier: Soldier) -> void:
 
 
 ## AI cut-down: releases the lowest-value soldiers (current OVR plus some upside) until at
-## ROSTER_SIZE. Returns the released soldiers.
-func cut_to_limit() -> Array[Soldier]:
+## `limit` (default ROSTER_SIZE). Returns the released soldiers.
+func cut_to_limit(limit := ROSTER_SIZE) -> Array[Soldier]:
 	var cut: Array[Soldier] = []
-	while is_over_roster_limit():
+	while roster.size() > limit:
 		var worst: Soldier = null
 		var worst_v := INF
 		for s in roster:

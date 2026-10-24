@@ -201,6 +201,7 @@ func make_pick(p: Prospect) -> bool:
 	p.drafted_by = team
 	p.pick_number = next_pick
 	p.soldier.draft_year = year
+	p.soldier.contract = Contracts.rookie_contract(p.pick_number, order.size(), year)
 	team.roster.append(p.soldier)
 	return true
 

@@ -25,6 +25,9 @@ func _init() -> void:
 		"test_scouting_windows",
 		"test_draft_order_and_picks",
 		"test_release",
+		"test_contracts_and_cap",
+		"test_free_agency_bidding",
+		"test_retirement_and_offseason_flow",
 		"test_projections_and_mock",
 		"test_season_review_and_aging",
 	]
@@ -499,10 +502,110 @@ func test_draft_order_and_picks() -> void:
 	s.finish_draft()
 	check(d.is_complete(), "draft completed")
 	check(d.picks().size() == d.order.size(), "all picks made")
+	check(s.offseason_stage == Season.OFF_RESIGN, "still in the re-sign window")
+	s.advance_offseason()
+	s.advance_offseason()
+	check(s.offseason_stage == Season.OFF_FREE_AGENCY, "free agency opened after the draft")
 	for t in s.league.teams:
-		check(t.roster.size() == Team.ROSTER_SIZE, "%s cut to limit" % t.abbrev)
+		if not t.user_controlled:
+			check(t.roster.size() <= Team.ROSTER_SIZE, "%s cut to limit" % t.abbrev)
 		check(t.lineup.size() == 5, "lineup valid after cuts")
+		for so in t.roster:
+			check(so.contract != null and not so.contract.is_expiring(), "%s has a live contract" % so.full_name())
 	check(made.size() == d.order.find(user), "AI picks before user")
+
+
+func test_contracts_and_cap() -> void:
+	var s := Season.new_franchise(61)
+	for t in s.league.teams:
+		check(Contracts.payroll(t, s.year) <= Contracts.SALARY_CAP, "%s starts under the cap" % t.abbrev)
+		for so in t.roster:
+			check(so.contract != null and so.contract.years >= 1, "initial contract")
+	var t := s.user_team()
+	var best: Soldier = t.roster[0]
+	var worst: Soldier = t.roster[0]
+	for so in t.roster:
+		if so.best_ovr() > best.best_ovr():
+			best = so
+		if so.best_ovr() < worst.best_ovr():
+			worst = so
+	check(Contracts.market_value(best) >= Contracts.market_value(worst), "better players cost more")
+	check(Contracts.asking(best, Contracts.preferred_years(best)) <= Contracts.asking(best, 5) or Contracts.preferred_years(best) == 5, "off-length deals cost more")
+	var payroll := Contracts.payroll(t, s.year)
+	var c: Contract = worst.contract
+	var expected_dead := Contracts.dead_money_if_released(worst)
+	var dead := s.release_player(t, worst)
+	check(dead == expected_dead and dead == roundi(c.salary * Contracts.DEAD_MONEY_SHARE) * c.years, "dead money = half of each remaining year")
+	check(s.league.free_agents.has(worst) and worst.contract == null, "released into free agency")
+	check(Contracts.payroll(t, s.year) == payroll - c.salary + roundi(c.salary * Contracts.DEAD_MONEY_SHARE), "payroll includes dead money")
+	check(Contracts.fits(t, s.year, Contracts.MIN_SALARY, 999999), "minimum deals always fit")
+	check(not Contracts.fits(t, s.year, Contracts.cap_space(t, s.year) + 1), "can't exceed the cap")
+	check(Contracts.money(1250) == "$1.25M" and Contracts.money(750) == "$750K", "money format")
+
+
+func test_free_agency_bidding() -> void:
+	var s := Season.new_franchise(62)
+	var t := s.user_team()
+	t.release(t.roster[-1])
+	t.release(t.roster[-1])
+	check(s.free_agency_open(), "in-season free agency is open")
+	var pool := s.league.free_agents
+	check(pool.size() >= Season.INITIAL_FREE_AGENTS, "initial pool")
+	var target: Soldier = pool[0]
+	for so in pool:
+		if so.best_ovr() > target.best_ovr():
+			target = so
+	var yrs := Contracts.preferred_years(target)
+	check(s.fa.make_offer(s, t, target, Contracts.MAX_SALARY + 1, yrs) != "", "salary over max rejected")
+	var low := s.fa.make_offer(s, t, target, Contracts.MIN_SALARY, yrs)
+	check(low == "" and s.fa.offers_by(t).size() == 1, "offer placed")
+	check(FreeAgency.interest(t, target, Contracts.MIN_SALARY, yrs)[0] == "LOW" or Contracts.asking(target, yrs) <= Contracts.MIN_SALARY, "lowball = low interest")
+	var rich := mini(Contracts.MAX_SALARY, roundi(Contracts.asking(target, yrs) * 1.3))
+	check(s.fa.make_offer(s, t, target, rich, yrs) == "" and s.fa.offers_by(t).size() == 1, "offer replaced, not duplicated")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1
+	var signed := s.fa.resolve(s, rng, "test")
+	check(t.roster.has(target) and not pool.has(target), "generous offer accepted")
+	check(target.contract != null and target.contract.salary == rich and target.contract.years == yrs, "contract matches the offer")
+	check(signed.any(func(e): return e["soldier"] == target), "signing reported")
+	# An ignored free agent lowers his price.
+	var other: Soldier = pool[0]
+	var before := Contracts.asking(other, 2)
+	s.fa.resolve(s, rng, "test 2")
+	check(not pool.has(other) or Contracts.asking(other, 2) < before or Contracts.asking(other, 2) <= Contracts.MIN_SALARY, "unsigned asking price drops")
+
+
+func test_retirement_and_offseason_flow() -> void:
+	var s := Season.new_franchise(63)
+	var vet: Soldier = s.league.teams[1].roster[0]
+	vet.age = Retirement.ALWAYS_AGE
+	var stale: Soldier = s.league.free_agents[0]
+	stale.fa_since = s.year - 1
+	for st in stale.stats:
+		stale.stats[st] = 40
+	s.sim_to_end_of_season()
+	check(s.offseason_stage == Season.OFF_RESIGN, "offseason starts with re-signing")
+	check(vet.retired_year == s.year and not s.league.teams[1].roster.has(vet), "%d-year-old retired" % Retirement.ALWAYS_AGE)
+	check(stale.retired_year == s.year and not s.league.free_agents.has(stale), "low-OVR unsigned free agent retired")
+	var ret := s.retirements_in(s.year)
+	check(ret.any(func(r): return r["soldier"] == vet and r["reason"] == "Age"), "age retirement logged")
+	check(ret.any(func(r): return r["soldier"] == stale and r["reason"] == "Unsigned"), "unsigned retirement logged")
+	var user := s.user_team()
+	var expiring := Contracts.expiring(user)
+	if not expiring.is_empty():
+		var keep: Soldier = expiring[0]
+		check(s.resign_player(user, keep, 2) == "" or Contracts.resign_asking(keep, 2) > Contracts.cap_space(user, s.cap_year()), "re-sign")
+	if not s.league.free_agents.is_empty():
+		check(s.fa.offer_error(s, user, s.league.free_agents[0], Contracts.MIN_SALARY, 1) != "", "can't bid before free agency")
+	var y := s.year
+	s.start_next_season()
+	check(s.year == y + 1 and s.phase == Season.PHASE_REGULAR, "season rolled over")
+	for t in s.league.teams:
+		check(t.roster.size() >= Season.ROSTER_MIN and t.roster.size() <= Team.ROSTER_SIZE, "%s roster size %d" % [t.abbrev, t.roster.size()])
+		check(t.lineup.size() == 5, "%s lineup" % t.abbrev)
+		for so in t.roster:
+			check(so.contract != null and so.contract.years >= 1, "contracts live for the new season")
+	check(s.fa.offers.is_empty(), "offers cleared")
 
 
 func test_release() -> void:

@@ -42,7 +42,8 @@ static func age_soldier(s: Soldier, rng: RandomNumberGenerator) -> Dictionary:
 	return {"soldier": s, "age": s.age, "changes": changes}
 
 
-## Ages every rostered soldier in the league. Returns the reports of those who declined.
+## Ages every rostered soldier and free agent in the league. Returns the reports of rostered
+## soldiers who declined.
 static func age_league(league: League, rng: RandomNumberGenerator) -> Array:
 	var out: Array = []
 	for t in league.teams:
@@ -51,4 +52,6 @@ static func age_league(league: League, rng: RandomNumberGenerator) -> Array:
 			r["team"] = t
 			if not r["changes"].is_empty():
 				out.append(r)
+	for s in league.free_agents:
+		age_soldier(s, rng)
 	return out

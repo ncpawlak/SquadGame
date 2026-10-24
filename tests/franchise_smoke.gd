@@ -80,27 +80,50 @@ func _init() -> void:
 	_check(hub.go_back(), "back pops page")
 	_check(not hub.go_back(), "back at tab root does nothing")
 
-	hub.advance()  # offseason: blocked until the draft is done
+	hub.advance()  # offseason: re-sign window -> draft
 	await process_frame
 	_check(hub.season.phase == Season.PHASE_OFFSEASON, "can't skip the draft")
+	_check(hub.season.offseason_stage == Season.OFF_DRAFT, "re-sign window closed into the draft")
 	var d: Draft = hub.season.draft
 	var user: Team = hub.season.user_team()
+	var before_draft := user.roster.size()
 	_check(d.is_started() and not d.is_complete(), "draft is open")
+	hub.advance()  # blocked while picks remain
+	await process_frame
+	_check(hub.season.offseason_stage == Season.OFF_DRAFT, "advance blocked until the draft is done")
 	while not d.is_complete():
 		if d.on_the_clock() == user:
 			_check(_press(hub, "Draft"), "draft button")
 		else:
 			_check(_press(hub, "Sim "), "sim to pick button")
 		await process_frame
-	_check(user.roster.size() == Team.ROSTER_SIZE + Draft.ROUNDS, "user drafted %d" % Draft.ROUNDS)
+	_check(user.roster.size() == before_draft + Draft.ROUNDS, "user drafted %d" % Draft.ROUNDS)
+	await _visit_pages(hub, "post-draft")
+	hub.advance()  # open free agency
+	await process_frame
+	_check(hub.season.offseason_stage == Season.OFF_FREE_AGENCY, "free agency open")
 	for t in hub.season.league.teams:
 		if t != user:
-			_check(t.roster.size() == Team.ROSTER_SIZE, "AI cut to limit")
+			_check(t.roster.size() <= Team.ROSTER_SIZE, "AI cut to limit")
+	_check(not hub.season.league.free_agents.is_empty(), "free agent pool")
+	var fa_target: Soldier = hub.season.league.free_agents[0]
+	hub.pages.open_offer(fa_target)
+	await process_frame
+	await _visit_pages(hub, "free agency")
 	while user.is_over_roster_limit():
+		hub.open_contracts()
+		await process_frame
 		_check(_press(hub, "Release"), "release button")
 		await process_frame
+		_check(_press(hub, "Confirm"), "confirm release")
+		await process_frame
 	_check(user.lineup.size() == 5, "user lineup intact after cuts")
-	await _visit_pages(hub, "post-draft")
+	var guard2 := 0
+	while hub.season.offseason_stage != Season.OFF_DONE and guard2 < 10:
+		hub.advance()
+		await process_frame
+		guard2 += 1
+	_check(hub.season.offseason_stage == Season.OFF_DONE, "free agency days finished")
 
 	hub.advance()  # start next season
 	await process_frame
@@ -127,8 +150,18 @@ func _visit_pages(hub, phase: String) -> void:
 		"lineup": p.lineup, "training": p.training, "team_stats": p.team_stats, "leaders": p.leaders,
 		"playoffs": p.playoffs, "rankings": p.team_rankings, "news": p.news, "sim_options": p.sim_options,
 		"injuries": p.injuries, "scouting": p.scouting, "draft_room": p.draft_room, "mock_draft": p.mock_draft,
-		"awards": p.awards,
+		"awards": p.awards, "teams": p.teams, "free_agents": p.free_agents, "contracts": p.contracts,
+		"resign": p.resign, "retirements": p.retirements, "offer": p.offer,
+		"other_roster": func(): return p.team_roster(hub.season.league.teams[1]),
+		"signings": func(): return p.signings("Test", hub.season.fa.history.slice(-5)),
 	}
+	if not hub.season.league.free_agents.is_empty():
+		var fa_s: Soldier = hub.season.league.free_agents[0]
+		builders["fa_player"] = func(): return p.player(fa_s)
+	if not hub.season.retirements.is_empty():
+		var r_s: Soldier = hub.season.retirements[0]["soldier"]
+		builders["retired_player"] = func(): return p.player(r_s)
+	p.retire_scope_team = false
 	for key in builders:
 		hub.open(key, builders[key])
 		await process_frame

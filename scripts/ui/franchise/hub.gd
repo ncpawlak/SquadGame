@@ -136,15 +136,7 @@ func coming_soon(title: String, bullets: Array) -> void:
 
 func advance() -> void:
 	if season.phase == Season.PHASE_OFFSEASON:
-		if not draft_done():
-			open_draft_room()
-			app.toast("Finish the draft (and any roster cuts) before starting the next season.")
-			return
-		season.start_next_season()
-		page_stack.clear()
-		tab_index = 0
-		refresh()
-		app.toast("Welcome to the %d season." % season.year)
+		_advance_offseason()
 		return
 	var label := season.week_label(season.week)
 	var played: Array = season.sim_week()
@@ -152,6 +144,45 @@ func advance() -> void:
 	_build_header()
 	_build_tabs()
 	open("%s Results" % label, func(): return pages.week_results(label, played))
+
+
+## Offseason steps: re-sign window -> draft -> free agency days -> start the next season.
+func _advance_offseason() -> void:
+	match season.offseason_stage:
+		Season.OFF_RESIGN:
+			season.advance_offseason()
+			_rebuild_and_open("Draft Room", pages.draft_room)
+			app.toast("Re-signing window closed. The %d draft is on." % season.draft.year)
+		Season.OFF_DRAFT:
+			if not season.draft.is_complete():
+				_rebuild_and_open("Draft Room", pages.draft_room)
+				app.toast("Make your picks (or sim the rest of the draft) first.")
+				return
+			season.advance_offseason()
+			_rebuild_and_open("Free Agents", pages.free_agents)
+			app.toast("Free agency is open: %d soldiers available. Offers are answered each FA day." % season.league.free_agents.size())
+		Season.OFF_FREE_AGENCY:
+			var label := "FA Day %d" % season.fa_day
+			var signed: Array = season.advance_offseason()
+			_rebuild_and_open("%s Results" % label, func(): return pages.signings(label, signed))
+		_:
+			var user := season.user_team()
+			if user.is_over_roster_limit():
+				_rebuild_and_open("Contracts & Payroll", pages.contracts)
+				app.toast("Release players to get down to %d before the season starts." % Team.ROSTER_SIZE)
+				return
+			season.start_next_season()
+			page_stack.clear()
+			tab_index = 0
+			refresh()
+			app.toast("Welcome to the %d season." % season.year)
+
+
+func _rebuild_and_open(title: String, build: Callable) -> void:
+	page_stack.clear()
+	_build_header()
+	_build_tabs()
+	open(title, build)
 
 
 func _show_current(focus_index := -1, scroll_pos := 0) -> void:
@@ -292,7 +323,14 @@ func _build_tabs() -> void:
 func _phase_text() -> String:
 	match season.phase:
 		Season.PHASE_OFFSEASON:
-			return "OFFSEASON"
+			match season.offseason_stage:
+				Season.OFF_RESIGN:
+					return "OFFSEASON - RE-SIGN"
+				Season.OFF_DRAFT:
+					return "OFFSEASON - DRAFT"
+				Season.OFF_FREE_AGENCY:
+					return "OFFSEASON - FREE AGENCY"
+			return "OFFSEASON - PRESEASON"
 		Season.PHASE_PLAYOFFS:
 			return "PLAYOFFS - %s" % season.week_label(season.week).to_upper()
 	return "WEEK %d of %d" % [season.week, Season.REGULAR_WEEKS]
@@ -300,8 +338,13 @@ func _phase_text() -> String:
 
 func _advance_text() -> String:
 	if season.phase == Season.PHASE_OFFSEASON:
-		if not draft_done():
-			return "%d DRAFT  >>" % season.year
+		match season.offseason_stage:
+			Season.OFF_RESIGN:
+				return "TO THE DRAFT  >>"
+			Season.OFF_DRAFT:
+				return "%d DRAFT  >>" % season.year if not season.draft.is_complete() else "FREE AGENCY  >>"
+			Season.OFF_FREE_AGENCY:
+				return "FA DAY %d of %d  >>" % [season.fa_day, Season.FA_DAYS]
 		return "START %d SEASON  >>" % (season.year + 1)
 	var m := season.next_match_for(season.user_team())
 	if m and m.week == season.week:
@@ -389,7 +432,47 @@ func _home_sections() -> Array:
 		UiKit.tile("Scouting", "[color=#38bdf8]%d scout points[/color]  -  %d of %d prospects scouted" % [
 			season.draft.scout_points, _scouted_count(), Draft.CLASS_SIZE], SMALL, Color("#06b6d4"), open_scouting),
 	]
-	return [["THIS WEEK", this_week], ["AROUND THE LEAGUE", league_tiles], ["YOUR TEAM", team_tiles]]
+	return [["THIS WEEK", this_week], ["AROUND THE LEAGUE", league_tiles], ["YOUR TEAM", team_tiles]] if season.phase != Season.PHASE_OFFSEASON \
+		else [["THIS WEEK", this_week], ["OFFSEASON", _offseason_tiles()], ["AROUND THE LEAGUE", league_tiles], ["YOUR TEAM", team_tiles]]
+
+
+func _offseason_tiles() -> Array:
+	var team := season.user_team()
+	var expiring := Contracts.expiring(team)
+	var resign_text := "No expiring contracts."
+	if not expiring.is_empty():
+		resign_text = "[color=#f59e0b]%d expiring[/color]: %s" % [expiring.size(), ", ".join(PackedStringArray(expiring.map(func(x: Soldier): return x.short_name())))]
+		if not season.can_resign():
+			resign_text = "Window closed."
+	var fa_text := "Opens after the draft.\n%d soldiers in the pool." % season.league.free_agents.size()
+	if season.free_agency_open():
+		fa_text = "%d available  -  [color=#38bdf8]%d pending offers[/color]\nCap space %s" % [
+			season.league.free_agents.size(), season.fa.offers_by(team).size(), Contracts.money(Contracts.cap_space(team, season.cap_year()))]
+	var ret := season.retirements_in(season.year)
+	var mine := ret.filter(func(r): return r["team"] == team)
+	return [
+		UiKit.tile("Re-sign Players", resign_text, SMALL, Color("#22c55e"), open_resign),
+		UiKit.tile("Free Agents", fa_text, SMALL, Color("#14b8a6"), open_free_agents),
+		UiKit.tile("Retirements", "%d retired league-wide\n%d from your team" % [ret.size(), mine.size()], SMALL, Color("#94a3b8"), open_retirements),
+		UiKit.tile("Contracts & Payroll", "Payroll %s of %s" % [Contracts.money(Contracts.payroll(team, season.cap_year())), Contracts.money(Contracts.SALARY_CAP)],
+			SMALL, Color("#eab308"), open_contracts),
+	]
+
+
+func open_resign() -> void:
+	open("Re-sign Players", pages.resign)
+
+
+func open_free_agents() -> void:
+	open("Free Agents", pages.free_agents)
+
+
+func open_retirements() -> void:
+	open("Retirements", pages.retirements)
+
+
+func open_contracts() -> void:
+	open("Contracts & Payroll", pages.contracts)
 
 
 func _scouted_count() -> int:
@@ -400,9 +483,9 @@ func _scouted_count() -> int:
 	return n
 
 
-## The offseason can roll over once the draft is done and the user is at the roster limit.
+## The draft is finished (free agency or later).
 func draft_done() -> bool:
-	return season.draft.is_complete() and not season.user_team().is_over_roster_limit()
+	return season.phase == Season.PHASE_OFFSEASON and season.offseason_stage in [Season.OFF_FREE_AGENCY, Season.OFF_DONE]
 
 
 func open_scouting() -> void:
@@ -461,6 +544,13 @@ func _league_sections() -> Array:
 			UiKit.tile("Records & History", "Past champions and records.", TILE, UiKit.MUTED,
 				func(): coming_soon("Records & History", ["Past champions by year", "Single-season and career records", "Hall of Fame"]), "SOON"),
 			UiKit.tile("Awards", _awards_blurb(), TILE, Color("#f59e0b"), func(): open("Awards & Development", pages.awards)),
+			UiKit.tile("Retirements", "Soldiers who hung up their boots, by season.\n[color=white]%d[/color] all-time" % season.retirements.size(),
+				TILE, Color("#94a3b8"), open_retirements),
+		]],
+		["PLAYERS", [
+			UiKit.tile("Teams", "Every team's roster, payroll and cap space.", TILE, Color("#6366f1"), func(): open("Teams", pages.teams)),
+			UiKit.tile("Free Agents", "%d unsigned soldiers. Full ratings, no scouting needed.%s" % [season.league.free_agents.size(),
+				"" if season.free_agency_open() else "\n[color=#8b97ab]Bidding reopens after the draft.[/color]"], TILE, Color("#14b8a6"), open_free_agents),
 		]],
 	]
 
@@ -468,15 +558,23 @@ func _league_sections() -> Array:
 func _personnel_sections() -> Array:
 	var soon := func(title: String, sub: String, color: Color, bullets: Array) -> Button:
 		return UiKit.tile(title, sub, TILE, color, func(): coming_soon(title, bullets), "SOON")
+	var team := season.user_team()
+	var n_exp := Contracts.expiring(team).size()
 	return [
 		["TRADES", [
-			soon.call("Trade Center", "Propose trades with other teams.", Color("#f97316"), ["Player-for-player and multi-player trades", "AI trade evaluation", "In-season trade deadline"]),
+			soon.call("Trade Center", "Propose trades with other teams.", Color("#f97316"), ["Player-for-player and multi-player trades", "AI trade evaluation", "In-season trade deadline", "Trades must fit under the salary cap"]),
 			soon.call("Trade Block", "Shop your players around the league.", Color("#f97316"), ["List players for trade", "Receive AI offers"]),
 		]],
 		["CONTRACTS", [
-			soon.call("Contracts & Payroll", "Salaries against the yearly money pool.", Color("#22c55e"), ["Contract length and salary", "Yearly money pool", "Payroll overview"]),
-			soon.call("Re-sign Players", "Extend expiring contracts.", Color("#22c55e"), ["Expiring contracts list", "Player demands from OVR, age and potential", "Negotiation"]),
-			soon.call("Free Agency", "Sign available soldiers.", Color("#22c55e"), ["Free agent pool", "Bidding against AI teams", "Release / cut players"]),
+			UiKit.tile("Contracts & Payroll", "Payroll [color=white]%s[/color] of %s\nCap space [color=%s]%s[/color]\nRelease players (dead money applies)." % [
+				Contracts.money(Contracts.payroll(team, season.cap_year())), Contracts.money(Contracts.SALARY_CAP),
+				"#22c55e" if Contracts.cap_space(team, season.cap_year()) >= 0 else "#ef4444", Contracts.money(Contracts.cap_space(team, season.cap_year()))],
+				TILE, Color("#22c55e"), open_contracts),
+			UiKit.tile("Re-sign Players", ("[color=#f59e0b]%d expiring[/color] contracts.\n" % n_exp if n_exp > 0 else "No expiring contracts.\n")
+				+ ("Re-sign window is open." if season.can_resign() else "Opens after the Final, closes when free agency starts."), TILE, Color("#22c55e"), open_resign),
+			UiKit.tile("Free Agency", "Bid on unsigned soldiers against the AI.\n%d available  -  %d of your offers pending" % [
+				season.league.free_agents.size(), season.fa.offers_by(team).size()], TILE, Color("#14b8a6"), open_free_agents),
+			soon.call("Negotiation", "Haggle over salary, years and bonuses.", UiKit.MUTED, ["Back-and-forth contract talks", "Signing bonuses, incentives and options", "Agent personalities and holdouts"]),
 		]],
 		["DRAFT", [
 			UiKit.tile("Scouting", "Spend scout points to uncover the %d draft class.\n[color=#38bdf8]%d points available[/color]" % [
@@ -492,9 +590,9 @@ func _draft_blurb() -> String:
 	var d := season.draft
 	if not d.is_started():
 		return "%d rounds after the Final. Worst finish picks first, snake order." % Draft.ROUNDS
+	if season.offseason_stage == Season.OFF_RESIGN:
+		return "Re-signing window first.\nThe draft starts when you advance."
 	if d.is_complete():
-		if season.user_team().is_over_roster_limit():
-			return "[color=#ef4444]Cut your roster to %d.[/color]" % Team.ROSTER_SIZE
 		return "Draft complete."
 	var t := d.on_the_clock()
 	return "[color=%s]On the clock: %s[/color]\nPick %d of %d" % [
@@ -526,10 +624,23 @@ func open_standings() -> void:
 func _next_match_tile(team: Team) -> Button:
 	if season.phase == Season.PHASE_OFFSEASON:
 		var champ := season.champion
+		var next_step := ""
+		var target := open_draft_room
+		match season.offseason_stage:
+			Season.OFF_RESIGN:
+				next_step = "Re-sign your expiring players, then advance to the draft."
+				target = open_resign
+			Season.OFF_DRAFT:
+				next_step = "Draft day is here: scout the class, then make your picks."
+			Season.OFF_FREE_AGENCY:
+				next_step = "Free agency, day %d of %d: bid on soldiers before they sign elsewhere." % [season.fa_day, Season.FA_DAYS]
+				target = open_free_agents
+			_:
+				next_step = "Free agency is over. Set your roster (%d-%d) and start the season." % [Season.ROSTER_MIN, Team.ROSTER_SIZE]
+				target = open_contracts
 		var body := "[font_size=30][color=white]%s[/color][/font_size]\n%d champions.\n\n%s" % [
-			UiKit.esc(champ.name if champ else "-"), season.year,
-			"Draft day is here: scout the class, then make your picks." if not draft_done() else "Draft complete. Start the next season when ready."]
-		return UiKit.tile("Season Complete", body, HERO, UiKit.ACCENT, open_draft_room)
+			UiKit.esc(champ.name if champ else "-"), season.year, next_step]
+		return UiKit.tile("Season Complete", body, HERO, UiKit.ACCENT, target)
 	var m := season.next_match_for(team)
 	if m == null:
 		var out := "Your season is over."
@@ -551,9 +662,14 @@ func _next_match_tile(team: Team) -> Button:
 
 func _advance_blurb() -> String:
 	if season.phase == Season.PHASE_OFFSEASON:
-		if not draft_done():
-			return "Open the Draft Room: make your picks and cut down to %d." % Team.ROSTER_SIZE
-		return "Roll over to next season with your drafted rookies."
+		match season.offseason_stage:
+			Season.OFF_RESIGN:
+				return "Close the re-signing window. Unsigned expiring players hit free agency after the draft."
+			Season.OFF_DRAFT:
+				return "Make your picks in the Draft Room, then open free agency." if not season.draft.is_complete() else "Expiring players and undrafted prospects hit the market."
+			Season.OFF_FREE_AGENCY:
+				return "Players answer this round of offers. Best offer (money, team, playing time) wins."
+		return "Roll over to the %d season. Roster must be %d-%d." % [season.year + 1, Season.ROSTER_MIN, Team.ROSTER_SIZE]
 	return "Train, play every match this week and award XP.\n\n[color=white]Space / Y[/color]"
 
 

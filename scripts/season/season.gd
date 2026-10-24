@@ -19,6 +19,18 @@ const PHASE_OFFSEASON := &"offseason"
 const STAGE_REGULAR := &"regular"
 const STAGE_SEMIFINAL := &"semifinal"
 const STAGE_FINAL := &"final"
+## Offseason stages (Madden-style): re-sign your expiring players, run the draft, then free
+## agency (FA_DAYS bidding rounds), then the next season can start.
+const OFF_RESIGN := &"resign"
+const OFF_DRAFT := &"draft"
+const OFF_FREE_AGENCY := &"free_agency"
+const OFF_DONE := &"done"
+const FA_DAYS := 3
+## The user needs at least this many soldiers to start a season (AI teams fill to ROSTER_SIZE).
+const ROSTER_MIN := 6
+const INITIAL_FREE_AGENTS := 14
+## Only the best undrafted prospects turn pro as free agents; the rest go home.
+const UNDRAFTED_TO_FA := 12
 
 var league: League
 var year: int = 2026
@@ -41,6 +53,19 @@ var review: SeasonReview = null
 var review_history: Array = []
 ## Who declined with age at the start of this season: Array of Aging.age_soldier reports.
 var aging_report: Array = []
+## Current offseason stage (OFF_*; "" during the season) and free-agency day (1..FA_DAYS).
+var offseason_stage: StringName = &""
+var fa_day := 0
+## Free-agent offers and signing history.
+var fa := FreeAgency.new()
+## Signings from the most recent resolution (free-agency day or week).
+var last_signings: Array = []
+## Every retirement, oldest first: Retirement.run records.
+var retirements: Array = []
+## Every re-signing: {soldier, team, salary, years, year}.
+var resign_log: Array = []
+## Expiring soldiers who left their team when free agency opened: {soldier, team, year}.
+var departures: Array = []
 ## Regular-season week w -> the team on bye.
 var _byes: Array = []
 var _rng := RandomNumberGenerator.new()
@@ -52,6 +77,14 @@ static func new_franchise(seed_value: int, user_team_index := 0, start_year := 2
 	for i in s.league.teams.size():
 		s.league.teams[i].user_controlled = (i == user_team_index)
 	s.year = start_year
+	var crng := RandomNumberGenerator.new()
+	crng.seed = _mix([seed_value, start_year, 0xC0475])
+	Contracts.assign_initial(s.league, start_year, crng)
+	var roles := [Scheme.Role.FRONTMAN, Scheme.Role.CENTER, Scheme.Role.FLEX]
+	for i in INITIAL_FREE_AGENTS:
+		var so := PlayerGenerator.generate(crng, s.league.next_soldier_id, roles[i % roles.size()], crng.randf_range(50.0, 64.0))
+		s.league.next_soldier_id += 1
+		s.league.add_free_agent(so, start_year - 1)
 	s._begin_season()
 	return s
 
@@ -220,6 +253,7 @@ func sim_week() -> Array:
 	if phase == PHASE_OFFSEASON:
 		return []
 	var played := matches_for_week(week)
+	last_signings = fa.resolve(self, _rng, week_label(week))
 	_prepare_lineups()
 	for t in league.teams:
 		Training.run_week(t)
@@ -248,6 +282,7 @@ func sim_week() -> Array:
 	_advance()
 	if phase != PHASE_OFFSEASON:
 		draft.scout_points += Draft.POINTS_PER_WEEK
+		fa.ai_offers(self, _rng, true)
 	return played
 
 
@@ -276,14 +311,133 @@ func start_next_season() -> void:
 	if phase != PHASE_OFFSEASON:
 		push_warning("start_next_season() is only valid in the offseason.")
 		return
-	finish_draft()
+	while offseason_stage != OFF_DONE:
+		advance_offseason()
+	for t in league.teams:
+		for s in t.cut_to_limit():
+			Contracts.charge_release(t, s, cap_year())
+			league.add_free_agent(s, year)
+		fa.fill_roster(self, t, ROSTER_MIN if t.user_controlled else Team.ROSTER_SIZE, "Preseason")
+	fa.offers.clear()
 	var arng := RandomNumberGenerator.new()
 	arng.seed = _mix([league.league_seed, year, 0xA6E])
 	aging_report = Aging.age_league(league, arng)
 	year += 1
 	for t in league.teams:
 		Conditioning.reset(t)
+		if t.user_controlled:
+			t.fill_injured()
+		else:
+			t.auto_lineup()
 	_begin_season()
+
+
+## The season whose cap applies right now: this season, or next season during the offseason.
+func cap_year() -> int:
+	return year + (1 if phase == PHASE_OFFSEASON else 0)
+
+
+## Offers can be made in-season and once the offseason reaches free agency.
+func free_agency_open() -> bool:
+	return phase != PHASE_OFFSEASON or offseason_stage == OFF_FREE_AGENCY or offseason_stage == OFF_DONE
+
+
+func can_resign() -> bool:
+	return phase == PHASE_OFFSEASON and (offseason_stage == OFF_RESIGN or offseason_stage == OFF_DRAFT)
+
+
+## Moves the offseason one step: re-sign -> draft (AI teams re-sign) -> free agency (expiring
+## and undrafted soldiers hit the pool, AI teams cut down) -> each free-agency day resolves
+## offers -> done. Finishes the draft with AI picks if it isn't done. Returns new signings.
+func advance_offseason() -> Array:
+	if phase != PHASE_OFFSEASON:
+		return []
+	match offseason_stage:
+		OFF_RESIGN:
+			_ai_resign()
+			offseason_stage = OFF_DRAFT
+		OFF_DRAFT:
+			finish_draft()
+			_open_free_agency()
+		OFF_FREE_AGENCY:
+			last_signings = fa.resolve(self, _rng, "FA Day %d" % fa_day)
+			if fa_day >= FA_DAYS:
+				offseason_stage = OFF_DONE
+			else:
+				fa_day += 1
+				fa.ai_offers(self, _rng)
+			return last_signings
+	return []
+
+
+## Re-signs one of `team`'s expiring soldiers at his asking price. Returns "" or the reason it failed.
+func resign_player(team: Team, s: Soldier, years: int) -> String:
+	if not can_resign():
+		return "Re-signing is open from the end of the season until free agency."
+	if s.contract == null or not s.contract.is_expiring() or not team.roster.has(s):
+		return "%s isn't an expiring player on your roster." % s.full_name()
+	if years < 1 or years > Contracts.MAX_YEARS:
+		return "Deals run 1-%d years." % Contracts.MAX_YEARS
+	var salary := Contracts.resign_asking(s, years)
+	if not Contracts.fits(team, cap_year(), salary):
+		return "Not enough cap space: he wants %s and you have %s." % [Contracts.money(salary), Contracts.money(Contracts.cap_space(team, cap_year()))]
+	s.contract = Contract.make(salary, years, year)
+	resign_log.append({"soldier": s, "team": team, "salary": salary, "years": years, "year": year})
+	return ""
+
+
+## Releases a soldier into free agency, booking dead money for what's left on his deal.
+## Returns the dead money.
+func release_player(team: Team, s: Soldier) -> int:
+	var dead := Contracts.charge_release(team, s, cap_year())
+	team.release(s)
+	league.add_free_agent(s, year)
+	return dead
+
+
+func retirements_in(y: int) -> Array:
+	return retirements.filter(func(r): return r["year"] == y)
+
+
+func _ai_resign() -> void:
+	for t in league.teams:
+		if t.user_controlled:
+			continue
+		var ovrs: Array = t.roster.map(func(x: Soldier): return x.best_ovr())
+		ovrs.sort()
+		ovrs.reverse()
+		var bar: int = ovrs[mini(5, ovrs.size() - 1)] if not ovrs.is_empty() else 0
+		var exp := Contracts.expiring(t)
+		exp.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
+		for s in exp:
+			var keep := s.age <= 33 and (s.best_ovr() >= bar - 2 or (s.age <= 25 and s.potential >= 3))
+			var yrs := Contracts.preferred_years(s)
+			var salary := Contracts.resign_asking(s, yrs)
+			if keep and Contracts.fits(t, cap_year(), salary):
+				s.contract = Contract.make(salary, yrs, year)
+				resign_log.append({"soldier": s, "team": t, "salary": salary, "years": yrs, "year": year})
+
+
+func _open_free_agency() -> void:
+	offseason_stage = OFF_FREE_AGENCY
+	fa_day = 1
+	for t in league.teams:
+		for s in Contracts.expiring(t):
+			departures.append({"soldier": s, "team": t, "year": year})
+			t.release(s)
+			league.add_free_agent(s, year)
+	var undrafted: Array = draft.available()
+	undrafted.sort_custom(func(a: Prospect, b: Prospect): return Draft.true_value(a) > Draft.true_value(b))
+	for p in undrafted.slice(0, UNDRAFTED_TO_FA):
+		league.add_free_agent(p.soldier, year)
+	for t in league.teams:
+		if t.user_controlled:
+			continue
+		# AI teams keep a spot open to bid on free agents (filled in preseason if they miss).
+		for s in t.cut_to_limit(Team.ROSTER_SIZE - 1):
+			Contracts.charge_release(t, s, cap_year())
+			league.add_free_agent(s, year)
+	fa.ai_offers(self, _rng)
 
 
 ## Round-1 draft order: teams that missed the playoffs first (worst record first), then
@@ -323,16 +477,14 @@ func mock_pick_order() -> Array:
 	return Draft.snake(draft_order())
 
 
-## Completes the draft (AI picks for everyone still on the clock, including the user) and cuts
-## every roster down to Team.ROSTER_SIZE. Safe to call more than once.
+## Completes the draft (AI picks for everyone still on the clock, including the user).
+## Roster cut-downs happen when free agency opens. Safe to call more than once.
 func finish_draft() -> void:
 	if phase != PHASE_OFFSEASON:
 		return
 	if not draft.is_started():
 		draft.set_order(draft_order())
 	draft.sim_to_end()
-	for t in league.teams:
-		t.cut_to_limit()
 
 
 # --- internals -------------------------------------------------------------
@@ -342,6 +494,9 @@ func _begin_season() -> void:
 	phase = PHASE_REGULAR
 	champion = null
 	review = null
+	offseason_stage = &""
+	fa_day = 0
+	last_signings = []
 	playoff_matches = []
 	last_injuries = []
 	injury_log = []
@@ -368,6 +523,12 @@ func _advance() -> void:
 		rrng.seed = _mix([league.league_seed, year, 0x4E71])
 		review = SeasonReview.run(self, rrng)
 		review_history.append(review)
+		var retire_rng := RandomNumberGenerator.new()
+		retire_rng.seed = _mix([league.league_seed, year, 0x2E71])
+		retirements.append_array(Retirement.run(self, retire_rng))
+		Contracts.rollover(league)
+		offseason_stage = OFF_RESIGN
+		fa_day = 0
 		draft.set_order(draft_order())
 		return
 	var winners: Array = []

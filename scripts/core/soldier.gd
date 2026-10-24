@@ -25,6 +25,16 @@ var potential: int = 2
 ## Year he was drafted (0 = not a draftee). Used for Rookie of the Year.
 var draft_year: int = 0
 
+# Contract / free agency
+## Current deal (null = free agent, retired, or a debug soldier).
+var contract: Contract = null
+## Season year he entered the free-agent pool (free agents only).
+var fa_since: int = 0
+## Free agents lower their asking price the longer they go unsigned (1.0 = full market value).
+var ask_mult: float = 1.0
+## Year he retired (0 = active).
+var retired_year: int = 0
+
 # Progression (levels are internal: each one just grants skill points)
 var level: int = 1
 var xp: int = 0
