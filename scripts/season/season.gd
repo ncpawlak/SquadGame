@@ -306,6 +306,14 @@ func draft_order() -> Array:
 	return teams
 
 
+## Every pick of the draft, for the mock draft: the real order once set, otherwise projected
+## from the current standings and playoff results.
+func mock_pick_order() -> Array:
+	if draft.is_started():
+		return draft.order
+	return Draft.snake(draft_order())
+
+
 ## Completes the draft (AI picks for everyone still on the clock, including the user) and cuts
 ## every roster down to Team.ROSTER_SIZE. Safe to call more than once.
 func finish_draft() -> void:

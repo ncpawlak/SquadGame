@@ -125,7 +125,7 @@ func _visit_pages(hub, phase: String) -> void:
 		"standings": p.standings, "schedule": p.schedule, "roster": p.roster, "progression": p.progression,
 		"lineup": p.lineup, "training": p.training, "team_stats": p.team_stats, "leaders": p.leaders,
 		"playoffs": p.playoffs, "rankings": p.team_rankings, "news": p.news, "sim_options": p.sim_options,
-		"injuries": p.injuries, "scouting": p.scouting, "draft_room": p.draft_room,
+		"injuries": p.injuries, "scouting": p.scouting, "draft_room": p.draft_room, "mock_draft": p.mock_draft,
 	}
 	for key in builders:
 		hub.open(key, builders[key])

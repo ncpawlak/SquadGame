@@ -5,17 +5,21 @@ extends RefCounted
 ## Scouting: the user earns POINTS_PER_WEEK scout points every week of the season (unspent points
 ## carry over). Each point spent on a prospect reveals a random stat group as a window of named
 ## tiers ("Inconsistent - Sharpshooter"); scouting the same group again narrows the window
-## (4 tiers -> 3 -> 2). Numbers and potential are never shown.
+## (3 tiers -> 2). Numbers and potential are never shown.
+##
+## Projections: every prospect has a league-consensus value (his real worth plus a fixed error)
+## that gives his projected round and drives the mock draft. Hidden phenoms are judged at their
+## listed position, so they tend to project as mid-round sleepers.
 ##
 ## Draft: snake order (worst team first, champion last) for ROUNDS rounds. AI teams pick on a
-## noisy read of each prospect's OVR at his listed position plus upside.
+## pick-day read of the consensus value plus a bonus for their weakest position.
 
-const CLASS_SIZE := 40
+const CLASS_SIZE := 30
 const ROUNDS := 2
 const POINTS_PER_WEEK := 12
 const MAX_POINTS_PER_PROSPECT := 5
-## Window width (in tiers) after the 1st, 2nd and 3rd scout of a group.
-const WINDOW_WIDTHS := [4, 3, 2]
+## Window width (in tiers) after the 1st and 2nd scout of a group.
+const WINDOW_WIDTHS := [3, 2]
 ## Group rating thresholds for tiers 1..4 (tier 0 is below the first).
 const TIER_THRESHOLDS := [50, 60, 70, 80]
 const TIER_COUNT := 5
@@ -32,8 +36,14 @@ const PROSPECT_QUALITY_SD := 5.0
 const PHENOM_STAT_MIN := 54
 const PHENOM_STAT_MAX := 64
 const PHENOM_EXTRA_HEADROOM := 6
-## AI draft evaluation noise (OVR points).
-const AI_NOISE := 6.0
+## League-wide evaluation error baked into each prospect's consensus value (OVR points).
+const CONSENSUS_NOISE := 3.0
+## Extra pick-day noise per AI evaluation, so real drafts drift from the mock.
+const AI_NOISE := 3.0
+## Value bonus for a prospect who plays the team's weakest starting position.
+const NEED_BONUS := 3.0
+## The consensus underrates phenoms (scouts pigeonhole them at their listed position).
+const PHENOM_UNDERRATE := 3.0
 
 var year: int
 var prospects: Array[Prospect] = []
@@ -64,6 +74,12 @@ static func generate(seed_value: int, draft_year: int, first_id: int) -> Draft:
 		picked[rng.randi_range(0, CLASS_SIZE - 1)] = true
 	for i in picked:
 		d._make_phenom(d.prospects[i])
+	for p in d.prospects:
+		p.consensus = true_value(p) + rng.randfn(0.0, CONSENSUS_NOISE) - (PHENOM_UNDERRATE if p.phenom else 0.0)
+	var board := d.prospects.duplicate()
+	board.sort_custom(func(a: Prospect, b: Prospect): return a.consensus > b.consensus)
+	for i in board.size():
+		board[i].projected_rank = i + 1
 	return d
 
 
@@ -134,12 +150,8 @@ func scout(p: Prospect) -> StringName:
 ## `teams_in_order` is round-1 order (first pick first); later rounds snake.
 func set_order(teams_in_order: Array) -> void:
 	order = []
-	for r in ROUNDS:
-		var round_teams := teams_in_order.duplicate()
-		if r % 2 == 1:
-			round_teams.reverse()
-		for t in round_teams:
-			order.append(t)
+	for t in snake(teams_in_order):
+		order.append(t)
 	next_pick = 0
 
 
@@ -191,25 +203,107 @@ func make_pick(p: Prospect) -> bool:
 	return true
 
 
-## How an AI front office values a prospect: noisy OVR at his listed position plus some upside.
-func ai_value(p: Prospect) -> float:
+## A prospect's real draft worth: OVR at his listed position plus some upside.
+static func true_value(p: Prospect) -> float:
 	var s := p.soldier
-	var ovr := float(s.ovr_at_role(p.listed_role))
 	var upside := float(s.potential_ovr() - s.best_ovr())
-	return ovr + upside * 0.4 + _rng.randfn(0.0, AI_NOISE)
+	return float(s.ovr_at_role(p.listed_role)) + upside * 0.4
+
+
+# --- projections & mock draft ------------------------------------------------------
+
+## "Early 1st", "Mid 2nd", ... or "Undrafted" for a 1-based big-board rank.
+static func projection_text(rank: int, picks_per_round: int = Season.TEAM_COUNT) -> String:
+	var rnd := (rank - 1) / picks_per_round + 1
+	if rnd > ROUNDS:
+		return "Undrafted"
+	var third := ((rank - 1) % picks_per_round) * 3 / picks_per_round
+	return "%s %s" % [["Early", "Mid", "Late"][third], ["1st", "2nd", "3rd", "4th"][rnd - 1]]
+
+
+func projection(p: Prospect) -> String:
+	return projection_text(p.projected_rank)
+
+
+## The team's weakest starting position (lowest average starter OVR at that role).
+static func weakest_role(team: Team) -> int:
+	var sum := {}
+	var n := {}
+	for slot_id in team.scheme.slot_ids():
+		var so: Soldier = team.lineup.get(slot_id)
+		if so == null:
+			continue
+		var role: int = team.scheme.role_for_slot(slot_id)
+		sum[role] = float(sum.get(role, 0.0)) + so.ovr_at_role(role)
+		n[role] = int(n.get(role, 0)) + 1
+	var worst := -1
+	var worst_avg := INF
+	for role in sum:
+		var avg: float = sum[role] / n[role]
+		if avg < worst_avg:
+			worst_avg = avg
+			worst = role
+	return worst
+
+
+static func need_bonus(team: Team, p: Prospect) -> float:
+	return NEED_BONUS if int(p.listed_role) == weakest_role(team) else 0.0
+
+
+## How an AI front office values a prospect on draft day: consensus, team need and some noise.
+func ai_value(p: Prospect, team: Team) -> float:
+	return p.consensus + need_bonus(team, p) + _rng.randfn(0.0, AI_NOISE)
 
 
 func ai_pick() -> Prospect:
+	var team := on_the_clock()
+	if team == null:
+		return null
 	var best: Prospect = null
 	var best_v := -INF
 	for p in available():
-		var v := ai_value(p)
+		var v := ai_value(p, team)
 		if v > best_v:
 			best_v = v
 			best = p
 	if best != null:
 		make_pick(best)
 	return best
+
+
+## Projected picks from `pick_order` (every pick, snake included) starting at the next pick:
+## each team takes the best consensus prospect left, nudged by need. Doesn't change the draft.
+## Returns [{pick (1-based), team, prospect}].
+func mock(pick_order: Array) -> Array:
+	var taken := {}
+	var out: Array = []
+	for i in range(next_pick, pick_order.size()):
+		var team: Team = pick_order[i]
+		var best: Prospect = null
+		var best_v := -INF
+		for p in prospects:
+			if not p.is_available() or taken.has(p):
+				continue
+			var v := p.consensus + need_bonus(team, p)
+			if v > best_v:
+				best_v = v
+				best = p
+		if best == null:
+			break
+		taken[best] = true
+		out.append({"pick": i + 1, "team": team, "prospect": best})
+	return out
+
+
+## Full pick order (all rounds, snake) from a round-1 order.
+static func snake(teams_in_order: Array) -> Array:
+	var out: Array = []
+	for r in ROUNDS:
+		var round_teams := teams_in_order.duplicate()
+		if r % 2 == 1:
+			round_teams.reverse()
+		out.append_array(round_teams)
+	return out
 
 
 ## AI teams pick until the user is on the clock or the draft ends. Returns the picks made.

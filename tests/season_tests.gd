@@ -25,6 +25,7 @@ func _init() -> void:
 		"test_scouting_windows",
 		"test_draft_order_and_picks",
 		"test_release",
+		"test_projections_and_mock",
 	]
 	for t in tests:
 		_current = t
@@ -470,3 +471,38 @@ func test_release() -> void:
 	check(not t.roster.has(starter), "released")
 	check(t.lineup.has(slot) and t.lineup[slot] != starter, "slot refilled")
 	check(t.roster.size() == Team.ROSTER_SIZE - 1, "roster shrank")
+
+func test_projections_and_mock() -> void:
+	check(Draft.projection_text(1, 5) == "Early 1st" and Draft.projection_text(3, 5) == "Mid 1st", "early/mid 1st")
+	check(Draft.projection_text(5, 5) == "Late 1st" and Draft.projection_text(6, 5) == "Early 2nd", "late 1st/early 2nd")
+	check(Draft.projection_text(10, 5) == "Late 2nd" and Draft.projection_text(11, 5) == "Undrafted", "late 2nd/undrafted")
+	var s := Season.new_franchise(44)
+	var d := s.draft
+	var ranks := {}
+	for p in d.prospects:
+		ranks[p.projected_rank] = true
+	check(ranks.size() == Draft.CLASS_SIZE and ranks.has(1) and ranks.has(Draft.CLASS_SIZE), "ranks 1..N unique")
+	# Mock during the season: every pick, distinct prospects, no state change.
+	var mock := d.mock(s.mock_pick_order())
+	check(mock.size() == Season.TEAM_COUNT * Draft.ROUNDS, "mock covers every pick (%d)" % mock.size())
+	var seen := {}
+	for e in mock:
+		seen[e["prospect"]] = true
+	check(seen.size() == mock.size(), "mock picks distinct")
+	check(d.available().size() == Draft.CLASS_SIZE and not d.is_started(), "mock doesn't draft")
+	# Mock picks come from the top of the board (need can only shift things a little).
+	for e in mock:
+		check(e["prospect"].projected_rank <= mock.size() + 6, "mock pick near the board")
+	# Real draft roughly follows consensus: most first-rounders projected in the top 10.
+	var hits := 0
+	var total := 0
+	for i in 20:
+		var s2 := Season.new_franchise(900 + i)
+		s2.sim_to_end_of_season()
+		s2.finish_draft()
+		for p in s2.draft.picks():
+			if p.pick_number <= Season.TEAM_COUNT:
+				total += 1
+				if p.projected_rank <= 10:
+					hits += 1
+	check(hits >= total * 0.8, "first-rounders mostly projected top 10 (%d/%d)" % [hits, total])

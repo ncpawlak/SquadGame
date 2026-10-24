@@ -168,22 +168,28 @@ func _show_current(focus_index := -1, scroll_pos := 0) -> void:
 	_settle_focus(view, focus_index, scroll_pos)
 
 
-## Focus once layout has settled: autowrapped text is very tall before its first layout
-## pass, so focusing immediately made follow_focus scroll long pages to the bottom.
+## Focus once layout has settled. Autowrapped text is very tall before its first layout pass
+## (and the web build can take more than one frame), so follow_focus stays off until then -
+## otherwise long pages jumped to the bottom on open or after a Scout/refresh.
 func _settle_focus(view: Control, focus_index: int, scroll_pos: int) -> void:
-	await get_tree().process_frame
-	if not is_instance_valid(view) or not view.is_inside_tree():
-		return
 	var scroll := _scroll
-	if scroll:
-		scroll.scroll_vertical = scroll_pos
+	for i in 2:
+		await get_tree().process_frame
+		if not is_instance_valid(view) or not view.is_inside_tree():
+			return
+		if scroll:
+			scroll.scroll_vertical = scroll_pos
 	var list: Array[Control] = app.focusables(view)
 	if focus_index >= 0 and not list.is_empty():
 		list[mini(focus_index, list.size() - 1)].grab_focus()
 	else:
 		app.focus_first(view)
-	if scroll and focus_index >= 0:
+	if scroll:
 		scroll.scroll_vertical = scroll_pos
+		await get_tree().process_frame
+		if is_instance_valid(scroll):
+			scroll.scroll_vertical = scroll_pos
+			scroll.follow_focus = true
 
 
 func _page_frame(title: String, body: Control) -> Control:
@@ -212,7 +218,7 @@ func _page_frame(title: String, body: Control) -> Control:
 
 func _make_scroll() -> ScrollContainer:
 	var s := ScrollContainer.new()
-	s.follow_focus = true
+	s.follow_focus = false  # enabled by _settle_focus once the page has laid out
 	s.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	s.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	return s
@@ -407,6 +413,10 @@ func open_draft_room() -> void:
 	open("Draft Room", pages.draft_room)
 
 
+func open_mock_draft() -> void:
+	open("Mock Draft", pages.mock_draft)
+
+
 func _team_sections() -> Array:
 	var team := season.user_team()
 	return [
@@ -473,6 +483,8 @@ func _personnel_sections() -> Array:
 			UiKit.tile("Scouting", "Spend scout points to uncover the %d draft class.\n[color=#38bdf8]%d points available[/color]" % [
 				season.draft.year, season.draft.scout_points], TILE, Color("#06b6d4"), open_scouting),
 			UiKit.tile("Draft Room", _draft_blurb(), TILE, UiKit.INFO, open_draft_room),
+			UiKit.tile("Mock Draft", "Where the league projects every pick, based on %s." % [
+				"the draft order" if season.draft.is_started() else "current standings"], TILE, Color("#a855f7"), open_mock_draft),
 		]],
 	]
 

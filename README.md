@@ -33,10 +33,10 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   and injuries update. AI teams auto-spend skill points and pick intensities; you set yours on the Training page
   and spend SP on the player page (or **Auto-progress all** on the Progression page). Injured starters are
   auto-replaced by the best healthy bench soldier.
-- **Scouting** (`scripts/season/draft.gd`, `prospect.gd`): each season has a class of 40 recruits (age 19–22).
+- **Scouting** (`scripts/season/draft.gd`, `prospect.gd`): each season has a class of 30 recruits (age 19–22).
   You only see name, age and listed position. You get 12 scout points a week (unspent points carry over).
   Each point spent on a prospect reveals a random stat group as a range of named grades, e.g. Accuracy
-  "Inconsistent - Sharpshooter". Scouting the same group again narrows it: 4 grades → 3 → 2. Max 5 points per
+  "Inconsistent - Sharpshooter". Scouting the same group again narrows it: 3 grades → 2. Max 5 points per
   prospect; numbers and potential are never shown. Grades (worst → best) per group:
   - Accuracy: Spray & Pray, Inconsistent, Steady Aim, Marksman, Sharpshooter
   - Handling: Butterfingers, Clunky, Capable, Smooth Operator, Gunslinger
@@ -46,9 +46,13 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
 
   Grade thresholds: below 50, 50s, 60s, 70s, 80+.
   Most classes hide one unlabelled **phenom** (sometimes none or two). A phenom lists one position but grades
-  well in every group, so he can play anywhere. AI teams don't know who they are.
+  well in every group, so he can play anywhere. AI teams don't know who they are, and the league consensus
+  underrates them.
+  Every prospect shows a **projected pick** (Early/Mid/Late 1st or 2nd, or Undrafted) from a noisy league-consensus
+  board. The **Mock Draft** page (Personnel → Draft, or the Scouting page) predicts every pick from the current
+  standings. Grade colors: red Poor, orange Below average, gray Average, blue Good, green Elite.
 - **Draft**: after the Final, 2 rounds in snake order. Teams that missed the playoffs pick first (worst record first),
-  then semifinal losers, the runner-up, and the champion last. AI teams pick on a noisy read of OVR plus upside.
+  then semifinal losers, the runner-up, and the champion last. AI teams pick from the consensus board with a little noise, leaning toward their weakest position.
   In the Draft Room you can sim to your pick, draft a prospect or auto-pick. Afterwards every team cuts down to
   8 soldiers (you choose who to release). The next season can't start until the draft and cuts are done.
 - **Hub tabs**: Home, Team, League, Personnel, Settings. Tiles marked **SOON** are laid out but not built yet

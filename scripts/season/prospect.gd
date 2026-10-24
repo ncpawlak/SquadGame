@@ -13,6 +13,10 @@ var points := 0
 var reveals: Dictionary = {}
 ## group -> times scouted (indexes Draft.WINDOW_WIDTHS).
 var scouts: Dictionary = {}
+## League-wide read of his draft value (true value plus a fixed evaluation error).
+var consensus := 0.0
+## 1-based rank on the consensus big board; drives the projected round.
+var projected_rank := 0
 var drafted_by: Team = null
 var pick_number := 0
 

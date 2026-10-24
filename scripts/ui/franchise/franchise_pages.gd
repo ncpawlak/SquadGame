@@ -818,8 +818,8 @@ func _prospect_row(p: Prospect, action_text: String, action_enabled: bool, actio
 	var status := "%d/%d scouted" % [p.points, Draft.MAX_POINTS_PER_PROSPECT]
 	if not p.is_available():
 		status = "Pick %d - %s" % [p.pick_number, p.drafted_by.abbrev]
-	var info := UiKit.button("%s   -   age %d   -   %s   -   %s" % [p.soldier.full_name(), p.soldier.age,
-		Scheme.ROLE_NAMES[p.listed_role], status], func():
+	var info := UiKit.button("%s   -   age %d   -   %s   -   Proj: %s   -   %s" % [p.soldier.full_name(), p.soldier.age,
+		Scheme.ROLE_NAMES[p.listed_role], Draft.projection_text(p.projected_rank), status], func():
 			hub.open(p.soldier.full_name(), func(): return prospect(p)), 15)
 	info.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -839,17 +839,37 @@ func _scout_and_toast(p: Prospect) -> void:
 	hub.app.toast("%s  %s: %s" % [p.soldier.short_name(), Stats.GROUP_LABELS[g], Draft.window_text(g, p.reveals[g])])
 
 
+## Prospects ordered by the consensus big board (projected rank).
+func _by_projection(list: Array[Prospect]) -> Array[Prospect]:
+	var out: Array[Prospect] = list.duplicate()
+	out.sort_custom(func(a: Prospect, b: Prospect): return a.projected_rank < b.projected_rank)
+	return out
+
+
+func _grade_legend() -> Control:
+	var names := ["Poor", "Below average", "Average", "Good", "Elite"]
+	var parts: PackedStringArray = []
+	for i in names.size():
+		parts.append("[color=%s]%s[/color]" % [UiKit.hex(TIER_COLORS[i]), names[i]])
+	return UiKit.rich("[color=#8b97ab]Grade colors (middle of the scouted range):[/color]   " + "   ".join(parts) + "   [color=#8b97ab]?  = not scouted yet[/color]", 14)
+
+
 func scouting() -> Control:
 	var d := _season().draft
 	var v := _vbox(10)
 	v.add_child(UiKit.rich("[font_size=22][color=white]%d DRAFT CLASS[/color][/font_size]     [color=#38bdf8]%d scout points[/color] available  (+%d per week, unspent points carry over)" % [
 		d.year, d.scout_points, Draft.POINTS_PER_WEEK], 16))
-	var help := UiKit.label("Each point reveals a random stat group as a range of grades; scouting a group again narrows it (4 grades, then 3, then 2). Up to %d points per prospect. Potential stays hidden until draft day." % Draft.MAX_POINTS_PER_PROSPECT, 14, UiKit.MUTED)
+	var help := UiKit.label("Each point reveals a random stat group as a range of grades; scouting a group a second time narrows it (3 grades, then 2). Up to %d points per prospect. Projected rounds are the league consensus - potential stays hidden until draft day." % Draft.MAX_POINTS_PER_PROSPECT, 14, UiKit.MUTED)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(help)
+	v.add_child(_grade_legend())
+	var nav := _row()
+	nav.add_child(UiKit.button("Mock Draft", hub.open_mock_draft, 15))
+	nav.add_child(UiKit.button("Draft Room", hub.open_draft_room, 15))
+	v.add_child(nav)
 	v.add_child(_filter_row("Scouting", scouting))
-	var list := _filtered(d.prospects)
-	v.add_child(_section("%d PROSPECTS" % list.size()))
+	var list := _by_projection(_filtered(d.prospects))
+	v.add_child(_section("%d PROSPECTS  -  by projected pick" % list.size()))
 	for p in list:
 		var prospect_ref := p
 		v.add_child(_prospect_row(p, "Scout", d.can_scout(p), func():
@@ -865,8 +885,8 @@ func prospect(p: Prospect) -> Control:
 	var drafted := ""
 	if not p.is_available():
 		drafted = "   -   [color=#f59e0b]Drafted by %s, pick %d[/color]" % [UiKit.esc(p.drafted_by.name), p.pick_number]
-	v.add_child(UiKit.rich("[font_size=30][color=white]%s[/color][/font_size]   age %d  -  %s prospect%s\nScouted %d / %d   -   Potential: unknown   -   [color=#38bdf8]%d scout points[/color] available" % [
-		UiKit.esc(s.full_name()), s.age, Scheme.ROLE_NAMES[p.listed_role], drafted, p.points,
+	v.add_child(UiKit.rich("[font_size=30][color=white]%s[/color][/font_size]   age %d  -  %s prospect%s\nProjected: [color=#f59e0b]%s[/color]   -   Scouted %d / %d   -   Potential: unknown   -   [color=#38bdf8]%d scout points[/color] available" % [
+		UiKit.esc(s.full_name()), s.age, Scheme.ROLE_NAMES[p.listed_role], drafted, Draft.projection_text(p.projected_rank), p.points,
 		Draft.MAX_POINTS_PER_PROSPECT, d.scout_points], 16))
 	var actions := _row()
 	var b := UiKit.button("Scout (1 point)", func():
@@ -876,6 +896,7 @@ func prospect(p: Prospect) -> Control:
 	actions.add_child(b)
 	v.add_child(actions)
 	v.add_child(_section("SCOUTING REPORT  -  highlighted grades are where his true rating could be"))
+	v.add_child(_grade_legend())
 	for g in Stats.GROUP_ORDER:
 		var times: int = p.scouts.get(g, 0)
 		var w: Variant = p.reveals.get(g)
@@ -943,12 +964,12 @@ func draft_room() -> Control:
 				_after_pick()
 				refresh.call()))
 		actions.add_child(UiKit.button("Scouting", hub.open_scouting))
+		actions.add_child(UiKit.button("Mock Draft", hub.open_mock_draft))
 		v.add_child(actions)
 		if t.user_controlled:
 			v.add_child(_filter_row("Draft Room", draft_room))
-			var avail := _filtered(d.available())
-			avail.sort_custom(func(a: Prospect, b: Prospect): return a.points > b.points)
-			v.add_child(_section("AVAILABLE PROSPECTS  -  most scouted first"))
+			var avail := _by_projection(_filtered(d.available()))
+			v.add_child(_section("AVAILABLE PROSPECTS  -  by projected pick"))
 			for p in avail:
 				var pick := p
 				v.add_child(_prospect_row(p, "Draft", true, func():
@@ -998,21 +1019,59 @@ func draft_room() -> Control:
 		var p: Prospect = by_pick.get(i + 1)
 		var sel := "-"
 		var pos := ""
+		var proj := ""
 		if p != null:
 			sel = p.soldier.full_name()
 			pos = Scheme.ROLE_NAMES[p.listed_role]
+			proj = Draft.projection_text(p.projected_rank)
 		elif i == d.next_pick:
 			sel = "ON THE CLOCK"
-		rows.append([i + 1, team.name, d.round_of(i), sel, pos])
+		rows.append([i + 1, team.name, d.round_of(i), sel, pos, proj])
 		if team.user_controlled:
 			hl[i] = team.color.darkened(0.6)
 		if i == d.next_pick and not d.is_complete():
 			colors[i] = {3: UiKit.ACCENT}
-	v.add_child(UiKit.table(["PICK", "TEAM", "RD", "SELECTION", "POS"], rows, [50, 260, 40, 240, 110], hl, colors,
+	v.add_child(UiKit.table(["PICK", "TEAM", "RD", "SELECTION", "POS", "PROJ"], rows, [50, 260, 40, 240, 110, 130], hl, colors,
 		func(i: int):
 			var p: Prospect = by_pick.get(i + 1)
 			if p != null:
 				hub.open(p.soldier.full_name(), func(): return prospect(p))))
+	return v
+
+
+func mock_draft() -> Control:
+	var s := _season()
+	var d := s.draft
+	var v := _vbox(12)
+	var basis := "the real draft order" if d.is_started() else "current standings"
+	v.add_child(UiKit.rich("[font_size=22][color=white]%d MOCK DRAFT[/color][/font_size]     based on %s and the league's big board" % [d.year, basis], 16))
+	var help := UiKit.label("Each team takes the best consensus prospect left, leaning toward its weakest position. On draft day teams' boards differ a little, so expect surprises - and the consensus can be wrong about a player.", 14, UiKit.MUTED)
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(help)
+	var nav := _row()
+	nav.add_child(UiKit.button("Scouting", hub.open_scouting, 15))
+	nav.add_child(UiKit.button("Draft Room", hub.open_draft_room, 15))
+	v.add_child(nav)
+	var mock := d.mock(s.mock_pick_order())
+	if mock.is_empty():
+		v.add_child(UiKit.label("The draft is over.", 18))
+		return v
+	var rows: Array = []
+	var hl := {}
+	for i in mock.size():
+		var e: Dictionary = mock[i]
+		var team: Team = e["team"]
+		var p: Prospect = e["prospect"]
+		var need := " (need)" if Draft.need_bonus(team, p) > 0.0 else ""
+		rows.append([e["pick"], team.name, (int(e["pick"]) - 1) / Season.TEAM_COUNT + 1,
+			p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role] + need, Draft.projection_text(p.projected_rank),
+			"%d/%d" % [p.points, Draft.MAX_POINTS_PER_PROSPECT]])
+		if team.user_controlled:
+			hl[i] = team.color.darkened(0.6)
+	v.add_child(UiKit.table(["PICK", "TEAM", "RD", "PROSPECT", "POS", "PROJ", "SCOUTED"], rows, [50, 240, 40, 220, 150, 120, 90], hl, {},
+		func(i: int):
+			var p: Prospect = mock[i]["prospect"]
+			hub.open(p.soldier.full_name(), func(): return prospect(p))))
 	return v
 
 
