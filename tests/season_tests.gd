@@ -413,10 +413,7 @@ func test_scouting_windows() -> void:
 			check(w.x >= 0 and w.y < Draft.TIER_COUNT, "window inside tiers")
 			var t := p.true_tier(g)
 			check(t >= w.x and t <= w.y, "window contains true tier")
-		check(used == Draft.MAX_POINTS_PER_PROSPECT and p.points == used, "5 points per prospect")
-		check(p.reveals.size() == Stats.GROUP_ORDER.size(), "full scout covers every group")
-		for g2 in p.reveals:
-			check(p.reveals[g2].y - p.reveals[g2].x == 1, "full scout: 2-grade range per group")
+		check(used == Draft.MAX_POINTS_PER_PROSPECT and p.points == used, "max points per prospect")
 		check(d.scout(p) == &"", "can't scout past max")
 	check(d.scout_points == 1000 - Draft.CLASS_SIZE * Draft.MAX_POINTS_PER_PROSPECT, "points spent")
 	# Narrowing stays inside the previous window.
