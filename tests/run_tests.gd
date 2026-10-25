@@ -1,6 +1,7 @@
 extends SceneTree
 ## Headless test runner:
 ##   godot --headless --path . --script res://tests/run_tests.gd
+## Set TEST_ONLY=<substring> to run only matching tests.
 ## Exits with code 0 if all tests pass, 1 otherwise.
 
 var _failures := 0
@@ -18,6 +19,7 @@ func _init() -> void:
 		"test_arena_scoring",
 		"test_looks",
 		"test_match_is_deterministic",
+		"test_live_engine_matches_sim",
 		"test_different_seeds_vary",
 		"test_better_team_wins_more",
 		"test_each_combat_stat_matters",
@@ -32,6 +34,10 @@ func _init() -> void:
 		"test_injury_model",
 		"test_match_awards_xp",
 	]
+	# TEST_ONLY=substring runs a subset (e.g. TEST_ONLY=live).
+	var only := OS.get_environment("TEST_ONLY")
+	if only != "":
+		tests = tests.filter(func(n): return only in n)
 	for t in tests:
 		_current = t
 		var before := _failures
@@ -229,6 +235,41 @@ func test_match_is_deterministic() -> void:
 	check(a.score == b.score, "same score")
 	check(a.events == b.events, "same play-by-play")
 	check(str(a.box) == str(b.box), "same box score")
+
+
+## The live viewer steps the engine with visual events on; it must play out exactly like a sim.
+func test_live_engine_matches_sim() -> void:
+	var league := League.generate(7)
+	var sim := MatchEngine.simulate(league.teams[0], league.teams[1], 777)
+	var e := MatchEngine.new()
+	e.start(league.teams[0], league.teams[1], 777)
+	e.record = true
+	var kinds := {}
+	var shots := 0
+	var moved := false
+	var start_pos: Vector2 = e.squads[0][0].pos
+	var more := true
+	while more:
+		more = e.step()
+		for ev in e.visual_events:
+			kinds[ev["t"]] = true
+			if ev["t"] == "shot":
+				shots += 1
+				check(ev["result"] in ["MISS", "HIT", "HEADSHOT", "KILL"] or String(ev["result"]).begins_with("HIT x"), "shot result label")
+		e.visual_events.clear()
+		if e.squads[0][0].pos.distance_to(start_pos) > 5.0:
+			moved = true
+	var live := e.result()
+	check(live.score == sim.score, "same series score")
+	check(live.events == sim.events, "same play-by-play")
+	check(str(live.box) == str(sim.box), "same box score")
+	for k in ["game_start", "game_end", "shot", "kill", "match_end"]:
+		check(kinds.has(k), "emits %s events" % k)
+	check(shots > 50, "plenty of shots to draw (%d)" % shots)
+	check(moved, "soldiers move around the map")
+	for squad in e.squads:
+		for c in squad:
+			check(ArenaMap.in_bounds(c.pos), "stays inside the arena")
 
 
 func test_different_seeds_vary() -> void:

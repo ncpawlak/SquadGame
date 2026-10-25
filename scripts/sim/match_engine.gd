@@ -1,28 +1,28 @@
 class_name MatchEngine
 extends RefCounted
-## Abstract tick-based 5v5 match simulator. Deterministic for a given seed.
+## Tick-based 5v5 match simulator on a 2D arena (ArenaMap). Deterministic for a given seed.
+## The same engine drives "Sim" (simulate() runs it to the end) and "Watch" (the viewer calls
+## step() in real time with `record` on and draws the visual events it emits).
 ##
 ## A match is best of 3 games, always in this order (a 2-0 skips the third):
 ## 1. Team Deathmatch (TDM): 1 point per kill, +TDM_WIPE_BONUS for wiping the other team; first to
 ##    TDM_POINTS_TO_WIN. Eliminated soldiers stay down until their whole team is wiped, then that
 ##    team respawns in formation at its end of the map.
-## 2. King of the Hill (KOTH): a point in the middle of the map. A team banks hold time while it has
-##    someone on the point and the other team doesn't (nobody scores while it's contested); first
-##    to KOTH_HOLD_TO_WIN_S of total hold time. Same elimination/respawn rule as TDM, no wipe bonus.
+## 2. King of the Hill (KOTH): a square in the middle of the map. A team banks hold time while it
+##    has someone on the point and the other team doesn't (nobody scores while it's contested);
+##    first to KOTH_HOLD_TO_WIN_S of total hold time. Same elimination/respawn rule as TDM.
 ## 3. TDM Sudden Death: elimination rounds with no respawns, first to ROUNDS_TO_WIN rounds.
 ##
-## Arena model (TDM/KOTH): every soldier has a distance from the middle of the map (`pos`) and
-## advances (Speed) to his role's holding spot; the distance between two soldiers is the sum of
-## their positions plus scaled role offsets. In KOTH, Objective IQ decides who plays the point
-## (and how fast the squad rotates someone back onto it), Breach pushes onto a held point and wins
-## the fight there, and Anchor keeps the soldiers on the point alive and shooting straight.
+## Movement: soldiers spawn in the Swing formation and walk (Speed, slowed by fatigue and by being
+## shot at) to their slot's spot: frontmen up front, the center watching the middle lane, flexes
+## running the outside lanes until their flank lands (Speed) and they collapse in with an accuracy
+## bonus. A soldier who hasn't seen an enemy for a while goes hunting; frontmen close to short
+## range. Tall walls block sight; crates give cover (shots through them hit less), and aware
+## soldiers who get shot at duck behind the nearest cover. In KOTH, Objective IQ decides who plays
+## the point, Breach pushes onto a held point and wins the fight there, and Anchor keeps the
+## soldiers on the point alive and shooting straight.
 ##
-## Sudden death model: the two squads start START_DISTANCE metres apart and close at a rate driven
-## by Speed; each soldier's distance = team distance + both soldiers' role offsets. Frontmen push
-## forward; the Center hangs back at medium range; Flexes swing wide and, once their flank lands
-## (Speed), collapse in with an accuracy bonus (the flank works the same way in the arena).
-##
-## Shooting (all modes): each tick every alive soldier may get a shot off (Awareness vs target
+## Shooting: each tick every soldier with an enemy in sight may get a shot off (Awareness vs target
 ## Agility), then fires a burst: first bullet uses range accuracy, follow-ups use Grouping +
 ## Strength (recoil). Endurance limits fatigue, which builds across the whole match. Reload sets
 ## reload time, Composure matters when outnumbered, Teamwork drives focus fire and a small
@@ -47,8 +47,6 @@ const TICK_SECONDS := 0.5
 const ROUND_TIME_LIMIT_S := 120.0
 ## Arena games end on the scoreboard; this only guards against a stalemate.
 const ARENA_SAFETY_LIMIT_S := 1800.0
-const START_DISTANCE := 65.0
-const MIN_DISTANCE := 6.0
 const MAX_ENGAGE_DISTANCE := 95.0
 ## Fatigue kept between games / by a respawning team.
 const GAME_RECOVERY := 0.6
@@ -57,6 +55,7 @@ const RESPAWN_RECOVERY := 0.8
 ## SAVE_WINDOW_TICKS counts as a save.
 const SAVE_HP := 30.0
 const SAVE_WINDOW_TICKS := 6
+## Movement while being shot at.
 const CONTACT_ADVANCE_MULT := 0.5
 ## Per-tick chance of getting a shot off, before role/awareness/agility modifiers.
 const BASE_ENGAGE := 0.13
@@ -65,15 +64,18 @@ const MAG_SIZE := 25
 const BURST := 3
 const SHORT_RANGE_MAX := 15.0
 const MEDIUM_RANGE_MAX := 40.0
-
-## Arena: spawn distance from the middle, where each role settles, and how much of the
-## sudden-death role offsets apply.
-const SPAWN_POS := 32.5
-const TDM_HOLD := {Scheme.Role.FRONTMAN: 3.0, Scheme.Role.CENTER: 16.0, Scheme.Role.FLEX: 9.0}
-## KOTH: where soldiers who aren't playing the point settle (overwatch).
-const KOTH_OVERWATCH := {Scheme.Role.FRONTMAN: 5.0, Scheme.Role.CENTER: 16.0, Scheme.Role.FLEX: 10.0}
-const ARENA_OFFSET_SCALE := 0.4
-const POINT_RADIUS := 1.0
+## Shots that cross a crate hit this much less often.
+const COVER_HIT_MULT := 0.6
+## Ticks without seeing an enemy (once settled) before a soldier goes hunting.
+const HUNT_AFTER_TICKS := 10
+## Frontmen on the hunt close to this range before planting.
+const FRONT_PUSH_RANGE := 11.0
+## How far a soldier under fire will run for cover, and how long he stays there.
+const COVER_SEARCH_RADIUS := 9.0
+const COVER_TICKS := 10
+const REPATH_TICKS := 4
+## Vision (line of sight) is refreshed every this many ticks.
+const VISION_EVERY := 2
 ## Within this distance of a held point, the push slows down unless the soldier can Breach.
 const BREACH_ZONE := 8.0
 ## Chance (at respawn) that a soldier plays the point, before Objective IQ.
@@ -106,11 +108,22 @@ class Combatant:
 	## Enemy who last dropped this soldier below SAVE_HP, and when (for teammate saves).
 	var endangered_by: Combatant = null
 	var endangered_tick := -100
-	## Arena: distance from the middle of the map, whether he's playing the point (KOTH) and the
-	## last tick he was shot at (pinned soldiers advance slower).
-	var pos := SPAWN_POS
+	## Position (metres) now and at the start of the tick (the viewer interpolates between them).
+	var pos := Vector2.ZERO
+	var prev_pos := Vector2.ZERO
+	## KOTH: playing the point, and the spot on the hill he heads for.
 	var goes_point := false
+	var hill_spot := Vector2.ZERO
 	var pinned_tick := -100
+	## Enemies in sight (refreshed every VISION_EVERY ticks) and the last tick he saw one.
+	var visible: Array = []
+	var last_contact_tick := 0
+	var hunting := false
+	var cover_spot := Vector2.ZERO
+	var cover_until := -1
+	var waypoint := Vector2.ZERO
+	var waypoint_goal := Vector2.INF
+	var repath_tick := 0
 	## Match ratings (morale and pre-match fatigue applied) and role behaviour, fixed for the match.
 	var _stats: Dictionary = {}
 	var _behaviour: Dictionary = {}
@@ -134,78 +147,128 @@ class Combatant:
 		return role == Scheme.Role.FLEX and flank_progress >= 1.0
 
 	func on_point() -> bool:
-		return alive and pos <= POINT_RADIUS
+		return alive and ArenaMap.on_hill(pos)
 
 	func behaviour(key: String) -> float:
 		return _flanked_behaviour[key] if flanked() else _behaviour[key]
 
 
+## Emit visual events (shots, kills, respawns, game/round boundaries) for the match viewer.
+var record := false
+## Visual events since the viewer last drained them. Each has "t" (type) plus details.
+var visual_events: Array[Dictionary] = []
+## [team 0 combatants, team 1 combatants]
+var squads: Array = []
+var finished := false
+
 var _rng := RandomNumberGenerator.new()
 var _result: MatchResult
-var _mode: StringName = MODE_SUDDEN_DEATH
+var _mode: StringName = MODE_TDM
 var _game_number := 0
 var _round_number := 0
 var _tick := 0
-var _contact := false
+var _everyone: Array = []
 ## Arena scoreboard for the current game: TDM points or KOTH hold seconds.
 var _arena_score: Array[float] = [0.0, 0.0]
 var _game_over := false
+var _game: Dictionary = {}
+var _need_game := true
+var _need_round := false
+var _holder := -1
+var _clutch_candidate: Combatant = null
 
 
 static func simulate(team_a: Team, team_b: Team, seed_value: int) -> MatchResult:
 	var engine := MatchEngine.new()
-	return engine._run(team_a, team_b, seed_value)
+	engine.start(team_a, team_b, seed_value)
+	while engine.step():
+		pass
+	return engine.result()
 
 
 static func mode_name(mode: StringName) -> String:
 	return MODE_NAMES.get(mode, String(mode))
 
 
-func _run(team_a: Team, team_b: Team, seed_value: int) -> MatchResult:
+func result() -> MatchResult:
+	return _result
+
+
+func mode() -> StringName:
+	return _mode
+
+
+func game_number() -> int:
+	return _game_number
+
+
+func round_number() -> int:
+	return _round_number
+
+
+## Seconds into the current game (sudden death: into the current round).
+func clock_s() -> float:
+	return _tick * TICK_SECONDS
+
+
+## Current game's scoreboard: TDM points, KOTH hold seconds or sudden-death rounds.
+func game_score() -> Array:
+	if _mode == MODE_SUDDEN_DEATH:
+		return _game.get("score", [0, 0]).duplicate()
+	return [_arena_score[0], _arena_score[1]]
+
+
+## KOTH: 0/1 = that team alone on the hill, 2 = contested, -1 = empty.
+func hill_state() -> int:
+	if _mode != MODE_KOTH or squads.is_empty():
+		return -1
+	var a := _on_point_count(squads[0]) > 0
+	var b := _on_point_count(squads[1]) > 0
+	if a and b:
+		return 2
+	if a:
+		return 0
+	if b:
+		return 1
+	return -1
+
+
+func start(team_a: Team, team_b: Team, seed_value: int) -> void:
+	ArenaMap.ensure_built()
 	_rng.seed = seed_value
 	_result = MatchResult.new()
 	_result.match_seed = seed_value
 	_result.teams = [team_a, team_b]
-
-	var squads: Array = [_build_squad(team_a, 0), _build_squad(team_b, 1)]
+	squads = [_build_squad(team_a, 0), _build_squad(team_b, 1)]
+	_everyone = squads[0] + squads[1]
 	_result.events.append("=== %s vs %s (seed %d) ===" % [team_a.name, team_b.name, seed_value])
 	_result.events.append("%s OVR %d | %s OVR %d" % [team_a.abbrev, team_a.team_ovr(), team_b.abbrev, team_b.team_ovr()])
 
-	while _result.score[0] < GAMES_TO_WIN and _result.score[1] < GAMES_TO_WIN:
-		_mode = GAME_ORDER[_game_number]
-		_game_number += 1
-		for squad in squads:
-			for c: Combatant in squad:
-				c.fatigue *= GAME_RECOVERY
-				_result.box[c.soldier.id]["games"] += 1
-		var game := {"number": _game_number, "mode": _mode, "score": [0, 0], "winner": -1, "duration_s": 0.0, "rounds": []}
-		var goal := ""
-		match _mode:
-			MODE_TDM:
-				goal = "first to %d" % TDM_POINTS_TO_WIN
-			MODE_KOTH:
-				goal = "first to %d:%02d of hold time" % [int(KOTH_HOLD_TO_WIN_S) / 60, int(KOTH_HOLD_TO_WIN_S) % 60]
-			_:
-				goal = "first to %d rounds" % ROUNDS_TO_WIN
-		_result.events.append("=== GAME %d: %s (%s) ===" % [_game_number, mode_name(_mode), goal])
-		if _mode == MODE_SUDDEN_DEATH:
-			_play_sudden_death(squads, game)
-		else:
-			_play_arena(squads, game)
-		_result.score[game["winner"]] += 1
-		_result.games.append(game)
-		_result.events.append("=== Game %d -> %s %s  (games %d-%d) ===" % [_game_number, _result.teams[game["winner"]].abbrev,
-			MatchResult.game_score_text(game), _result.score[0], _result.score[1]])
 
-	_result.winner_index = 0 if _result.score[0] > _result.score[1] else 1
-	_pick_mvp()
-	_result.events.append("=== FINAL: %s — %s wins ===" % [_result.score_line(), _result.winner().name])
-	# Break Combatant <-> Combatant reference cycles so they can be freed.
-	for squad in squads:
-		for c: Combatant in squad:
-			c.target = null
-			c.endangered_by = null
-	return _result
+## Advances one tick (starting the next game or round first if one just ended).
+## Returns false once the match is over.
+func step() -> bool:
+	if finished:
+		return false
+	if _need_game:
+		_need_game = false
+		_begin_game()
+	elif _need_round:
+		_need_round = false
+		_begin_round()
+	_tick += 1
+	for c: Combatant in _everyone:
+		c.prev_pos = c.pos
+	if _mode == MODE_SUDDEN_DEATH:
+		_tick_sudden_death()
+	else:
+		_tick_arena()
+	return not finished
+
+
+func _emit(e: Dictionary) -> void:
+	if record:
+		visual_events.append(e)
 
 
 func _build_squad(team: Team, index: int) -> Array:
@@ -222,6 +285,8 @@ func _build_squad(team: Team, index: int) -> Array:
 		c.role = team.scheme.role_for_slot(slot_id)
 		c.condition = 1.0 - Conditioning.penalty(s.fatigue)
 		c.setup()
+		c.pos = ArenaMap.spawn_point(index, slot_id)
+		c.prev_pos = c.pos
 		squad.append(c)
 		_result.box[s.id] = {
 			"team": index, "slot": slot_id, "kills": 0, "deaths": 0, "assists": 0, "shots": 0,
@@ -231,81 +296,73 @@ func _build_squad(team: Team, index: int) -> Array:
 	return squad
 
 
-# --- sudden death ------------------------------------------------------------------
+# --- games and rounds ------------------------------------------------------------
 
-func _play_sudden_death(squads: Array, game: Dictionary) -> void:
-	_round_number = 0
-	var score: Array = game["score"]
-	while score[0] < ROUNDS_TO_WIN and score[1] < ROUNDS_TO_WIN and _round_number < MAX_ROUNDS:
-		_round_number += 1
-		var info := _play_round(squads, score)
-		game["rounds"].append(info)
-		game["duration_s"] += info["duration_s"]
-	game["winner"] = 0 if score[0] > score[1] else 1
-
-
-func _play_round(squads: Array, score: Array) -> Dictionary:
+func _begin_game() -> void:
+	_mode = GAME_ORDER[_game_number]
+	_game_number += 1
+	for c: Combatant in _everyone:
+		c.fatigue *= GAME_RECOVERY
+		_result.box[c.soldier.id]["games"] += 1
+	_game = {"number": _game_number, "mode": _mode, "score": [0, 0], "winner": -1, "duration_s": 0.0, "rounds": []}
+	var goal := ""
+	match _mode:
+		MODE_TDM:
+			goal = "first to %d" % TDM_POINTS_TO_WIN
+		MODE_KOTH:
+			goal = "first to %d:%02d of hold time" % [int(KOTH_HOLD_TO_WIN_S) / 60, int(KOTH_HOLD_TO_WIN_S) % 60]
+		_:
+			goal = "first to %d rounds" % ROUNDS_TO_WIN
+	_result.events.append("=== GAME %d: %s (%s) ===" % [_game_number, mode_name(_mode), goal])
 	_tick = 0
-	_contact = false
-	var distance := START_DISTANCE
-	var everyone: Array = []
-	for squad in squads:
-		for c: Combatant in squad:
-			_reset_life(c)
-			c.fatigue *= 0.6  # partial recovery between rounds
-			_result.box[c.soldier.id]["rounds_played"] += 1
-			everyone.append(c)
+	_round_number = 0
+	_arena_score = [0.0, 0.0]
+	_game_over = false
+	_holder = -1
+	_emit({"t": "game_start", "game": _game_number, "mode": _mode})
+	if _mode == MODE_SUDDEN_DEATH:
+		_begin_round()
+	else:
+		for squad in squads:
+			_spawn(squad, true)
 
+
+func _finish_game(winner: int) -> void:
+	_game["winner"] = winner
+	_result.score[winner] += 1
+	_result.games.append(_game)
+	_result.events.append("=== Game %d -> %s %s  (games %d-%d) ===" % [_game_number, _result.teams[winner].abbrev,
+		MatchResult.game_score_text(_game), _result.score[0], _result.score[1]])
+	_emit({"t": "game_end", "game": _game})
+	if _result.score[0] >= GAMES_TO_WIN or _result.score[1] >= GAMES_TO_WIN:
+		_finish_match()
+	else:
+		_need_game = true
+
+
+func _finish_match() -> void:
+	_result.winner_index = 0 if _result.score[0] > _result.score[1] else 1
+	_pick_mvp()
+	_result.events.append("=== FINAL: %s — %s wins ===" % [_result.score_line(), _result.winner().name])
+	finished = true
+	_emit({"t": "match_end"})
+	# Break Combatant <-> Combatant reference cycles so they can be freed.
+	for c: Combatant in _everyone:
+		c.target = null
+		c.endangered_by = null
+		c.visible.clear()
+
+
+func _begin_round() -> void:
+	_round_number += 1
+	_tick = 0
+	_clutch_candidate = null
+	for c: Combatant in _everyone:
+		_reset_life(c)
+		c.fatigue *= 0.6  # partial recovery between rounds
+		_result.box[c.soldier.id]["rounds_played"] += 1
 	_result.events.append("--- Round %d ---" % _round_number)
-	var clutch_candidate: Combatant = null
-	var max_ticks := int(ROUND_TIME_LIMIT_S / TICK_SECONDS)
-
-	while _tick < max_ticks and _alive_count(squads[0]) > 0 and _alive_count(squads[1]) > 0:
-		_tick += 1
-		# Once shots are flying, squads bound forward slowly instead of walking in.
-		var advance := _closing_speed(squads[0]) + _closing_speed(squads[1])
-		if _contact:
-			advance *= CONTACT_ADVANCE_MULT
-		distance = maxf(MIN_DISTANCE, distance - advance)
-
-		var order := everyone.duplicate()
-		_shuffle(order)
-		for c: Combatant in order:
-			if not c.alive:
-				continue
-			_advance_state(c)
-			if c.reload_ticks > 0:
-				continue
-			var enemies: Array = squads[1 - c.team]
-			if _alive_count(enemies) == 0:
-				break
-			_act(c, squads[c.team], enemies, distance)
-
-		# Clutch: one soldier left alone against 2+ enemies.
-		for i in 2:
-			if clutch_candidate == null and _alive_count(squads[i]) == 1 and _alive_count(squads[1 - i]) >= 2:
-				clutch_candidate = _first_alive(squads[i])
-
-	var winner := _round_winner(squads)
-	score[winner] += 1
-	var survivors := [_alive_count(squads[0]), _alive_count(squads[1])]
-	var round_info := {
-		"number": _round_number, "mode": MODE_SUDDEN_DEATH, "winner": winner,
-		"duration_s": _tick * TICK_SECONDS, "survivors": survivors, "clutch_soldier_id": -1,
-	}
-	for c: Combatant in everyone:
-		if c.alive:
-			_result.box[c.soldier.id]["rounds_survived"] += 1
-			c.soldier.add_usage(Stats.ENDURANCE, 0.5)
-	if clutch_candidate and clutch_candidate.team == winner:
-		_result.box[clutch_candidate.soldier.id]["clutches"] += 1
-		clutch_candidate.soldier.add_usage(Stats.COMPOSURE, 4.0)
-		round_info["clutch_soldier_id"] = clutch_candidate.soldier.id
-		_result.events.append("%s CLUTCH! %s wins it alone." % [_stamp(), _name(clutch_candidate)])
-	_result.rounds.append(round_info)
-	_result.events.append("Round %d -> %s (%s)  [%d-%d]" % [
-		_round_number, _result.teams[winner].abbrev, _fmt_time(_tick), score[0], score[1]])
-	return round_info
+	_emit({"t": "round_start", "round": _round_number})
 
 
 func _reset_life(c: Combatant) -> void:
@@ -317,70 +374,111 @@ func _reset_life(c: Combatant) -> void:
 	c.target = null
 	c.endangered_by = null
 	c.damage_to.clear()
-	c.pos = SPAWN_POS
+	c.pos = ArenaMap.spawn_point(c.team, c.slot_id)
+	c.prev_pos = c.pos
 	c.pinned_tick = -100
+	c.visible.clear()
+	c.last_contact_tick = _tick
+	c.hunting = false
+	c.cover_until = -1
+	c.waypoint_goal = Vector2.INF
+	c.repath_tick = 0
 
 
-func _closing_speed(squad: Array) -> float:
-	var total := 0.0
-	var n := 0
-	for c: Combatant in squad:
+# --- sudden death ------------------------------------------------------------------
+
+func _tick_sudden_death() -> void:
+	_update_vision()
+	var order := _everyone.duplicate()
+	_shuffle(order)
+	for c: Combatant in order:
+		if not c.alive:
+			continue
+		_advance_state(c)
+		var enemies: Array = squads[1 - c.team]
+		if _alive_count(enemies) == 0:
+			break
+		_move(c, enemies)
+		if c.reload_ticks > 0:
+			continue
+		_act(c, squads[c.team], enemies)
+
+	# Clutch: one soldier left alone against 2+ enemies.
+	for i in 2:
+		if _clutch_candidate == null and _alive_count(squads[i]) == 1 and _alive_count(squads[1 - i]) >= 2:
+			_clutch_candidate = _first_alive(squads[i])
+
+	if _tick >= int(ROUND_TIME_LIMIT_S / TICK_SECONDS) or _alive_count(squads[0]) == 0 or _alive_count(squads[1]) == 0:
+		_end_round()
+
+
+func _end_round() -> void:
+	var score: Array = _game["score"]
+	var winner := _round_winner()
+	score[winner] += 1
+	var survivors := [_alive_count(squads[0]), _alive_count(squads[1])]
+	var round_info := {
+		"number": _round_number, "mode": MODE_SUDDEN_DEATH, "winner": winner,
+		"duration_s": _tick * TICK_SECONDS, "survivors": survivors, "clutch_soldier_id": -1,
+	}
+	for c: Combatant in _everyone:
 		if c.alive:
-			total += c.stat(Stats.SPEED) * (1.0 - c.fatigue * 0.3)
-			n += 1
-	if n == 0:
-		return 0.0
-	return 0.3 + (total / n) / 100.0 * 0.6
+			_result.box[c.soldier.id]["rounds_survived"] += 1
+			c.soldier.add_usage(Stats.ENDURANCE, 0.5)
+	if _clutch_candidate and _clutch_candidate.team == winner:
+		_result.box[_clutch_candidate.soldier.id]["clutches"] += 1
+		_clutch_candidate.soldier.add_usage(Stats.COMPOSURE, 4.0)
+		round_info["clutch_soldier_id"] = _clutch_candidate.soldier.id
+		_result.events.append("%s CLUTCH! %s wins it alone." % [_stamp(), _name(_clutch_candidate)])
+	_result.rounds.append(round_info)
+	_game["rounds"].append(round_info)
+	_game["duration_s"] += round_info["duration_s"]
+	_result.events.append("Round %d -> %s (%s)  [%d-%d]" % [
+		_round_number, _result.teams[winner].abbrev, _fmt_time(_tick), score[0], score[1]])
+	_emit({"t": "round_end", "round": round_info, "score": score.duplicate()})
+	if score[0] >= ROUNDS_TO_WIN or score[1] >= ROUNDS_TO_WIN or _round_number >= MAX_ROUNDS:
+		_finish_game(0 if score[0] > score[1] else 1)
+	else:
+		_need_round = true
 
 
 # --- arena games (TDM / KOTH) -----------------------------------------------------------
 
-func _play_arena(squads: Array, game: Dictionary) -> void:
-	_tick = 0
-	_round_number = 0
-	_game_over = false
-	_arena_score = [0.0, 0.0]
-	var everyone: Array = []
-	for squad in squads:
-		_spawn(squad, true)
-		everyone.append_array(squad)
-	var holder := -1
-	var max_ticks := int(ARENA_SAFETY_LIMIT_S / TICK_SECONDS)
-	while _tick < max_ticks and not _game_over:
-		_tick += 1
-		if _mode == MODE_KOTH:
-			_point_decisions(squads)
-		var order := everyone.duplicate()
-		_shuffle(order)
-		for c: Combatant in order:
-			if not c.alive:
-				continue
-			_advance_state(c)
-			var enemies: Array = squads[1 - c.team]
-			_move(c, enemies)
-			if c.reload_ticks > 0 or _alive_count(enemies) == 0:
-				continue
-			_act(c, squads[c.team], enemies, 0.0)
-			if _game_over:
-				break
+func _tick_arena() -> void:
+	if _mode == MODE_KOTH:
+		_point_decisions()
+	_update_vision()
+	var order := _everyone.duplicate()
+	_shuffle(order)
+	for c: Combatant in order:
+		if not c.alive:
+			continue
+		_advance_state(c)
+		var enemies: Array = squads[1 - c.team]
+		_move(c, enemies)
+		if c.reload_ticks > 0 or _alive_count(enemies) == 0:
+			continue
+		_act(c, squads[c.team], enemies)
 		if _game_over:
 			break
+	if not _game_over:
 		# A wiped team respawns in formation; the survivors play on where they are.
 		for i in 2:
 			if _alive_count(squads[i]) == 0:
 				_spawn(squads[i], false)
 				_result.events.append("%s %s respawn in formation." % [_stamp(), _result.teams[i].abbrev])
+				_emit({"t": "respawn", "team": i})
 		if _mode == MODE_KOTH:
-			holder = _score_hill(squads, holder)
-
-	var winner := 0
-	if _arena_score[0] != _arena_score[1]:
-		winner = 0 if _arena_score[0] > _arena_score[1] else 1
-	else:
-		winner = _rng.randi_range(0, 1)
-	game["winner"] = winner
-	game["score"] = [int(_arena_score[0]), int(_arena_score[1])]
-	game["duration_s"] = _tick * TICK_SECONDS
+			_score_hill()
+	if _game_over or _tick >= int(ARENA_SAFETY_LIMIT_S / TICK_SECONDS):
+		var winner := 0
+		if _arena_score[0] != _arena_score[1]:
+			winner = 0 if _arena_score[0] > _arena_score[1] else 1
+		else:
+			winner = _rng.randi_range(0, 1)
+		_game["score"] = [int(_arena_score[0]), int(_arena_score[1])]
+		_game["duration_s"] = _tick * TICK_SECONDS
+		_finish_game(winner)
 
 
 func _spawn(squad: Array, first: bool) -> void:
@@ -391,13 +489,20 @@ func _spawn(squad: Array, first: bool) -> void:
 		c.goes_point = false
 		if _mode == MODE_KOTH:
 			var chance := float(POINT_ROLE_BASE[c.role]) + (c.stat(Stats.OBJ_IQ) - 60.0) / 100.0
-			c.goes_point = _rng.randf() < clampf(chance, 0.05, 0.95)
+			_set_goes_point(c, _rng.randf() < clampf(chance, 0.05, 0.95))
+
+
+func _set_goes_point(c: Combatant, value: bool) -> void:
+	c.goes_point = value
+	if value:
+		var inner := ArenaMap.HILL.grow(-1.5)
+		c.hill_spot = Vector2(_rng.randf_range(inner.position.x, inner.end.x), _rng.randf_range(inner.position.y, inner.end.y))
 
 
 ## KOTH: who plays the point. A squad with nobody heading to the point rotates someone onto it
 ## (faster with Objective IQ); smart players also crash a point the enemy holds alone, and
 ## low-IQ players sometimes wander off the point to chase kills.
-func _point_decisions(squads: Array) -> void:
+func _point_decisions() -> void:
 	for i in 2:
 		var squad: Array = squads[i]
 		var goers := 0
@@ -411,7 +516,7 @@ func _point_decisions(squads: Array) -> void:
 			var iq := c.stat(Stats.OBJ_IQ) / 100.0
 			if c.goes_point:
 				if goers > 1 and _rng.randf() < (1.0 - iq) * 0.01:
-					c.goes_point = false
+					_set_goes_point(c, false)
 					goers -= 1
 				continue
 			var chance := 0.0
@@ -420,42 +525,22 @@ func _point_decisions(squads: Array) -> void:
 			elif enemy_alone:
 				chance = iq * 0.05
 			if chance > 0.0 and _rng.randf() < chance:
-				c.goes_point = true
+				_set_goes_point(c, true)
 				c.soldier.add_usage(Stats.OBJ_IQ, 0.5)
 				if goers == 0:
 					_result.events.append("%s %s rotates to the point." % [_stamp(), _name(c)])
 				goers += 1
 
 
-func _hold_pos(c: Combatant) -> float:
-	if _mode == MODE_KOTH:
-		return 0.0 if c.goes_point else float(KOTH_OVERWATCH[c.role])
-	return float(TDM_HOLD[c.role])
-
-
-func _move(c: Combatant, enemies: Array) -> void:
-	var dest := _hold_pos(c)
-	if c.pos <= dest:
-		return
-	var rate := (0.45 + c.stat(Stats.SPEED) / 100.0 * 0.9) * (1.0 - c.fatigue * 0.3)
-	if _tick - c.pinned_tick <= 4:
-		rate *= CONTACT_ADVANCE_MULT
-	if _mode == MODE_KOTH and c.goes_point and c.pos <= BREACH_ZONE and _on_point_count(enemies) > 0:
-		# Pushing onto a held point.
-		rate *= 0.25 + c.stat(Stats.BREACH) / 100.0 * 0.9
-		c.soldier.add_usage(Stats.BREACH, 0.2)
-	c.pos = maxf(dest, c.pos - rate)
-
-
-## Banks hold time for a team alone on the point. Returns the current holder (-1 = nobody yet).
-func _score_hill(squads: Array, holder: int) -> int:
+## Banks hold time for a team alone on the point.
+func _score_hill() -> void:
 	var on: Array = [_on_point_list(squads[0]), _on_point_list(squads[1])]
 	if not on[0].is_empty() and not on[1].is_empty():
 		for side in on:
 			for c: Combatant in side:
 				_result.box[c.soldier.id]["contest_s"] += TICK_SECONDS
 				c.soldier.add_usage(Stats.ANCHOR, 0.1)
-		return holder
+		return
 	for i in 2:
 		if on[i].is_empty():
 			continue
@@ -464,19 +549,130 @@ func _score_hill(squads: Array, holder: int) -> int:
 		for c: Combatant in on[i]:
 			_result.box[c.soldier.id]["hill_s"] += TICK_SECONDS
 			c.soldier.add_usage(Stats.ANCHOR, 0.05)
-		if holder != i:
-			holder = i
+		if _holder != i:
+			_holder = i
 			for c: Combatant in on[i]:
 				_result.box[c.soldier.id]["caps"] += 1
 				c.soldier.add_usage(Stats.OBJ_IQ, 1.0)
 			_result.events.append("%s %s take the hill.  [%s - %s]" % [_stamp(), _result.teams[i].abbrev,
 				_fmt_secs(_arena_score[0]), _fmt_secs(_arena_score[1])])
+			_emit({"t": "hill", "team": i})
 		if _arena_score[i] >= KOTH_HOLD_TO_WIN_S:
 			_game_over = true
 		elif int(before / 30.0) != int(_arena_score[i] / 30.0):
 			_result.events.append("%s %s have held for %s.  [%s - %s]" % [_stamp(), _result.teams[i].abbrev,
 				_fmt_secs(_arena_score[i]), _fmt_secs(_arena_score[0]), _fmt_secs(_arena_score[1])])
-	return holder
+
+
+# --- movement ----------------------------------------------------------------------
+
+func _update_vision() -> void:
+	if _tick % VISION_EVERY != 1 and VISION_EVERY > 1:
+		# Between refreshes just drop the dead.
+		for c: Combatant in _everyone:
+			if not c.visible.is_empty():
+				c.visible = c.visible.filter(func(e: Combatant): return e.alive)
+		return
+	for c: Combatant in _everyone:
+		c.visible.clear()
+	var max_d2 := MAX_ENGAGE_DISTANCE * MAX_ENGAGE_DISTANCE
+	for a: Combatant in squads[0]:
+		if not a.alive:
+			continue
+		for b: Combatant in squads[1]:
+			if b.alive and a.pos.distance_squared_to(b.pos) <= max_d2 and ArenaMap.line_of_sight(a.pos, b.pos):
+				a.visible.append(b)
+				b.visible.append(a)
+	for c: Combatant in _everyone:
+		if not c.visible.is_empty():
+			c.last_contact_tick = _tick
+
+
+## Where the soldier wants to be this tick (world coordinates).
+func _goal(c: Combatant, enemies: Array) -> Vector2:
+	if _mode == MODE_KOTH and c.goes_point:
+		return c.hill_spot
+	if c.cover_until >= _tick:
+		return c.cover_spot
+	var hold: Vector2
+	if c.role == Scheme.Role.FLEX:
+		hold = ArenaMap.world(c.team, ArenaMap.flank_point(c.flank_progress, c.slot_id == &"RFX"))
+	else:
+		var table: Dictionary = ArenaMap.OVERWATCH if _mode == MODE_KOTH else ArenaMap.HOLD
+		hold = ArenaMap.world(c.team, table.get(c.slot_id, table[&"CTR"]))
+	if not c.visible.is_empty():
+		if not c.hunting:
+			return hold
+		# In a fight while hunting: plant, except frontmen who close to short range.
+		if c.role == Scheme.Role.FRONTMAN and c.target and c.target.alive \
+				and c.pos.distance_to(c.target.pos) > FRONT_PUSH_RANGE:
+			return c.target.pos
+		return c.pos
+	if not c.hunting:
+		var quiet := _tick - c.last_contact_tick
+		var settled := c.pos.distance_squared_to(hold) < 9.0
+		if quiet > HUNT_AFTER_TICKS and (settled or quiet > HUNT_AFTER_TICKS * 4):
+			c.hunting = true
+	if c.hunting:
+		var nearest: Combatant = null
+		var best := INF
+		for e: Combatant in enemies:
+			if e.alive:
+				var d := c.pos.distance_squared_to(e.pos)
+				if d < best:
+					best = d
+					nearest = e
+		if nearest:
+			return nearest.pos
+	return hold
+
+
+func _move(c: Combatant, enemies: Array) -> void:
+	var goal := _goal(c, enemies)
+	if c.pos.distance_squared_to(goal) < 0.04:
+		return
+	var rate := (0.45 + c.stat(Stats.SPEED) / 100.0 * 0.9) * (1.0 - c.fatigue * 0.3)
+	if _tick - c.pinned_tick <= 4:
+		rate *= CONTACT_ADVANCE_MULT
+	if _mode == MODE_KOTH and c.goes_point and _on_point_count(enemies) > 0:
+		var to_hill := c.pos.distance_to(c.pos.clamp(ArenaMap.HILL.position, ArenaMap.HILL.end))
+		if to_hill <= BREACH_ZONE:
+			# Pushing onto a held point.
+			rate *= 0.25 + c.stat(Stats.BREACH) / 100.0 * 0.9
+			c.soldier.add_usage(Stats.BREACH, 0.2)
+	if goal.distance_squared_to(c.waypoint_goal) > 4.0 or _tick >= c.repath_tick \
+			or c.pos.distance_squared_to(c.waypoint) < 0.25:
+		c.waypoint = ArenaMap.next_waypoint(c.pos, goal)
+		c.waypoint_goal = goal
+		c.repath_tick = _tick + REPATH_TICKS
+	var to := c.waypoint - c.pos
+	var d := to.length()
+	if d < 0.001:
+		return
+	var dir := to / d
+	var stride := minf(rate, d)
+	var np := c.pos + dir * stride
+	if ArenaMap.blocked(np):
+		# Slide along whatever is in the way, then re-plan next tick.
+		np = c.pos + Vector2(dir.x * stride, 0.0)
+		if ArenaMap.blocked(np):
+			np = c.pos + Vector2(0.0, dir.y * stride)
+			if ArenaMap.blocked(np):
+				np = c.pos
+		c.repath_tick = _tick
+	c.pos = np
+
+
+## Shot at: an aware soldier not playing the point ducks behind the nearest cover.
+func _seek_cover(c: Combatant, shooter: Combatant) -> void:
+	if not c.alive or c.cover_until >= _tick or (_mode == MODE_KOTH and c.goes_point):
+		return
+	if _rng.randf() > c.stat(Stats.AWARENESS) / 100.0 * 0.35:
+		return
+	var spot := ArenaMap.find_cover(c.pos, shooter.pos, COVER_SEARCH_RADIUS)
+	if spot != Vector2.INF:
+		c.cover_spot = spot
+		c.cover_until = _tick + COVER_TICKS
 
 
 # --- shooting ----------------------------------------------------------------------
@@ -495,19 +691,12 @@ func _advance_state(c: Combatant) -> void:
 			c.mag = MAG_SIZE
 
 
-func _distance(c: Combatant, target: Combatant, team_distance: float) -> float:
-	var offsets := c.behaviour("distance_offset") + target.behaviour("distance_offset")
-	if _mode == MODE_SUDDEN_DEATH:
-		return maxf(3.0, team_distance + offsets)
-	return maxf(3.0, c.pos + target.pos + offsets * ARENA_OFFSET_SCALE)
-
-
-func _act(c: Combatant, allies: Array, enemies: Array, team_distance: float) -> void:
-	var target := _pick_target(c, allies, enemies)
+func _act(c: Combatant, allies: Array, enemies: Array) -> void:
+	var target := _pick_target(c, allies)
 	c.target = target
-	var dist := _distance(c, target, team_distance)
-	if dist > MAX_ENGAGE_DISTANCE:
+	if target == null:
 		return
+	var dist := c.pos.distance_to(target.pos)
 	var band := _band(dist)
 
 	# Getting a shot off: shooter awareness vs target agility (harder to pin down).
@@ -524,14 +713,16 @@ func _act(c: Combatant, allies: Array, enemies: Array, team_distance: float) -> 
 		# 4.0s at 0 reload, ~1.0s at 99, in ticks.
 		c.reload_ticks = maxi(1, ceili((4.0 - c.stat(Stats.RELOAD) * 0.03) / TICK_SECONDS))
 		c.soldier.add_usage(Stats.RELOAD, 1.0)
+		_emit({"t": "reload", "id": c.soldier.id})
 
 
-func _pick_target(c: Combatant, allies: Array, enemies: Array) -> Combatant:
+## Picks among the enemies in sight; null if none.
+func _pick_target(c: Combatant, allies: Array) -> Combatant:
 	var focus := c.stat(Stats.TEAMWORK) / 100.0
 	var awareness := c.stat(Stats.AWARENESS) / 100.0
 	var candidates: Array = []
 	var weights: Array[float] = []
-	for e: Combatant in enemies:
+	for e: Combatant in c.visible:
 		if not e.alive:
 			continue
 		var w := e.behaviour("exposure")
@@ -546,13 +737,14 @@ func _pick_target(c: Combatant, allies: Array, enemies: Array) -> Combatant:
 			w *= 1.5
 		candidates.append(e)
 		weights.append(w)
+	if candidates.is_empty():
+		return null
 	return candidates[_weighted_index(weights)]
 
 
 func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band: StringName, dist: float) -> void:
 	var shots := mini(BURST, c.mag)
 	c.mag -= shots
-	_contact = true
 	target.pinned_tick = _tick
 	var acc_stat: StringName = RANGE_STAT[band]
 	var box: Dictionary = _result.box[c.soldier.id]
@@ -577,6 +769,9 @@ func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band:
 	# Caught mid-reload: target can't return fire or dodge as well.
 	if target.reload_ticks > 0:
 		p *= 1.25
+	var covered := ArenaMap.through_cover(c.pos, target.pos)
+	if covered:
+		p *= COVER_HIT_MULT
 	if _mode == MODE_KOTH:
 		if c.on_point():
 			# Holding the hill: set angles and cover.
@@ -595,6 +790,10 @@ func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band:
 		c.soldier.add_usage(Stats.GROUPING, (shots - 1) * 0.3)
 		c.soldier.add_usage(Stats.STRENGTH, 0.1)
 
+	var hits := 0
+	var any_headshot := false
+	var killed := false
+	var target_pos := target.pos
 	for i in shots:
 		if not target.alive:
 			break
@@ -602,12 +801,14 @@ func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band:
 		if _rng.randf() > hit_p:
 			target.soldier.add_usage(Stats.AGILITY, 0.15)
 			continue
+		hits += 1
 		box["hits"] += 1
 		var dmg := _rng.randf_range(22.0, 30.0)
 		var headshot := _rng.randf() < 0.06 + c.stat(Stats.GROUPING) * 0.0008
 		if headshot:
 			dmg *= 2.2
 			box["headshots"] += 1
+			any_headshot = true
 		dmg *= 1.0 - target.stat(Stats.TOUGHNESS) / 100.0 * 0.25
 		if _mode == MODE_KOTH and target.on_point():
 			dmg *= 1.0 - target.stat(Stats.ANCHOR) / 100.0 * 0.35
@@ -617,10 +818,23 @@ func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band:
 		c.damage_to[target.soldier.id] = c.damage_to.get(target.soldier.id, 0.0) + dmg
 		target.soldier.add_usage(Stats.TOUGHNESS, dmg / 25.0)
 		if target.hp <= 0.0:
+			killed = true
 			_kill(c, target, allies, enemies, band, dist, headshot)
 		elif target.hp < SAVE_HP:
 			target.endangered_by = c
 			target.endangered_tick = _tick
+	if record:
+		var res := "MISS"
+		if killed:
+			res = "KILL"
+		elif any_headshot:
+			res = "HEADSHOT"
+		elif hits > 0:
+			res = "HIT" if hits == 1 else "HIT x%d" % hits
+		_emit({"t": "shot", "id": c.soldier.id, "team": c.team, "from": c.pos, "to": target_pos,
+			"target": target.soldier.id, "result": res, "shots": shots, "hits": hits, "cover": covered})
+	if not killed:
+		_seek_cover(target, c)
 
 
 func _kill(killer: Combatant, victim: Combatant, killer_allies: Array, victim_allies: Array,
@@ -648,10 +862,12 @@ func _kill(killer: Combatant, victim: Combatant, killer_allies: Array, victim_al
 		line += " — assist: " + ", ".join(assisters)
 	if not saved.is_empty():
 		line += " — SAVE: " + ", ".join(saved)
+	var wipe := false
 	if _mode != MODE_SUDDEN_DEATH:
 		if _mode == MODE_TDM:
 			_arena_score[killer.team] += 1.0
 		if _alive_count(victim_allies) == 0:
+			wipe = true
 			_result.box[killer.soldier.id]["wipes"] += 1
 			line += " — TEAM WIPE"
 			if _mode == MODE_TDM:
@@ -662,9 +878,11 @@ func _kill(killer: Combatant, victim: Combatant, killer_allies: Array, victim_al
 			if _arena_score[killer.team] >= TDM_POINTS_TO_WIN:
 				_game_over = true
 	_result.events.append(line)
+	_emit({"t": "kill", "killer": killer.soldier.id, "victim": victim.soldier.id, "team": killer.team,
+		"headshot": headshot, "dist": dist, "assists": assisters, "saved": saved, "wipe": wipe})
 
 
-func _round_winner(squads: Array) -> int:
+func _round_winner() -> int:
 	var a := _alive_count(squads[0])
 	var b := _alive_count(squads[1])
 	if a != b:

@@ -20,12 +20,16 @@ var _header: PanelContainer
 var _tab_bar: HBoxContainer
 var _content: MarginContainer
 var _scroll: ScrollContainer
+var _root: VBoxContainer
+## Live match viewer overlay while watching the user's match (hub root hidden meanwhile).
+var viewer: MatchViewer = null
 
 
 func _ready() -> void:
 	pages = FranchisePages.new()
 	pages.hub = self
 	var root := VBoxContainer.new()
+	_root = root
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.add_theme_constant_override("separation", 0)
 	add_child(root)
@@ -66,6 +70,8 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if viewer:
+		return
 	var advance_key: bool = event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_SPACE
 	var advance_pad: bool = event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_Y
 	if advance_key or advance_pad:
@@ -93,6 +99,8 @@ func refresh() -> void:
 
 
 func cycle_tab(dir: int) -> void:
+	if viewer:
+		return
 	select_tab(wrapi(tab_index + dir, 0, TABS.size()))
 
 
@@ -123,6 +131,9 @@ func replace(title: String, build: Callable) -> void:
 
 
 func go_back() -> bool:
+	if viewer:
+		viewer.toggle_pause()
+		return true
 	if page_stack.is_empty():
 		return false
 	page_stack.pop_back()
@@ -141,6 +152,51 @@ func advance() -> void:
 	if season.preseason_camp:
 		_close_preseason_camp()
 		return
+	var m := user_match_this_week()
+	if m and not m.is_played() and not _on_matchup_page():
+		season.prepare_week()
+		_rebuild_and_open(season.week_label(season.week), func(): return pages.matchup(m))
+		page_stack[-1]["kind"] = "matchup"
+		return
+	sim_week()
+
+
+## The user's unplayed-or-played fixture in the current week (null on a bye / when eliminated).
+func user_match_this_week() -> ScheduledMatch:
+	if season.phase == Season.PHASE_OFFSEASON or season.preseason_camp:
+		return null
+	for m in season.matches_for_week(season.week):
+		if m.involves(season.user_team()):
+			return m
+	return null
+
+
+func _on_matchup_page() -> bool:
+	return not page_stack.is_empty() and page_stack[-1].get("kind", "") == "matchup"
+
+
+## Watch the user's match live; when the viewer finishes, the rest of the week is simmed.
+func watch_match(m: ScheduledMatch) -> void:
+	if viewer or m.is_played():
+		return
+	viewer = MatchViewer.new()
+	viewer.setup(m)
+	viewer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	viewer.finished.connect(_on_viewer_finished.bind(m))
+	_root.visible = false
+	add_child(viewer)
+
+
+func _on_viewer_finished(r: MatchResult, m: ScheduledMatch) -> void:
+	m.set_live_result(r)
+	viewer.queue_free()
+	viewer = null
+	_root.visible = true
+	sim_week()
+
+
+## Sim the rest of the week (the user's match too, unless it was already watched) and show results.
+func sim_week() -> void:
 	var label := season.week_label(season.week)
 	var played: Array = season.sim_week()
 	page_stack.clear()

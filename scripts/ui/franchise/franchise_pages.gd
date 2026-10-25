@@ -193,6 +193,70 @@ func week_results(label: String, played: Array) -> Control:
 
 # --- match preview / recap -----------------------------------------------------------
 
+## Pre-match screen for the user's fixture: both starting fives side by side, Watch or Sim.
+func matchup(m: ScheduledMatch) -> Control:
+	var s := _season()
+	var v := _vbox(18)
+	v.add_child(UiKit.label("%s  -  BEST OF 3:  TDM  -  KING OF THE HILL  -  TDM SUDDEN DEATH" % s.week_label(m.week).to_upper(), 16, UiKit.MUTED))
+	var h := _row(20)
+	h.alignment = BoxContainer.ALIGNMENT_CENTER
+	h.add_child(_matchup_side(m.home, "HOME"))
+	var vs := UiKit.label("VS", 54, UiKit.MUTED)
+	vs.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	vs.custom_minimum_size.x = 90
+	vs.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	h.add_child(vs)
+	h.add_child(_matchup_side(m.away, "AWAY"))
+	v.add_child(h)
+	var btns := _row(20)
+	btns.alignment = BoxContainer.ALIGNMENT_CENTER
+	var watch := UiKit.button("WATCH", func(): hub.watch_match(m), 24)
+	watch.custom_minimum_size = Vector2(260, 64)
+	watch.tooltip_text = "Watch the match live on the tactical map."
+	btns.add_child(watch)
+	var sim := UiKit.button("SIM", hub.sim_week, 24)
+	sim.custom_minimum_size = Vector2(260, 64)
+	sim.tooltip_text = "Simulate the match instantly and go to the week's results."
+	btns.add_child(sim)
+	v.add_child(btns)
+	v.add_child(UiKit.label("Go back (Esc) to adjust your lineup first; Advance again sims the match.", 14, UiKit.MUTED))
+	return v
+
+
+func _matchup_side(t: Team, tag: String) -> Control:
+	var s := _season()
+	var p := UiKit.panel(UiKit.PANEL, 14)
+	p.custom_minimum_size.x = 560
+	var col := _vbox(8)
+	p.add_child(col)
+	var head := _row(12)
+	var sw := ColorRect.new()
+	sw.color = t.color
+	sw.custom_minimum_size = Vector2(10, 64)
+	head.add_child(sw)
+	var names := _vbox(2)
+	names.add_child(UiKit.label(tag, 13, UiKit.MUTED))
+	names.add_child(UiKit.label(t.name, 28, Color.WHITE))
+	names.add_child(UiKit.label("Record %s   -   OVR %d" % [s.record_text(t), t.team_ovr()], 15, UiKit.MUTED))
+	head.add_child(names)
+	col.add_child(head)
+	for sid in t.scheme.slot_ids():
+		var so: Soldier = t.lineup[sid]
+		var r := _row(12)
+		r.add_child(Portrait.new(so, 56, t.color, t))
+		var nv := _vbox(0)
+		nv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		nv.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		nv.add_child(UiKit.label(so.tag(), 20, Color.WHITE))
+		nv.add_child(UiKit.label("%s  -  %s" % [sid, so.full_name()], 14, UiKit.MUTED))
+		r.add_child(nv)
+		var ovr: int = t.ovr_in_slot(so, sid)
+		var o := UiKit.label(str(ovr), 26, UiKit.ovr_color(ovr))
+		o.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		r.add_child(o)
+		col.add_child(r)
+	return p
+
 func preview(m: ScheduledMatch) -> Control:
 	var s := _season()
 	var v := _vbox(16)

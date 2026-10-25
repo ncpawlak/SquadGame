@@ -81,6 +81,7 @@ var past_drafts: Array = []
 var last_prospect_news: Array = []
 ## Regular-season week w -> the team on bye.
 var _byes: Array = []
+var _week_prepared := false
 var _rng := RandomNumberGenerator.new()
 
 
@@ -274,21 +275,34 @@ func is_regular_season_over() -> bool:
 	return phase != PHASE_REGULAR
 
 
-func sim_week() -> Array:
-	if phase == PHASE_OFFSEASON:
-		return []
+## Pre-match half of a week: closes camp, resolves FA bids, sets lineups and runs training.
+## Called by `sim_week` automatically; call it early to show/watch the week's matchups first.
+func prepare_week() -> void:
+	if phase == PHASE_OFFSEASON or _week_prepared:
+		return
 	close_preseason_camp()
-	var played := matches_for_week(week)
 	last_signings = fa.resolve(self, _rng, week_label(week))
 	_prepare_lineups()
 	for t in league.teams:
 		Training.run_week(t)
+	_week_prepared = true
+
+
+func sim_week() -> Array:
+	if phase == PHASE_OFFSEASON:
+		return []
+	prepare_week()
+	_week_prepared = false
+	var played := matches_for_week(week)
 	var played_ids := {}
 	var playing_teams := {}
 	for m in played:
 		if not m.is_played():
 			m.play()
 			Progression.award_match_xp(m.result, year)
+		elif m.needs_xp:
+			Progression.award_match_xp(m.result, year)
+		m.needs_xp = false
 		for t: Team in [m.home, m.away]:
 			playing_teams[t] = true
 			for so in t.starters():

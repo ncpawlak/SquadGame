@@ -31,6 +31,15 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   and aging → next season (rosters, ratings and contracts carry over).
 - **Standings**: match W/L, tiebreakers head-to-head, then game differential (games won − lost across the best-of-3
   matches), then TDM point differential.
+- **Match day**: Play Week opens a matchup screen (both starting fives, OVRs) with **Watch** and **Sim**.
+  Sim plays it instantly. Watch opens the live viewer (`scripts/ui/franchise/match_viewer.gd`): a top-down
+  tactical map with walls (block movement and sight), crates (low cover) and the hill; soldiers are circles in team
+  colours with their callsign, moving and fighting in real time. Shots draw a tracer + muzzle flash and a pop-up
+  (MISS / HIT / HEADSHOT / KILL / RELOAD). Scoreboard on top (TDM points, KOTH hold clocks with the hill tinted by
+  the holder, sudden-death rounds), team panels with HP bars and live K/D/A, saves, hits/shots and hill time,
+  and a kill feed under the map. Controls: Pause (Space), 2x / 3x / 5x real-time speed (keys 1-3) and Sim to End.
+  An intermission card shows each game's winner and the series score. A watched match plays out exactly like a
+  simmed one with the same seed.
 - **Each week**: all teams train at each soldier's intensity, every match is played, XP is awarded, then fatigue
   and injuries update. AI teams auto-spend skill points and pick intensities; you set yours on the Training page
   and spend SP on the player page (or **Auto-progress all** on the Progression page). Injured starters are
@@ -155,7 +164,7 @@ The old debug UI is still available from the title screen or Settings → Debug 
 
 ```powershell
 godot --headless --path . --import                              # first run: builds class cache
-godot --headless --path . --script res://tests/run_tests.gd     # sim/progression tests (~5 min)
+godot --headless --path . --script res://tests/run_tests.gd     # sim/progression tests (~20 min; TEST_ONLY=<name part> for a subset)
 godot --headless --path . --script res://tests/season_tests.gd  # season loop tests (~2 min)
 godot --headless --path . --script res://tests/ui_smoke.gd      # debug UI smoke test
 godot --headless --path . --script res://tests/franchise_smoke.gd  # franchise menus through a full season
@@ -175,7 +184,7 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
 - **Scheme "Swing":**
   - Frontman ×2, Center, Left Flex, Right Flex.
   - Each role has its own OVR weights (`scripts/core/scheme.gd`).
-  - Role also drives in-sim behaviour (distance, exposure, flanking).
+  - Role also drives in-sim behaviour: frontmen push the middle, the center anchors back, flexes flank the edges.
 - **Rosters:** 12 soldiers each (5 starters + 7 bench). The league currently has 2 teams.
 - **Match:**
   - **Best of 3 games**, always in this order (a 2-0 sweep skips game 3), 0.5s ticks. Same lineup all match;
@@ -190,7 +199,12 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
     Anchor adds accuracy and damage resistance while on the point. Frontmen lean Breach, Centers Anchor, Flexes OIQ.
   - New box/season stats: team wipes, hill time, hill captures (and contest time in the box score).
     Hill time, captures and wipes have League Leaders boards. XP impact is averaged per game played.
+  - **2D arena** (`scripts/sim/arena_map.gd`): a symmetric 96x60 m map with walls, crates and the hill in the
+    middle. Soldiers spawn in the scheme formation, path around obstacles (waypoint graph), hold lanes, flank,
+    hunt when it goes quiet, and duck to nearby cover when shot at (Awareness). Only enemies in line of sight can be
+    targeted; real distance sets the range band and shots through a crate hit less often.
   - Each shot is resolved on the range band, accuracy, fatigue, composure, teamwork, and the target's evasion and toughness.
+  - The engine is steppable (`start` / `step`), so Sim and the live viewer share it; `record` turns on visual events.
   - Deterministic for a given match seed (`scripts/sim/match_engine.gd`).
 - **Progression:**
   - XP from matches and weekly training gives skill points (SP): every 500 XP (+150 per batch) = 3 SP.

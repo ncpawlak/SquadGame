@@ -37,6 +37,7 @@ func _init() -> void:
 		"test_prospect_news",
 		"test_training_camp_and_offseason_xp",
 		"test_preseason_camp",
+		"test_watched_match_flow",
 	]
 	for t in tests:
 		_current = t
@@ -331,6 +332,39 @@ func test_xp_and_auto_spend() -> void:
 	check(matches > 0, "match XP/career recorded for user starters")
 	# Focus player got more XP than an unfocused bench player of similar age? Just ensure levels.
 	check(user.roster[0].level >= 2, "focus player progressed")
+
+
+## Hub flow for a watched match: prepare the week, play the user's match live, then sim the week.
+func test_watched_match_flow() -> void:
+	var s := Season.new_franchise(55)
+	var user := s.user_team()
+	var m: ScheduledMatch = null
+	while m == null:
+		for x in s.matches_for_week(s.week):
+			if x.involves(user):
+				m = x
+		if m == null:
+			s.sim_week()
+	s.prepare_week()
+	var signings_before := s.last_signings
+	s.prepare_week()  # second call is a no-op (no double training / FA resolution)
+	check(s.last_signings == signings_before, "prepare_week is idempotent within a week")
+	var starter: Soldier = user.starters()[0]
+	var matches_before: int = starter.career["matches"]
+	var e := m.live_engine()
+	e.record = true
+	while e.step():
+		e.visual_events.clear()
+	m.set_live_result(e.result())
+	check(m.is_played() and m.needs_xp, "live result stored, XP pending")
+	var week_before := s.week
+	var played := s.sim_week()
+	check(played.has(m), "watched match is part of the week's results")
+	check(s.week == week_before + 1, "week advanced")
+	check(not m.needs_xp, "XP awarded for the watched match")
+	check(starter.career["matches"] == matches_before + 1, "watched match counted exactly once")
+	for x in played:
+		check(x.is_played(), "every match that week was played")
 
 
 func test_conditioning_over_season() -> void:

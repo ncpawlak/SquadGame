@@ -8,6 +8,8 @@ var home: Team
 var away: Team
 var match_seed: int
 var result: MatchResult = null
+## Set when a result was produced outside `sim_week` (e.g. a watched match) and XP is still owed.
+var needs_xp := false
 
 
 func is_played() -> bool:
@@ -62,3 +64,15 @@ func points_for(team: Team) -> int:
 func play() -> MatchResult:
 	result = MatchEngine.simulate(home, away, match_seed)
 	return result
+
+
+## A steppable engine for this fixture, for the live viewer. Assign its result via `set_live_result`.
+func live_engine() -> MatchEngine:
+	var e := MatchEngine.new()
+	e.start(home, away, match_seed)
+	return e
+
+
+func set_live_result(r: MatchResult) -> void:
+	result = r
+	needs_xp = true

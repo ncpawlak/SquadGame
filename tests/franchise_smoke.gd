@@ -87,12 +87,31 @@ func _init() -> void:
 
 	# Play the season week by week through the hub.
 	var guard := 0
-	while hub.season.phase != Season.PHASE_OFFSEASON and guard < 20:
+	var saw_matchup := false
+	var watched := false
+	while hub.season.phase != Season.PHASE_OFFSEASON and guard < 50:
 		hub.advance()
 		await process_frame
 		guard += 1
+		if hub._on_matchup_page():
+			saw_matchup = true
+			if not watched:
+				watched = true
+				var wk: int = hub.season.week
+				var m: ScheduledMatch = hub.user_match_this_week()
+				hub.watch_match(m)
+				await process_frame
+				_check(hub.viewer != null and not hub._root.visible, "live viewer open")
+				for i in 30:
+					await process_frame
+				hub.viewer.sim_to_end()
+				hub.viewer.finished.emit(hub.viewer.engine.result())
+				await process_frame
+				_check(hub.viewer == null and hub._root.visible, "viewer closed back to the hub")
+				_check(m.is_played() and hub.season.week == wk + 1, "watched match recorded, week advanced")
 		if guard == 3:
 			await _visit_pages(hub, "midseason")
+	_check(saw_matchup and watched, "Play Week opens the matchup screen")
 	_check(hub.season.champion != null, "season finished with a champion")
 	await _visit_pages(hub, "offseason")
 
