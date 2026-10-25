@@ -2,9 +2,11 @@ class_name Training
 extends RefCounted
 ## Weekly training. Every soldier trains at their own intensity (Soldier.intensity):
 ## harder training earns more XP but builds more fatigue (see Conditioning).
-## Injured soldiers don't train.
+## Resting and injured soldiers still earn a little XP from film study (FILM_STUDY_XP).
 
 const BASE_XP := 150.0
+## Share of BASE_XP earned by resting or injured soldiers (film study).
+const FILM_STUDY_XP := 0.25
 
 const INTENSITIES: Array[StringName] = [
 	Soldier.INTENSITY_REST, Soldier.INTENSITY_LIGHT, Soldier.INTENSITY_NORMAL, Soldier.INTENSITY_HEAVY,
@@ -13,7 +15,7 @@ const INTENSITIES: Array[StringName] = [
 ## xp: XP multiplier. load: fatigue added (before Endurance/age scaling).
 ## recovery_bonus: extra share of fatigue shed that week.
 const INTENSITY_INFO := {
-	Soldier.INTENSITY_REST: {"label": "Rest", "xp": 0.0, "load": 0.0, "recovery_bonus": 0.25},
+	Soldier.INTENSITY_REST: {"label": "Rest", "xp": FILM_STUDY_XP, "load": 0.0, "recovery_bonus": 0.25},
 	Soldier.INTENSITY_LIGHT: {"label": "Light", "xp": 0.6, "load": 3.0, "recovery_bonus": 0.0},
 	Soldier.INTENSITY_NORMAL: {"label": "Normal", "xp": 1.0, "load": 6.0, "recovery_bonus": 0.0},
 	Soldier.INTENSITY_HEAVY: {"label": "Heavy", "xp": 1.6, "load": 11.0, "recovery_bonus": 0.0},
@@ -21,6 +23,8 @@ const INTENSITY_INFO := {
 
 
 static func label(intensity: StringName) -> String:
+	if not INTENSITY_INFO.has(intensity):
+		return "Film Study"
 	return INTENSITY_INFO[intensity]["label"]
 
 
@@ -33,6 +37,9 @@ static func run_week(team: Team) -> Dictionary:
 	var reports := {}
 	for soldier in team.roster:
 		if soldier.is_injured():
+			var film := Progression.gain_xp(soldier, BASE_XP * FILM_STUDY_XP)
+			film["intensity"] = &"film"
+			reports[soldier.id] = film
 			continue
 		var report := Progression.gain_xp(soldier, xp_for(soldier.intensity))
 		report["intensity"] = soldier.intensity

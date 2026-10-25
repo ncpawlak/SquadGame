@@ -11,6 +11,12 @@ extends RefCounted
 ## that gives his projected round and drives the mock draft. Hidden phenoms are judged at their
 ## listed position, so they tend to project as mid-round sleepers.
 ##
+## Standouts: every class has a few blue-chippers (much better all-round, high potential) and
+## specialists (one elite stat group); the recap reveals them. Prospect news (weekly during the
+## season) hints at them: stock rising/falling stories move the consensus, and stat stories
+## ("claimed #1 for long range target practice") point at an extreme stat. Most stories are
+## true, some are misleading, and none reveal a tier outright.
+##
 ## Draft: snake order (worst team first, champion last) for ROUNDS rounds. AI teams pick on a
 ## pick-day read of the consensus value plus a bonus for their weakest position.
 
@@ -31,7 +37,52 @@ const TIER_NAMES := {
 	Stats.DURABILITY: ["Glass", "Fragile", "Durable", "Sturdy", "Iron Man"],
 }
 const PROSPECT_QUALITY := 57.0
-const PROSPECT_QUALITY_SD := 5.0
+const PROSPECT_QUALITY_SD := 6.0
+## Blue-chippers per class [min, max], their quality bonus [min, max] and minimum potential.
+const BLUE_CHIPS := [2, 4]
+const BLUE_CHIP_BONUS := [10.0, 15.0]
+const BLUE_CHIP_MIN_POTENTIAL := 3
+## Specialists per class [min, max] and the range of their elite group's stats.
+const SPECIALISTS := [3, 5]
+const SPECIALIST_STAT := [74, 86]
+## Prospect news: stories per week (weights for 0, 1, 2), the share of misleading stories and
+## how far a rising/falling story moves the consensus.
+const NEWS_WEIGHTS := [25, 55, 20]
+const NEWS_MISLEAD_CHANCE := 0.22
+const NEWS_STOCK_SHIFT := 1.5
+const NEWS_HINT_SHIFT := 0.6
+## A stat at or above GREAT (or at or below POOR) is "newsworthy" for a stat story.
+const NEWS_GREAT := 72
+const NEWS_POOR := 42
+const RISING_LINES := [
+	"%s is turning heads in workouts; his stock is climbing.",
+	"Scouts are buzzing about %s after a dominant showcase.",
+	"%s keeps rising on draft boards. One GM called him \"the real deal.\"",
+	"Word is several teams have %s much higher than the mocks.",
+]
+const FALLING_LINES := [
+	"Concerns are mounting about %s; his stock is sliding.",
+	"%s struggled at the regional combine and is falling on some boards.",
+	"Teams are reportedly cooling on %s after private workouts.",
+	"One scout on %s: \"I just don't see it translating.\"",
+]
+## stat -> [great story, poor story]
+const STAT_LINES := {
+	Stats.LONG_ACC: ["%s claimed #1 in the country for long range target practice.", "%s couldn't find the target past 300m at his workout."],
+	Stats.MEDIUM_ACC: ["%s topped the mid-range qualification course.", "%s had trouble at mid range, scattering shots across the lane."],
+	Stats.SHORT_ACC: ["%s went a perfect 30-for-30 in the close-quarters shoot house.", "%s was missing point-blank targets in the shoot house."],
+	Stats.GROUPING: ["%s's shot groups at the range were \"the size of a coin.\"", "%s's shot groups were all over the paper."],
+	Stats.RELOAD: ["%s posted the fastest reload times at the combine.", "%s fumbled magazine changes in the timed drills."],
+	Stats.SPEED: ["%s ran the fastest 40 in the class.", "%s posted one of the slowest sprint times in the class."],
+	Stats.AGILITY: ["%s was a blur through the cone drill.", "%s looked stiff in the agility drills."],
+	Stats.STRENGTH: ["%s led the class in the sled push.", "%s was near the bottom of the class in strength testing."],
+	Stats.ENDURANCE: ["%s finished the 20km ruck march first, by ten minutes.", "%s couldn't finish the 20km ruck march."],
+	Stats.AWARENESS: ["Instructors rave about %s's battlefield awareness in sim exercises.", "%s was ambushed \"almost every round\" in sim exercises."],
+	Stats.COMPOSURE: ["%s stayed ice-cold through the live-fire stress test.", "%s froze up during the live-fire stress test."],
+	Stats.TEAMWORK: ["Squadmates voted %s the best teammate at the showcase.", "Reports say %s clashed with his squad at the showcase."],
+	Stats.TOUGHNESS: ["%s played through a broken hand at his final amateur event.", "%s left the combine early with a minor knock."],
+	Stats.INJURY: ["Medicals came back spotless for %s.", "Teams have flagged %s's medicals."],
+}
 ## Phenoms: every non-injury stat at least this (they play any position well).
 const PHENOM_STAT_MIN := 54
 const PHENOM_STAT_MAX := 64
@@ -47,6 +98,10 @@ const PHENOM_UNDERRATE := 3.0
 
 var year: int
 var prospects: Array[Prospect] = []
+## Prospect news, oldest first: {year, week, prospect, kind (&"rising"/&"falling"/&"hint"),
+## stat (hint stories), text, truthful}.
+var news: Array = []
+var _news_rng := RandomNumberGenerator.new()
 var scout_points := 0
 ## One team per pick, in order. Empty until the draft order is set (after the Final).
 var order: Array[Team] = []
@@ -60,6 +115,7 @@ static func generate(seed_value: int, draft_year: int, first_id: int) -> Draft:
 	var d := Draft.new()
 	d.year = draft_year
 	d._rng.seed = seed_value
+	d._news_rng.seed = seed_value ^ 0x7E55
 	var rng := d._rng
 	var roles := [Scheme.Role.FRONTMAN, Scheme.Role.CENTER, Scheme.Role.FLEX]
 	for i in CLASS_SIZE:
@@ -76,13 +132,137 @@ static func generate(seed_value: int, draft_year: int, first_id: int) -> Draft:
 		picked[rng.randi_range(0, CLASS_SIZE - 1)] = true
 	for i in picked:
 		d._make_phenom(d.prospects[i])
+	var pool: Array = []
+	for p in d.prospects:
+		if not p.phenom:
+			pool.append(p)
+	for i in rng.randi_range(BLUE_CHIPS[0], BLUE_CHIPS[1]):
+		d._make_blue_chip(pool.pop_at(rng.randi_range(0, pool.size() - 1)))
+	for i in rng.randi_range(SPECIALISTS[0], SPECIALISTS[1]):
+		d._make_specialist(pool.pop_at(rng.randi_range(0, pool.size() - 1)))
 	for p in d.prospects:
 		p.consensus = true_value(p) + rng.randfn(0.0, CONSENSUS_NOISE) - (PHENOM_UNDERRATE if p.phenom else 0.0)
-	var board := d.prospects.duplicate()
+	d.rerank()
+	return d
+
+
+## Recomputes every prospect's big-board rank from the consensus.
+func rerank() -> void:
+	var board := prospects.duplicate()
 	board.sort_custom(func(a: Prospect, b: Prospect): return a.consensus > b.consensus)
 	for i in board.size():
 		board[i].projected_rank = i + 1
-	return d
+
+
+func _make_blue_chip(p: Prospect) -> void:
+	p.standout = &"blue_chip"
+	var s := p.soldier
+	var bonus := _rng.randf_range(BLUE_CHIP_BONUS[0], BLUE_CHIP_BONUS[1])
+	for st in Stats.ALL:
+		if st == Stats.INJURY:
+			continue
+		s.stats[st] = Stats.clamp_rating(s.stats[st] + bonus)
+	s.potential = maxi(s.potential, _rng.randi_range(BLUE_CHIP_MIN_POTENTIAL, Soldier.POTENTIAL_A))
+	PlayerGenerator.roll_caps(s, _rng)
+
+
+func _make_specialist(p: Prospect) -> void:
+	p.standout = &"specialist"
+	var groups: Array = [Stats.ACCURACY, Stats.HANDLING, Stats.PHYSICALITY, Stats.MENTALITY]
+	var g: StringName = groups[_rng.randi_range(0, groups.size() - 1)]
+	p.specialty = g
+	var s := p.soldier
+	for st in Stats.group_stats(g):
+		s.stats[st] = maxi(s.stats[st], _rng.randi_range(SPECIALIST_STAT[0], SPECIALIST_STAT[1]))
+	PlayerGenerator.roll_caps(s, _rng)
+
+
+static func standout_label(p: Prospect) -> String:
+	if p.phenom:
+		return "PHENOM"
+	if p.standout == &"blue_chip":
+		return "BLUE CHIP"
+	if p.standout == &"specialist":
+		return "%s SPECIALIST" % Stats.GROUP_LABELS[p.specialty].to_upper()
+	return ""
+
+
+# --- prospect news -----------------------------------------------------------------
+
+## Generates this week's prospect stories (0-2) and applies their effect on the consensus.
+## Returns the new stories.
+func weekly_news(week: int) -> Array:
+	var rng := _news_rng
+	var roll := rng.randi_range(1, NEWS_WEIGHTS[0] + NEWS_WEIGHTS[1] + NEWS_WEIGHTS[2])
+	var count := 0 if roll <= NEWS_WEIGHTS[0] else (1 if roll <= NEWS_WEIGHTS[0] + NEWS_WEIGHTS[1] else 2)
+	var made: Array = []
+	var used := {}
+	for i in count:
+		var story := _make_story(week, used)
+		if story.is_empty():
+			continue
+		used[story["prospect"]] = true
+		made.append(story)
+		news.append(story)
+	if not made.is_empty():
+		rerank()
+	return made
+
+
+func _make_story(week: int, used: Dictionary) -> Dictionary:
+	var rng := _news_rng
+	var avail: Array = available().filter(func(p): return not used.has(p))
+	if avail.is_empty():
+		return {}
+	var truthful := rng.randf() >= NEWS_MISLEAD_CHANCE
+	var story := {"year": year, "week": week, "truthful": truthful, "stat": &""}
+	if rng.randf() < 0.5:
+		# Stock story: truthful ones go to prospects the consensus has wrong, in the right direction.
+		var gap := func(p: Prospect) -> float: return true_value(p) - p.consensus
+		var p: Prospect = avail[rng.randi_range(0, avail.size() - 1)]
+		var under: Array = avail.filter(func(x): return gap.call(x) > 1.0)
+		var over: Array = avail.filter(func(x): return gap.call(x) < -1.0)
+		var rising := rng.randf() < 0.5
+		if truthful and not under.is_empty() and (rising or over.is_empty()):
+			p = under[rng.randi_range(0, under.size() - 1)]
+			rising = true
+		elif truthful and not over.is_empty():
+			p = over[rng.randi_range(0, over.size() - 1)]
+			rising = false
+		else:
+			# Misleading: push him further from where he belongs.
+			rising = gap.call(p) < 0.0
+			story["truthful"] = false
+		var lines: Array = RISING_LINES if rising else FALLING_LINES
+		story["prospect"] = p
+		story["kind"] = &"rising" if rising else &"falling"
+		story["text"] = lines[rng.randi_range(0, lines.size() - 1)] % p.soldier.full_name()
+		p.consensus += NEWS_STOCK_SHIFT if rising else -NEWS_STOCK_SHIFT
+		return story
+	# Stat story about an extreme stat (or, if misleading, an ordinary one dressed up).
+	var cands: Array = []
+	for p in avail:
+		for st in STAT_LINES:
+			var v: int = p.soldier.stats[st]
+			var extreme := v >= NEWS_GREAT or v <= NEWS_POOR
+			if extreme == truthful:
+				cands.append([p, st, v >= NEWS_GREAT if truthful else rng.randf() < 0.5])
+	if cands.is_empty():
+		return {}
+	var pick: Array = cands[rng.randi_range(0, cands.size() - 1)]
+	var pr: Prospect = pick[0]
+	var great: bool = pick[2]
+	story["prospect"] = pr
+	story["stat"] = pick[1]
+	story["kind"] = &"hint"
+	story["great"] = great
+	story["text"] = STAT_LINES[pick[1]][0 if great else 1] % pr.soldier.full_name()
+	pr.consensus += NEWS_HINT_SHIFT if great else -NEWS_HINT_SHIFT
+	return story
+
+
+func news_for(p: Prospect) -> Array:
+	return news.filter(func(n): return n["prospect"] == p)
 
 
 func _make_phenom(p: Prospect) -> void:

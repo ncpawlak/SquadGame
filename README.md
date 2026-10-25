@@ -27,7 +27,7 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
 
 - **Season loop** (`scripts/season/`): 1 division ("Premier Division"), 5 teams. Double round robin: 10 weeks,
   8 matches per team, one bye per week. Top 4 make the playoffs: semis (1v4, 2v3, higher seed hosts), then the final.
-  Then the end-of-season review (awards and potential changes), the offseason (re-sign → draft → free agency),
+  Then the end-of-season review (awards and potential changes), the offseason (re-sign → draft → free agency → training camp),
   and aging → next season (rosters, ratings and contracts carry over).
 - **Standings**: W/L, tiebreakers head-to-head, then round differential, then rounds won.
 - **Each week**: all teams train at each soldier's intensity, every match is played, XP is awarded, then fatigue
@@ -49,6 +49,12 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   Most classes hide one unlabelled **phenom** (sometimes none or two). A phenom lists one position but grades
   well in every group, so he can play anywhere. AI teams don't know who they are, and the league consensus
   underrates them.
+  Every class also has **standouts**: 2-4 unlabelled **blue chips** (better in every group, B/A potential) and 3-5
+  **specialists** (one group in the 74-86 range). Scouting is how you find them.
+- **Prospect news**: 0-2 stories a week during the season (Scouting page, League News → Prospect Watch, Home tiles):
+  stock rising, stock falling, and stat notes ("claimed #1 in the country for long range target practice").
+  Stories nudge the consensus board. About 1 in 5 is wrong (hype or smoke), and none says outright who is a
+  blue chip, so scout before you believe it.
   Every prospect shows a **projected pick** (Early/Mid/Late 1st or 2nd, or Undrafted) from a noisy league-consensus
   board. The **Mock Draft** page (Personnel → Draft, or the Scouting page) predicts every pick from the current
   standings. The Scouting list and Draft Room are a table: portrait, name/age/position, projection, then one column per
@@ -57,15 +63,24 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   then semifinal losers, the runner-up, and the champion last. AI teams pick from the consensus board with a little noise, leaning toward their weakest position.
   In the Draft Room you can sim to your pick, draft a prospect or auto-pick. Draftees get rookie contracts (cheaper
   later in the draft; 3 years in round 1, 2 years in rounds 2-3). The best 12 undrafted prospects join free agency; the rest leave.
+  When the draft ends the Draft Room becomes the **Draft Recap**: every pick with all ratings and potential revealed,
+  a note for blue chips, specialists, steals and reaches, and click-through to each player's profile. Past recaps
+  stay under Personnel → Draft.
 - **Contracts & payroll** (`scripts/core/contract.gd`, `scripts/season/contracts.gd`): every soldier has a salary
   and years left. Hard cap of $54M per team per season, the same for everyone (Madden-style); minimum salary
   $750K always fits. Contracts tick down after the Final. Releasing a player leaves 50% of his remaining money on
   the cap as dead money, split over his remaining years. Personnel → Contracts & Payroll shows cap space, every
   contract and future commitments. Trades (later) will have to fit under the cap.
 - **Offseason** (advance button walks the stages): **Re-sign** (choose years for expiring players; AI teams re-sign
-  their keepers) → **Draft** → **Free agency** (3 days) → next season. Rosters max out at 12 (5 starters + 7 backups).
+  their keepers) → **Draft** → **Free agency** (3 days) → **Training camp** → next season. Rosters max out at 12 (5 starters + 7 backups).
   In the offseason your roster can run over (draft picks, extra signings), but you can't advance to Week 1 until
   you release down to 12; Home shows a red "Roster Cuts Required" banner while you're over. In-season the limit is hard.
+- **Training camp** (`scripts/season/camp.gd`, Home → Training Camp): one drill per rating group (Marksmanship Range,
+  Weapons Lab, Combine Gauntlet, War Room, Iron Conditioning). Pick a drill, pick a soldier, see his ratings boost.
+  One soldier per drill and one drill per soldier. The point pool depends on potential (A 9-13, B 7-10, C 5-8, D 3-6,
+  F 2-4), spread at random over the group's stats (max +4 each). AI teams run theirs when camp closes; advancing with
+  unused drills asks you to confirm first.
+- **Offseason XP**: every offseason step is an XP week (100 base XP, scaled by potential), and camp week gives 250.
 - **Free agency** (`scripts/season/free_agency.gd`, League → Free Agents): unsigned soldiers with all ratings
   visible. Bidding: make offers (salary and years) during FA days or in-season. Each round every free agent scores
   his offers (70% money vs. asking, 15% team quality, 15% playing time) and signs the best one that clears his
@@ -173,7 +188,7 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
     the first year and faster after (up to 6). Caps drop with them.
   - AI teams spend their points automatically, favouring groups their role uses (`scripts/sim/progression.gd`).
 - **Training intensity** (`scripts/sim/training.gd`), per soldier, per week:
-  - Rest: 0 XP, extra recovery.
+  - Rest: 0.25× XP (film study), extra recovery. Injured soldiers also get film-study XP.
   - Light: 0.6× XP.
   - Normal: 1×.
   - Heavy: 1.6× XP, much more fatigue.

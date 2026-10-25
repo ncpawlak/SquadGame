@@ -32,6 +32,9 @@ func _init() -> void:
 		"test_season_review_and_aging",
 		"test_morale_effects",
 		"test_callsigns_saves_and_season_lines",
+		"test_standout_prospects",
+		"test_prospect_news",
+		"test_training_camp_and_offseason_xp",
 	]
 	for t in tests:
 		_current = t
@@ -703,3 +706,170 @@ func test_callsigns_saves_and_season_lines() -> void:
 				saves += int(x.season_lines[s.year].get("saves", 0))
 	check(lines > 0, "season lines recorded")
 	check(saves > 0, "saves recorded over a season")
+
+
+func test_standout_prospects() -> void:
+	var blue_vals: Array = []
+	var plain_vals: Array = []
+	for i in 30:
+		var d := Draft.generate(4000 + i, 2026, 1)
+		var blue := 0
+		var spec := 0
+		for p in d.prospects:
+			var v := Draft.true_value(p)
+			if p.standout == &"blue_chip":
+				blue += 1
+				blue_vals.append(v)
+				check(p.soldier.potential >= Draft.BLUE_CHIP_MIN_POTENTIAL, "blue chip has B/A potential")
+				check(not p.phenom, "blue chip isn't also a phenom")
+			elif p.standout == &"specialist":
+				spec += 1
+				check(p.soldier.group_rating(p.specialty) >= Draft.SPECIALIST_STAT[0], "specialist elite in %s (%d)" % [p.specialty, p.soldier.group_rating(p.specialty)])
+				check(Draft.standout_label(p).ends_with("SPECIALIST"), "specialist label")
+			elif not p.phenom:
+				plain_vals.append(v)
+		check(blue >= Draft.BLUE_CHIPS[0] and blue <= Draft.BLUE_CHIPS[1], "blue chips per class (%d)" % blue)
+		check(spec >= Draft.SPECIALISTS[0] and spec <= Draft.SPECIALISTS[1], "specialists per class (%d)" % spec)
+	var avg := func(a: Array) -> float:
+		var t := 0.0
+		for x in a:
+			t += x
+		return t / maxi(1, a.size())
+	var gap: float = avg.call(blue_vals) - avg.call(plain_vals)
+	check(gap >= 8.0, "blue chips stand out (avg +%.1f value)" % gap)
+
+
+func test_prospect_news() -> void:
+	var s := Season.new_franchise(88)
+	s.sim_to_end_of_season()
+	var d := s.draft
+	var n := d.news.size()
+	check(n >= 4 and n <= 2 * s.total_weeks(), "a few stories per season (%d)" % n)
+	var truthful := 0
+	var kinds := {}
+	for st in d.news:
+		kinds[st["kind"]] = true
+		check(st["prospect"] is Prospect and str(st["text"]).contains(st["prospect"].soldier.full_name()), "story names its prospect")
+		for g in Draft.TIER_NAMES:
+			for tier in Draft.TIER_NAMES[g]:
+				check(not str(st["text"]).contains(tier), "stories never name a tier")
+		if st["truthful"]:
+			truthful += 1
+		if st["kind"] == &"hint" and st["truthful"]:
+			var v: int = st["prospect"].soldier.stats[st["stat"]]
+			check(v >= Draft.NEWS_GREAT if st["great"] else v <= Draft.NEWS_POOR, "true stat story is right (%d)" % v)
+	check(truthful >= n * 0.5, "most stories are true (%d/%d)" % [truthful, n])
+	# Over many seasons every kind shows up and truthful stock stories move toward the truth.
+	var toward := 0
+	var stock := 0
+	for i in 6:
+		var dd := Draft.generate(7100 + i, 2026, 1)
+		for w in 12:
+			var before := {}
+			for p in dd.prospects:
+				before[p] = p.consensus
+			for st in dd.weekly_news(w + 1):
+				kinds[st["kind"]] = true
+				if st["kind"] != &"hint" and st["truthful"]:
+					stock += 1
+					var p: Prospect = st["prospect"]
+					if absf(Draft.true_value(p) - p.consensus) < absf(Draft.true_value(p) - before[p]):
+						toward += 1
+		var ranks := {}
+		for p in dd.prospects:
+			ranks[p.projected_rank] = true
+		check(ranks.size() == Draft.CLASS_SIZE, "ranks stay unique after news")
+	check(kinds.has(&"rising") and kinds.has(&"falling") and kinds.has(&"hint"), "every story kind appears")
+	check(stock > 0 and toward >= stock * 0.8, "true stock stories move toward the truth (%d/%d)" % [toward, stock])
+
+
+## Total XP ever earned (levels converted back to XP).
+func _xp_total(so: Soldier) -> int:
+	var t := so.xp
+	for lv in range(1, so.level):
+		t += Progression.xp_to_next(lv)
+	return t
+
+
+func test_training_camp_and_offseason_xp() -> void:
+	var s := Season.new_franchise(515)
+	s.sim_to_end_of_season()
+	var user := s.user_team()
+	var probe: Soldier = user.roster[0]
+	check(s.camp != null and s.camp.drills_left(user) == Camp.DRILLS.size(), "fresh camp each offseason")
+	# Every offseason step is an XP week, scaled by potential.
+	var x0 := _xp_total(probe)
+	s.advance_offseason()  # re-sign -> draft
+	var step: int = _xp_total(probe) - x0
+	check(step == roundi(Season.OFFSEASON_WEEK_XP * Progression.xp_multiplier(probe)), "re-sign week xp (%d)" % step)
+	s.advance_offseason()  # draft -> free agency
+	check(_xp_total(probe) - x0 == 2 * step, "draft week xp")
+	var rookie: Soldier = null
+	for p in s.draft.picks():
+		if p.drafted_by == user:
+			rookie = p.soldier
+	var guard := 0
+	while s.offseason_stage == Season.OFF_FREE_AGENCY and guard < 10:
+		s.advance_offseason()
+		guard += 1
+	check(s.offseason_stage == Season.OFF_CAMP, "free agency ends in training camp")
+	check(s.camp_open() and s.free_agency_open(), "camp open; unsigned players still sign")
+	check(_xp_total(probe) - x0 == (2 + Season.FA_DAYS) * step, "every FA day is an xp week")
+	check(rookie == null or rookie.xp > 0 or rookie.level > 1, "draftees earn xp too")
+	# Drills.
+	var a: Soldier = user.starters()[0]
+	var b: Soldier = user.starters()[1]
+	var before := a.stats.duplicate()
+	var res := s.run_drill(Stats.PHYSICALITY, a)
+	check(not res.is_empty(), "drill runs")
+	var pool := Camp.pool_range(a.potential)
+	check(res["points"] >= pool[0] and res["points"] <= pool[1], "points from the potential pool")
+	var total := 0
+	for st in Stats.ALL:
+		var g: int = a.stats[st] - before[st]
+		if Stats.group_stats(Stats.PHYSICALITY).has(st):
+			check(g >= 0 and g <= Camp.MAX_STAT_GAIN and g == res["gains"][st], "%s gain %d" % [st, g])
+			total += g
+		else:
+			check(g == 0, "drill only touches its group (%s)" % st)
+	check(total == res["points"], "all points land (%d of %d)" % [total, res["points"]])
+	check(a.group_caps[Stats.PHYSICALITY] >= a.group_rating(Stats.PHYSICALITY), "cap raised if needed")
+	check(s.camp_check(Stats.ACCURACY, a) != "", "one drill per player")
+	check(s.camp_check(Stats.PHYSICALITY, b) != "", "one player per drill")
+	var inj_before: int = b.stats[Stats.INJURY] + b.stats[Stats.TOUGHNESS]
+	check(not s.run_drill(Stats.DURABILITY, b).is_empty(), "durability drill")
+	check(b.stats[Stats.INJURY] + b.stats[Stats.TOUGHNESS] > inj_before, "durability drill raises injury/toughness")
+	var hurt: Soldier = user.bench()[0]
+	hurt.injury_weeks = 3
+	check(s.camp_check(Stats.MENTALITY, hurt) != "", "injured soldiers can't drill")
+	hurt.injury_weeks = 0
+	check(s.camp.drills_left(user) == Camp.DRILLS.size() - 2, "drills left")
+	# Camp week: AI teams run their drills and everyone gets bonus xp.
+	var x1 := _xp_total(probe)
+	s.advance_offseason()
+	check(s.offseason_stage == Season.OFF_DONE and not s.camp_open(), "camp closes")
+	check(_xp_total(probe) - x1 == roundi(Season.CAMP_WEEK_XP * Progression.xp_multiplier(probe)), "camp week bonus xp")
+	for t in s.league.teams:
+		if not t.user_controlled:
+			check(s.camp.drills_left(t) == 0, "%s ran every drill" % t.abbrev)
+	check(s.run_drill(Stats.ACCURACY, user.starters()[2]).is_empty(), "no drills after camp")
+	# Potential drives the pool.
+	var lo := 0
+	var hi := 0
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9
+	for i in 40:
+		var c := Camp.make(2026)
+		var t := Team.new()
+		var f := PlayerGenerator.generate(rng, 1, Scheme.Role.FLEX, 50.0, 24)
+		var aa := PlayerGenerator.generate(rng, 2, Scheme.Role.FLEX, 50.0, 24)
+		f.potential = 0
+		aa.potential = Soldier.POTENTIAL_A
+		t.roster.append(f)
+		t.roster.append(aa)
+		lo += c.run(t, Stats.ACCURACY, f, rng)["points"]
+		hi += c.run(t, Stats.HANDLING, aa, rng)["points"]
+	check(hi > lo * 2, "A potential gets far bigger pools (%d vs %d)" % [hi, lo])
+	var y := s.year
+	s.start_next_season()
+	check(s.year == y + 1 and s.past_drafts.size() == 1 and s.past_drafts[0].year == y, "draft kept for the recap")

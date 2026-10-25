@@ -120,14 +120,30 @@ func _init() -> void:
 		await process_frame
 	_check(user.lineup.size() == 5, "user lineup intact after cuts")
 	var guard2 := 0
-	while hub.season.offseason_stage != Season.OFF_DONE and guard2 < 10:
+	while hub.season.offseason_stage != Season.OFF_CAMP and guard2 < 10:
 		hub.advance()
 		await process_frame
 		guard2 += 1
-	_check(hub.season.offseason_stage == Season.OFF_DONE, "free agency days finished")
-
+	_check(hub.season.offseason_stage == Season.OFF_CAMP, "free agency days finished into training camp")
+	var drill_guy: Soldier = user.starters()[0]
+	var ovr_before := drill_guy.best_ovr()
+	var res: Dictionary = hub.season.run_drill(Stats.ACCURACY, drill_guy)
+	_check(not res.is_empty() and res["points"] > 0, "user ran the accuracy drill")
+	_check(hub.season.run_drill(Stats.HANDLING, drill_guy).is_empty(), "one drill per player")
+	_check(drill_guy.best_ovr() >= ovr_before, "drill doesn't lower OVR")
+	hub.open("Drill", func(): return hub.pages.drill_result(Stats.ACCURACY))
+	await process_frame
+	_check(hub._content.get_child_count() > 0, "drill result page builds")
+	hub.go_back()
+	await _visit_pages(hub, "training camp")
+	hub.advance()  # warns about unused drills
+	await process_frame
+	_check(hub.season.offseason_stage == Season.OFF_CAMP and hub.season.year == 2026, "unused drills warning holds the season")
 	hub.advance()  # start next season
 	await process_frame
+	for t in hub.season.league.teams:
+		if t != user:
+			_check(hub.season.camp.drills_left(t) < Camp.DRILLS.size(), "AI %s ran camp drills" % t.abbrev)
 	_check(hub.season.year == 2027 and hub.season.phase == Season.PHASE_REGULAR, "next season started")
 	_check(hub.season.draft.year == 2027 and hub.season.draft.scout_points == Draft.POINTS_PER_WEEK, "new draft class")
 	await _visit_pages(hub, "new season")
@@ -155,7 +171,17 @@ func _visit_pages(hub, phase: String) -> void:
 		"resign": p.resign, "retirements": p.retirements, "offer": p.offer,
 		"other_roster": func(): return p.team_roster(hub.season.league.teams[1]),
 		"signings": func(): return p.signings("Test", hub.season.fa.history.slice(-5)),
+		"training_camp": p.training_camp,
 	}
+	for g in Camp.DRILLS:
+		var gg: StringName = g
+		builders["drill_pick_" + str(g)] = func(): return p.drill_pick(gg)
+	var recap_draft: Draft = hub.season.draft if hub.season.draft.is_complete() else (hub.season.past_drafts[-1] if not hub.season.past_drafts.is_empty() else null)
+	if recap_draft != null:
+		builders["draft_recap"] = func(): return p.draft_recap(recap_draft)
+	if not hub.season.draft.news.is_empty():
+		var np: Prospect = hub.season.draft.news[-1]["prospect"]
+		builders["news_prospect"] = func(): return p.prospect(np)
 	if not hub.season.league.free_agents.is_empty():
 		var fa_s: Soldier = hub.season.league.free_agents[0]
 		builders["fa_player"] = func(): return p.player(fa_s)

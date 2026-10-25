@@ -355,8 +355,10 @@ func test_training_intensity() -> void:
 	t.roster[3].injury_weeks = 2
 	var reports := Training.run_week(t)
 	check(reports[t.roster[0].id]["xp"] > reports[t.roster[1].id]["xp"], "heavy earns more xp than normal")
-	check(reports[t.roster[2].id]["xp"] == 0, "rest earns no xp")
-	check(not reports.has(t.roster[3].id), "injured soldiers don't train")
+	var rest_xp: int = reports[t.roster[2].id]["xp"]
+	check(rest_xp > 0 and rest_xp < reports[t.roster[1].id]["xp"] / 2, "rest earns a little film-study xp (%d)" % rest_xp)
+	check(reports[t.roster[3].id]["intensity"] == &"film", "injured soldiers only study film")
+	check(reports[t.roster[3].id]["xp"] == rest_xp, "film study xp matches rest")
 
 
 func test_fatigue_model() -> void:

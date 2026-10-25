@@ -146,7 +146,11 @@ func advance() -> void:
 	open("%s Results" % label, func(): return pages.week_results(label, played))
 
 
-## Offseason steps: re-sign window -> draft -> free agency days -> start the next season.
+## Set when the user was warned about unused camp drills (advancing again skips them).
+var _camp_skip_warned := false
+
+
+## Offseason steps: re-sign window -> draft -> free agency days -> training camp -> next season.
 func _advance_offseason() -> void:
 	match season.offseason_stage:
 		Season.OFF_RESIGN:
@@ -164,12 +168,21 @@ func _advance_offseason() -> void:
 		Season.OFF_FREE_AGENCY:
 			var label := "FA Day %d" % season.fa_day
 			var signed: Array = season.advance_offseason()
+			_camp_skip_warned = false
 			_rebuild_and_open("%s Results" % label, func(): return pages.signings(label, signed))
+			if season.camp_open():
+				app.toast("Free agency is over. Training camp is open: send a player to each drill.")
 		_:
 			var user := season.user_team()
 			if user.is_over_roster_limit():
 				_rebuild_and_open("Contracts & Payroll", pages.contracts)
 				app.toast("Can't start the season with %d players: release down to %d (player > Contract tab > Release)." % [user.roster.size(), Team.ROSTER_SIZE])
+				return
+			if season.camp_open() and season.camp.drills_left(user) > 0 and not _camp_skip_warned:
+				_camp_skip_warned = true
+				_rebuild_and_open("Training Camp", pages.training_camp)
+				app.toast("%d camp drill%s unused. Advance again to skip them and start the season." % [
+					season.camp.drills_left(user), "" if season.camp.drills_left(user) == 1 else "s"])
 				return
 			season.start_next_season()
 			page_stack.clear()
@@ -330,6 +343,8 @@ func _phase_text() -> String:
 					return "OFFSEASON - DRAFT"
 				Season.OFF_FREE_AGENCY:
 					return "OFFSEASON - FREE AGENCY"
+				Season.OFF_CAMP:
+					return "OFFSEASON - TRAINING CAMP"
 			return "OFFSEASON - PRESEASON"
 		Season.PHASE_PLAYOFFS:
 			return "PLAYOFFS - %s" % season.week_label(season.week).to_upper()
@@ -423,6 +438,9 @@ func _home_sections() -> Array:
 		UiKit.tile("League Leaders", _leader_blurb(), TILE, Color("#eab308"), func(): open("League Leaders", pages.leaders)),
 		UiKit.tile("Playoff Picture", _playoff_blurb(), TILE, Color("#f43f5e"), func(): open("Playoff Picture", pages.playoffs)),
 	]
+	if season.camp_open():
+		actions.insert(0, UiKit.tile("Training Camp", "[color=#38bdf8]%d of %d drills left[/color]\nOne player per drill" % [
+			season.camp.drills_left(team), Camp.DRILLS.size()], SMALL, Color("#22c55e"), open_camp))
 	var out: Array = [["THIS WEEK", actions]]
 	if season.phase == Season.PHASE_OFFSEASON:
 		out.append(["OFFSEASON", _offseason_tiles()])
@@ -672,6 +690,18 @@ func _news_tiles() -> Array:
 		var so: Soldier = inj["soldier"]
 		out.append(UiKit.tile("Injury", "[color=white]%s[/color] (%s)\n%s, out %d wk%s" % [UiKit.esc(so.tag()), inj["team"].abbrev, inj["name"],
 			inj["weeks"], "" if inj["weeks"] == 1 else "s"], SMALL, UiKit.BAD, func(): open("Injuries", pages.injuries)))
+	for n in season.last_prospect_news:
+		var pr: Prospect = n["prospect"]
+		var kind: StringName = n["kind"]
+		var col: Color = UiKit.GOOD if kind == &"rising" else (UiKit.BAD if kind == &"falling" else Color("#06b6d4"))
+		var head := "Stock Up" if kind == &"rising" else ("Stock Down" if kind == &"falling" else "Prospect Watch")
+		out.append(UiKit.tile(head, "[color=white]%s[/color]\n[font_size=13]%s[/font_size]" % [
+			UiKit.esc(pr.soldier.full_name()), UiKit.esc(n["text"])], SMALL, col,
+			func(): open(pr.soldier.full_name(), func(): return pages.prospect(pr))))
+	if draft_done() and season.draft.is_complete():
+		var top: Prospect = season.draft.picks()[0]
+		out.append(UiKit.tile("%d Draft" % season.draft.year, "[color=white]%s[/color] went #1 to %s\nSee the full recap" % [
+			UiKit.esc(top.soldier.full_name()), top.drafted_by.abbrev], SMALL, UiKit.INFO, open_draft_recap))
 	var ret := season.retirements_in(season.year)
 	for r in ret.slice(0, 2):
 		var so: Soldier = r["soldier"]
@@ -697,13 +727,32 @@ func _offseason_tiles() -> Array:
 			season.league.free_agents.size(), season.fa.offers_by(team).size(), Contracts.money(Contracts.cap_space(team, season.cap_year()))]
 	var ret := season.retirements_in(season.year)
 	var mine := ret.filter(func(r): return r["team"] == team)
+	var camp_text := "Opens after free agency.\n%d drills, one player each." % Camp.DRILLS.size()
+	if season.camp_open():
+		camp_text = "[color=#38bdf8]%d of %d drills left[/color]\nSend a player to each drill." % [season.camp.drills_left(team), Camp.DRILLS.size()]
+	elif season.offseason_stage == Season.OFF_DONE:
+		camp_text = "Camp is done."
+	var draft_text := "Recap after the draft."
+	if season.draft.is_complete():
+		draft_text = "Every pick, ratings revealed."
 	return [
 		UiKit.tile("Re-sign Players", resign_text, SMALL, Color("#22c55e"), open_resign),
+		UiKit.tile("Draft Recap", draft_text, SMALL, UiKit.INFO, open_draft_recap if season.draft.is_complete() else open_draft_room),
+		UiKit.tile("Training Camp", camp_text, SMALL, Color("#22c55e"), open_camp),
 		UiKit.tile("Free Agents", fa_text, SMALL, Color("#14b8a6"), open_free_agents),
 		UiKit.tile("Retirements", "%d retired league-wide\n%d from your team" % [ret.size(), mine.size()], SMALL, Color("#94a3b8"), open_retirements),
 		UiKit.tile("Contracts & Payroll", "Payroll %s of %s" % [Contracts.money(Contracts.payroll(team, season.cap_year())), Contracts.money(Contracts.SALARY_CAP)],
 			SMALL, Color("#eab308"), open_contracts),
 	]
+
+
+func open_camp() -> void:
+	open("Training Camp", pages.training_camp)
+
+
+func open_draft_recap() -> void:
+	var d := season.draft
+	open("Draft Recap", func(): return pages.draft_recap(d))
 
 
 func open_resign() -> void:
@@ -732,7 +781,7 @@ func _scouted_count() -> int:
 
 ## The draft is finished (free agency or later).
 func draft_done() -> bool:
-	return season.phase == Season.PHASE_OFFSEASON and season.offseason_stage in [Season.OFF_FREE_AGENCY, Season.OFF_DONE]
+	return season.phase == Season.PHASE_OFFSEASON and season.offseason_stage in [Season.OFF_FREE_AGENCY, Season.OFF_CAMP, Season.OFF_DONE]
 
 
 func open_scouting() -> void:
@@ -829,8 +878,19 @@ func _personnel_sections() -> Array:
 			UiKit.tile("Draft Room", _draft_blurb(), TILE, UiKit.INFO, open_draft_room),
 			UiKit.tile("Mock Draft", "Where the league projects every pick, based on %s." % [
 				"the draft order" if season.draft.is_started() else "current standings"], TILE, Color("#a855f7"), open_mock_draft),
+			_draft_history_tile(),
 		]],
 	]
+
+
+## The latest finished draft's recap (this offseason's, or last year's during the season).
+func _draft_history_tile() -> Button:
+	var d: Draft = season.draft if season.draft.is_complete() else (season.past_drafts[-1] if not season.past_drafts.is_empty() else null)
+	if d == null:
+		return UiKit.tile("Draft Recap", "Every pick with ratings and potential revealed, after the first draft.", TILE, UiKit.MUTED,
+			func(): app.toast("No draft has been held yet."))
+	return UiKit.tile("Draft Recap", "The %d draft: every pick with ratings and potential revealed." % d.year, TILE, UiKit.INFO,
+		func(): open("Draft Recap", func(): return pages.draft_recap(d)))
 
 
 func _draft_blurb() -> String:
@@ -882,6 +942,9 @@ func _next_match_tile(team: Team) -> Button:
 			Season.OFF_FREE_AGENCY:
 				next_step = "Free agency, day %d of %d: bid on soldiers before they sign elsewhere." % [season.fa_day, Season.FA_DAYS]
 				target = open_free_agents
+			Season.OFF_CAMP:
+				next_step = "Training camp: send one player to each drill (%d left), then start the season." % season.camp.drills_left(team)
+				target = open_camp
 			_:
 				next_step = "Free agency is over. Set your roster (%d-%d) and start the season." % [Season.ROSTER_MIN, Team.ROSTER_SIZE]
 				target = open_contracts
@@ -915,9 +978,12 @@ func _advance_blurb() -> String:
 			Season.OFF_DRAFT:
 				return "Make your picks in the Draft Room, then open free agency." if not season.draft.is_complete() else "Expiring players and undrafted prospects hit the market."
 			Season.OFF_FREE_AGENCY:
-				return "Players answer this round of offers. Best offer (money, team, playing time) wins."
+				return "Players answer this round of offers. Best offer (money, team, playing time) wins." + (
+					"\nTraining camp follows." if season.fa_day >= Season.FA_DAYS else "")
 		if season.user_team().is_over_roster_limit():
 			return "[color=#ef4444]Cut to %d players first[/color] (you have %d)." % [Team.ROSTER_SIZE, season.user_team().roster.size()]
+		if season.camp_open() and season.camp.drills_left(season.user_team()) > 0:
+			return "Close camp ([color=#f59e0b]%d drills unused[/color]) and start the %d season." % [season.camp.drills_left(season.user_team()), season.year + 1]
 		return "Roll over to the %d season. Roster must be %d-%d." % [season.year + 1, Season.ROSTER_MIN, Team.ROSTER_SIZE]
 	return "Train, play every match this week and award XP.\n\n[color=white]Space / Y[/color]"
 

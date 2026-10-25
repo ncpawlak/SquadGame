@@ -20,11 +20,16 @@ const STAGE_REGULAR := &"regular"
 const STAGE_SEMIFINAL := &"semifinal"
 const STAGE_FINAL := &"final"
 ## Offseason stages (Madden-style): re-sign your expiring players, run the draft, then free
-## agency (FA_DAYS bidding rounds), then the next season can start.
+## agency (FA_DAYS bidding rounds), then training camp (Camp drills), then the next season.
+## Every offseason step is a "week" for XP: rostered soldiers earn OFFSEASON_WEEK_XP (scaled by
+## potential), and the training-camp week pays CAMP_WEEK_XP instead.
 const OFF_RESIGN := &"resign"
 const OFF_DRAFT := &"draft"
 const OFF_FREE_AGENCY := &"free_agency"
+const OFF_CAMP := &"camp"
 const OFF_DONE := &"done"
+const OFFSEASON_WEEK_XP := 100.0
+const CAMP_WEEK_XP := 250.0
 const FA_DAYS := 3
 ## The user needs at least this many soldiers to start a season (AI teams fill to ROSTER_SIZE).
 const ROSTER_MIN := 10
@@ -66,6 +71,12 @@ var retirements: Array = []
 var resign_log: Array = []
 ## Expiring soldiers who left their team when free agency opened: {soldier, team, year}.
 var departures: Array = []
+## This offseason's training camp (null until the first offseason).
+var camp: Camp = null
+## Completed drafts, oldest first (the current one stays in `draft` until the next season).
+var past_drafts: Array = []
+## Prospect stories from the most recent sim_week.
+var last_prospect_news: Array = []
 ## Regular-season week w -> the team on bye.
 var _byes: Array = []
 var _rng := RandomNumberGenerator.new()
@@ -284,8 +295,11 @@ func sim_week() -> Array:
 	for t in league.teams:
 		Progression.auto_spend_team(t, _rng)
 	Morale.update_week(league, played)
+	var news_week := week
 	_advance()
+	last_prospect_news = []
 	if phase != PHASE_OFFSEASON:
+		last_prospect_news = draft.weekly_news(news_week)
 		draft.scout_points += Draft.POINTS_PER_WEEK
 		fa.ai_offers(self, _rng, true)
 	return played
@@ -346,7 +360,24 @@ func cap_year() -> int:
 
 ## Offers can be made in-season and once the offseason reaches free agency.
 func free_agency_open() -> bool:
-	return phase != PHASE_OFFSEASON or offseason_stage == OFF_FREE_AGENCY or offseason_stage == OFF_DONE
+	return phase != PHASE_OFFSEASON or offseason_stage in [OFF_FREE_AGENCY, OFF_CAMP, OFF_DONE]
+
+
+func camp_open() -> bool:
+	return phase == PHASE_OFFSEASON and offseason_stage == OFF_CAMP
+
+
+## Sends `s` to the user's `group` drill. Returns the Camp result ({} if refused; see camp_check).
+func run_drill(group: StringName, s: Soldier) -> Dictionary:
+	if not camp_open() or camp == null:
+		return {}
+	return camp.run(user_team(), group, s, _rng)
+
+
+func camp_check(group: StringName, s: Soldier) -> String:
+	if not camp_open() or camp == null:
+		return "Training camp opens after free agency."
+	return camp.check(user_team(), group, s)
 
 
 func can_resign() -> bool:
@@ -355,10 +386,12 @@ func can_resign() -> bool:
 
 ## Moves the offseason one step: re-sign -> draft (AI teams re-sign) -> free agency (expiring
 ## and undrafted soldiers hit the pool, AI teams cut down) -> each free-agency day resolves
-## offers -> done. Finishes the draft with AI picks if it isn't done. Returns new signings.
+## offers -> training camp (AI teams run their drills, bonus XP) -> done. Finishes the draft
+## with AI picks if it isn't done. Each step is an XP week. Returns new signings.
 func advance_offseason() -> Array:
 	if phase != PHASE_OFFSEASON:
 		return []
+	var signed: Array = []
 	match offseason_stage:
 		OFF_RESIGN:
 			_ai_resign()
@@ -368,13 +401,34 @@ func advance_offseason() -> Array:
 			_open_free_agency()
 		OFF_FREE_AGENCY:
 			last_signings = fa.resolve(self, _rng, "FA Day %d" % fa_day)
+			signed = last_signings
 			if fa_day >= FA_DAYS:
-				offseason_stage = OFF_DONE
+				offseason_stage = OFF_CAMP
 			else:
 				fa_day += 1
 				fa.ai_offers(self, _rng)
-			return last_signings
-	return []
+		OFF_CAMP:
+			for t in league.teams:
+				if not t.user_controlled:
+					camp.ai_run(t, _rng)
+			offseason_xp(CAMP_WEEK_XP)
+			offseason_stage = OFF_DONE
+			return []
+		_:
+			return []
+	offseason_xp(OFFSEASON_WEEK_XP)
+	return signed
+
+
+## One offseason week of XP for every rostered soldier (potential-scaled); AI teams spend it.
+## Returns soldier_id -> gain_xp report.
+func offseason_xp(base_xp: float) -> Dictionary:
+	var reports := {}
+	for t in league.teams:
+		for so in t.roster:
+			reports[so.id] = Progression.gain_xp(so, base_xp)
+		Progression.auto_spend_team(t, _rng)
+	return reports
 
 
 ## Re-signs one of `team`'s expiring soldiers at his asking price. Returns "" or the reason it failed.
@@ -498,6 +552,9 @@ func finish_draft() -> void:
 # --- internals -------------------------------------------------------------
 
 func _begin_season() -> void:
+	if draft != null and draft.is_complete():
+		past_drafts.append(draft)
+	last_prospect_news = []
 	week = 1
 	phase = PHASE_REGULAR
 	champion = null
@@ -539,6 +596,7 @@ func _advance() -> void:
 		Contracts.rollover(league)
 		offseason_stage = OFF_RESIGN
 		fa_day = 0
+		camp = Camp.make(year)
 		draft.set_order(draft_order())
 		return
 	var winners: Array = []

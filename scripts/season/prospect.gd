@@ -7,6 +7,10 @@ var soldier: Soldier
 ## The position the prospect says he plays. Phenoms rate well at every position.
 var listed_role: Scheme.Role
 var phenom := false
+## Hidden class archetype, revealed in the draft recap: &"blue_chip" (elite all-round talent),
+## &"specialist" (one elite stat group, see `specialty`) or &"".
+var standout: StringName = &""
+var specialty: StringName = &""
 ## Scout points spent on this prospect (max Draft.MAX_POINTS_PER_PROSPECT).
 var points := 0
 ## group -> Vector2i(low_tier, high_tier): the tier window revealed so far.
