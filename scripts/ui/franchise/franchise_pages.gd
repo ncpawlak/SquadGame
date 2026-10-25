@@ -780,9 +780,9 @@ func _player_header(s: Soldier, team: Team) -> Control:
 	var mid := _vbox(4)
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mid.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	mid.add_child(UiKit.label(s.first_name.to_upper(), 18, UiKit.TEXT))
-	var nm := UiKit.rich("[font_size=42][color=white]%s[/color][/font_size]%s" % [UiKit.esc(s.last_name.to_upper()),
-		("   [font_size=24][color=%s]\"%s\"[/color][/font_size]" % [UiKit.hex(UiKit.ACCENT), UiKit.esc(s.callsign.to_upper())]) if s.callsign != "" else ""], 20)
+	mid.add_child(UiKit.label(s.full_name().to_upper(), 18, UiKit.TEXT))
+	var big := ("\"%s\"" % s.callsign.to_upper()) if s.callsign != "" else s.last_name.to_upper()
+	var nm := UiKit.rich("[font_size=42][color=white]%s[/color][/font_size]" % UiKit.esc(big), 20)
 	nm.autowrap_mode = TextServer.AUTOWRAP_OFF
 	mid.add_child(nm)
 	var where := "Free agent"
