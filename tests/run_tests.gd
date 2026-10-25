@@ -16,6 +16,7 @@ func _init() -> void:
 		"test_assign_swaps_players",
 		"test_match_structure",
 		"test_arena_scoring",
+		"test_looks",
 		"test_match_is_deterministic",
 		"test_different_seeds_vary",
 		"test_better_team_wins_more",
@@ -174,6 +175,29 @@ func test_match_structure() -> void:
 
 
 ## TDM points = kills + wipe bonuses; KOTH hold time = what the players on the point banked.
+func test_looks() -> void:
+	var heads := {}
+	var lowers := {}
+	for id in range(1, 1500):
+		var l := Look.generate(id, 19 + id % 18, id % 3 as Scheme.Role)
+		var again := Look.generate(id, 19 + id % 18, id % 3 as Scheme.Role)
+		check(l.describe() == again.describe() and l.skin == again.skin, "look is deterministic per id")
+		if l.eyes == Look.Eyes.NIGHT_VISION:
+			check(l.head == Look.Head.HELMET, "night vision only on a bare helmet mount")
+		check((l.face == Look.Face.BALACLAVA) == (l.lower == Look.Lower.BALACLAVA), "balaclava covers the lower face")
+		if l.head in [Look.Head.CAP_FORWARD, Look.Head.BOONIE, Look.Head.HELMET_GOGGLES]:
+			check(l.eyes != Look.Eyes.GOGGLES_CLEAR and l.eyes != Look.Eyes.GOGGLES_TINTED, "no goggles under brims / doubled goggles")
+		heads[l.head] = true
+		lowers[l.lower] = true
+	check(heads.size() == Look.Head.size(), "every headgear appears (%d)" % heads.size())
+	check(lowers.size() == Look.Lower.size(), "every lower face appears (%d)" % lowers.size())
+	var league := League.generate(9, 4)
+	for t in league.teams:
+		check(t.color2 != t.color, "team has a distinct secondary colour")
+		for s in t.roster:
+			check(s.look != null, "generated soldiers get a look")
+
+
 func test_arena_scoring() -> void:
 	var league := League.generate(7)
 	var seen_koth := 0

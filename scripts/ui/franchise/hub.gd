@@ -668,7 +668,7 @@ func _impact_chip(t: Team, s: Soldier) -> Control:
 	h.offset_right = -6
 	h.add_theme_constant_override("separation", 8)
 	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	h.add_child(Portrait.new(s.id, 42, t.color))
+	h.add_child(Portrait.new(s, 42, t.color, t))
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 0)
 	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER

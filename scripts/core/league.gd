@@ -16,6 +16,10 @@ const COLORS := [
 	Color("#64748b"), Color("#84cc16"), Color("#06b6d4"), Color("#f43f5e"),
 ]
 
+## Accent palette that secondary_for() chooses from.
+const SECONDARY_COLORS := [Color("#f8fafc"), Color("#111827"), Color("#facc15"), Color("#94a3b8"),
+	Color("#1e3a8a"), Color("#7f1d1d"), Color("#14532d"), Color("#fb923c")]
+
 var league_seed: int
 var rng := RandomNumberGenerator.new()
 var teams: Array[Team] = []
@@ -34,6 +38,7 @@ static func generate(seed_value: int, team_count := 2) -> League:
 		t.name = "%s %s" % [CITIES[i % CITIES.size()], NICKNAMES[i % NICKNAMES.size()]]
 		t.abbrev = CITIES[i % CITIES.size()].left(3).to_upper()
 		t.color = COLORS[i % COLORS.size()]
+		t.color2 = secondary_for(t.color, i)
 		var quality := league.rng.randf_range(62.0, 74.0)
 		t.roster = PlayerGenerator.generate_roster(league.rng, league.next_soldier_id, quality)
 		league.next_soldier_id += t.roster.size()
@@ -43,6 +48,20 @@ static func generate(seed_value: int, team_count := 2) -> League:
 		league.teams[0].user_controlled = true
 	league.ensure_callsigns()
 	return league
+
+
+## Auto-picks a contrasting accent colour for `primary` (deterministic per team index).
+static func secondary_for(primary: Color, index: int) -> Color:
+	var ok: Array[Color] = []
+	for c: Color in SECONDARY_COLORS:
+		var hue_gap := absf(c.h - primary.h)
+		hue_gap = minf(hue_gap, 1.0 - hue_gap)
+		var contrast := absf(c.get_luminance() - primary.get_luminance())
+		if contrast >= 0.28 or (c.s > 0.3 and hue_gap > 0.18 and contrast >= 0.12):
+			ok.append(c)
+	if ok.is_empty():
+		return Color("#111827") if primary.get_luminance() > 0.5 else Color("#f8fafc")
+	return ok[(index * 7 + 3) % ok.size()]
 
 
 func all_soldiers() -> Array[Soldier]:

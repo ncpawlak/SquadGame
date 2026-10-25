@@ -596,7 +596,7 @@ func _fill_pane(pane: Control, s: Soldier, team: Team) -> void:
 	var color := team.color if team != null else UiKit.MUTED
 	var h := _row(26)
 	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	h.add_child(Portrait.new(s.id, 160, color))
+	h.add_child(Portrait.new(s, 160, color, team))
 	var mid := _vbox(6)
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mid.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -776,7 +776,7 @@ func _player_header(s: Soldier, team: Team) -> Control:
 	sb.content_margin_bottom = 14
 	pane.add_theme_stylebox_override("panel", sb)
 	var h := _row(24)
-	h.add_child(Portrait.new(s.id, 132, color))
+	h.add_child(Portrait.new(s, 132, color, team))
 	var mid := _vbox(4)
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mid.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -1273,7 +1273,7 @@ func _lineup_card(team: Team, s: Soldier, slot: StringName, refresh: Callable) -
 		e.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		box.add_child(e)
 		return b
-	var portrait := Portrait.new(s.id, 72, UiKit.BAD if s.is_injured() else team.color)
+	var portrait := Portrait.new(s, 72, UiKit.BAD if s.is_injured() else team.color, team)
 	portrait.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	box.add_child(portrait)
 	var tag := UiKit.label(s.tag(), 17, Color.WHITE)
@@ -1743,7 +1743,7 @@ func _prospect_row(p: Prospect, action_text: String, action_enabled: bool, actio
 	hb.offset_top = 6
 	hb.offset_bottom = -6
 	info.add_child(hb)
-	hb.add_child(Portrait.new(p.soldier.id, PCOL_PORTRAIT))
+	hb.add_child(Portrait.new(p.soldier, PCOL_PORTRAIT))
 	hb.add_child(_two_lines(p.soldier.full_name(), Color.WHITE,
 		"age %d  -  %s" % [p.soldier.age, Scheme.ROLE_NAMES[p.listed_role]], PCOL_NAME))
 	var status := "scouted %d/%d" % [p.points, Draft.MAX_POINTS_PER_PROSPECT]
@@ -2255,7 +2255,7 @@ func drill_result(group: StringName) -> Control:
 	var so: Soldier = res["soldier"]
 	var card := UiKit.panel(UiKit.PANEL, 12)
 	var h := _row(24)
-	h.add_child(Portrait.new(so.id, 150, s.user_team().color))
+	h.add_child(Portrait.new(so, 150, s.user_team().color, s.user_team()))
 	var info := _vbox(8)
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -2517,7 +2517,7 @@ func offer() -> Control:
 		v.add_child(UiKit.label("%s is no longer a free agent%s." % [s.full_name(), (" - he signed with " + t.name) if t != null else ""], 20, Color.WHITE))
 		return v
 	var top := _row(16)
-	top.add_child(Portrait.new(s.id, 72))
+	top.add_child(Portrait.new(s, 72))
 	var yrs_pref := Contracts.preferred_years(s)
 	top.add_child(UiKit.rich("[font_size=26][color=white]%s[/color][/font_size]   age %d  -  %s  -  OVR [color=%s]%d[/color]  -  POT [color=%s]%s[/color]\nAsking [color=white]%s[/color] / yr for %d yr%s  -  market value %s  -  %d team%s bidding" % [
 		UiKit.esc(s.full_name()), s.age, Scheme.ROLE_NAMES[Scheme.best_role(s.stats)], UiKit.hex(UiKit.ovr_color(s.best_ovr())), s.best_ovr(),

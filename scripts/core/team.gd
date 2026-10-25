@@ -8,6 +8,8 @@ var id: int
 var name: String
 var abbrev: String
 var color: Color = Color.WHITE
+## Accent colour for gear trim (goggle frames, straps, brims...).
+var color2: Color = Color("#e5e7eb")
 var roster: Array[Soldier] = []
 var scheme: Scheme = Scheme.power_front()
 ## slot_id (StringName) -> Soldier

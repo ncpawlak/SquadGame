@@ -101,6 +101,14 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   energy as head-to-head bars, and two impact players per side), the Advance and Last Result tiles, a row of this
   week's actions (Set Training, Progress Players, Adjust Lineup, Roster, Scout, Free Agents, Contracts), then
   League News tiles (results with MVPs, awards, signings, injuries, retirements).
+- **Portraits** are procedurally generated per soldier (`Look` + `Portrait`): skin tone; headgear (boonie hat,
+  infantry helmet, helmet with goggles, beanie, beanie with headset, forward/backward ball cap or hair); eyewear
+  (clear/tinted goggles, sunglasses, night vision on helmets, or brown/black/blue eyes); face (normal, balaclava,
+  face paint, eye black); and lower face (bandana, half mask, shemagh, or shaved/goatee/short/big beard). The roll
+  is mostly random, lightly biased by role (Frontmen wear more armour and masks, Centers boonies and shemaghs, Flexes
+  caps and headsets) and age (older players grow more beards and go gray). Headgear, masks and the uniform use the
+  team's primary colour and straps, frames, brims and trim its secondary (auto-picked to contrast), so a traded
+  player changes colours at once. Free agents and prospects wear neutral khaki and gray.
 - **Roster** (2K style): a big preview pane on top (portrait, name and callsign, salary, contract, OVR/POT, fatigue
   and morale rings, group ratings) that follows the hovered/focused row. Below it is a table you can sort by any
   column (click a header; click again to flip). Free Agents, Progression and Contracts use the same sortable tables.

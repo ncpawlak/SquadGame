@@ -55,6 +55,8 @@ var injury_name: String = ""
 
 ## Nickname shown on cards, rows and the kill feed (unique within the league; "" = none yet).
 var callsign: String = ""
+## Procedural portrait appearance (see Look); rolled at creation.
+var look: Look = null
 
 # Morale
 ## 0-100 (75 = neutral). Below 75 each 5-point step drops a random stat by 1-3; above 85 each
@@ -80,6 +82,12 @@ var season_lines: Dictionary = {}
 func _init() -> void:
 	for s in Stats.ALL:
 		usage[s] = 0.0
+
+
+func get_look() -> Look:
+	if look == null:
+		look = Look.generate(id, age, Scheme.best_role(stats))
+	return look
 
 
 func full_name() -> String:

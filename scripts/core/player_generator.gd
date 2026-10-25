@@ -62,6 +62,7 @@ static func generate(rng: RandomNumberGenerator, id: int, role: Scheme.Role, qua
 		s.stats[stat] = Stats.clamp_rating(base + rng.randfn(0.0, 6.0))
 	s.potential = roll_potential(rng, s.age)
 	roll_caps(s, rng)
+	s.look = Look.generate(s.id, s.age, role)
 	return s
 
 
