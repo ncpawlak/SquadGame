@@ -882,6 +882,7 @@ func test_preseason_camp() -> void:
 	var s := Season.new_franchise(616, 0, 2026, true)
 	check(s.preseason_camp and s.camp_open() and s.week == 1 and s.year == 2026, "opens in camp before Week 1")
 	check(s.camp.year + 1 == 2026, "camp is labelled for the coming season")
+	check(s.draft.scout_points == 0 and not s.draft.can_scout(s.draft.prospects[0]), "no scouting during camp")
 	var a: Soldier = s.user_team().starters()[0]
 	check(not s.run_drill(Stats.ACCURACY, a).is_empty(), "drill runs in preseason")
 	check(s.camp_check(Stats.HANDLING, a) != "", "one drill per player")
@@ -889,6 +890,7 @@ func test_preseason_camp() -> void:
 	var x0 := _xp_total(probe)
 	s.close_preseason_camp()
 	check(not s.preseason_camp and not s.camp_open(), "camp closed")
+	check(s.draft.scout_points == Draft.POINTS_PER_WEEK, "Week 1 scout points arrive")
 	check(_xp_total(probe) - x0 == roundi(Season.CAMP_WEEK_XP * Progression.xp_multiplier(probe)), "camp week xp")
 	for t in s.league.teams:
 		if not t.user_controlled:

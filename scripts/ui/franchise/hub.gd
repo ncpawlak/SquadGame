@@ -450,7 +450,7 @@ func _home_sections() -> Array:
 			("\n[color=#ef4444]%d injured[/color]" % hurt.size()) if not hurt.is_empty() else ""], SMALL, Color("#f97316"), func(): open("Lineup", pages.lineup)),
 		UiKit.tile("Roster", "%d players%s" % [team.roster.size(),
 			("  -  [color=#f97316]%d unhappy[/color]" % unhappy.size()) if not unhappy.is_empty() else "  -  morale good"], SMALL, team.color, func(): open("Roster", pages.roster)),
-		UiKit.tile("Scout", "[color=#38bdf8]%d scout points[/color]  -  %d of %d scouted" % [
+		UiKit.tile("Scout", ("Opens in Week 1  -  %d prospects" % Draft.CLASS_SIZE) if season.preseason_camp else "[color=#38bdf8]%d scout points[/color]  -  %d of %d scouted" % [
 			season.draft.scout_points, _scouted_count(), Draft.CLASS_SIZE], SMALL, Color("#06b6d4"), open_scouting),
 		UiKit.tile("Free Agents", "%d available%s" % [season.league.free_agents.size(),
 			("  -  [color=#38bdf8]%d offers out[/color]" % season.fa.offers_by(team).size()) if not season.fa.offers_by(team).is_empty() else ""],
@@ -479,7 +479,7 @@ func _home_top() -> Control:
 	var team := season.user_team()
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 14)
-	var m := season.next_match_for(team) if season.phase != Season.PHASE_OFFSEASON else null
+	var m := season.next_match_for(team) if season.phase != Season.PHASE_OFFSEASON and not season.preseason_camp else null
 	if m != null and m.week == season.week:
 		h.add_child(_match_pane(m, team))
 	else:

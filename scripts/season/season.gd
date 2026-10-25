@@ -107,6 +107,8 @@ static func new_franchise(seed_value: int, user_team_index := 0, start_year := 2
 	if with_camp:
 		s.camp = Camp.make(start_year - 1)
 		s.preseason_camp = true
+		# Scouting opens in Week 1: the first week's points arrive when camp closes.
+		s.draft.scout_points = 0
 	return s
 
 
@@ -383,6 +385,7 @@ func close_preseason_camp() -> void:
 			camp.ai_run(t, _rng)
 	offseason_xp(CAMP_WEEK_XP)
 	preseason_camp = false
+	draft.scout_points += Draft.POINTS_PER_WEEK
 
 
 ## Sends `s` to the user's `group` drill. Returns the Camp result ({} if refused; see camp_check).

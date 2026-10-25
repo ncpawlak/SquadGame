@@ -35,7 +35,7 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   and spend SP on the player page (or **Auto-progress all** on the Progression page). Injured starters are
   auto-replaced by the best healthy bench soldier.
 - **Scouting** (`scripts/season/draft.gd`, `prospect.gd`): each season has a class of 36 recruits (age 19–22).
-  You only see name, age and listed position. You get 14 scout points a week (unspent points carry over).
+  You only see name, age and listed position. You get 14 scout points a week (unspent points carry over); scouting opens in Week 1, not during training camp.
   Each point spent on a prospect reveals a random stat group as a range of named grades, e.g. Accuracy
   "Steady Aim - Marksman". Points land on random groups: the first on a group shows 3 grades, a second narrows it to 2.
   Max 8 points per prospect; numbers and potential are never shown. Grades (worst → best) per group:
@@ -80,7 +80,7 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   One soldier per drill and one drill per soldier. The point pool depends on potential (A 9-13, B 7-10, C 5-8, D 3-6,
   F 2-4), spread at random over the group's stats (max +4 each). AI teams run theirs when camp closes; advancing with
   unused drills asks you to confirm first.
-  A new franchise opens in a **preseason training camp** before Week 1 (same drills; "Start 2026 Season" closes it).
+  A new franchise opens in a **preseason training camp** before Week 1 (same drills; "Start 2026 Season" closes it). The home hero shows the camp, not Week 1. Drill pick tables sort by any column.
 - **Offseason XP**: every offseason step is an XP week (100 base XP, scaled by potential), and camp week gives 250.
 - **Free agency** (`scripts/season/free_agency.gd`, League → Free Agents): unsigned soldiers with all ratings
   visible. Bidding: make offers (salary and years) during FA days or in-season. Each round every free agent scores

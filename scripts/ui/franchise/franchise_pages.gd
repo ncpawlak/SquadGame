@@ -284,7 +284,7 @@ func progression() -> Control:
 
 ## Column sort per table mode: mode -> [key, descending].
 var _sort := {}
-const DEFAULT_SORT := {&"roster": [&"slot", false], &"progress": [&"sp", true], &"fa": [&"ovr", true], &"contracts": [&"salary", true]}
+const DEFAULT_SORT := {&"roster": [&"slot", false], &"progress": [&"sp", true], &"fa": [&"ovr", true], &"contracts": [&"salary", true], &"drill": [&"ovr", true]}
 
 
 func _sort_state(mode: StringName) -> Array:
@@ -317,6 +317,11 @@ func _sort_value(s: Soldier, key: StringName, team: Team) -> Variant:
 		&"total": return s.contract.remaining_value() if s.contract != null else 0
 		&"dead": return Contracts.dead_money_if_released(s)
 		&"role": return Scheme.ROLE_NAMES[Scheme.best_role(s.stats)]
+		&"status":
+			var camp := _season().camp
+			return 2 if s.is_injured() else (1 if camp != null and camp.has_attended(s) else 0)
+	if Stats.ALL.has(key):
+		return s.stats[key]
 	if Stats.GROUP_ORDER.has(key):
 		return s.group_rating(key)
 	return 0
@@ -1763,6 +1768,8 @@ func scouting() -> Control:
 	var help := UiKit.label("Each point goes to a random stat group: the first point on a group shows a 3-grade range, a second narrows it to 2. Up to %d points per prospect. Projected rounds are the league consensus - potential stays hidden until draft day." % Draft.MAX_POINTS_PER_PROSPECT, 14, UiKit.MUTED)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(help)
+	if _season().preseason_camp:
+		v.add_child(UiKit.label("Scouting opens in Week 1. Your first %d points arrive when training camp ends." % Draft.POINTS_PER_WEEK, 18, UiKit.ACCENT))
 	v.add_child(_grade_legend())
 	var nav := _row()
 	nav.add_child(UiKit.button("Mock Draft", hub.open_mock_draft, 15))
@@ -2160,15 +2167,17 @@ func drill_pick(group: StringName) -> Control:
 		UiKit.esc(info["name"]), Stats.GROUP_LABELS[group], UiKit.esc(info["blurb"])], 16))
 	v.add_child(UiKit.label("Pick the soldier to send. Higher potential = a bigger point pool. Each soldier can attend one drill per camp.", 15, UiKit.MUTED))
 	var members: Array = Stats.group_stats(group)
-	var headers: Array = ["PLAYER", "POS", "AGE", "OVR", "POT", "POOL", Stats.GROUP_LABELS[group].to_upper()]
-	var widths: Array = [220, 100, 44, 50, 44, 60, 100]
+	var cols: Array = [["PLAYER", 220, &"name"], ["POS", 100, &"role"], ["AGE", 44, &"age"], ["OVR", 50, &"ovr"], ["POT", 44, &"pot"],
+		["POOL", 60, &"pot"], [Stats.GROUP_LABELS[group].to_upper(), 100, group]]
 	for st in members:
-		headers.append(Stats.ABBREV[st])
-		widths.append(50)
-	headers.append("STATUS")
-	widths.append(220)
-	var list: Array = user.roster.duplicate()
-	list.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
+		cols.append([Stats.ABBREV[st], 50, st])
+	cols.append(["STATUS", 220, &"status"])
+	var headers: Array = []
+	var widths: Array = []
+	for c in cols:
+		headers.append(c[0])
+		widths.append(c[1])
+	var list: Array = _sorted(user.roster, &"drill", null)
 	var rows: Array = []
 	var colors := {}
 	for i in list.size():
@@ -2191,14 +2200,22 @@ func drill_pick(group: StringName) -> Control:
 			c[row.size() - 1] = UiKit.BAD
 		rows.append(row)
 		colors[i] = c
-	v.add_child(UiKit.table(headers, rows, widths, {}, colors, func(i: int):
+	var table := UiKit.table(headers, rows, widths, {}, colors, func(i: int):
 		var so: Soldier = list[i]
 		var why := s.camp_check(group, so)
 		if why != "":
 			hub.app.toast(why)
 			return
 		s.run_drill(group, so)
-		hub.replace(Camp.drill_name(group), func(): return drill_result(group))))
+		hub.replace(Camp.drill_name(group), func(): return drill_result(group)))
+	# Swap the static header for a clickable sort header (same column widths).
+	var old_header := table.get_child(0)
+	table.remove_child(old_header)
+	old_header.queue_free()
+	var sort_header := _sort_header(&"drill", cols, func(): hub.replace(hub.page_stack[-1]["title"], func(): return drill_pick(group)))
+	table.add_child(sort_header)
+	table.move_child(sort_header, 0)
+	v.add_child(table)
 	return v
 
 

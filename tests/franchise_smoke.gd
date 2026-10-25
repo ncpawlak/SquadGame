@@ -30,6 +30,13 @@ func _init() -> void:
 	# A new franchise opens in preseason training camp.
 	_check(hub.season.preseason_camp and hub.season.camp_open() and hub.season.week == 1, "new franchise starts in training camp")
 	_check(hub._advance_text().begins_with("START 2026"), "advance button starts the season")
+	_check(hub.season.draft.scout_points == 0, "no scouting during camp")
+	hub.open("Drill", func(): return hub.pages.drill_pick(Stats.MENTALITY))
+	await process_frame
+	_check(_press(hub, "AGE"), "drill table sorts by column")
+	await process_frame
+	hub.page_stack.clear()
+	hub.refresh()
 	var pre_guy: Soldier = hub.season.user_team().starters()[0]
 	_check(not hub.season.run_drill(Stats.MENTALITY, pre_guy).is_empty(), "preseason drill runs")
 	hub.open("Drill", func(): return hub.pages.drill_result(Stats.MENTALITY))
