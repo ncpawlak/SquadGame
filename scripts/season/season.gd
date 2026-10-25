@@ -110,7 +110,19 @@ static func new_franchise(seed_value: int, user_team_index := 0, start_year := 2
 		s.preseason_camp = true
 		# Scouting opens in Week 1: the first week's points arrive when camp closes.
 		s.draft.scout_points = 0
+	s._stamp_log()
 	return s
+
+
+## Points new progression-history entries (Soldier.log_progress) at the current week / stage.
+func _stamp_log() -> void:
+	Soldier.log_year = year
+	if preseason_camp:
+		Soldier.log_when = "Preseason camp"
+	elif phase == PHASE_OFFSEASON:
+		Soldier.log_when = "Offseason"
+	else:
+		Soldier.log_when = week_label(week)
 
 
 func user_team() -> Team:
@@ -281,6 +293,7 @@ func prepare_week() -> void:
 	if phase == PHASE_OFFSEASON or _week_prepared:
 		return
 	close_preseason_camp()
+	_stamp_log()
 	last_signings = fa.resolve(self, _rng, week_label(week))
 	_prepare_lineups()
 	for t in league.teams:
@@ -292,6 +305,7 @@ func sim_week() -> Array:
 	if phase == PHASE_OFFSEASON:
 		return []
 	prepare_week()
+	_stamp_log()
 	_week_prepared = false
 	var played := matches_for_week(week)
 	var played_ids := {}
@@ -322,6 +336,7 @@ func sim_week() -> Array:
 	Morale.update_week(league, played)
 	var news_week := week
 	_advance()
+	_stamp_log()
 	last_prospect_news = []
 	if phase != PHASE_OFFSEASON:
 		last_prospect_news = draft.weekly_news(news_week)
@@ -365,6 +380,8 @@ func start_next_season() -> void:
 	fa.offers.clear()
 	var arng := RandomNumberGenerator.new()
 	arng.seed = _mix([league.league_seed, year, 0xA6E])
+	Soldier.log_year = year + 1
+	Soldier.log_when = "Preseason"
 	aging_report = Aging.age_league(league, arng)
 	year += 1
 	for t in league.teams:
@@ -609,6 +626,7 @@ func _begin_season() -> void:
 	league.next_soldier_id += Draft.CLASS_SIZE
 	draft.scout_points = Draft.POINTS_PER_WEEK
 	league.ensure_callsigns()
+	_stamp_log()
 
 
 func _advance() -> void:
@@ -625,6 +643,8 @@ func _advance() -> void:
 		phase = PHASE_OFFSEASON
 		var rrng := RandomNumberGenerator.new()
 		rrng.seed = _mix([league.league_seed, year, 0x4E71])
+		Soldier.log_year = year
+		Soldier.log_when = "Season review"
 		review = SeasonReview.run(self, rrng)
 		review_history.append(review)
 		var retire_rng := RandomNumberGenerator.new()

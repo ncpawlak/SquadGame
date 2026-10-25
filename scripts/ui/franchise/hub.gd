@@ -490,7 +490,7 @@ func _home_sections() -> Array:
 	var tired := 0
 	var total_fat := 0.0
 	for s in team.roster:
-		if s.skill_points > 0:
+		if Progression.can_level_up(s):
 			sp += 1
 		if s.fatigue >= 50.0 and not s.is_injured():
 			tired += 1
@@ -500,7 +500,7 @@ func _home_sections() -> Array:
 	var actions: Array = [
 		UiKit.tile("Set Training", "Avg fatigue %d  -  %d tired" % [roundi(total_fat / maxi(1, team.roster.size())), tired],
 			SMALL, Color("#22c55e"), func(): open("Training", pages.training)),
-		UiKit.tile("Progress Players", ("[color=#38bdf8]%d players[/color] have skill points" % sp) if sp > 0 else "No skill points to spend",
+		UiKit.tile("Progress Players", ("[color=#38bdf8]%d player%s[/color] can level up" % [sp, "" if sp == 1 else "s"]) if sp > 0 else "No one can level up yet",
 			SMALL, UiKit.INFO, func(): open("Player Progression", pages.progression)),
 		UiKit.tile("Adjust Lineup", "Swing  -  Team OVR %d%s" % [team.team_ovr(),
 			("\n[color=#ef4444]%d injured[/color]" % hurt.size()) if not hurt.is_empty() else ""], SMALL, Color("#f97316"), func(): open("Lineup", pages.lineup)),
@@ -745,6 +745,13 @@ func _impact_chip(t: Team, s: Soldier) -> Control:
 func _news_tiles() -> Array:
 	var out: Array = []
 	var week := _last_week_with_results()
+	var potw := SeasonReview.player_of_week(season, week)
+	if not potw.is_empty():
+		var ps: Soldier = potw["soldier"]
+		var pl: Dictionary = potw["line"]
+		out.append(UiKit.tile("Player of the Week  ·  " + season.week_label(week), "[color=white]%s[/color] (%s)\n%d K  %d A  %d SV  %d dmg" % [
+			UiKit.esc(ps.tag()), potw["team"].abbrev, pl["kills"], pl["assists"], pl.get("saves", 0), pl["damage"]],
+			SMALL, UiKit.ACCENT, func(): pages.open_player(ps)))
 	for m: ScheduledMatch in season.matches_for_week(week):
 		if not m.is_played():
 			continue
@@ -914,6 +921,7 @@ func _league_sections() -> Array:
 		]],
 		["STATS", [
 			UiKit.tile("League Leaders", _leader_blurb(), TILE, Color("#eab308"), func(): open("League Leaders", pages.leaders)),
+			UiKit.tile("League Stats", "Every soldier's season stats, sortable by any column.", TILE, Color("#0ea5e9"), func(): open("League Stats", pages.league_stats)),
 			UiKit.tile("Team Rankings", "Every team by OVR and record.", TILE, Color("#22c55e"), func(): open("Team Rankings", pages.team_rankings)),
 			UiKit.tile("League News", _headline(), TILE, Color("#14b8a6"), func(): open("League News", pages.news)),
 		]],

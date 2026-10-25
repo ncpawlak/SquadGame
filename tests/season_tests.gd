@@ -38,6 +38,7 @@ func _init() -> void:
 		"test_training_camp_and_offseason_xp",
 		"test_preseason_camp",
 		"test_watched_match_flow",
+		"test_progression_history_and_potw",
 	]
 	for t in tests:
 		_current = t
@@ -516,30 +517,42 @@ func test_scouting_windows() -> void:
 	for p in d.prospects:
 		var used := 0
 		while d.can_scout(p):
-			var g := d.scout(p)
-			check(g != &"", "scout returns a group")
+			var broad_left := false
+			for g in Stats.GROUP_ORDER:
+				if int(p.scouts.get(g, 0)) < Draft.BROAD_SCOUTS:
+					broad_left = true
+			var gs := d.scout(p)
+			check(gs.size() == (2 if broad_left else 1), "2 groups per point, then 1 once all are at 2 tiers")
+			check(gs.size() < 2 or gs[0] != gs[1], "two different groups")
 			used += 1
-			var w: Vector2i = p.reveals[g]
-			var n: int = p.scouts[g]
-			check(w.y - w.x + 1 == Draft.WINDOW_WIDTHS[n - 1], "window width after %d scouts" % n)
-			check(w.x >= 0 and w.y < Draft.TIER_COUNT, "window inside tiers")
-			var t := p.true_tier(g)
-			check(t >= w.x and t <= w.y, "window contains true tier")
+			for g in gs:
+				var w: Vector2i = p.reveals[g]
+				var n: int = p.scouts[g]
+				check(w.y - w.x + 1 == Draft.WINDOW_WIDTHS[n - 1], "window width after %d scouts" % n)
+				check(w.x >= 0 and w.y < Draft.TIER_COUNT, "window inside tiers")
+				var t := p.true_tier(g)
+				check(t >= w.x and t <= w.y, "window contains true tier")
 		check(used == Draft.MAX_POINTS_PER_PROSPECT and p.points == used, "max points per prospect")
-		check(d.scout(p) == &"", "can't scout past max")
+		var exact := 0
+		for g in Stats.GROUP_ORDER:
+			check(int(p.scouts.get(g, 0)) >= 2, "every group down to 2 tiers after 6 points")
+			if int(p.scouts.get(g, 0)) == 3:
+				exact += 1
+		check(exact == Draft.MAX_POINTS_PER_PROSPECT - 6, "each later point pins one group exactly")
+		check(d.scout(p).is_empty(), "can't scout past max")
 	check(d.scout_points == 1000 - Draft.CLASS_SIZE * Draft.MAX_POINTS_PER_PROSPECT, "points spent")
 	# Narrowing stays inside the previous window.
 	var d2 := Draft.generate(78, 2026, 1)
 	d2.scout_points = 1000
 	var p2 := d2.prospects[0]
 	var last := {}
-	for i in 5:
-		var g := d2.scout(p2)
-		var w: Vector2i = p2.reveals[g]
-		if last.has(g):
-			var prev: Vector2i = last[g]
-			check(w.x >= prev.x and w.y <= prev.y, "narrowed window inside previous")
-		last[g] = w
+	for i in 8:
+		for g in d2.scout(p2):
+			var w: Vector2i = p2.reveals[g]
+			if last.has(g):
+				var prev: Vector2i = last[g]
+				check(w.x >= prev.x and w.y <= prev.y, "narrowed window inside previous")
+			last[g] = w
 	d2.scout_points = 0
 	check(not d2.can_scout(d2.prospects[1]), "no points, no scouting")
 	check(Draft.window_text(Stats.ACCURACY, Vector2i(1, 4)) == "Inconsistent - Sharpshooter", "window text")
@@ -960,3 +973,56 @@ func test_preseason_camp() -> void:
 	var s2 := Season.new_franchise(617, 0, 2026, true)
 	s2.sim_week()
 	check(not s2.preseason_camp and s2.week == 2, "sim_week closes camp and plays Week 1")
+
+
+func test_progression_history_and_potw() -> void:
+	var s := Season.new_franchise(618, 0, 2026, true)
+	var user := s.user_team()
+	var a: Soldier = user.starters()[0]
+	var gains := s.run_drill(Stats.ACCURACY, a)
+	check(not gains.is_empty(), "drill ran")
+	var e: Dictionary = a.history[-1]
+	check(String(e["reason"]).begins_with("Training camp") and e["when"] == "Preseason camp" and int(e["year"]) == 2026, "camp logged: %s" % str(e))
+	var total := 0
+	for st in e["changes"]:
+		total += int(e["changes"][st])
+	check(total > 0, "camp gains recorded")
+	# Level-ups: can_level_up needs enough SP for a real upgrade.
+	var b: Soldier = user.starters()[1]
+	b.skill_points = 0
+	check(not Progression.can_level_up(b), "no SP, can't level up")
+	b.skill_points = 1000
+	check(Progression.can_level_up(b), "plenty of SP, can level up")
+	var g: StringName = Stats.UPGRADABLE_GROUPS[0]
+	for gg in Stats.UPGRADABLE_GROUPS:
+		if Progression.can_upgrade(b, gg):
+			g = gg
+			break
+	var n0: int = b.history.size()
+	Progression.upgrade_group(b, g)
+	Progression.upgrade_group(b, g)
+	check(b.history.size() == n0 + 1 and b.history[-1]["reason"] == "Level up (skill points)", "same-stamp level-ups merge into one entry")
+	# Aging past the peak logs a decline with negative deltas.
+	var old: Soldier = user.roster[2]
+	old.age = 36
+	Soldier.log_year = 2027
+	Soldier.log_when = "Preseason"
+	Aging.age_soldier(old, RandomNumberGenerator.new())
+	var ae: Dictionary = old.history[-1]
+	check(String(ae["reason"]) == "Age decline (turned 37)", "aging logged")
+	for st in ae["changes"]:
+		check(int(ae["changes"][st]) < 0, "aging deltas are declines")
+	check(int(ae["ovr_to"]) <= int(ae["ovr_from"]), "aging OVR doesn't rise")
+	# Week stamps follow the season.
+	s.sim_week()
+	check(Soldier.log_when == s.week_label(s.week) and Soldier.log_year == s.year, "stamp follows the current week")
+	# Player of the week = best match impact across the week.
+	var potw := SeasonReview.player_of_week(s, 1)
+	check(not potw.is_empty(), "week 1 has a player of the week")
+	var best := -INF
+	for m in s.matches_for_week(1):
+		for sid in m.result.box:
+			best = maxf(best, MatchResult.impact(m.result.box[sid]))
+	check(is_equal_approx(float(potw["impact"]), best), "potw has the top impact")
+	check(potw["soldier"] is Soldier and potw["team"] is Team, "potw soldier and team")
+	check(SeasonReview.player_of_week(s, s.total_weeks()).is_empty(), "no potw for unplayed weeks")

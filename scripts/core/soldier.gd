@@ -78,6 +78,13 @@ var career := {"matches": 0, "rounds": 0, "kills": 0, "deaths": 0, "assists": 0,
 ## Season year -> totals with the same keys as `career` (plus "team" abbrev).
 var season_lines: Dictionary = {}
 
+## Progression history, oldest first. Each: {year, when, reason, changes: stat -> delta,
+## ovr_from, ovr_to, pot_from, pot_to (-1 when the grade didn't move)}.
+var history: Array = []
+## Where new history entries are stamped; Season keeps this current ("Week 3", "Offseason", ...).
+static var log_year := 0
+static var log_when := ""
+
 
 func _init() -> void:
 	for s in Stats.ALL:
@@ -232,3 +239,24 @@ func potential_ovr() -> int:
 
 func add_usage(stat: StringName, amount: float) -> void:
 	usage[stat] += amount
+
+
+## Records a progression event (stat deltas and/or a potential change) in `history`, stamped with
+## the current log_year / log_when. Repeats of the same reason at the same stamp are merged.
+## `ovr_before` is best_ovr() before the change was applied.
+func log_progress(reason: String, changes: Dictionary, ovr_before: int, pot_from := -1, pot_to := -1) -> void:
+	var deltas := {}
+	for st in changes:
+		if int(changes[st]) != 0:
+			deltas[st] = int(changes[st])
+	if deltas.is_empty() and pot_from == pot_to:
+		return
+	if not history.is_empty() and pot_from == pot_to:
+		var last: Dictionary = history[-1]
+		if last["year"] == log_year and last["when"] == log_when and last["reason"] == reason and last["pot_from"] == last["pot_to"]:
+			for st in deltas:
+				last["changes"][st] = int(last["changes"].get(st, 0)) + deltas[st]
+			last["ovr_to"] = best_ovr()
+			return
+	history.append({"year": log_year, "when": log_when, "reason": reason, "changes": deltas,
+		"ovr_from": ovr_before, "ovr_to": best_ovr(), "pot_from": pot_from, "pot_to": pot_to})

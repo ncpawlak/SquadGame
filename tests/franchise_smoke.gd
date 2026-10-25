@@ -212,8 +212,20 @@ func _visit_pages(hub, phase: String) -> void:
 		"resign": p.resign, "retirements": p.retirements, "offer": p.offer,
 		"other_roster": func(): return p.team_roster(hub.season.league.teams[1]),
 		"signings": func(): return p.signings("Test", hub.season.fa.history.slice(-5)),
-		"training_camp": p.training_camp,
+		"training_camp": p.training_camp, "league_stats": p.league_stats,
 	}
+	for tab in p.PLAYER_TABS.size():
+		var ti: int = tab
+		var ps: Soldier = hub.season.user_team().roster[0]
+		builders["player_tab_%d" % ti] = func():
+			p._player_tab = ti
+			return p.player(ps)
+	builders["player_stats_career"] = func():
+		p._player_tab = 3
+		p._stats_season = false
+		var c: Control = p.player(hub.season.user_team().roster[0])
+		p._stats_season = true
+		return c
 	for g in Camp.DRILLS:
 		var gg: StringName = g
 		builders["drill_pick_" + str(g)] = func(): return p.drill_pick(gg)

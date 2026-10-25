@@ -99,6 +99,7 @@ func run(team: Team, group: StringName, s: Soldier, rng: RandomNumberGenerator) 
 		gains[pick] += 1
 	for st in members:
 		s.stats[st] += gains[st]
+	s.log_progress("Training camp: %s" % drill_name(group), gains, ovr_before)
 	if s.group_caps.has(group):
 		s.group_caps[group] = maxi(int(s.group_caps[group]), s.group_rating(group))
 	var res := {"soldier": s, "group": group, "gains": gains, "before": before, "points": points,

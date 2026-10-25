@@ -31,7 +31,7 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   and aging → next season (rosters, ratings and contracts carry over).
 - **Standings**: match W/L, tiebreakers head-to-head, then game differential (games won − lost across the best-of-3
   matches), then TDM point differential.
-- **Match day**: Play Week opens a matchup screen (both starting fives, OVRs) with **Watch** and **Sim**.
+- **Match day**: Play Week opens a matchup screen (both starting fives, OVRs; click a soldier for his player card) with **Watch** and **Sim**.
   Sim plays it instantly. Watch opens the live viewer (`scripts/ui/franchise/match_viewer.gd`): a top-down
   tactical map with walls (block movement and sight), crates (low cover) and the hill; soldiers are circles in team
   colours with their callsign, moving and fighting in real time. Shots draw a tracer + muzzle flash and a pop-up
@@ -42,13 +42,16 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   simmed one with the same seed.
 - **Each week**: all teams train at each soldier's intensity, every match is played, XP is awarded, then fatigue
   and injuries update. AI teams auto-spend skill points and pick intensities; you set yours on the Training page
-  and spend SP on the player page (or **Auto-progress all** on the Progression page). Injured starters are
+  and spend SP on the player page (or **Auto-progress all** on the Progression page). The Home "Progress Players"
+  tile counts only soldiers who can afford an upgrade right now ("x players can level up"). Injured starters are
   auto-replaced by the best healthy bench soldier.
 - **Scouting** (`scripts/season/draft.gd`, `prospect.gd`): each season has a class of 36 recruits (age 19–22).
   You only see name, age and listed position. You get 14 scout points a week (unspent points carry over); scouting opens in Week 1, not during training camp.
-  Each point spent on a prospect reveals a random stat group as a range of named grades, e.g. Accuracy
-  "Steady Aim - Marksman". Points land on random groups: the first on a group shows 3 grades, a second narrows it to 2.
-  Max 8 points per prospect; numbers and potential are never shown. Grades (worst → best) per group:
+  Each point spent on a prospect scouts **2 stat groups**, each shown as a range of named grades, e.g. Accuracy
+  "Steady Aim - Marksman". The first look at a group shows 3 grades, a second narrows it to 2 (every group gets a
+  first look before any gets a second). After 6 points every group is down to 2 grades; from then on each point
+  pins **1 group** to its exact grade. Max 8 points per prospect; numbers and potential are never shown.
+  Grades (worst → best) per group:
   - Accuracy: Spray & Pray, Inconsistent, Steady Aim, Marksman, Sharpshooter
   - Handling: Butterfingers, Clunky, Capable, Smooth Operator, Gunslinger
   - Physicality: Out of Shape, Average Build, Athletic, Explosive, Freak Athlete
@@ -69,7 +72,8 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   Every prospect shows a **projected pick** (Early/Mid/Late 1st or 2nd, or Undrafted) from a noisy league-consensus
   board. The **Mock Draft** page (Personnel → Draft, or the Scouting page) predicts every pick from the current
   standings. The Scouting list and Draft Room are a table: portrait, name/age/position, projection, then one column per
-  stat group (a 5-segment bar lit where his grade could be, best grade on top). Each grade is colored: red Poor, orange Below average, gray Average, blue Good, green Elite.
+  stat group (a 5-segment bar lit where his grade could be, best grade on top). Click any header to sort (groups sort by
+  the middle of the scouted range; unscouted sinks). Each grade is colored: red Poor, orange Below average, gray Average, blue Good, green Elite.
 - **Draft**: after the Final, 3 rounds in snake order. Teams that missed the playoffs pick first (worst record first),
   then semifinal losers, the runner-up, and the champion last. AI teams pick from the consensus board with a little noise, leaning toward their weakest position.
   In the Draft Room you can sim to your pick, draft a prospect or auto-pick. Draftees get rookie contracts (cheaper
@@ -91,10 +95,10 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   One soldier per drill and one drill per soldier. The point pool depends on potential (A 9-13, B 7-10, C 5-8, D 3-6,
   F 2-4), spread at random over the group's stats (max +4 each). AI teams run theirs when camp closes; advancing with
   unused drills asks you to confirm first.
-  A new franchise opens in a **preseason training camp** before Week 1 (same drills; "Start 2026 Season" closes it). The home hero shows the camp, not Week 1. Drill pick tables sort by any column.
+  A new franchise opens in a **preseason training camp** before Week 1 (same drills; "Start 2026 Season" closes it). The home hero shows the camp, not Week 1. Drill pick tables sort by any column and hide soldiers who already attended a drill.
 - **Offseason XP**: every offseason step is an XP week (100 base XP, scaled by potential), and camp week gives 250.
 - **Free agency** (`scripts/season/free_agency.gd`, League → Free Agents): unsigned soldiers with all ratings
-  visible. Bidding: make offers (salary and years) during FA days or in-season. Each round every free agent scores
+  visible. A big **Available to spend** readout on top shows cap − current salaries (incl. dead money) − pending offers. Bidding: make offers (salary and years) during FA days or in-season. Each round every free agent scores
   his offers (70% money vs. asking, 15% team quality, 15% playing time) and signs the best one that clears his
   bar. The offer page lists every team's current offer with a bar for his interest in each (the tick marks his bar). Unsigned players lower their asking price over time. AI teams bid too. Contract negotiation (counter-offers,
   bonuses) is planned.
@@ -123,8 +127,15 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   column (click a header; click again to flip). Free Agents, Progression and Contracts use the same sortable tables.
 - **Player page** (Madden style) with tabs: **Overview** (action rail, morale/health/energy/XP rings, morale
   factors, OVR at each position and every attribute), **Ratings** (spend skill points), **Contract** (details,
-  re-sign, release with a confirm step), **Stats** (season-by-season lines and career) and **DNA** (placeholder).
-  League Leaders, box scores and Free Agents all open it.
+  re-sign, release with a confirm step), **Stats** (a Season / Career toggle: Season lists every match this year - opponent, W/L score and the full line - with the season total; Career is the season-by-season lines and career total), **DNA** (placeholder) and
+  **Progression**: every rating change with when and why, newest first by season - level-ups (skill points), training
+  camp drills, age decline and end-of-season potential re-grades - with +/- per stat and OVR before → after.
+  League Leaders, League/Team Stats, box scores, the matchup screen and Free Agents all open it.
+- **Team Stats / League Stats** (Team → Team Stats, League → League Stats): every soldier's season line (callsign and
+  name, team, position, GP, K, D, A, K/D, saves, damage, headshots, HS%, hit%, wipes, hill time, captures, MVPs),
+  sortable by any column; click a row for the player card.
+- **Player of the Week**: the single best match performance (impact score) across the week, shown on the week
+  results page, a Home news tile and League News.
 - **Lineup**: the Swing drawn as a formation (2 Frontmen up front, the Center behind them, the Flexes far out on each
   side). Cards show face, OVR and POT. Click a slot, then a bench card (or another slot), to swap. "Generate Best
   Lineup" picks the best five.

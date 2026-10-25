@@ -27,6 +27,8 @@ static func decline_rate(years_past: int) -> float:
 static func age_soldier(s: Soldier, rng: RandomNumberGenerator) -> Dictionary:
 	s.age += 1
 	var changes := {}
+	var stat_changes := {}
+	var ovr_before := s.best_ovr()
 	for g in Stats.GROUP_ORDER:
 		var rate := decline_rate(s.age - int(PEAK_AGE[g]))
 		if rate <= 0.0:
@@ -34,12 +36,15 @@ static func age_soldier(s: Soldier, rng: RandomNumberGenerator) -> Dictionary:
 		var before := s.group_rating(g)
 		for st in Stats.group_stats(g):
 			var loss := mini(MAX_LOSS_PER_STAT, roundi(rate * rng.randf_range(0.5, 1.5)))
+			var old: int = s.stats[st]
 			s.stats[st] = Stats.clamp_rating(s.stats[st] - loss)
+			stat_changes[st] = int(s.stats[st]) - old
 		var delta := s.group_rating(g) - before
 		if delta != 0:
 			changes[g] = delta
 		if s.group_caps.has(g):
 			s.group_caps[g] = maxi(s.group_rating(g), int(s.group_caps[g]) + delta)
+	s.log_progress("Age decline (turned %d)" % s.age, stat_changes, ovr_before)
 	return {"soldier": s, "age": s.age, "changes": changes}
 
 

@@ -82,6 +82,14 @@ static func can_upgrade(soldier: Soldier, group: StringName) -> bool:
 	return not is_capped(soldier, group) and soldier.skill_points >= upgrade_cost(soldier, group)
 
 
+## True when he has enough skill points for at least one group upgrade right now.
+static func can_level_up(soldier: Soldier) -> bool:
+	for g in Stats.UPGRADABLE_GROUPS:
+		if can_upgrade(soldier, g):
+			return true
+	return false
+
+
 ## Spends SP to raise `group` by 1. Returns stat -> points gained (empty if refused).
 static func upgrade_group(soldier: Soldier, group: StringName, rng: RandomNumberGenerator = null) -> Dictionary:
 	if not can_upgrade(soldier, group):
@@ -103,8 +111,10 @@ static func upgrade_group(soldier: Soldier, group: StringName, rng: RandomNumber
 			break
 		var pick: StringName = open[rng.randi_range(0, open.size() - 1)]
 		gains[pick] += 1
+	var ovr_before := soldier.best_ovr()
 	for s in members:
 		soldier.stats[s] += gains[s]
+	soldier.log_progress("Level up (skill points)", gains, ovr_before)
 	return gains
 
 

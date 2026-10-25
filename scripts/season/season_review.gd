@@ -63,6 +63,26 @@ static func totals(season: Season) -> Array:
 	return by_id.values()
 
 
+## The single best performance of week `w` (highest match impact across every played match):
+## {soldier, team, line, impact, result}, or {} if nothing was played.
+static func player_of_week(season: Season, w: int) -> Dictionary:
+	var best := {}
+	for m in season.matches_for_week(w):
+		if not m.is_played():
+			continue
+		var r: MatchResult = m.result
+		for sid in r.box:
+			var line: Dictionary = r.box[sid]
+			var imp := MatchResult.impact(line)
+			if not best.is_empty() and imp <= float(best["impact"]):
+				continue
+			var so := _find(season.league, sid)
+			if so == null:
+				continue
+			best = {"soldier": so, "team": r.teams[line["team"]], "line": line, "impact": imp, "result": r}
+	return best
+
+
 static func run(season: Season, rng: RandomNumberGenerator) -> SeasonReview:
 	var rev := SeasonReview.new()
 	rev.year = season.year
@@ -135,6 +155,7 @@ static func run(season: Season, rng: RandomNumberGenerator) -> SeasonReview:
 			continue
 		var from := so.potential
 		set_potential(so, to, rng)
+		so.log_progress("Potential re-grade: " + ", ".join(bumps[so]["reasons"]), {}, so.best_ovr(), from, to)
 		rev.potential_changes.append({"soldier": so, "team": _team_of(season.league, so), "from": from, "to": to,
 			"reasons": bumps[so]["reasons"]})
 	rev.potential_changes.sort_custom(func(a, b): return a["to"] - a["from"] > b["to"] - b["from"])

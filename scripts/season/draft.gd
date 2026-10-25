@@ -3,9 +3,10 @@ extends RefCounted
 ## Yearly draft class, scouting and draft-day picks (Madden-style).
 ##
 ## Scouting: the user earns POINTS_PER_WEEK scout points every week of the season (unspent points
-## carry over). Each point spent on a prospect reveals a random stat group as a window of named
-## tiers ("Inconsistent - Sharpshooter"); scouting the same group again narrows the window
-## (3 tiers -> 2). Numbers and potential are never shown.
+## carry over). Each point spent on a prospect scouts two random stat groups, revealing each as a
+## window of named tiers ("Inconsistent - Sharpshooter"); scouting a group again narrows it (3 tiers
+## -> 2). Once every group is down to 2 tiers, each further point pins one group to its exact tier.
+## Numbers and potential are never shown.
 ##
 ## Projections: every prospect has a league-consensus value (his real worth plus a fixed error)
 ## that gives his projected round and drives the mock draft. Hidden phenoms are judged at their
@@ -24,8 +25,12 @@ const CLASS_SIZE := 36
 const ROUNDS := 3
 const POINTS_PER_WEEK := 14
 const MAX_POINTS_PER_PROSPECT := 8
-## Window width (in tiers) after the 1st and 2nd scout of a group.
-const WINDOW_WIDTHS := [3, 2]
+## Window width (in tiers) after the 1st, 2nd and 3rd scout of a group.
+const WINDOW_WIDTHS := [3, 2, 1]
+## Groups scouted per point while any group is still wider than 2 tiers (then 1 per point).
+const GROUPS_PER_POINT := 2
+## Scouts a group needs before the one-group, exact-tier phase starts.
+const BROAD_SCOUTS := 2
 ## Group rating thresholds for tiers 1..4 (tier 0 is below the first).
 const TIER_THRESHOLDS := [50, 60, 70, 80]
 const TIER_COUNT := 5
@@ -310,14 +315,36 @@ func can_scout(p: Prospect) -> bool:
 	return scout_points > 0 and p.is_available() and not p.fully_scouted()
 
 
-## Spends one scout point: picks a random group that can still be narrowed and reveals a
-## window of WINDOW_WIDTHS[n] tiers containing the true tier, inside any earlier window.
-## Returns the group scouted, or &"" if not allowed.
-func scout(p: Prospect) -> StringName:
+## Spends one scout point. While any group is wider than 2 tiers, two random such groups are
+## narrowed; after that, one group is pinned to its exact tier. Each reveal is a window of
+## WINDOW_WIDTHS[n] tiers containing the true tier, inside any earlier window.
+## Returns the groups scouted (empty if not allowed).
+func scout(p: Prospect) -> Array[StringName]:
+	var out: Array[StringName] = []
 	if not can_scout(p):
-		return &""
-	var options := p.scoutable_groups()
-	var g: StringName = options[_rng.randi_range(0, options.size() - 1)]
+		return out
+	var broad: Array[StringName] = []
+	for g in Stats.GROUP_ORDER:
+		if int(p.scouts.get(g, 0)) < BROAD_SCOUTS:
+			broad.append(g)
+	var options: Array[StringName] = broad if not broad.is_empty() else p.scoutable_groups()
+	var count := GROUPS_PER_POINT if not broad.is_empty() else 1
+	for i in mini(count, options.size()):
+		# Least-scouted groups first, so every group gets a first look before any gets a second.
+		var fewest := 99
+		for g in options:
+			fewest = mini(fewest, int(p.scouts.get(g, 0)))
+		var pool: Array[StringName] = options.filter(func(g): return int(p.scouts.get(g, 0)) == fewest)
+		var g: StringName = pool[_rng.randi_range(0, pool.size() - 1)]
+		options.erase(g)
+		_narrow(p, g)
+		out.append(g)
+	p.points += 1
+	scout_points -= 1
+	return out
+
+
+func _narrow(p: Prospect, g: StringName) -> void:
 	var n: int = p.scouts.get(g, 0)
 	var width: int = WINDOW_WIDTHS[n]
 	var prev: Vector2i = p.reveals.get(g, Vector2i(0, TIER_COUNT - 1))
@@ -327,9 +354,6 @@ func scout(p: Prospect) -> StringName:
 	var lo := _rng.randi_range(lo_min, lo_max)
 	p.reveals[g] = Vector2i(lo, lo + width - 1)
 	p.scouts[g] = n + 1
-	p.points += 1
-	scout_points -= 1
-	return g
 
 
 # --- draft day ---------------------------------------------------------------------
