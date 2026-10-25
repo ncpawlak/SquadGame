@@ -29,7 +29,8 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   8 matches per team, one bye per week. Top 4 make the playoffs: semis (1v4, 2v3, higher seed hosts), then the final.
   Then the end-of-season review (awards and potential changes), the offseason (re-sign → draft → free agency → training camp),
   and aging → next season (rosters, ratings and contracts carry over).
-- **Standings**: W/L, tiebreakers head-to-head, then round differential, then rounds won.
+- **Standings**: match W/L, tiebreakers head-to-head, then game differential (games won − lost across the best-of-3
+  matches), then TDM point differential.
 - **Each week**: all teams train at each soldier's intensity, every match is played, XP is awarded, then fatigue
   and injuries update. AI teams auto-spend skill points and pick intensities; you set yours on the Training page
   and spend SP on the player page (or **Auto-progress all** on the Progression page). Injured starters are
@@ -43,6 +44,7 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   - Handling: Butterfingers, Clunky, Capable, Smooth Operator, Gunslinger
   - Physicality: Out of Shape, Average Build, Athletic, Explosive, Freak Athlete
   - Mentality: Lost, Rattled, Level-Headed, Leader, Field General
+  - Objective: Point Shy, Wanderer, Contester, Point Man, King of the Hill
   - Injury: Glass, Fragile, Durable, Sturdy, Iron Man
 
   Grade thresholds: below 50, 50s, 60s, 70s, 80+.
@@ -76,7 +78,7 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   In the offseason your roster can run over (draft picks, extra signings), but you can't advance to Week 1 until
   you release down to 12; Home shows a red "Roster Cuts Required" banner while you're over. In-season the limit is hard.
 - **Training camp** (`scripts/season/camp.gd`, Home → Training Camp): one drill per rating group (Marksmanship Range,
-  Weapons Lab, Combine Gauntlet, War Room, Iron Conditioning). Pick a drill, pick a soldier, see his ratings boost.
+  Weapons Lab, Combine Gauntlet, War Room, Hill Assault, Iron Conditioning). Pick a drill, pick a soldier, see his ratings boost.
   One soldier per drill and one drill per soldier. The point pool depends on potential (A 9-13, B 7-10, C 5-8, D 3-6,
   F 2-4), spread at random over the group's stats (max +4 each). AI teams run theirs when camp closes; advancing with
   unused drills asks you to confirm first.
@@ -160,6 +162,7 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
   - Handling: reload, grouping
   - Physicality: speed, agility, strength, endurance
   - Mentality: awareness, composure, teamwork
+  - Objective: anchor (holding a point), breach (taking a held point), objective IQ (playing the point and rotating)
   - Injury: injury, toughness (view only, can't be upgraded)
 - **Scheme "Swing":**
   - Frontman ×2, Center, Left Flex, Right Flex.
@@ -167,7 +170,18 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
   - Role also drives in-sim behaviour (distance, exposure, flanking).
 - **Rosters:** 12 soldiers each (5 starters + 7 bench). The league currently has 2 teams.
 - **Match:**
-  - Best of 7 elimination rounds, 0.5s ticks.
+  - **Best of 3 games**, always in this order (a 2-0 sweep skips game 3), 0.5s ticks. Same lineup all match;
+    fatigue carries across games (partial recovery between them).
+    1. **Team Deathmatch**: 1 point per kill, first to 50. Eliminated soldiers stay down until their whole team is
+       wiped; then that team respawns in formation and the team that wiped them gets +5.
+    2. **King of the Hill**: a point in the middle. A team banks hold time while it's alone on the point (nothing
+       while contested); first to 2:00 total wins. Same wipe/respawn rule, no wipe bonus.
+    3. **TDM Sudden Death**: elimination rounds, no respawns, first to 4 rounds.
+  - Objective stats only matter in King of the Hill: Objective IQ decides who plays the point and how fast a squad
+    rotates back onto it; Breach speeds the push onto a held point and adds accuracy against soldiers on it;
+    Anchor adds accuracy and damage resistance while on the point. Frontmen lean Breach, Centers Anchor, Flexes OIQ.
+  - New box/season stats: team wipes, hill time, hill captures (and contest time in the box score).
+    Hill time, captures and wipes have League Leaders boards. XP impact is averaged per game played.
   - Each shot is resolved on the range band, accuracy, fatigue, composure, teamwork, and the target's evasion and toughness.
   - Deterministic for a given match seed (`scripts/sim/match_engine.gd`).
 - **Progression:**
@@ -185,7 +199,7 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
     age 30–32 50% chance of −1, 33+ −1 (award winners exempt). Max ±2 a year. Each step up adds 2–6 to a
     random group's cap; each step down removes 2–6 (never below the current rating).
   - **Aging** (scripts/sim/aging.gd): everyone ages a year each offseason. Past a group's peak age
-    (Physicality 28, Injury 29, Accuracy 31, Handling 32, Mentality 34) its stats drop each year, ~1 per stat
+    (Physicality 28, Injury 29, Accuracy 31, Handling 32, Objective 33, Mentality 34) its stats drop each year, ~1 per stat
     the first year and faster after (up to 6). Caps drop with them.
   - AI teams spend their points automatically, favouring groups their role uses (`scripts/sim/progression.gd`).
 - **Training intensity** (`scripts/sim/training.gd`), per soldier, per week:
@@ -209,6 +223,6 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
 - Scouting and the end-of-season draft (done; next: draft-day trades)
 - Contracts, hard cap, free agency, retirement (done; next: contract negotiation with counter-offers and bonuses)
 - In-season trades (must fit under the cap)
-- Different game modes per round
+- Best-of-3 match modes (done; next: more modes and per-mode schemes)
 - Visual combat
 - Android and PC exports

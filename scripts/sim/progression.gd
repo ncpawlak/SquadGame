@@ -155,7 +155,9 @@ static func award_match_xp(result: MatchResult, year := 0) -> Dictionary:
 			var line := result.box_for(soldier)
 			if line.is_empty():
 				continue
-			var xp := MATCH_BASE_XP + maxf(0.0, MatchResult.impact(line)) * MATCH_IMPACT_XP_SCALE
+			# Impact per game played, so a 3-game match isn't worth more than a sweep.
+			var per_game := MatchResult.impact(line) / maxf(1.0, float(line.get("games", 1)))
+			var xp := MATCH_BASE_XP + maxf(0.0, per_game) * MATCH_IMPACT_XP_SCALE
 			if team_index == result.winner_index:
 				xp += MATCH_WIN_XP
 			if soldier.id == result.mvp_id:
@@ -169,7 +171,8 @@ static func _record_career(soldier: Soldier, line: Dictionary, mvp := false, yea
 	var add := {"matches": 1, "rounds": line["rounds_played"], "kills": line["kills"], "deaths": line["deaths"],
 		"assists": line["assists"], "damage": roundi(line["damage"]), "saves": line.get("saves", 0),
 		"headshots": line["headshots"], "shots": line["shots"], "hits": line["hits"], "mvps": 1 if mvp else 0,
-		"clutches": line["clutches"]}
+		"clutches": line["clutches"], "games": line.get("games", 0), "wipes": line.get("wipes", 0),
+		"hill_s": roundi(line.get("hill_s", 0.0)), "caps": line.get("caps", 0)}
 	var targets: Array = [soldier.career]
 	if year > 0:
 		if not soldier.season_lines.has(year):

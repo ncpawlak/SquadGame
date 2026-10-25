@@ -12,6 +12,7 @@ const DRILLS := {
 	Stats.HANDLING: {"name": "Weapons Lab", "blurb": "Reload and recoil-control reps under the clock."},
 	Stats.PHYSICALITY: {"name": "Combine Gauntlet", "blurb": "Sprints, cone drills, sled pushes and the ruck march."},
 	Stats.MENTALITY: {"name": "War Room", "blurb": "Film, comms and high-pressure decision drills."},
+	Stats.OBJECTIVE: {"name": "Hill Assault", "blurb": "Capture, hold and retake reps on a live point."},
 	Stats.DURABILITY: {"name": "Iron Conditioning", "blurb": "Prehab, contact work and pain tolerance."},
 }
 ## Point pool [min, max] per potential grade (F..A).

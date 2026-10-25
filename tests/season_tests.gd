@@ -14,7 +14,8 @@ func _init() -> void:
 		"test_new_franchise_user_team",
 		"test_week_labels_and_lookup",
 		"test_standings_head_to_head",
-		"test_standings_round_diff_and_streaks",
+		"test_standings_game_diff_and_streaks",
+		"test_standings_point_diff_tiebreak",
 		"test_playoff_seeding",
 		"test_full_season_champion",
 		"test_determinism",
@@ -60,11 +61,14 @@ func check(cond: bool, msg: String) -> void:
 
 # --- helpers ---------------------------------------------------------------
 
-func fake_result(m: ScheduledMatch, home_rounds: int, away_rounds: int) -> void:
+## Games won by each side; `tdm` = game-1 TDM points (home, away).
+func fake_result(m: ScheduledMatch, home_games: int, away_games: int, tdm := [0, 0]) -> void:
 	var r := MatchResult.new()
 	r.teams.assign([m.home, m.away])
-	r.score.assign([home_rounds, away_rounds])
-	r.winner_index = 0 if home_rounds > away_rounds else 1
+	r.score.assign([home_games, away_games])
+	r.winner_index = 0 if home_games > away_games else 1
+	r.games.append({"number": 1, "mode": MatchEngine.MODE_TDM, "score": tdm, "winner": 0 if tdm[0] >= tdm[1] else 1,
+		"duration_s": 0.0, "rounds": []})
 	m.result = r
 
 
@@ -163,42 +167,54 @@ func test_standings_head_to_head() -> void:
 	var x := s.league.teams[3]
 	var y := s.league.teams[1]
 	var z := s.league.teams[2]
-	# X beats Y narrowly; Y crushes Z. X and Y are 1-? tied on wins, Y has the better round diff,
+	# X beats Y narrowly; Y crushes Z. X and Y are 1-? tied on wins, Y has the better game diff,
 	# but X wins the head-to-head and should rank above Y.
 	var m1 := find_match(s, x, y)
 	var m2 := find_match(s, y, z)
 	var m3 := find_match(s, z, x)
-	fake_result(m1, 4, 3)
-	fake_result(m2, 4, 0)
-	fake_result(m3, 4, 0)  # Z beats X -> X 1-1, Y 1-1, Z 1-1 ... make Z the odd one below
+	fake_result(m1, 2, 1)
+	fake_result(m2, 2, 0)
+	fake_result(m3, 2, 0)  # Z beats X -> X 1-1, Y 1-1, Z 1-1 ... make Z the odd one below
 	# Z also loses another game so it drops below.
 	var m4 := find_match(s, z, y)
-	fake_result(m4, 0, 4)
-	# Now: X 1-1 (rd +1-4 = -3), Y 2-1 (rd -1+4+4 = +7), Z 1-2.
+	fake_result(m4, 0, 2)
+	# Now: X 1-1 (gd +1-2 = -1), Y 2-1 (gd -1+2+2 = +3), Z 1-2.
 	# Give X one more win against a non-tied team so X and Y tie at 2 wins.
 	var w := s.league.teams[0]
 	var m5 := find_match(s, x, w)
-	fake_result(m5, 4, 3)
+	fake_result(m5, 2, 1)
 	var rows := s.standings()
 	var rx := row_of(rows, x)
 	var ry := row_of(rows, y)
 	check(rx.wins == 2 and ry.wins == 2, "X and Y tied at 2 wins (got %d, %d)" % [rx.wins, ry.wins])
-	check(ry.round_diff() > rx.round_diff(), "Y has better round diff")
+	check(ry.game_diff() > rx.game_diff(), "Y has better game diff")
 	check(rx.rank < ry.rank, "head-to-head puts X above Y (X %d, Y %d)" % [rx.rank, ry.rank])
 	check(rows[0].rank == 1 and rows[0] == rx, "X first")
 	check(s.record_text(x) == "2-1", "record text %s" % s.record_text(x))
 
 
-func test_standings_round_diff_and_streaks() -> void:
+func test_standings_point_diff_tiebreak() -> void:
+	var s := Season.new_franchise(45)
+	var t := s.league.teams
+	# Both sweep 2-0; R's TDM win was far more lopsided, so R ranks first.
+	fake_result(find_match(s, t[0], t[1]), 2, 0, [50, 45])
+	fake_result(find_match(s, t[2], t[3]), 2, 0, [50, 12])
+	var rows := s.standings()
+	check(row_of(rows, t[2]).point_diff() == 38 and row_of(rows, t[0]).point_diff() == 5, "TDM point diffs")
+	check(row_of(rows, t[2]).rank == 1 and row_of(rows, t[0]).rank == 2, "point diff breaks a game-diff tie")
+	check(row_of(rows, t[1]).rank == 4 and row_of(rows, t[3]).rank == 5, "losers ordered by point diff too")
+
+
+func test_standings_game_diff_and_streaks() -> void:
 	var s := Season.new_franchise(43)
 	var t := s.league.teams
-	# P beats Q 4-0, R beats S 4-3: P and R tied on wins, no head-to-head, P has better diff.
-	fake_result(find_match(s, t[0], t[1]), 4, 0)
-	fake_result(find_match(s, t[2], t[3]), 4, 3)
+	# P beats Q 2-0, R beats S 2-1: P and R tied on wins, no head-to-head, P has better diff.
+	fake_result(find_match(s, t[0], t[1]), 2, 0)
+	fake_result(find_match(s, t[2], t[3]), 2, 1)
 	var rows := s.standings()
-	check(row_of(rows, t[0]).rank == 1 and row_of(rows, t[2]).rank == 2, "round diff tiebreak")
-	# Among 0-1 teams: Q (-4) vs S (-1): S above Q. Team with no games (t[4]) sits between
-	# by round diff (0) -> ranks: t4 has 0 wins rd 0 -> above S and Q.
+	check(row_of(rows, t[0]).rank == 1 and row_of(rows, t[2]).rank == 2, "game diff tiebreak")
+	# Among 0-1 teams: Q (-2) vs S (-1): S above Q. Team with no games (t[4]) sits between
+	# by game diff (0) -> ranks: t4 has 0 wins gd 0 -> above S and Q.
 	check(row_of(rows, t[4]).rank == 3, "0-0 team ranks above 0-1 teams by diff")
 	check(row_of(rows, t[3]).rank == 4 and row_of(rows, t[1]).rank == 5, "S above Q")
 	check(row_of(rows, t[4]).streak == "-" and row_of(rows, t[4]).last5 == "", "empty streak")
@@ -356,6 +372,10 @@ func test_start_next_season() -> void:
 	for so in s.league.teams[0].roster:
 		roster_ids.append(so.id)
 	s.sim_to_end_of_season()
+	var signed_ids: Array = []
+	for so in s.league.teams[0].roster:
+		if roster_ids.has(so.id) and not so.contract.is_expiring():
+			signed_ids.append(so.id)
 	s.start_next_season()
 	check(s.year == 2027, "year incremented")
 	check(s.week == 1 and s.phase == Season.PHASE_REGULAR, "back to week 1 regular")
@@ -366,10 +386,16 @@ func test_start_next_season() -> void:
 		check(s.record_text(r.team) == "0-0", "record text reset")
 	var kept := 0
 	for so in s.league.teams[0].roster:
-		if roster_ids.has(so.id):
+		if signed_ids.has(so.id):
 			kept += 1
-	check(s.league.teams[0].roster.size() == Team.ROSTER_SIZE, "roster cut back to limit")
-	check(kept >= Team.ROSTER_SIZE - Draft.ROUNDS, "rosters mostly kept (%d)" % kept)
+	var retired := s.retirements_in(2026).filter(func(r): return r["team"] == s.league.teams[0]).size()
+	for t in s.league.teams:
+		var n: int = t.roster.size()
+		if t.user_controlled:
+			check(n >= Season.ROSTER_MIN and n <= Team.ROSTER_SIZE, "user roster within min..limit (%d)" % n)
+		else:
+			check(n == Team.ROSTER_SIZE, "AI roster cut/filled to limit (%d)" % n)
+	check(kept + retired >= signed_ids.size() - Draft.ROUNDS, "players under contract mostly kept (%d + %d retired of %d)" % [kept, retired, signed_ids.size()])
 	var first := s.sim_week()
 	check(first.size() == 2 and first[0].is_played(), "new season playable")
 

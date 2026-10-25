@@ -17,16 +17,19 @@ const ROLE_WEIGHTS := {
 		&"short_acc": 3.0, &"strength": 2.0, &"agility": 1.5, &"reload": 1.5,
 		&"grouping": 1.5, &"composure": 1.5, &"awareness": 1.0, &"endurance": 1.0,
 		&"medium_acc": 1.0, &"teamwork": 1.0, &"long_acc": 0.5, &"speed": 0.5,
+		&"breach": 1.5, &"anchor": 0.5, &"obj_iq": 0.5,
 	},
 	Role.CENTER: {
 		&"awareness": 3.0, &"medium_acc": 3.0, &"long_acc": 2.0, &"teamwork": 2.5,
 		&"composure": 2.0, &"grouping": 1.5, &"short_acc": 1.0, &"strength": 1.0,
 		&"agility": 1.0, &"reload": 1.0, &"endurance": 0.5,
+		&"anchor": 1.5, &"obj_iq": 1.0, &"breach": 0.5,
 	},
 	Role.FLEX: {
 		&"speed": 2.5, &"agility": 2.5, &"medium_acc": 2.0, &"endurance": 2.0,
 		&"short_acc": 1.5, &"awareness": 1.5, &"reload": 1.5, &"grouping": 1.0,
 		&"composure": 1.0, &"teamwork": 1.0,
+		&"obj_iq": 1.5, &"breach": 1.0, &"anchor": 0.5,
 	},
 }
 

@@ -34,15 +34,15 @@ func opponent_of(team: Team) -> Team:
 	return null
 
 
-## Score from the home side's perspective, e.g. "4-2"; "" if unplayed.
+## Games won from the home side's perspective, e.g. "2-1"; "" if unplayed.
 func score_text() -> String:
 	if result == null:
 		return ""
 	return "%d-%d" % [result.score[0], result.score[1]]
 
 
-## Rounds won by `team` in this match (0 if unplayed or not involved).
-func rounds_for(team: Team) -> int:
+## Games won by `team` in this match (0 if unplayed or not involved).
+func games_for(team: Team) -> int:
 	if result == null:
 		return 0
 	if team == home:
@@ -50,6 +50,13 @@ func rounds_for(team: Team) -> int:
 	if team == away:
 		return result.score[1]
 	return 0
+
+
+## TDM points scored by `team` in game 1 (0 if unplayed or not involved).
+func points_for(team: Team) -> int:
+	if result == null or not involves(team):
+		return 0
+	return result.tdm_points()[0 if team == home else 1]
 
 
 func play() -> MatchResult:

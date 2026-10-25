@@ -15,6 +15,7 @@ func _init() -> void:
 		"test_auto_lineup_fills_scheme",
 		"test_assign_swaps_players",
 		"test_match_structure",
+		"test_arena_scoring",
 		"test_match_is_deterministic",
 		"test_different_seeds_vary",
 		"test_better_team_wins_more",
@@ -139,10 +140,25 @@ func test_assign_swaps_players() -> void:
 func test_match_structure() -> void:
 	var league := League.generate(7)
 	var r := MatchEngine.simulate(league.teams[0], league.teams[1], 99)
-	check(r.score[r.winner_index] == MatchEngine.ROUNDS_TO_WIN, "winner must reach 4")
-	check(r.score[1 - r.winner_index] < MatchEngine.ROUNDS_TO_WIN, "loser below 4")
-	check(r.rounds.size() >= 4 and r.rounds.size() <= 7, "4-7 rounds played")
+	check(r.score[r.winner_index] == MatchEngine.GAMES_TO_WIN, "winner takes 2 games")
+	check(r.score[1 - r.winner_index] < MatchEngine.GAMES_TO_WIN, "loser below 2 games")
+	check(r.games.size() == r.score[0] + r.score[1] and r.games.size() >= 2 and r.games.size() <= 3, "2-3 games played")
 	check(r.events.size() > 10, "play-by-play has events")
+	for i in r.games.size():
+		var g: Dictionary = r.games[i]
+		check(g["mode"] == MatchEngine.GAME_ORDER[i], "games in order TDM, KOTH, SD")
+		var w: int = g["winner"]
+		match g["mode"]:
+			MatchEngine.MODE_TDM:
+				check(g["score"][w] >= MatchEngine.TDM_POINTS_TO_WIN and g["score"][1 - w] < MatchEngine.TDM_POINTS_TO_WIN,
+					"TDM winner reaches 50 (%s)" % [g["score"]])
+			MatchEngine.MODE_KOTH:
+				check(g["score"][w] >= int(MatchEngine.KOTH_HOLD_TO_WIN_S) and g["score"][1 - w] < int(MatchEngine.KOTH_HOLD_TO_WIN_S),
+					"KOTH winner holds 2:00 (%s)" % [g["score"]])
+			_:
+				check(g["score"][w] == MatchEngine.ROUNDS_TO_WIN and g["rounds"].size() >= 4 and g["rounds"].size() <= 7,
+					"SD first to 4 in 4-7 rounds")
+	var sd := r.game_of(MatchEngine.MODE_SUDDEN_DEATH)
 	check(r.mvp_id != -1, "mvp chosen")
 	var kills := 0
 	var deaths := 0
@@ -150,9 +166,36 @@ func test_match_structure() -> void:
 		kills += r.box[id]["kills"]
 		deaths += r.box[id]["deaths"]
 		check(r.box[id]["hits"] <= r.box[id]["shots"], "hits <= shots")
-		check(r.box[id]["rounds_played"] == r.rounds.size(), "every starter plays every round")
+		check(r.box[id]["rounds_played"] == r.rounds.size(), "every starter plays every sudden-death round")
+		check(r.box[id]["games"] == r.games.size(), "every starter plays every game")
 	check(kills == deaths, "kills == deaths (%d vs %d)" % [kills, deaths])
 	check(r.box.size() == 10, "10 box score lines")
+	check(sd.is_empty() or sd["rounds"].size() == r.rounds.size(), "rounds listed under the sudden-death game")
+
+
+## TDM points = kills + wipe bonuses; KOTH hold time = what the players on the point banked.
+func test_arena_scoring() -> void:
+	var league := League.generate(7)
+	var seen_koth := 0
+	for seed in 6:
+		var r := MatchEngine.simulate(league.teams[0], league.teams[1], 500 + seed)
+		var tdm := r.game_of(MatchEngine.MODE_TDM)
+		check(not tdm.is_empty(), "every match opens with TDM")
+		var wipes := 0
+		var caps := 0
+		var hill := 0.0
+		for id in r.box:
+			wipes += r.box[id]["wipes"]
+			caps += r.box[id]["caps"]
+			hill += r.box[id]["hill_s"]
+		check(wipes > 0, "arena games have team wipes")
+		var koth := r.game_of(MatchEngine.MODE_KOTH)
+		if not koth.is_empty():
+			seen_koth += 1
+			check(caps > 0, "someone captured the hill")
+			check(hill >= koth["score"][0] + koth["score"][1] - 1, "hold time credited to players on the point")
+			check(koth["score"][0] != koth["score"][1], "KOTH has a winner on hold time")
+	check(seen_koth == 6, "KOTH is always game 2")
 
 
 func test_match_is_deterministic() -> void:

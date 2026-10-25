@@ -11,6 +11,7 @@ const PEAK_AGE := {
 	Stats.ACCURACY: 31,
 	Stats.HANDLING: 32,
 	Stats.MENTALITY: 34,
+	Stats.OBJECTIVE: 33,
 }
 const MAX_LOSS_PER_STAT := 6
 

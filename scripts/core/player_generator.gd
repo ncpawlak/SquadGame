@@ -20,14 +20,16 @@ const ARCHETYPES := {
 	Scheme.Role.FRONTMAN: {
 		&"short_acc": 10, &"strength": 9, &"toughness": 9, &"agility": 3, &"reload": 5,
 		&"grouping": 4, &"composure": 3, &"long_acc": -6, &"medium_acc": -2, &"speed": -2,
+		&"breach": 9, &"anchor": 2,
 	},
 	Scheme.Role.CENTER: {
 		&"awareness": 10, &"medium_acc": 9, &"long_acc": 8, &"teamwork": 9, &"composure": 6,
-		&"short_acc": -3, &"speed": -6,
+		&"short_acc": -3, &"speed": -6, &"anchor": 9, &"obj_iq": 5, &"breach": -4,
 	},
 	Scheme.Role.FLEX: {
 		&"speed": 11, &"agility": 10, &"endurance": 8, &"medium_acc": 4, &"short_acc": 2,
 		&"reload": 3, &"strength": -6, &"toughness": -6, &"long_acc": -4,
+		&"obj_iq": 7, &"breach": 3, &"anchor": -5,
 	},
 }
 

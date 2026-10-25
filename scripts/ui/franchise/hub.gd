@@ -695,7 +695,8 @@ func _news_tiles() -> Array:
 		var win := m.winner()
 		var mvp := pages._soldier(m.result.mvp_id)
 		var line: Dictionary = m.result.box.get(m.result.mvp_id, {})
-		var body := "[color=white]%s %d - %d %s[/color]" % [win.abbrev, m.rounds_for(win), m.rounds_for(m.loser()), m.loser().abbrev]
+		var body := "[color=white]%s %d - %d %s[/color]" % [win.abbrev, m.games_for(win), m.games_for(m.loser()), m.loser().abbrev]
+		body += "\n[font_size=13]%s[/font_size]" % pages._games_brief(m.result)
 		if mvp != null and not line.is_empty():
 			body += "\nMVP [color=#f59e0b]%s[/color]  %d K  %d SV" % [UiKit.esc(mvp.tag()), line["kills"], line.get("saves", 0)]
 		var mm := m
@@ -1032,7 +1033,7 @@ func _last_played(team: Team) -> ScheduledMatch:
 
 
 func _score_for(m: ScheduledMatch, team: Team) -> String:
-	return "%d-%d" % [m.rounds_for(team), m.rounds_for(m.opponent_of(team))]
+	return "%d-%d" % [m.games_for(team), m.games_for(m.opponent_of(team))]
 
 
 func _mini_standings() -> String:

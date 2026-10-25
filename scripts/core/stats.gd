@@ -19,11 +19,16 @@ const COMPOSURE := &"composure"
 const TOUGHNESS := &"toughness"
 const INJURY := &"injury"
 const TEAMWORK := &"teamwork"
+## King of the Hill: holding the point, pushing onto it, and playing it at all.
+const ANCHOR := &"anchor"
+const BREACH := &"breach"
+const OBJ_IQ := &"obj_iq"
 
 const ALL: Array[StringName] = [
 	AWARENESS, SHORT_ACC, MEDIUM_ACC, LONG_ACC, GROUPING,
 	SPEED, STRENGTH, AGILITY, ENDURANCE, RELOAD,
 	COMPOSURE, TOUGHNESS, INJURY, TEAMWORK,
+	ANCHOR, BREACH, OBJ_IQ,
 ]
 
 const LABELS := {
@@ -41,6 +46,9 @@ const LABELS := {
 	TOUGHNESS: "Toughness",
 	INJURY: "Injury",
 	TEAMWORK: "Teamwork",
+	ANCHOR: "Anchor",
+	BREACH: "Breach",
+	OBJ_IQ: "Objective IQ",
 }
 
 const ABBREV := {
@@ -58,6 +66,9 @@ const ABBREV := {
 	TOUGHNESS: "TGH",
 	INJURY: "INJ",
 	TEAMWORK: "TWK",
+	ANCHOR: "ANC",
+	BREACH: "BRC",
+	OBJ_IQ: "OIQ",
 }
 
 
@@ -67,16 +78,18 @@ const ACCURACY := &"accuracy"
 const HANDLING := &"handling"
 const PHYSICALITY := &"physicality"
 const MENTALITY := &"mentality"
+const OBJECTIVE := &"objective"
 const DURABILITY := &"durability"
 
-const GROUP_ORDER: Array[StringName] = [ACCURACY, HANDLING, PHYSICALITY, MENTALITY, DURABILITY]
-const UPGRADABLE_GROUPS: Array[StringName] = [ACCURACY, HANDLING, PHYSICALITY, MENTALITY]
+const GROUP_ORDER: Array[StringName] = [ACCURACY, HANDLING, PHYSICALITY, MENTALITY, OBJECTIVE, DURABILITY]
+const UPGRADABLE_GROUPS: Array[StringName] = [ACCURACY, HANDLING, PHYSICALITY, MENTALITY, OBJECTIVE]
 
 const GROUPS := {
 	ACCURACY: [SHORT_ACC, MEDIUM_ACC, LONG_ACC],
 	HANDLING: [RELOAD, GROUPING],
 	PHYSICALITY: [SPEED, AGILITY, STRENGTH, ENDURANCE],
 	MENTALITY: [AWARENESS, COMPOSURE, TEAMWORK],
+	OBJECTIVE: [ANCHOR, BREACH, OBJ_IQ],
 	DURABILITY: [INJURY, TOUGHNESS],
 }
 
@@ -85,6 +98,7 @@ const GROUP_LABELS := {
 	HANDLING: "Handling",
 	PHYSICALITY: "Physicality",
 	MENTALITY: "Mentality",
+	OBJECTIVE: "Objective",
 	DURABILITY: "Injury",
 }
 

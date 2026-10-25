@@ -370,7 +370,7 @@ func _batch_sim() -> void:
 		"[b]%s vs %s — %d matches (seeds %d..%d), no XP awarded[/b]" % [_esc(a.name), _esc(b.name), n, base, base + n - 1],
 		"Team OVR: %d vs %d" % [a.team_ovr(), b.team_ovr()],
 		"%s win rate: [b]%.1f%%[/b]" % [_esc(a.abbrev), 100.0 * wins / n],
-		"Avg round length: %.1fs" % (duration / rounds),
+		"Avg sudden-death round length: %.1fs" % (duration / maxi(1, rounds)),
 		"Kills by range: short %d / medium %d / long %d" % [bands["short"], bands["medium"], bands["long"]],
 		"", "Scorelines:",
 	]

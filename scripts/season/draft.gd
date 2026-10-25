@@ -34,6 +34,7 @@ const TIER_NAMES := {
 	Stats.HANDLING: ["Butterfingers", "Clunky", "Capable", "Smooth Operator", "Gunslinger"],
 	Stats.PHYSICALITY: ["Out of Shape", "Average Build", "Athletic", "Explosive", "Freak Athlete"],
 	Stats.MENTALITY: ["Lost", "Rattled", "Level-Headed", "Leader", "Field General"],
+	Stats.OBJECTIVE: ["Point Shy", "Wanderer", "Contester", "Point Man", "King of the Hill"],
 	Stats.DURABILITY: ["Glass", "Fragile", "Durable", "Sturdy", "Iron Man"],
 }
 const PROSPECT_QUALITY := 57.0
@@ -80,6 +81,9 @@ const STAT_LINES := {
 	Stats.AWARENESS: ["Instructors rave about %s's battlefield awareness in sim exercises.", "%s was ambushed \"almost every round\" in sim exercises."],
 	Stats.COMPOSURE: ["%s stayed ice-cold through the live-fire stress test.", "%s froze up during the live-fire stress test."],
 	Stats.TEAMWORK: ["Squadmates voted %s the best teammate at the showcase.", "Reports say %s clashed with his squad at the showcase."],
+	Stats.ANCHOR: ["%s held the hill alone for a full minute in the objective scrimmage.", "%s got pushed off the point every time in the objective scrimmage."],
+	Stats.BREACH: ["%s led every successful push onto the point at the showcase.", "%s hesitated on every point push at the showcase."],
+	Stats.OBJ_IQ: ["Coaches say %s \"always knows where the point is.\"", "%s kept chasing kills while the point sat empty."],
 	Stats.TOUGHNESS: ["%s played through a broken hand at his final amateur event.", "%s left the combine early with a minor knock."],
 	Stats.INJURY: ["Medicals came back spotless for %s.", "Teams have flagged %s's medicals."],
 }
@@ -168,7 +172,7 @@ func _make_blue_chip(p: Prospect) -> void:
 
 func _make_specialist(p: Prospect) -> void:
 	p.standout = &"specialist"
-	var groups: Array = [Stats.ACCURACY, Stats.HANDLING, Stats.PHYSICALITY, Stats.MENTALITY]
+	var groups: Array = Stats.UPGRADABLE_GROUPS
 	var g: StringName = groups[_rng.randi_range(0, groups.size() - 1)]
 	p.specialty = g
 	var s := p.soldier

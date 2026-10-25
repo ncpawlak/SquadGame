@@ -213,8 +213,10 @@ func standings() -> Array:
 		for t: Team in [m.home, m.away]:
 			var row: StandingRow = rows[t]
 			var opp: Team = m.opponent_of(t)
-			row.rounds_won += m.rounds_for(t)
-			row.rounds_lost += m.rounds_for(opp)
+			row.games_won += m.games_for(t)
+			row.games_lost += m.games_for(opp)
+			row.points_for += m.points_for(t)
+			row.points_against += m.points_for(opp)
 			if m.winner() == t:
 				row.wins += 1
 				h2h[t][opp] = int(h2h[t].get(opp, 0)) + 1
@@ -251,10 +253,10 @@ func standings() -> Array:
 			return a.wins > b.wins
 		if h2h_score[a.team] != h2h_score[b.team]:
 			return h2h_score[a.team] > h2h_score[b.team]
-		if a.round_diff() != b.round_diff():
-			return a.round_diff() > b.round_diff()
-		if a.rounds_won != b.rounds_won:
-			return a.rounds_won > b.rounds_won
+		if a.game_diff() != b.game_diff():
+			return a.game_diff() > b.game_diff()
+		if a.point_diff() != b.point_diff():
+			return a.point_diff() > b.point_diff()
 		return a.team.id < b.team.id)
 	for i in list.size():
 		list[i].rank = i + 1

@@ -38,14 +38,14 @@ func standings() -> Control:
 	var table_rows: Array = s.standings()
 	for i in table_rows.size():
 		var r: StandingRow = table_rows[i]
-		rows.append([r.rank, r.team.name, r.wins, r.losses, "%.3f" % r.win_pct(), r.rounds_won, r.rounds_lost,
-			("%+d" % r.round_diff()), r.streak, r.last5 if r.last5 != "" else "-", r.team.team_ovr()])
+		rows.append([r.rank, r.team.name, r.wins, r.losses, "%.3f" % r.win_pct(), r.games_won, r.games_lost,
+			("%+d" % r.game_diff()), ("%+d" % r.point_diff()), r.streak, r.last5 if r.last5 != "" else "-", r.team.team_ovr()])
 		if r.team.user_controlled:
 			hl[i] = r.team.color.darkened(0.6)
-		colors[i] = {0: Color.WHITE if r.rank <= Season.PLAYOFF_TEAMS else UiKit.MUTED, 7: UiKit.GOOD if r.round_diff() > 0 else (UiKit.BAD if r.round_diff() < 0 else UiKit.TEXT)}
-	v.add_child(UiKit.table(["#", "TEAM", "W", "L", "PCT", "RW", "RL", "DIFF", "STRK", "LAST 5", "OVR"], rows,
-		[30, 260, 50, 50, 70, 50, 50, 60, 60, 90, 50], hl, colors))
-	v.add_child(UiKit.label("Tiebreakers: head-to-head, then round differential, then rounds won.", 13, UiKit.MUTED))
+		colors[i] = {0: Color.WHITE if r.rank <= Season.PLAYOFF_TEAMS else UiKit.MUTED, 7: UiKit.GOOD if r.game_diff() > 0 else (UiKit.BAD if r.game_diff() < 0 else UiKit.TEXT)}
+	v.add_child(UiKit.table(["#", "TEAM", "W", "L", "PCT", "GW", "GL", "G DIFF", "PTS DIFF", "STRK", "LAST 5", "OVR"], rows,
+		[30, 260, 50, 50, 70, 50, 50, 70, 80, 60, 90, 50], hl, colors))
+	v.add_child(UiKit.label("Matches are best of 3 (TDM, King of the Hill, TDM Sudden Death). Tiebreakers: head-to-head, then game differential, then TDM point differential.", 13, UiKit.MUTED))
 	return v
 
 
@@ -72,7 +72,7 @@ func schedule() -> Control:
 		var opp := m.opponent_of(team)
 		var res := "-"
 		if m.is_played():
-			res = "%s %d-%d" % ["W" if m.winner() == team else "L", m.rounds_for(team), m.rounds_for(opp)]
+			res = "%s %d-%d" % ["W" if m.winner() == team else "L", m.games_for(team), m.games_for(opp)]
 			colors[rows.size()] = {4: UiKit.GOOD if m.winner() == team else UiKit.BAD}
 		rows.append([s.week_label(w), ("vs " if m.home == team else "@ ") + opp.name, s.record_text(opp), opp.team_ovr(), res])
 		if w == s.week:
@@ -124,10 +124,10 @@ func _score_card(m: ScheduledMatch) -> Button:
 		var won: bool = m.is_played() and m.winner() == t
 		body += "[color=%s]%s  %s[/color]   [color=%s]%s[/color]\n" % [
 			"white" if (won or not m.is_played()) else "#8b97ab", t.abbrev, UiKit.esc(t.name), UiKit.hex(UiKit.ACCENT),
-			str(m.rounds_for(t)) if m.is_played() else s.record_text(t)]
+			str(m.games_for(t)) if m.is_played() else s.record_text(t)]
 	if m.is_played():
 		var mvp := _soldier(m.result.mvp_id)
-		body += "Final  -  MVP %s" % (UiKit.esc(mvp.short_name()) if mvp else "-")
+		body += "Final  -  %s  -  MVP %s" % [_games_brief(m.result), UiKit.esc(mvp.short_name()) if mvp else "-"]
 	else:
 		body += "Upcoming  -  %s" % m.stage
 	var accent := m.home.color if not m.is_played() else m.winner().color
@@ -137,6 +137,14 @@ func _score_card(m: ScheduledMatch) -> Button:
 				hub.open("Match Recap", func(): return recap(m))
 			else:
 				hub.open("Match Preview", func(): return preview(m)))
+
+
+## "TDM 50-41, KOTH 1:12-2:00, SD 4-2" (home side first).
+func _games_brief(r: MatchResult) -> String:
+	var parts: Array[String] = []
+	for g in r.games:
+		parts.append("%s %s" % [MatchEngine.MODE_SHORT[g["mode"]], MatchResult.game_score_text(g)])
+	return ", ".join(parts)
 
 
 func week_results(label: String, played: Array) -> Control:
@@ -152,7 +160,7 @@ func week_results(label: String, played: Array) -> Control:
 		var banner := UiKit.rich("[font_size=40][color=%s]%s[/color][/font_size]   [font_size=28]%s %s  %s[/font_size]" % [
 			UiKit.hex(UiKit.GOOD if won else UiKit.BAD), "VICTORY" if won else "DEFEAT",
 			"vs" if mine.home == team else "@", UiKit.esc(mine.opponent_of(team).name),
-			"%d-%d" % [mine.rounds_for(team), mine.rounds_for(mine.opponent_of(team))]], 18)
+			"%d-%d" % [mine.games_for(team), mine.games_for(mine.opponent_of(team))]], 18)
 		v.add_child(banner)
 		v.add_child(UiKit.button("View full recap", func(): hub.open("Match Recap", func(): return recap(mine))))
 	elif played.is_empty():
@@ -217,16 +225,30 @@ func recap(m: ScheduledMatch) -> Control:
 	var r := m.result
 	var v := _vbox(16)
 	var head := UiKit.rich("[font_size=36][color=white]%s %d  -  %d %s[/color][/font_size]\n%s  -  winner [color=white]%s[/color]" % [
-		m.home.abbrev, m.rounds_for(m.home), m.rounds_for(m.away), m.away.abbrev,
+		m.home.abbrev, m.games_for(m.home), m.games_for(m.away), m.away.abbrev,
 		_season().week_label(m.week), UiKit.esc(m.winner().name)], 16)
 	v.add_child(head)
 
-	# Round-by-round strip
-	var strip := _row(6)
-	for rd in r.rounds:
-		var winner_team: Team = r.teams[rd["winner"]]
-		var p := UiKit.panel(winner_team.color.darkened(0.45), 6)
-		p.add_child(UiKit.label("R%d %s  %ds" % [rd["number"], winner_team.abbrev, int(rd["duration_s"])], 14, Color.WHITE))
+	# Game-by-game strip (sudden death also lists its rounds).
+	var strip := _row(10)
+	for g in r.games:
+		var winner_team: Team = r.teams[g["winner"]]
+		var p := UiKit.panel(winner_team.color.darkened(0.45), 10)
+		var col := _vbox(4)
+		col.add_child(UiKit.label("GAME %d  -  %s" % [g["number"], MatchEngine.mode_name(g["mode"]).to_upper()], 13, UiKit.MUTED))
+		col.add_child(UiKit.label("%s %s %s" % [m.home.abbrev, MatchResult.game_score_text(g), m.away.abbrev], 26, Color.WHITE))
+		var sub := "%s win  -  %s" % [winner_team.abbrev, MatchEngine._fmt_secs(g["duration_s"])]
+		if g["mode"] == MatchEngine.MODE_KOTH:
+			sub = "%s win  -  hold time  -  %s" % [winner_team.abbrev, MatchEngine._fmt_secs(g["duration_s"])]
+		col.add_child(UiKit.label(sub, 13, Color.WHITE))
+		if not g["rounds"].is_empty():
+			var rounds := _row(4)
+			for rd in g["rounds"]:
+				var rp := UiKit.panel(r.teams[rd["winner"]].color.darkened(0.2), 4)
+				rp.add_child(UiKit.label("R%d %s" % [rd["number"], r.teams[rd["winner"]].abbrev], 12, Color.WHITE))
+				rounds.add_child(rp)
+			col.add_child(rounds)
+		p.add_child(col)
 		strip.add_child(p)
 	v.add_child(strip)
 
@@ -246,10 +268,11 @@ func recap(m: ScheduledMatch) -> Control:
 			if sid == r.mvp_id:
 				colors[rows.size()] = {1: UiKit.ACCENT}
 			rows.append([line["slot"], (so.tag() if so else "?") + (" (MVP)" if sid == r.mvp_id else ""),
-				line["kills"], line["deaths"], line["assists"], line.get("saves", 0), int(line["damage"]), line["shots"], "%d%%" % hit,
-				line["headshots"], line["rounds_survived"], line["clutches"]])
-		v.add_child(UiKit.table(["SLOT", "PLAYER", "K", "D", "A", "SAVES", "DMG", "SHOTS", "HIT%", "HS", "SURV", "CLUTCH"], rows,
-			[60, 220, 40, 40, 40, 56, 60, 60, 60, 40, 50, 60], {}, colors))
+				line["kills"], line["deaths"], line["assists"], line.get("saves", 0), line.get("wipes", 0),
+				MatchEngine._fmt_secs(line.get("hill_s", 0.0)), line.get("caps", 0), int(line["damage"]), "%d%%" % hit,
+				line["headshots"], line["clutches"]])
+		v.add_child(UiKit.table(["SLOT", "PLAYER", "K", "D", "A", "SAVES", "WIPES", "HILL", "CAPS", "DMG", "HIT%", "HS", "CLUTCH"], rows,
+			[60, 220, 40, 40, 40, 56, 56, 56, 50, 60, 56, 40, 60], {}, colors))
 
 	v.add_child(_section("PLAY-BY-PLAY"))
 	var pbp := RichTextLabel.new()
@@ -1045,8 +1068,8 @@ func _player_stats(s: Soldier) -> Control:
 	v.add_child(_section("SEASON BY SEASON"))
 	if years.is_empty():
 		v.add_child(UiKit.label("No matches played yet.", 16, UiKit.MUTED))
-	v.add_child(UiKit.table(["SEASON", "TEAM", "GP", "K", "D", "A", "K/D", "SAVES", "DMG", "HS%", "ACC%", "MVP"], rows,
-		[80, 60, 44, 50, 50, 50, 56, 60, 80, 56, 60, 50], hl))
+	v.add_child(UiKit.table(["SEASON", "TEAM", "GP", "K", "D", "A", "K/D", "SAVES", "WIPES", "HILL", "CAPS", "DMG", "HS%", "ACC%", "MVP"], rows,
+		[80, 60, 44, 50, 50, 50, 56, 60, 60, 70, 50, 80, 56, 60, 50], hl))
 	return v
 
 
@@ -1055,6 +1078,7 @@ func _stat_line_cells(label: String, team_abbrev: String, d: Dictionary) -> Arra
 	var de := int(d.get("deaths", 0))
 	var hits := int(d.get("hits", 0))
 	return [label, team_abbrev, d.get("matches", 0), k, de, d.get("assists", 0), "%.2f" % (float(k) / maxi(1, de)), d.get("saves", 0),
+		d.get("wipes", 0), MatchEngine._fmt_secs(d.get("hill_s", 0)), d.get("caps", 0),
 		d.get("damage", 0), "%d%%" % roundi(100.0 * int(d.get("headshots", 0)) / maxi(1, hits)),
 		"%d%%" % roundi(100.0 * hits / maxi(1, int(d.get("shots", 0)))), d.get("mvps", 0)]
 
@@ -1430,7 +1454,8 @@ func leaders() -> Control:
 	if totals.is_empty():
 		v.add_child(UiKit.label("No matches played yet this season.", 18, UiKit.MUTED))
 		return v
-	var cats := [["KILLS", "kills"], ["ASSISTS", "assists"], ["SAVES", "saves"], ["DAMAGE", "damage"], ["MVP AWARDS", "mvps"], ["HEADSHOTS", "headshots"]]
+	var cats := [["KILLS", "kills"], ["ASSISTS", "assists"], ["SAVES", "saves"], ["DAMAGE", "damage"], ["MVP AWARDS", "mvps"], ["HEADSHOTS", "headshots"],
+		["TEAM WIPES", "wipes", "WIPE"], ["HILL TIME", "hill_s", "TIME"], ["HILL CAPTURES", "caps", "CAPS"]]
 	var flow := HFlowContainer.new()
 	flow.add_theme_constant_override("h_separation", 20)
 	flow.add_theme_constant_override("v_separation", 20)
@@ -1447,10 +1472,10 @@ func leaders() -> Control:
 			if t.user_controlled:
 				hl[i] = t.color.darkened(0.6)
 			targets.append(s)
-			rows.append([i + 1, s.tag(), t.abbrev, int(sorted[i][key])])
+			rows.append([i + 1, s.tag(), t.abbrev, MatchEngine._fmt_secs(sorted[i][key]) if key == "hill_s" else str(int(sorted[i][key]))])
 		var col := _vbox(6)
 		col.add_child(_section(cat[0]))
-		col.add_child(UiKit.table(["#", "PLAYER", "TM", cat[0].left(3)], rows, [24, 170, 50, 60], hl, {},
+		col.add_child(UiKit.table(["#", "PLAYER", "TM", cat[2] if cat.size() > 2 else cat[0].left(3)], rows, [24, 170, 50, 60], hl, {},
 			func(i: int): open_player(targets[i])))
 		flow.add_child(col)
 	v.add_child(flow)
@@ -1551,9 +1576,9 @@ func headlines(limit: int) -> Array[String]:
 			var lose: Team = m.loser()
 			var mvp := _soldier(m.result.mvp_id)
 			var line: Dictionary = m.result.box.get(m.result.mvp_id, {})
-			var verb := "edge" if m.rounds_for(lose) == 3 else ("sweep" if m.rounds_for(lose) == 0 else "beat")
+			var verb := "edge" if m.games_for(lose) == 1 else "sweep"
 			var txt := "[color=white]%s %s %s %d-%d[/color]  -  %s" % [UiKit.esc(win.name), verb, UiKit.esc(lose.name),
-				m.rounds_for(win), m.rounds_for(lose), s.week_label(w)]
+				m.games_for(win), m.games_for(lose), s.week_label(w)]
 			if mvp and not line.is_empty():
 				txt += "\n%s named MVP with %d kills and %d damage." % [UiKit.esc(mvp.full_name()), line["kills"], line["damage"]]
 			if m.stage == Season.STAGE_FINAL:
@@ -2007,7 +2032,7 @@ func _story_panel(n: Dictionary, clickable: bool) -> Control:
 	return b
 
 
-const RECAP_GROUP_ABBREV := {Stats.ACCURACY: "ACC", Stats.HANDLING: "HND", Stats.PHYSICALITY: "PHY", Stats.MENTALITY: "MEN", Stats.DURABILITY: "DUR"}
+const RECAP_GROUP_ABBREV := {Stats.ACCURACY: "ACC", Stats.HANDLING: "HND", Stats.PHYSICALITY: "PHY", Stats.MENTALITY: "MEN", Stats.OBJECTIVE: "OBJ", Stats.DURABILITY: "DUR"}
 
 
 ## Draft recap: every pick with ratings and potential revealed, plus each prospect's hidden
@@ -2086,7 +2111,7 @@ func draft_recap(d: Draft) -> Control:
 # --- training camp -----------------------------------------------------------------
 
 const DRILL_COLORS := {Stats.ACCURACY: Color("#f97316"), Stats.HANDLING: Color("#eab308"), Stats.PHYSICALITY: Color("#22c55e"),
-	Stats.MENTALITY: Color("#a855f7"), Stats.DURABILITY: Color("#94a3b8")}
+	Stats.MENTALITY: Color("#a855f7"), Stats.OBJECTIVE: Color("#06b6d4"), Stats.DURABILITY: Color("#94a3b8")}
 
 
 func training_camp() -> Control:

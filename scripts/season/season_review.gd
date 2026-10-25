@@ -39,11 +39,11 @@ static func totals(season: Season) -> Array:
 					if so == null:
 						continue
 					by_id[sid] = {"soldier": so, "team": team, "matches": 0, "kills": 0, "deaths": 0,
-						"assists": 0, "damage": 0, "shots": 0, "hits": 0, "headshots": 0, "saves": 0, "mvps": 0, "impact": 0.0}
+						"assists": 0, "damage": 0, "shots": 0, "hits": 0, "headshots": 0, "saves": 0, "wipes": 0, "hill_s": 0.0, "caps": 0, "mvps": 0, "impact": 0.0}
 					roles[sid] = {}
 				var t: Dictionary = by_id[sid]
 				t["matches"] += 1
-				for k in ["kills", "deaths", "assists", "damage", "shots", "hits", "headshots", "saves"]:
+				for k in ["kills", "deaths", "assists", "damage", "shots", "hits", "headshots", "saves", "wipes", "hill_s", "caps"]:
 					t[k] += line.get(k, 0)
 				t["impact"] += MatchResult.impact(line)
 				if sid == r.mvp_id:
