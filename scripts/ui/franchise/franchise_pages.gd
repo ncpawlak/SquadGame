@@ -809,8 +809,8 @@ static func potential_color(grade: int) -> Color:
 func _potential_legend() -> Control:
 	var parts: PackedStringArray = []
 	for i in range(Soldier.POTENTIAL_A, -1, -1):
-		parts.append("[color=%s]%s[/color] %sx" % [UiKit.hex(potential_color(i)), Soldier.POTENTIAL_LETTERS[i], str(Progression.POTENTIAL_XP[i])])
-	return UiKit.rich("[color=#8b97ab]POT = potential (XP gain):[/color]   " + "   ".join(parts)
+		parts.append("[color=%s]%s[/color] %sx" % [UiKit.hex(potential_color(i)), Soldier.POTENTIAL_LETTERS[i], str(Progression.AGE_POTENTIAL_XP[0][1][i])])
+	return UiKit.rich("[color=#8b97ab]POT = potential (XP gain, age 22 and under; it shrinks with age):[/color]   " + "   ".join(parts)
 		+ "   [color=#8b97ab]Grades move each offseason with awards, performance and age.[/color]", 14)
 
 func _slot_order(team: Team, s: Soldier) -> int:
@@ -1584,7 +1584,61 @@ func training() -> Control:
 				hub.replace("Training", training))
 			row.add_child(pick)
 		v.add_child(row)
-	v.add_child(UiKit.label("Training runs automatically when you advance the week. Spend the skill points earned in Player Progression.", 14, UiKit.MUTED))
+	var foot := _row()
+	if not season.can_train_user_team():
+		foot.add_child(UiKit.label("Weekly training starts in Week 1. Set intensities now; they carry over.", 15, UiKit.MUTED))
+	elif season.user_trained():
+		foot.add_child(UiKit.label("This week's training is done. Changes apply next week.", 15, UiKit.GOOD))
+		foot.add_child(UiKit.button("View Results", func(): hub.open("Training Results", training_results)))
+	else:
+		var go := UiKit.button("Confirm & Train", func():
+			season.train_user_team()
+			hub.replace("Training Results", training_results))
+		go.custom_minimum_size = Vector2(240, 52)
+		foot.add_child(go)
+		foot.add_child(UiKit.label("Skipping it? Training still runs at these intensities when the week is played.", 14, UiKit.MUTED))
+	v.add_child(foot)
+	return v
+
+
+## The user's weekly training results: XP gained, the new XP bar and any skill points earned.
+func training_results() -> Control:
+	var season := _season()
+	var team := season.user_team()
+	var report: Dictionary = season.user_training_report
+	var v := _vbox()
+	var total_xp := 0
+	var total_sp := 0
+	for r in report.values():
+		total_xp += int(r["xp"])
+		total_sp += int(r["points"])
+	v.add_child(UiKit.label("%s training complete  -  +%d XP across the roster%s" % [season.week_label(season.week), total_xp,
+		("  -  %d skill points earned" % total_sp) if total_sp > 0 else ""], 20, Color.WHITE))
+	var list: Array = team.roster.filter(func(x: Soldier): return report.has(x.id))
+	list.sort_custom(func(a: Soldier, b: Soldier): return _slot_order(team, a) < _slot_order(team, b))
+	for so: Soldier in list:
+		var r: Dictionary = report[so.id]
+		var row := _row(16)
+		var slot := team.slot_of(so)
+		var name_l := UiKit.label("%s  %s" % [slot if slot != &"" else "BN", so.display_name()], 17, Color.WHITE)
+		name_l.custom_minimum_size.x = 300
+		row.add_child(name_l)
+		var it_l := UiKit.label(Training.label(r["intensity"]), 15, UiKit.MUTED)
+		it_l.custom_minimum_size.x = 100
+		row.add_child(it_l)
+		var xp_l := UiKit.label("+%d XP" % int(r["xp"]), 17, UiKit.INFO)
+		xp_l.custom_minimum_size.x = 100
+		row.add_child(xp_l)
+		var prog: Array = Progression.xp_progress(so)
+		row.add_child(_meter("XP", prog[0], prog[1], UiKit.INFO, "%d / %d" % [prog[0], prog[1]]))
+		if int(r["points"]) > 0:
+			row.add_child(UiKit.label("  LEVEL UP  +%d SP" % int(r["points"]), 17, UiKit.GOOD))
+		if Progression.can_level_up(so):
+			row.add_child(UiKit.label("  can level up", 15, UiKit.GOOD))
+		v.add_child(_click_wrap(row, func(): open_player(so), 46))
+	var bar := _row()
+	bar.add_child(UiKit.button("Player Progression", func(): hub.open("Player Progression", progression)))
+	v.add_child(bar)
 	return v
 
 
@@ -1890,17 +1944,37 @@ func potw_text(p: Dictionary) -> String:
 func _potw_banner(p: Dictionary, week_text: String) -> Control:
 	var so: Soldier = p["soldier"]
 	var team: Team = p["team"]
-	var r := _row(16)
-	r.add_child(Portrait.new(so, 64, team.color, team))
-	var col := _vbox(2)
+	var pane := PanelContainer.new()
+	var normal := UiKit.flat(UiKit.ACCENT.darkened(0.8), 8, 2, UiKit.ACCENT.darkened(0.4))
+	var hover := UiKit.flat(UiKit.ACCENT.darkened(0.7), 8, 2, UiKit.ACCENT)
+	for sb: StyleBoxFlat in [normal, hover]:
+		sb.content_margin_left = 16
+		sb.content_margin_right = 16
+		sb.content_margin_top = 12
+		sb.content_margin_bottom = 12
+	pane.add_theme_stylebox_override("panel", normal)
+	pane.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	var r := _row(18)
+	var face := Portrait.new(so, 72, team.color, team)
+	face.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	r.add_child(face)
+	var col := _vbox(4)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	col.add_child(UiKit.label("PLAYER OF THE WEEK  -  %s" % week_text.to_upper(), 14, UiKit.ACCENT))
 	col.add_child(UiKit.label(so.tag(), 24, Color.WHITE))
-	col.add_child(UiKit.rich(potw_text(p), 15))
+	var line := UiKit.rich(potw_text(p), 15)
+	line.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(line)
 	r.add_child(col)
-	var b := _click_wrap(r, func(): open_player(so), 76)
-	b.add_theme_stylebox_override("normal", UiKit.flat(UiKit.ACCENT.darkened(0.8), 8, 2, UiKit.ACCENT.darkened(0.4)))
-	return b
+	pane.add_child(r)
+	_ignore_mouse(r)
+	pane.mouse_entered.connect(func(): pane.add_theme_stylebox_override("panel", hover))
+	pane.mouse_exited.connect(func(): pane.add_theme_stylebox_override("panel", normal))
+	pane.gui_input.connect(func(ev: InputEvent):
+		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+			open_player(so))
+	return pane
 
 
 func sim_options() -> Control:
@@ -2198,6 +2272,50 @@ func _after_pick() -> void:
 	pass
 
 
+## Draft clock: USER_PICK_SECONDS on your pick (then the best available is auto-picked), CPU
+## teams pick after CPU_PICK_SECONDS. The clock only runs while the Draft Room is open.
+const USER_PICK_SECONDS := 120.0
+const CPU_PICK_SECONDS := 5.0
+var _clock_pick := -1
+var _clock_left := 0.0
+
+
+static func clock_text(seconds: float) -> String:
+	var whole := ceili(maxf(seconds, 0.0))
+	return "%d:%02d" % [whole / 60, whole % 60]
+
+
+func _draft_clock(d: Draft, refresh: Callable) -> Control:
+	var t := d.on_the_clock()
+	if _clock_pick != d.next_pick:
+		_clock_pick = d.next_pick
+		_clock_left = USER_PICK_SECONDS if t.user_controlled else CPU_PICK_SECONDS
+	var lbl := UiKit.label(clock_text(_clock_left), 34, UiKit.ACCENT if t.user_controlled else UiKit.TEXT)
+	lbl.custom_minimum_size.x = 110
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var timer := Timer.new()
+	timer.wait_time = 0.1
+	timer.autostart = true
+	lbl.add_child(timer)
+	timer.timeout.connect(func():
+		if _clock_pick != d.next_pick or d.is_complete():
+			timer.stop()
+			return
+		_clock_left -= timer.wait_time
+		lbl.text = clock_text(_clock_left)
+		if t.user_controlled and _clock_left <= 10.0:
+			lbl.add_theme_color_override("font_color", UiKit.BAD)
+		if _clock_left > 0.0:
+			return
+		timer.stop()
+		var p := d.ai_pick()
+		if p != null and t.user_controlled:
+			hub.app.toast("Time's up! Auto-picked %s (%s)." % [p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role]])
+		_after_pick()
+		refresh.call_deferred())
+	return lbl
+
+
 func draft_room() -> Control:
 	var s := _season()
 	var d := s.draft
@@ -2229,7 +2347,13 @@ func draft_room() -> Control:
 			"#f59e0b" if t.user_controlled else "white",
 			"YOU ARE ON THE CLOCK" if t.user_controlled else ("On the clock: " + UiKit.esc(t.name)),
 			d.round_of(d.next_pick), d.next_pick + 1, d.order.size()]
-		v.add_child(UiKit.rich(head, 16))
+		var head_row := _row(16)
+		head_row.add_child(_draft_clock(d, refresh))
+		var head_rt := UiKit.rich(head, 16)
+		head_rt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		head_rt.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		head_row.add_child(head_rt)
+		v.add_child(head_row)
 		var actions := _row()
 		if t.user_controlled:
 			actions.add_child(UiKit.button("Auto-pick for me", func():
@@ -2242,6 +2366,12 @@ func draft_room() -> Control:
 			for i in range(d.next_pick, d.order.size()):
 				if d.order[i] == user:
 					user_left = true
+			actions.add_child(UiKit.button("Sim to next pick", func():
+				var p := d.ai_pick()
+				if p != null:
+					hub.app.toast("%s select %s (%s)." % [t.name, p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role]])
+				_after_pick()
+				refresh.call()))
 			actions.add_child(UiKit.button("Sim to my pick" if user_left else "Sim rest of draft", func():
 				var made := d.sim_to_user()
 				hub.app.toast("%d picks made." % made.size())
@@ -2387,7 +2517,7 @@ func draft_recap(d: Draft) -> Control:
 	var tag_of := func(p: Prospect) -> Array:
 		var label := Draft.standout_label(p)
 		if label != "":
-			return [label, UiKit.ACCENT if p.phenom else (UiKit.GOOD if p.standout == &"blue_chip" else UiKit.INFO)]
+			return [label, UiKit.ACCENT if p.phenom else (UiKit.GOOD if p.standout in [&"blue_chip", &"generational"] else UiKit.INFO)]
 		var diff: int = p.pick_number - int(value_rank[p])
 		if diff >= 6:
 			return ["STEAL", UiKit.GOOD]
@@ -2521,7 +2651,7 @@ func drill_pick(group: StringName) -> Control:
 	v.add_child(UiKit.label("Pick the soldier to send. Higher potential = a bigger point pool. Each soldier can attend one drill per camp, so soldiers who already went aren't listed.", 15, UiKit.MUTED))
 	var members: Array = Stats.group_stats(group)
 	var cols: Array = [["PLAYER", 220, &"name"], ["POS", 100, &"role"], ["AGE", 44, &"age"], ["OVR", 50, &"ovr"], ["POT", 44, &"pot"],
-		["POOL", 60, &"pot"], [Stats.GROUP_LABELS[group].to_upper(), 100, group]]
+		[Stats.GROUP_LABELS[group].to_upper(), 100, group]]
 	for st in members:
 		cols.append([Stats.ABBREV[st], 50, st])
 	cols.append(["STATUS", 220, &"status"])
@@ -2537,14 +2667,13 @@ func drill_pick(group: StringName) -> Control:
 		v.add_child(UiKit.label("Every soldier has already attended a drill this camp.", 16, UiKit.MUTED))
 	for i in list.size():
 		var so: Soldier = list[i]
-		var pool := Camp.pool_range(so.potential)
 		var why := s.camp_check(group, so)
 		var row: Array = [so.full_name(), Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], so.age, so.best_ovr(), so.potential_letter(),
-			"%d-%d" % [pool[0], pool[1]], so.group_rating(group)]
-		var c := {3: UiKit.ovr_color(so.best_ovr()), 4: potential_color(so.potential), 6: UiKit.ovr_color(so.group_rating(group))}
+			so.group_rating(group)]
+		var c := {3: UiKit.ovr_color(so.best_ovr()), 4: potential_color(so.potential), 5: UiKit.ovr_color(so.group_rating(group))}
 		for j in members.size():
 			row.append(so.stats[members[j]])
-			c[7 + j] = UiKit.ovr_color(so.stats[members[j]])
+			c[6 + j] = UiKit.ovr_color(so.stats[members[j]])
 		if why == "":
 			row.append("Available")
 		else:
@@ -2558,8 +2687,9 @@ func drill_pick(group: StringName) -> Control:
 		if why != "":
 			hub.app.toast(why)
 			return
-		s.run_drill(group, so)
-		hub.replace(Camp.drill_name(group), func(): return drill_result(group)))
+		_confirm_modal(_drill_confirm_card(group, so), "Send to %s" % Camp.drill_name(group), func():
+			s.run_drill(group, so)
+			hub.replace(Camp.drill_name(group), func(): return drill_result(group))))
 	# Swap the static header for a clickable sort header (same column widths).
 	var old_header := table.get_child(0)
 	table.remove_child(old_header)
@@ -2567,8 +2697,87 @@ func drill_pick(group: StringName) -> Control:
 	var sort_header := _sort_header(&"drill", cols, func(): hub.replace(hub.page_stack[-1]["title"], func(): return drill_pick(group)))
 	table.add_child(sort_header)
 	table.move_child(sort_header, 0)
+	if not list.is_empty():
+		var pane := _player_pane()
+		_fill_pane(pane, list[0], user)
+		v.add_child(pane)
+		v.move_child(pane, 2)
+		for i in list.size():
+			var who: Soldier = list[i]
+			var row_btn: Control = table.get_child(i + 1)
+			var preview_fn := func(): _fill_pane(pane, who, user)
+			row_btn.mouse_entered.connect(preview_fn)
+			row_btn.focus_entered.connect(preview_fn)
 	v.add_child(table)
 	return v
+
+
+## "Are you sure?" card for sending `so` to the `group` drill.
+func _drill_confirm_card(group: StringName, so: Soldier) -> Control:
+	var team := _season().user_team()
+	var pool := Camp.pool_range(so.potential)
+	var v := _vbox(14)
+	v.add_child(UiKit.label("SEND TO %s?" % Camp.drill_name(group).to_upper(), 16, UiKit.ACCENT))
+	var h := _row(22)
+	h.add_child(Portrait.new(so, 150, team.color, team))
+	var info := _vbox(8)
+	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	info.add_child(UiKit.label(so.full_name().to_upper(), 15, UiKit.MUTED))
+	info.add_child(UiKit.label(("\"%s\"" % so.callsign.to_upper()) if so.callsign != "" else so.last_name.to_upper(), 32, Color.WHITE))
+	info.add_child(UiKit.label("%s  ·  AGE %d" % [Scheme.ROLE_NAMES[Scheme.best_role(so.stats)].to_upper(), so.age], 15, UiKit.MUTED))
+	var facts := _row(30)
+	facts.add_child(_fact_box("OVR", "[color=%s]%d[/color]" % [UiKit.hex(UiKit.ovr_color(so.best_ovr())), so.best_ovr()], false))
+	facts.add_child(_fact_box("POT", "[color=%s]%s[/color]" % [UiKit.hex(potential_color(so.potential)), so.potential_letter()], false))
+	facts.add_child(_fact_box("POINT POOL", "[color=#22c55e]%d-%d[/color]" % [pool[0], pool[1]], false))
+	info.add_child(facts)
+	h.add_child(info)
+	v.add_child(h)
+	var note := UiKit.label("The pool is spread at random over %s (max +%d per stat). He can't attend another drill this camp." % [
+		Stats.GROUP_LABELS[group], Camp.MAX_STAT_GAIN], 14, UiKit.MUTED)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.custom_minimum_size.x = 520
+	v.add_child(note)
+	return v
+
+
+## A centered dialog over the whole hub with Confirm / Cancel. Clicking the backdrop cancels.
+func _confirm_modal(content: Control, confirm_text: String, on_confirm: Callable) -> Control:
+	var overlay := Control.new()
+	overlay.name = "ConfirmModal"
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.z_index = 50
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.65)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(center)
+	var panel := PanelContainer.new()
+	var sb := UiKit.flat(UiKit.PANEL, 14, 2, UiKit.ACCENT)
+	sb.set_content_margin_all(26)
+	panel.add_theme_stylebox_override("panel", sb)
+	center.add_child(panel)
+	var v := _vbox(18)
+	v.add_child(content)
+	var buttons := _row(14)
+	buttons.alignment = BoxContainer.ALIGNMENT_END
+	var cancel := UiKit.button("Cancel", func(): overlay.queue_free())
+	var ok := UiKit.button(confirm_text, func():
+		overlay.queue_free()
+		on_confirm.call())
+	ok.custom_minimum_size.x = 240
+	buttons.add_child(cancel)
+	buttons.add_child(ok)
+	v.add_child(buttons)
+	panel.add_child(v)
+	dim.gui_input.connect(func(e: InputEvent):
+		if e is InputEventMouseButton and e.pressed:
+			overlay.queue_free())
+	hub.add_child(overlay)
+	ok.grab_focus.call_deferred()
+	return overlay
 
 
 ## What the drill did: each stat before -> after.

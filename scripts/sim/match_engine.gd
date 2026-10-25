@@ -26,7 +26,8 @@ extends RefCounted
 ## Agility), then fires a burst: first bullet uses range accuracy, follow-ups use Grouping +
 ## Strength (recoil). Endurance limits fatigue, which builds across the whole match. Reload sets
 ## reload time, Composure matters when outnumbered, Teamwork drives focus fire and a small
-## squad-wide bonus, Toughness reduces damage taken. Weekly fatigue (Soldier.fatigue) scales down
+## squad-wide bonus, Strength also absorbs damage taken, Sway steadies aim on the move, tired or at
+## long range, and Awareness decides when a soldier pushes and how well a flex flanks. Weekly fatigue (Soldier.fatigue) scales down
 ## accuracy, speed and reaction stats via Conditioning.penalty().
 
 const MODE_TDM := &"tdm"
@@ -611,7 +612,9 @@ func _goal(c: Combatant, enemies: Array) -> Vector2:
 	if not c.hunting:
 		var quiet := _tick - c.last_contact_tick
 		var settled := c.pos.distance_squared_to(hold) < 9.0
-		if quiet > HUNT_AFTER_TICKS and (settled or quiet > HUNT_AFTER_TICKS * 4):
+		# Awareness: reads the lull and knows when his role should push.
+		var read := HUNT_AFTER_TICKS * (1.3 - c.stat(Stats.AWARENESS) / 100.0 * 0.6)
+		if quiet > read and (settled or quiet > read * 4):
 			c.hunting = true
 	if c.hunting:
 		var nearest: Combatant = null
@@ -680,7 +683,8 @@ func _seek_cover(c: Combatant, shooter: Combatant) -> void:
 func _advance_state(c: Combatant) -> void:
 	c.fatigue = minf(1.0, c.fatigue + 0.006 * maxf(0.0, 1.0 - c.stat(Stats.ENDURANCE) / 110.0))
 	if c.role == Scheme.Role.FLEX and c.flank_progress < 1.0:
-		c.flank_progress += 0.02 + c.stat(Stats.SPEED) * 0.0004
+		# Speed covers ground; awareness picks the right flank route.
+		c.flank_progress += 0.016 + c.stat(Stats.SPEED) * 0.0004 + c.stat(Stats.AWARENESS) * 0.0001
 		if c.flank_progress >= 1.0:
 			c.soldier.add_usage(Stats.SPEED, 1.0)
 			if _mode == MODE_SUDDEN_DEATH:
@@ -757,6 +761,15 @@ func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band:
 	if c.flanked():
 		p *= 1.2
 	p *= 1.0 - c.fatigue * 0.4
+	# Sway: aim steadiness when firing on the move, tired or at long range (neutral at 60).
+	var unsteady := c.fatigue * 0.3
+	if c.pos.distance_squared_to(c.prev_pos) > 0.01:
+		unsteady += 0.25
+	if band == &"long":
+		unsteady += 0.2
+	if unsteady > 0.0:
+		p *= 1.0 + unsteady * (c.stat(Stats.SWAY) - 60.0) / 100.0
+		c.soldier.add_usage(Stats.SWAY, unsteady)
 	var outnumbered := _alive_count(allies) < _alive_count(enemies)
 	var composure_scale := 200.0 if outnumbered else 600.0
 	p *= 1.0 + (c.stat(Stats.COMPOSURE) - 60.0) / composure_scale
@@ -809,14 +822,15 @@ func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band:
 			dmg *= 2.2
 			box["headshots"] += 1
 			any_headshot = true
-		dmg *= 1.0 - target.stat(Stats.TOUGHNESS) / 100.0 * 0.25
+		# Strength: absorbs hits.
+		dmg *= 1.0 - target.stat(Stats.STRENGTH) / 100.0 * 0.25
 		if _mode == MODE_KOTH and target.on_point():
 			dmg *= 1.0 - target.stat(Stats.ANCHOR) / 100.0 * 0.35
 		dmg = minf(dmg, target.hp)
 		target.hp -= dmg
 		box["damage"] += dmg
 		c.damage_to[target.soldier.id] = c.damage_to.get(target.soldier.id, 0.0) + dmg
-		target.soldier.add_usage(Stats.TOUGHNESS, dmg / 25.0)
+		target.soldier.add_usage(Stats.STRENGTH, dmg / 50.0)
 		if target.hp <= 0.0:
 			killed = true
 			_kill(c, target, allies, enemies, band, dist, headshot)

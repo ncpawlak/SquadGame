@@ -482,6 +482,14 @@ func _tab_view(i: int) -> Control:
 	return _scroll
 
 
+## Done this week -> the results; otherwise the intensity screen (Confirm & Train).
+func open_weekly_training() -> void:
+	if season.user_trained():
+		open("Training Results", pages.training_results)
+	else:
+		open("Training", pages.training)
+
+
 ## Home (2K / Madden style): big current-match pane up top, a row of this week's actions,
 ## then league news tiles.
 func _home_sections() -> Array:
@@ -498,8 +506,11 @@ func _home_sections() -> Array:
 	var hurt := team.injured()
 	var unhappy := team.roster.filter(func(x: Soldier): return x.morale < Soldier.MORALE_NEUTRAL)
 	var actions: Array = [
-		UiKit.tile("Set Training", "Avg fatigue %d  -  %d tired" % [roundi(total_fat / maxi(1, team.roster.size())), tired],
-			SMALL, Color("#22c55e"), func(): open("Training", pages.training)),
+		UiKit.tile("Weekly Training", "%s\nAvg fatigue %d  -  %d tired" % [
+			"[color=#22c55e]Done this week[/color]" if season.user_trained() else (
+				"[color=#38bdf8]Ready to train[/color]" if season.can_train_user_team() else "Starts in Week 1"),
+			roundi(total_fat / maxi(1, team.roster.size())), tired],
+			SMALL, Color("#22c55e"), open_weekly_training),
 		UiKit.tile("Progress Players", ("[color=#38bdf8]%d player%s[/color] can level up" % [sp, "" if sp == 1 else "s"]) if sp > 0 else "No one can level up yet",
 			SMALL, UiKit.INFO, func(): open("Player Progression", pages.progression)),
 		UiKit.tile("Adjust Lineup", "Swing  -  Team OVR %d%s" % [team.team_ovr(),

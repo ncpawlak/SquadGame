@@ -38,7 +38,21 @@ func _init() -> void:
 	hub.page_stack.clear()
 	hub.refresh()
 	var pre_guy: Soldier = hub.season.user_team().starters()[0]
-	_check(not hub.season.run_drill(Stats.MENTALITY, pre_guy).is_empty(), "preseason drill runs")
+	# Drill pick confirm popup: Cancel does nothing, Send runs the drill.
+	hub.pages._confirm_modal(hub.pages._drill_confirm_card(Stats.MENTALITY, pre_guy), "Send to drill", func():
+		hub.season.run_drill(Stats.MENTALITY, pre_guy))
+	await process_frame
+	var cancel_btn := _find_button(hub, "Cancel")
+	_check(cancel_btn != null, "drill confirm popup opens")
+	cancel_btn.pressed.emit()
+	await process_frame
+	_check(not hub.season.camp.has_attended(pre_guy) and hub.get_node_or_null("ConfirmModal") == null, "cancel closes the popup")
+	hub.pages._confirm_modal(hub.pages._drill_confirm_card(Stats.MENTALITY, pre_guy), "Send to drill", func():
+		hub.season.run_drill(Stats.MENTALITY, pre_guy))
+	await process_frame
+	_find_button(hub, "Send to drill").pressed.emit()
+	await process_frame
+	_check(hub.season.camp.has_attended(pre_guy), "preseason drill runs")
 	hub.open("Drill", func(): return hub.pages.drill_result(Stats.MENTALITY))
 	await process_frame
 	hub.advance()  # warns about the unused drills
@@ -84,6 +98,22 @@ func _init() -> void:
 	hub.season.user_team().roster[0].intensity = Soldier.INTENSITY_HEAVY
 	hub.replace("Training", hub.pages.training)
 	await process_frame
+	# Weekly training: Confirm & Train runs it now, shows results, and the week doesn't train twice.
+	_check(not hub.season.user_trained(), "not trained yet this week")
+	_check(_press(hub, "Confirm & Train"), "confirm & train button")
+	await process_frame
+	_check(hub.season.user_trained() and hub.season.user_training_report.size() == hub.season.user_team().roster.size(), "weekly training ran")
+	_check(hub.page_stack[-1]["title"] == "Training Results", "training results page")
+	var xp_after := 0
+	for so in hub.season.user_team().roster:
+		xp_after += so.xp + so.level * 100000
+	hub.season.prepare_week()
+	var xp_again := 0
+	for so in hub.season.user_team().roster:
+		xp_again += so.xp + so.level * 100000
+	_check(xp_after == xp_again, "week doesn't train the user team twice")
+	hub.page_stack.clear()
+	hub.refresh()
 
 	# Play the season week by week through the hub.
 	var guard := 0
@@ -132,6 +162,22 @@ func _init() -> void:
 	hub.advance()  # blocked while picks remain
 	await process_frame
 	_check(hub.season.offseason_stage == Season.OFF_DRAFT, "advance blocked until the draft is done")
+	# Draft clock: a CPU pick fires when its clock runs out; so does the user's (auto-pick).
+	hub.open("Draft Room", hub.pages.draft_room)
+	await process_frame
+	var guard_clock := 0
+	while not d.on_the_clock().user_controlled and guard_clock < 40:
+		var at := d.next_pick
+		hub.pages._clock_left = 0.05
+		await create_timer(0.4).timeout
+		_check(d.next_pick == at + 1, "CPU picks when the clock runs out")
+		guard_clock += 1
+	var user_before := user.roster.size()
+	hub.pages._clock_left = 0.05
+	await create_timer(0.4).timeout
+	_check(user.roster.size() == user_before + 1, "user's clock expiring auto-picks")
+	_check(_press(hub, "Sim to next pick") or d.on_the_clock().user_controlled, "sim to next pick button")
+	await process_frame
 	while not d.is_complete():
 		if d.on_the_clock() == user:
 			_check(_press(hub, "Draft"), "draft button")

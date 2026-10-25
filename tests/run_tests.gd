@@ -296,8 +296,8 @@ func test_better_team_wins_more() -> void:
 func test_each_combat_stat_matters() -> void:
 	var report: Array[String] = []
 	for stat in Stats.ALL:
-		if stat == Stats.INJURY:
-			continue
+		if stat == Stats.INJURY or stat == Stats.TOUGHNESS:
+			continue  # off-field stats: injury chance and injury length
 		var wr := win_rate(make_team(1, 45, {stat: 95}), make_team(2, 45), 200, 5000)
 		report.append("%s=%.2f" % [Stats.ABBREV[stat], wr])
 		check(wr > 0.55, "%s at 95 vs 45 should help (win rate %.2f)" % [stat, wr])
@@ -306,13 +306,14 @@ func test_each_combat_stat_matters() -> void:
 
 func test_xp_levels_and_points() -> void:
 	var s := make_soldier(1, 50)
-	s.potential = 2  # C: multiplier 1.0
-	var r := Progression.gain_xp(s, Progression.xp_to_next(1) - 1)
+	s.potential = 2
+	var m := Progression.xp_multiplier(s)
+	var r := Progression.gain_xp(s, (Progression.xp_to_next(1) - 1) / m)
 	check(r["levels"] == 0 and s.level == 1, "just under threshold: no level")
-	r = Progression.gain_xp(s, 1)
+	r = Progression.gain_xp(s, 1.0 / m)
 	check(r["levels"] == 1 and s.level == 2 and s.xp == 0, "level up exactly at threshold")
 	check(s.skill_points == Progression.SKILL_POINTS_PER_LEVEL, "points granted")
-	Progression.gain_xp(s, Progression.xp_to_next(2) + Progression.xp_to_next(3))
+	Progression.gain_xp(s, (Progression.xp_to_next(2) + Progression.xp_to_next(3)) / m)
 	check(s.level == 4, "multi-level gain (level %d)" % s.level)
 
 
@@ -321,15 +322,19 @@ func test_potential_scales_xp() -> void:
 	high.potential = Soldier.POTENTIAL_A
 	var low := make_soldier(2, 50)
 	low.potential = 0
-	var rh := Progression.gain_xp(high, 100)
-	var rl := Progression.gain_xp(low, 100)
-	check(rh["xp"] == 150 and rl["xp"] == 60, "A gains 1.5x, F 0.6x (%d vs %d)" % [rh["xp"], rl["xp"]])
-	# Age no longer matters for XP.
+	var rh := Progression.gain_xp(high, 1000)
+	var rl := Progression.gain_xp(low, 1000)
+	check(rh["xp"] > rl["xp"] * 5, "A gains far more than F (%d vs %d)" % [rh["xp"], rl["xp"]])
+	# Age matters too: young soldiers gain more than veterans of the same grade.
 	var young := make_soldier(3, 50)
 	young.age = 20
+	young.potential = Soldier.POTENTIAL_A
 	var old := make_soldier(4, 50)
 	old.age = 33
-	check(Progression.gain_xp(young, 100)["xp"] == Progression.gain_xp(old, 100)["xp"], "same grade, same xp at any age")
+	old.potential = Soldier.POTENTIAL_A
+	var yx: int = Progression.gain_xp(young, 1000)["xp"]
+	var ox: int = Progression.gain_xp(old, 1000)["xp"]
+	check(yx > ox * 4, "same grade: young gains more (%d vs %d)" % [yx, ox])
 	# Grades skew high for young players, and higher grades get more cap room on average.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 11

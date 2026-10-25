@@ -305,7 +305,11 @@ func test_determinism() -> void:
 func test_xp_and_auto_spend() -> void:
 	var s := Season.new_franchise(321)
 	var user := s.user_team()
-	user.roster[0].intensity = Soldier.INTENSITY_HEAVY
+	var focus: Soldier = user.roster[0]
+	for so in user.roster:
+		if Progression.xp_multiplier(so) > Progression.xp_multiplier(focus):
+			focus = so
+	focus.intensity = Soldier.INTENSITY_HEAVY
 	for i in 4:
 		s.sim_week()
 	var user_pts := 0
@@ -332,7 +336,7 @@ func test_xp_and_auto_spend() -> void:
 		matches += so.career["matches"]
 	check(matches > 0, "match XP/career recorded for user starters")
 	# Focus player got more XP than an unfocused bench player of similar age? Just ensure levels.
-	check(user.roster[0].level >= 2, "focus player progressed")
+	check(focus.level >= 2, "focus player progressed")
 
 
 ## Hub flow for a watched match: prepare the week, play the user's match live, then sim the week.
@@ -785,15 +789,24 @@ func test_callsigns_saves_and_season_lines() -> void:
 func test_standout_prospects() -> void:
 	var blue_vals: Array = []
 	var plain_vals: Array = []
+	var gens := 0
 	for i in 30:
 		var d := Draft.generate(4000 + i, 2026, 1)
 		var blue := 0
 		var spec := 0
+		var gen := 0
 		for p in d.prospects:
 			var v := Draft.true_value(p)
-			if p.standout == &"blue_chip":
+			if p.standout == &"generational":
+				gen += 1
+				check(p.soldier.ovr_at_role(p.listed_role) >= Draft.GENERATIONAL_OVR[0], "generational is a mid-70s starter (%d)" % p.soldier.ovr_at_role(p.listed_role))
+				check(p.soldier.potential == Soldier.POTENTIAL_A, "generational has A potential")
+				check(Draft.standout_label(p) == "GENERATIONAL", "generational label")
+			elif p.standout == &"blue_chip":
 				blue += 1
 				blue_vals.append(v)
+				var ovr := p.soldier.ovr_at_role(p.listed_role)
+				check(ovr >= Draft.BLUE_CHIP_OVR[0] and ovr <= Draft.BLUE_CHIP_OVR[1] + 2, "blue chip is a day-one starter (%d)" % ovr)
 				check(p.soldier.potential >= Draft.BLUE_CHIP_MIN_POTENTIAL, "blue chip has B/A potential")
 				check(not p.phenom, "blue chip isn't also a phenom")
 			elif p.standout == &"specialist":
@@ -803,6 +816,8 @@ func test_standout_prospects() -> void:
 			elif not p.phenom:
 				plain_vals.append(v)
 		check(blue >= Draft.BLUE_CHIPS[0] and blue <= Draft.BLUE_CHIPS[1], "blue chips per class (%d)" % blue)
+		check(gen <= 1, "at most one generational talent per class")
+		gens += gen
 		check(spec >= Draft.SPECIALISTS[0] and spec <= Draft.SPECIALISTS[1], "specialists per class (%d)" % spec)
 	var avg := func(a: Array) -> float:
 		var t := 0.0
@@ -811,6 +826,7 @@ func test_standout_prospects() -> void:
 		return t / maxi(1, a.size())
 	var gap: float = avg.call(blue_vals) - avg.call(plain_vals)
 	check(gap >= 8.0, "blue chips stand out (avg +%.1f value)" % gap)
+	check(gens >= 1 and gens <= 12, "generational talents are rare (%d in 30 classes)" % gens)
 
 
 func test_prospect_news() -> void:

@@ -10,6 +10,8 @@ const SHORT_ACC := &"short_acc"
 const MEDIUM_ACC := &"medium_acc"
 const LONG_ACC := &"long_acc"
 const GROUPING := &"grouping"
+## Aim steadiness: less accuracy lost firing on the move, tired or at long range.
+const SWAY := &"sway"
 const SPEED := &"speed"
 const STRENGTH := &"strength"
 const AGILITY := &"agility"
@@ -28,7 +30,7 @@ const ALL: Array[StringName] = [
 	AWARENESS, SHORT_ACC, MEDIUM_ACC, LONG_ACC, GROUPING,
 	SPEED, STRENGTH, AGILITY, ENDURANCE, RELOAD,
 	COMPOSURE, TOUGHNESS, INJURY, TEAMWORK,
-	ANCHOR, BREACH, OBJ_IQ,
+	ANCHOR, BREACH, OBJ_IQ, SWAY,
 ]
 
 const LABELS := {
@@ -37,6 +39,7 @@ const LABELS := {
 	MEDIUM_ACC: "Medium Range Acc",
 	LONG_ACC: "Long Range Acc",
 	GROUPING: "Grouping Acc",
+	SWAY: "Sway",
 	SPEED: "Speed",
 	STRENGTH: "Strength",
 	AGILITY: "Agility",
@@ -57,6 +60,7 @@ const ABBREV := {
 	MEDIUM_ACC: "MRA",
 	LONG_ACC: "LRA",
 	GROUPING: "GRP",
+	SWAY: "SWY",
 	SPEED: "SPD",
 	STRENGTH: "STR",
 	AGILITY: "AGI",
@@ -86,7 +90,7 @@ const UPGRADABLE_GROUPS: Array[StringName] = [ACCURACY, HANDLING, PHYSICALITY, M
 
 const GROUPS := {
 	ACCURACY: [SHORT_ACC, MEDIUM_ACC, LONG_ACC],
-	HANDLING: [RELOAD, GROUPING],
+	HANDLING: [RELOAD, GROUPING, SWAY],
 	PHYSICALITY: [SPEED, AGILITY, STRENGTH, ENDURANCE],
 	MENTALITY: [AWARENESS, COMPOSURE, TEAMWORK],
 	OBJECTIVE: [ANCHOR, BREACH, OBJ_IQ],

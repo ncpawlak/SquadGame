@@ -82,6 +82,10 @@ var last_prospect_news: Array = []
 ## Regular-season week w -> the team on bye.
 var _byes: Array = []
 var _week_prepared := false
+## Week key (see _week_key) of the user's last weekly training.
+var user_trained_key := -1
+## soldier_id -> Training report from the user's most recent weekly training.
+var user_training_report := {}
 var _rng := RandomNumberGenerator.new()
 
 
@@ -297,8 +301,37 @@ func prepare_week() -> void:
 	last_signings = fa.resolve(self, _rng, week_label(week))
 	_prepare_lineups()
 	for t in league.teams:
-		Training.run_week(t)
+		if t.user_controlled:
+			train_user_team()
+		else:
+			Training.run_week(t)
 	_week_prepared = true
+
+
+## The user's weekly training: run on demand from the Weekly Training screen, or automatically
+## (at the set intensities) when the week is played. Once per week.
+
+func _week_key() -> int:
+	return year * 1000 + week
+
+
+func can_train_user_team() -> bool:
+	return phase != PHASE_OFFSEASON and not preseason_camp
+
+
+func user_trained() -> bool:
+	return user_trained_key == _week_key()
+
+
+## Runs the user's training for this week now (no-op if already done). Returns the report.
+func train_user_team() -> Dictionary:
+	if not can_train_user_team():
+		return {}
+	if not user_trained():
+		_stamp_log()
+		user_training_report = Training.run_week(user_team())
+		user_trained_key = _week_key()
+	return user_training_report
 
 
 func sim_week() -> Array:

@@ -7,7 +7,8 @@ var soldier: Soldier
 ## The position the prospect says he plays. Phenoms rate well at every position.
 var listed_role: Scheme.Role
 var phenom := false
-## Hidden class archetype, revealed in the draft recap: &"blue_chip" (elite all-round talent),
+## Hidden class archetype, revealed in the draft recap: &"blue_chip" (elite all-round talent, a
+## day-one starter), &"generational" (rarer still, mid-70s OVR and A potential),
 ## &"specialist" (one elite stat group, see `specialty`) or &"".
 var standout: StringName = &""
 var specialty: StringName = &""

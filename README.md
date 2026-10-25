@@ -41,8 +41,10 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   An intermission card shows each game's winner and the series score. A watched match plays out exactly like a
   simmed one with the same seed.
 - **Each week**: all teams train at each soldier's intensity, every match is played, XP is awarded, then fatigue
-  and injuries update. AI teams auto-spend skill points and pick intensities; you set yours on the Training page
-  and spend SP on the player page (or **Auto-progress all** on the Progression page). The Home "Progress Players"
+  and injuries update. AI teams auto-spend skill points and pick intensities. Home → **Weekly Training** opens the
+  intensity screen; **Confirm & Train** runs this week's training right away and shows the results (XP gained, the
+  new XP bar, level-ups and SP). Once per week; if you skip it, your team trains at its set intensities when the
+  week is played. Spend SP on the player page (or **Auto-progress all** on the Progression page). The Home "Progress Players"
   tile counts only soldiers who can afford an upgrade right now ("x players can level up"). Injured starters are
   auto-replaced by the best healthy bench soldier.
 - **Scouting** (`scripts/season/draft.gd`, `prospect.gd`): each season has a class of 36 recruits (age 19–22).
@@ -63,8 +65,9 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   Most classes hide one unlabelled **phenom** (sometimes none or two). A phenom lists one position but grades
   well in every group, so he can play anywhere. AI teams don't know who they are, and the league consensus
   underrates them.
-  Every class also has **standouts**: 2-4 unlabelled **blue chips** (better in every group, B/A potential) and 3-5
-  **specialists** (one group in the 74-86 range). Scouting is how you find them.
+  Every class also has **standouts**: 1-3 unlabelled **blue chips** (day-one starters at 70-74 OVR, B/A potential),
+  sometimes (about 1 class in 5) a **generational** talent (74-77 OVR, A potential), and 3-5 **specialists** (one
+  group in the 74-86 range). Scouting is how you find them.
 - **Prospect news**: 0-2 stories a week during the season (Scouting page, League News → Prospect Watch, Home tiles):
   stock rising, stock falling, and stat notes ("claimed #1 in the country for long range target practice").
   Stories nudge the consensus board. About 1 in 5 is wrong (hype or smoke), and none says outright who is a
@@ -76,7 +79,9 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   the middle of the scouted range; unscouted sinks). Each grade is colored: red Poor, orange Below average, gray Average, blue Good, green Elite.
 - **Draft**: after the Final, 3 rounds in snake order. Teams that missed the playoffs pick first (worst record first),
   then semifinal losers, the runner-up, and the champion last. AI teams pick from the consensus board with a little noise, leaning toward their weakest position.
-  In the Draft Room you can sim to your pick, draft a prospect or auto-pick. Draftees get rookie contracts (cheaper
+  The Draft Room runs a **clock**: you have 2:00 on your pick (then the best available is auto-picked) and CPU teams
+  pick after 5 seconds. The clock only runs while the Draft Room is open. **Sim to next pick** skips one CPU pick;
+  you can also sim to your pick, draft a prospect or auto-pick. Draftees get rookie contracts (cheaper
   later in the draft; 3 years in round 1, 2 years in rounds 2-3). The best 12 undrafted prospects join free agency; the rest leave.
   When the draft ends the Draft Room becomes the **Draft Recap**: every pick with all ratings and potential revealed,
   a note for blue chips, specialists, steals and reaches, and click-through to each player's profile. Past recaps
@@ -96,7 +101,9 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   F 2-4), spread at random over the group's stats (max +4 each). AI teams run theirs when camp closes; advancing with
   unused drills asks you to confirm first.
   A new franchise opens in a **preseason training camp** before Week 1 (same drills; "Start 2026 Season" closes it). The home hero shows the camp, not Week 1. Drill pick tables sort by any column and hide soldiers who already attended a drill.
-- **Offseason XP**: every offseason step is an XP week (100 base XP, scaled by potential), and camp week gives 250.
+  Hovering a row shows the soldier in the pane above; clicking opens an "are you sure" popup with his portrait, age,
+  OVR, potential and point pool.
+- **Offseason XP**: every offseason step is an XP week (100 base XP, scaled by age and potential), and camp week gives 250.
 - **Free agency** (`scripts/season/free_agency.gd`, League → Free Agents): unsigned soldiers with all ratings
   visible. A big **Available to spend** readout on top shows cap − current salaries (incl. dead money) − pending offers. Bidding: make offers (salary and years) during FA days or in-season. Each round every free agent scores
   his offers (70% money vs. asking, 15% team quality, 15% playing time) and signs the best one that clears his
@@ -112,7 +119,7 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   this year's aging declines.
 - **Home**: a big pane for this week's match (both teams' OVR and record, starter averages per group plus morale and
   energy as head-to-head bars, and two impact players per side), the Advance and Last Result tiles, a row of this
-  week's actions (Set Training, Progress Players, Adjust Lineup, Roster, Scout, Free Agents, Contracts), then
+  week's actions (Weekly Training, Progress Players, Adjust Lineup, Roster, Scout, Free Agents, Contracts), then
   League News tiles (results with MVPs, awards, signings, injuries, retirements).
 - **Portraits** are procedurally generated per soldier (`Look` + `Portrait`): skin tone; headgear (boonie hat,
   infantry helmet, helmet with goggles, beanie, beanie with headset, forward/backward ball cap or hair); eyewear
@@ -187,11 +194,20 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
 
 - **Stats (0–99), in groups (MLB The Show style).** Each group's rating is the average of its stats (`scripts/core/stats.gd`):
   - Accuracy: short, medium and long-range acc
-  - Handling: reload, grouping
+  - Handling: reload, grouping, sway
   - Physicality: speed, agility, strength, endurance
   - Mentality: awareness, composure, teamwork
   - Objective: anchor (holding a point), breach (taking a held point), objective IQ (playing the point and rotating)
   - Injury: injury, toughness (view only, can't be upgraded)
+- **What each stat does in a match:**
+  - Short/medium/long acc: hit chance in that range band. Grouping: headshot chance and tighter bursts.
+  - Reload: time spent reloading. **Sway**: aim steadiness when moving, tired or at long range (60 is neutral).
+  - Speed: movement and flank pace. Agility: evasion when shot at. **Strength**: sustained fire and absorbing
+    damage (up to 25% less). Endurance: fatigue gain and recovery.
+  - **Awareness**: spotting and ducking to cover, plus role knowledge - when to push, hunt and flank (smart
+    soldiers read a quiet fight sooner and flank faster). Composure: accuracy under fire. Teamwork: crossfire bonus.
+  - Anchor / Breach / Objective IQ: King of the Hill (below). Injury: injury chance. **Toughness**: only how long
+    an injury lasts.
 - **Scheme "Swing":**
   - Frontman ×2, Center, Left Flex, Right Flex.
   - Each role has its own OVR weights (`scripts/core/scheme.gd`).
@@ -214,7 +230,7 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
     middle. Soldiers spawn in the scheme formation, path around obstacles (waypoint graph), hold lanes, flank,
     hunt when it goes quiet, and duck to nearby cover when shot at (Awareness). Only enemies in line of sight can be
     targeted; real distance sets the range band and shots through a crate hit less often.
-  - Each shot is resolved on the range band, accuracy, fatigue, composure, teamwork, and the target's evasion and toughness.
+  - Each shot is resolved on the range band, accuracy, sway, fatigue, composure, teamwork, and the target's evasion; damage is reduced by the target's strength.
   - The engine is steppable (`start` / `step`), so Sim and the live viewer share it; `record` turns on visual events.
   - Deterministic for a given match seed (`scripts/sim/match_engine.gd`).
 - **Progression:**
@@ -222,8 +238,10 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
     Levels are internal; the UI shows an XP bar toward the next SP.
   - SP buy +1 to a whole group. That spreads N points (N = stats in the group) randomly across the group, at most +2 per stat.
   - Cost rises with the group rating: 2 SP below 60, up to 6 SP at 90+.
-  - **Potential** is an A–F grade that scales XP gain: A 1.5×, B 1.25×, C 1×, D 0.8×, F 0.6×. It's rolled by age
-    (young players skew higher); draft phenoms are A (sometimes B).
+  - **XP gain scales with age AND potential** (`AGE_POTENTIAL_XP`), tuned for these season OVR gains (before age
+    decline): 19-22 A +5-7 / B +3-4 / C +1-2 / D-F 0-1; 23-26 A +3-4 / B +2-3 / C +1; 27-30 A +1-2 / B +1;
+    31-33 A +1-3 / B 0-1; 34+ A 0-1. Good seasons push a soldier toward the top of his range.
+  - **Potential** is an A–F grade, rolled by age (young players skew higher); draft phenoms are A (sometimes B).
   - Each group has a hidden cap (CFB27 style). Headroom comes from age, is multiplied by the potential grade
     (A 1.7× … F 0.4×) and by a random per-group factor, so a high grade means more room overall but which
     groups get it is random.

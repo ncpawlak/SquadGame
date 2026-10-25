@@ -2,7 +2,8 @@ class_name Progression
 extends RefCounted
 ## XP -> skill points (SP), spent on stat GROUPS (MLB The Show / CFB27 style).
 ## - XP comes from matches (performance-based) and weekly training (scaled by intensity).
-## - The soldier's potential grade scales XP gain (A 1.5x .. F 0.6x).
+## - XP gain scales with age AND potential (AGE_POTENTIAL_XP): a young A-potential soldier
+##   grows several OVR a season, a veteran barely moves; age decline still applies on top.
 ## - Every xp_to_next() XP grants SKILL_POINTS_PER_LEVEL SP (levels are internal, not shown).
 ## - Upgrading a group raises its rating (the average of its stats) by 1: the group's N stats
 ##   receive N points, handed out one at a time at random (max +2 per stat per upgrade, 99 max).
@@ -18,8 +19,16 @@ const MATCH_IMPACT_XP_SCALE := 0.25
 const MVP_XP := 75.0
 
 
-## XP multiplier per potential grade (F..A).
-const POTENTIAL_XP := [0.6, 0.8, 1.0, 1.25, 1.5]
+## XP multiplier by age band (max age of the band) then potential grade (F..A). Calibrated
+## for season OVR gains of roughly: 19-22 A +5-7 / B +3-4 / C +1-2 / D-F 0-1; 23-26 A +3-4 /
+## B +2-3 / C +1; 27-30 A +1-2 / B +1; 31-33 A +1-3 / B 0-1; 34+ A 0-1.
+const AGE_POTENTIAL_XP := [
+	[22, [0.2, 0.3, 0.75, 2.6, 7.5]],
+	[26, [0.1, 0.15, 0.5, 1.7, 2.5]],
+	[30, [0.05, 0.1, 0.2, 0.6, 1.3]],
+	[33, [0.05, 0.05, 0.15, 0.5, 1.2]],
+	[99, [0.05, 0.05, 0.05, 0.15, 0.5]],
+]
 
 
 static func xp_to_next(level: int) -> int:
@@ -27,7 +36,11 @@ static func xp_to_next(level: int) -> int:
 
 
 static func xp_multiplier(soldier: Soldier) -> float:
-	return POTENTIAL_XP[clampi(soldier.potential, 0, POTENTIAL_XP.size() - 1)]
+	var grade := clampi(soldier.potential, 0, 4)
+	for band in AGE_POTENTIAL_XP:
+		if soldier.age <= band[0]:
+			return band[1][grade]
+	return AGE_POTENTIAL_XP[-1][1][grade]
 
 
 ## Progress toward the next batch of skill points: [xp, needed].

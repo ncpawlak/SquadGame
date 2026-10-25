@@ -44,10 +44,14 @@ const TIER_NAMES := {
 }
 const PROSPECT_QUALITY := 57.0
 const PROSPECT_QUALITY_SD := 6.0
-## Blue-chippers per class [min, max], their quality bonus [min, max] and minimum potential.
-const BLUE_CHIPS := [2, 4]
-const BLUE_CHIP_BONUS := [10.0, 15.0]
+## Blue-chippers per class [min, max], their OVR at the listed position [min, max] and minimum
+## potential. They are day-one starters.
+const BLUE_CHIPS := [1, 3]
+const BLUE_CHIP_OVR := [70, 74]
 const BLUE_CHIP_MIN_POTENTIAL := 3
+## Chance a class has a generational talent (one per class at most), and his OVR [min, max].
+const GENERATIONAL_CHANCE := 0.18
+const GENERATIONAL_OVR := [74, 77]
 ## Specialists per class [min, max] and the range of their elite group's stats.
 const SPECIALISTS := [3, 5]
 const SPECIALIST_STAT := [74, 86]
@@ -78,6 +82,7 @@ const STAT_LINES := {
 	Stats.MEDIUM_ACC: ["%s topped the mid-range qualification course.", "%s had trouble at mid range, scattering shots across the lane."],
 	Stats.SHORT_ACC: ["%s went a perfect 30-for-30 in the close-quarters shoot house.", "%s was missing point-blank targets in the shoot house."],
 	Stats.GROUPING: ["%s's shot groups at the range were \"the size of a coin.\"", "%s's shot groups were all over the paper."],
+	Stats.SWAY: ["%s hit every plate on the run-and-gun course without slowing down.", "%s's muzzle was wandering all over on the moving-fire course."],
 	Stats.RELOAD: ["%s posted the fastest reload times at the combine.", "%s fumbled magazine changes in the timed drills."],
 	Stats.SPEED: ["%s ran the fastest 40 in the class.", "%s posted one of the slowest sprint times in the class."],
 	Stats.AGILITY: ["%s was a blur through the cone drill.", "%s looked stiff in the agility drills."],
@@ -147,6 +152,8 @@ static func generate(seed_value: int, draft_year: int, first_id: int) -> Draft:
 			pool.append(p)
 	for i in rng.randi_range(BLUE_CHIPS[0], BLUE_CHIPS[1]):
 		d._make_blue_chip(pool.pop_at(rng.randi_range(0, pool.size() - 1)))
+	if rng.randf() < GENERATIONAL_CHANCE:
+		d._make_blue_chip(pool.pop_at(rng.randi_range(0, pool.size() - 1)), true)
 	for i in rng.randi_range(SPECIALISTS[0], SPECIALISTS[1]):
 		d._make_specialist(pool.pop_at(rng.randi_range(0, pool.size() - 1)))
 	for p in d.prospects:
@@ -163,15 +170,19 @@ func rerank() -> void:
 		board[i].projected_rank = i + 1
 
 
-func _make_blue_chip(p: Prospect) -> void:
-	p.standout = &"blue_chip"
+func _make_blue_chip(p: Prospect, generational := false) -> void:
+	p.standout = &"generational" if generational else &"blue_chip"
 	var s := p.soldier
-	var bonus := _rng.randf_range(BLUE_CHIP_BONUS[0], BLUE_CHIP_BONUS[1])
-	for st in Stats.ALL:
-		if st == Stats.INJURY:
-			continue
-		s.stats[st] = Stats.clamp_rating(s.stats[st] + bonus)
-	s.potential = maxi(s.potential, _rng.randi_range(BLUE_CHIP_MIN_POTENTIAL, Soldier.POTENTIAL_A))
+	var band: Array = GENERATIONAL_OVR if generational else BLUE_CHIP_OVR
+	var target := _rng.randi_range(band[0], band[1])
+	# Lift every rating together until he's a starter-grade OVR at his listed position.
+	for i in 60:
+		if s.ovr_at_role(p.listed_role) >= target:
+			break
+		for st in Stats.ALL:
+			if st != Stats.INJURY and st != Stats.TOUGHNESS:
+				s.stats[st] = Stats.clamp_rating(s.stats[st] + 1)
+	s.potential = Soldier.POTENTIAL_A if generational else maxi(s.potential, _rng.randi_range(BLUE_CHIP_MIN_POTENTIAL, Soldier.POTENTIAL_A))
 	PlayerGenerator.roll_caps(s, _rng)
 
 
@@ -189,6 +200,8 @@ func _make_specialist(p: Prospect) -> void:
 static func standout_label(p: Prospect) -> String:
 	if p.phenom:
 		return "PHENOM"
+	if p.standout == &"generational":
+		return "GENERATIONAL"
 	if p.standout == &"blue_chip":
 		return "BLUE CHIP"
 	if p.standout == &"specialist":
