@@ -601,25 +601,25 @@ func _fill_pane(pane: Control, s: Soldier, team: Team) -> void:
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mid.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	mid.add_child(UiKit.label(s.first_name.to_upper() + ("   \"%s\"" % s.callsign.to_upper() if s.callsign != "" else ""), 16, UiKit.ACCENT))
-	mid.add_child(UiKit.label(s.last_name.to_upper(), 40, Color.WHITE))
+	mid.add_child(UiKit.label(s.full_name().to_upper(), 16, UiKit.ACCENT))
+	mid.add_child(UiKit.label(("\"%s\"" % s.callsign.to_upper()) if s.callsign != "" else s.last_name.to_upper(), 40, Color.WHITE))
 	var slot := team.slot_of(s) if team != null else &""
 	var where := ("Starting " + team.scheme.label_for_slot(slot) if slot != &"" else "Bench") if team != null else "Free agent"
 	mid.add_child(UiKit.label("%s   ·   AGE %d   ·   %s   ·   LVL %d" % [Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), s.age, where.to_upper(), s.level], 15, UiKit.MUTED))
-	var facts := _row(12)
+	var facts := _row(34)
 	facts.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var role := _row_role(team, s)
 	var ovr := _row_ovr(team, s)
-	facts.add_child(_fact_box("OVR", "[color=%s]%d[/color]%s" % [UiKit.hex(UiKit.ovr_color(ovr)), ovr, delta_bb(s.morale_ovr_delta(role), 16)]))
-	facts.add_child(_fact_box("POT", "[color=%s]%s[/color]" % [UiKit.hex(potential_color(s.potential)), s.potential_letter()]))
+	facts.add_child(_fact_box("OVR", "[color=%s]%d[/color]%s" % [UiKit.hex(UiKit.ovr_color(ovr)), ovr, delta_bb(s.morale_ovr_delta(role), 16)], false))
+	facts.add_child(_fact_box("POT", "[color=%s]%s[/color]" % [UiKit.hex(potential_color(s.potential)), s.potential_letter()], false))
 	if s.contract != null:
-		facts.add_child(_fact_box("SALARY", Contracts.money(s.contract.salary)))
-		facts.add_child(_fact_box("CONTRACT", "EXPIRING" if s.contract.is_expiring() else "%d YR%s" % [s.contract.years, "" if s.contract.years == 1 else "S"]))
+		facts.add_child(_fact_box("SALARY", Contracts.money(s.contract.salary), false))
+		facts.add_child(_fact_box("CONTRACT", "EXPIRING" if s.contract.is_expiring() else "%d YR%s" % [s.contract.years, "" if s.contract.years == 1 else "S"], false))
 	elif team == null and s.retired_year == 0:
 		var yrs := Contracts.preferred_years(s)
-		facts.add_child(_fact_box("ASKING", "%s x %d" % [Contracts.money(Contracts.asking(s, yrs)), yrs]))
+		facts.add_child(_fact_box("ASKING", "%s x %d" % [Contracts.money(Contracts.asking(s, yrs)), yrs], false))
 	facts.add_child(_fact_box("STATUS", "[color=%s]%s[/color]" % [UiKit.hex(UiKit.BAD if s.is_injured() else UiKit.GOOD),
-		("OUT %d WK" % s.injury_weeks) if s.is_injured() else "HEALTHY"]))
+		("OUT %d WK" % s.injury_weeks) if s.is_injured() else "HEALTHY"], false))
 	mid.add_child(facts)
 	h.add_child(mid)
 	h.add_child(_ring_block("FATIGUE", s.fatigue, 100.0, fatigue_color(s.fatigue), str(roundi(s.fatigue)), Conditioning.status(s.fatigue)))
@@ -637,8 +637,8 @@ func _fill_pane(pane: Control, s: Soldier, team: Team) -> void:
 	pane.add_child(h)
 
 
-func _fact_box(title: String, value_bb: String) -> Control:
-	var p := UiKit.panel(UiKit.PANEL_HI, 8)
+func _fact_box(title: String, value_bb: String, boxed := true) -> Control:
+	var p: Control = UiKit.panel(UiKit.PANEL_HI, 8) if boxed else MarginContainer.new()
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var box := _vbox(0)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
