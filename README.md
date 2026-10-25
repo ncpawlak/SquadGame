@@ -80,6 +80,7 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   One soldier per drill and one drill per soldier. The point pool depends on potential (A 9-13, B 7-10, C 5-8, D 3-6,
   F 2-4), spread at random over the group's stats (max +4 each). AI teams run theirs when camp closes; advancing with
   unused drills asks you to confirm first.
+  A new franchise opens in a **preseason training camp** before Week 1 (same drills; "Start 2026 Season" closes it).
 - **Offseason XP**: every offseason step is an XP week (100 base XP, scaled by potential), and camp week gives 250.
 - **Free agency** (`scripts/season/free_agency.gd`, League → Free Agents): unsigned soldiers with all ratings
   visible. Bidding: make offers (salary and years) during FA days or in-season. Each round every free agent scores

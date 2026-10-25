@@ -35,6 +35,7 @@ func _init() -> void:
 		"test_standout_prospects",
 		"test_prospect_news",
 		"test_training_camp_and_offseason_xp",
+		"test_preseason_camp",
 	]
 	for t in tests:
 		_current = t
@@ -873,3 +874,27 @@ func test_training_camp_and_offseason_xp() -> void:
 	var y := s.year
 	s.start_next_season()
 	check(s.year == y + 1 and s.past_drafts.size() == 1 and s.past_drafts[0].year == y, "draft kept for the recap")
+
+
+func test_preseason_camp() -> void:
+	var plain := Season.new_franchise(616)
+	check(not plain.preseason_camp and not plain.camp_open(), "no camp unless asked")
+	var s := Season.new_franchise(616, 0, 2026, true)
+	check(s.preseason_camp and s.camp_open() and s.week == 1 and s.year == 2026, "opens in camp before Week 1")
+	check(s.camp.year + 1 == 2026, "camp is labelled for the coming season")
+	var a: Soldier = s.user_team().starters()[0]
+	check(not s.run_drill(Stats.ACCURACY, a).is_empty(), "drill runs in preseason")
+	check(s.camp_check(Stats.HANDLING, a) != "", "one drill per player")
+	var probe: Soldier = s.user_team().roster[1]
+	var x0 := _xp_total(probe)
+	s.close_preseason_camp()
+	check(not s.preseason_camp and not s.camp_open(), "camp closed")
+	check(_xp_total(probe) - x0 == roundi(Season.CAMP_WEEK_XP * Progression.xp_multiplier(probe)), "camp week xp")
+	for t in s.league.teams:
+		if not t.user_controlled:
+			check(s.camp.drills_left(t) == 0, "%s ran its drills" % t.abbrev)
+	check(s.run_drill(Stats.HANDLING, s.user_team().starters()[1]).is_empty(), "no drills after camp")
+	# Simming straight from camp closes it automatically.
+	var s2 := Season.new_franchise(617, 0, 2026, true)
+	s2.sim_week()
+	check(not s2.preseason_camp and s2.week == 2, "sim_week closes camp and plays Week 1")

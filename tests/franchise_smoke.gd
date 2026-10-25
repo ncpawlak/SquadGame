@@ -27,6 +27,21 @@ func _init() -> void:
 	_check(hub.tab_index == 0, "tab cycling wraps")
 
 	await _visit_pages(hub, "preseason")
+	# A new franchise opens in preseason training camp.
+	_check(hub.season.preseason_camp and hub.season.camp_open() and hub.season.week == 1, "new franchise starts in training camp")
+	_check(hub._advance_text().begins_with("START 2026"), "advance button starts the season")
+	var pre_guy: Soldier = hub.season.user_team().starters()[0]
+	_check(not hub.season.run_drill(Stats.MENTALITY, pre_guy).is_empty(), "preseason drill runs")
+	hub.open("Drill", func(): return hub.pages.drill_result(Stats.MENTALITY))
+	await process_frame
+	hub.advance()  # warns about the unused drills
+	_check(hub.season.preseason_camp, "unused preseason drills warning holds camp")
+	hub.advance()  # closes camp
+	await process_frame
+	_check(not hub.season.preseason_camp and hub.season.week == 1 and hub.season.phase == Season.PHASE_REGULAR, "camp closed, Week 1 next")
+	for t in hub.season.league.teams:
+		if not t.user_controlled:
+			_check(hub.season.camp.drills_left(t) == 0, "%s ran preseason drills" % t.abbrev)
 	# Scouting: press Scout buttons, then open a scouting report.
 	hub.open("Scouting", hub.pages.scouting)
 	await process_frame

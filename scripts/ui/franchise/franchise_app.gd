@@ -129,7 +129,7 @@ func show_team_select() -> void:
 
 
 func start_franchise(seed_value: int, team_index: int) -> void:
-	season = Season.new_franchise(seed_value, team_index)
+	season = Season.new_franchise(seed_value, team_index, 2026, true)
 	preview_seed = 0
 	show_hub()
 

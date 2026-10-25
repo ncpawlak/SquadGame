@@ -138,6 +138,9 @@ func advance() -> void:
 	if season.phase == Season.PHASE_OFFSEASON:
 		_advance_offseason()
 		return
+	if season.preseason_camp:
+		_close_preseason_camp()
+		return
 	var label := season.week_label(season.week)
 	var played: Array = season.sim_week()
 	page_stack.clear()
@@ -189,6 +192,23 @@ func _advance_offseason() -> void:
 			tab_index = 0
 			refresh()
 			app.toast("Welcome to the %d season." % season.year)
+
+
+## Opening camp of a new franchise: warn once about unused drills, then close it and go to Week 1.
+func _close_preseason_camp() -> void:
+	var user := season.user_team()
+	if season.camp.drills_left(user) > 0 and not _camp_skip_warned:
+		_camp_skip_warned = true
+		_rebuild_and_open("Training Camp", pages.training_camp)
+		app.toast("%d camp drill%s unused. Advance again to skip them and start the season." % [
+			season.camp.drills_left(user), "" if season.camp.drills_left(user) == 1 else "s"])
+		return
+	season.close_preseason_camp()
+	_camp_skip_warned = false
+	page_stack.clear()
+	tab_index = 0
+	refresh()
+	app.toast("Training camp is over. Welcome to the %d season." % season.year)
 
 
 func _rebuild_and_open(title: String, build: Callable) -> void:
@@ -334,6 +354,8 @@ func _build_tabs() -> void:
 
 
 func _phase_text() -> String:
+	if season.preseason_camp:
+		return "PRESEASON - TRAINING CAMP"
 	match season.phase:
 		Season.PHASE_OFFSEASON:
 			match season.offseason_stage:
@@ -361,6 +383,8 @@ func _advance_text() -> String:
 			Season.OFF_FREE_AGENCY:
 				return "FA DAY %d of %d  >>" % [season.fa_day, Season.FA_DAYS]
 		return "START %d SEASON  >>" % (season.year + 1)
+	if season.preseason_camp:
+		return "START %d SEASON  >>" % season.year
 	var m := season.next_match_for(season.user_team())
 	if m and m.week == season.week:
 		return "PLAY %s  >>" % season.week_label(season.week).to_upper()
@@ -951,6 +975,13 @@ func _next_match_tile(team: Team) -> Button:
 		var body := "[font_size=30][color=white]%s[/color][/font_size]\n%d champions.\n\n%s" % [
 			UiKit.esc(champ.name if champ else "-"), season.year, next_step]
 		return UiKit.tile("Season Complete", body, HERO, UiKit.ACCENT, target)
+	if season.preseason_camp:
+		var first := season.next_match_for(team)
+		var opener := ""
+		if first != null:
+			opener = "\n\nWeek 1: %s %s" % ["vs" if first.home == team else "@", UiKit.esc(first.opponent_of(team).name)]
+		return UiKit.tile("Preseason", "[font_size=30][color=white]TRAINING CAMP[/color][/font_size]\nThe %d season starts after camp.\n\nSend one player to each drill ([color=#38bdf8]%d left[/color]), then start the season.%s" % [
+			season.year, season.camp.drills_left(team), opener], HERO, UiKit.ACCENT, open_camp)
 	var m := season.next_match_for(team)
 	if m == null:
 		var out := "Your season is over."
@@ -985,6 +1016,10 @@ func _advance_blurb() -> String:
 		if season.camp_open() and season.camp.drills_left(season.user_team()) > 0:
 			return "Close camp ([color=#f59e0b]%d drills unused[/color]) and start the %d season." % [season.camp.drills_left(season.user_team()), season.year + 1]
 		return "Roll over to the %d season. Roster must be %d-%d." % [season.year + 1, Season.ROSTER_MIN, Team.ROSTER_SIZE]
+	if season.preseason_camp:
+		if season.camp.drills_left(season.user_team()) > 0:
+			return "Close camp ([color=#f59e0b]%d drills unused[/color]) and go to Week 1." % season.camp.drills_left(season.user_team())
+		return "Close camp and go to Week 1."
 	return "Train, play every match this week and award XP.\n\n[color=white]Space / Y[/color]"
 
 

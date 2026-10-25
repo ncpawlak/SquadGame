@@ -73,6 +73,8 @@ var resign_log: Array = []
 var departures: Array = []
 ## This offseason's training camp (null until the first offseason).
 var camp: Camp = null
+## True while a new franchise's opening (preseason) training camp is open, before Week 1.
+var preseason_camp := false
 ## Completed drafts, oldest first (the current one stays in `draft` until the next season).
 var past_drafts: Array = []
 ## Prospect stories from the most recent sim_week.
@@ -82,7 +84,8 @@ var _byes: Array = []
 var _rng := RandomNumberGenerator.new()
 
 
-static func new_franchise(seed_value: int, user_team_index := 0, start_year := 2026) -> Season:
+## With `with_camp`, the franchise opens in preseason training camp (close_preseason_camp starts Week 1).
+static func new_franchise(seed_value: int, user_team_index := 0, start_year := 2026, with_camp := false) -> Season:
 	var s := Season.new()
 	s.league = League.generate(seed_value, TEAM_COUNT)
 	for i in s.league.teams.size():
@@ -101,6 +104,9 @@ static func new_franchise(seed_value: int, user_team_index := 0, start_year := 2
 	for so in s.league.all_soldiers():
 		so.morale = mrng.randf_range(68.0, 84.0)
 	s._begin_season()
+	if with_camp:
+		s.camp = Camp.make(start_year - 1)
+		s.preseason_camp = true
 	return s
 
 
@@ -267,6 +273,7 @@ func is_regular_season_over() -> bool:
 func sim_week() -> Array:
 	if phase == PHASE_OFFSEASON:
 		return []
+	close_preseason_camp()
 	var played := matches_for_week(week)
 	last_signings = fa.resolve(self, _rng, week_label(week))
 	_prepare_lineups()
@@ -364,7 +371,18 @@ func free_agency_open() -> bool:
 
 
 func camp_open() -> bool:
-	return phase == PHASE_OFFSEASON and offseason_stage == OFF_CAMP
+	return preseason_camp or (phase == PHASE_OFFSEASON and offseason_stage == OFF_CAMP)
+
+
+## Ends the opening preseason camp: AI teams run their drills and everyone gets camp-week XP.
+func close_preseason_camp() -> void:
+	if not preseason_camp:
+		return
+	for t in league.teams:
+		if not t.user_controlled:
+			camp.ai_run(t, _rng)
+	offseason_xp(CAMP_WEEK_XP)
+	preseason_camp = false
 
 
 ## Sends `s` to the user's `group` drill. Returns the Camp result ({} if refused; see camp_check).
