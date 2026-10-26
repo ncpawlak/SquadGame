@@ -37,7 +37,8 @@ func _init() -> void:
 	await process_frame
 	hub.page_stack.clear()
 	hub.refresh()
-	var pre_guy: Soldier = hub.season.user_team().starters()[0]
+	var pre_pool: Array = hub.season.user_team().roster.filter(func(x: Soldier): return not Progression.is_capped(x, Stats.MENTALITY) and not x.is_injured())
+	var pre_guy: Soldier = pre_pool[0]
 	# Drill pick confirm popup: Cancel does nothing, Send runs the drill.
 	hub.pages._confirm_modal(hub.pages._drill_confirm_card(Stats.MENTALITY, pre_guy), "Send to drill", func():
 		hub.season.run_drill(Stats.MENTALITY, pre_guy))

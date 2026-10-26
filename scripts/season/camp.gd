@@ -101,7 +101,7 @@ func run(team: Team, group: StringName, s: Soldier, rng: RandomNumberGenerator) 
 				open.append(st)
 		if open.is_empty():
 			break
-		var pick: StringName = open[rng.randi_range(0, open.size() - 1)]
+		var pick := Progression.pick_gain_stat(open, func(st): return s.stats[st], rng)
 		s.stats[pick] += 1
 		if capped and s.group_rating(group) > cap:
 			s.stats[pick] -= 1

@@ -102,21 +102,36 @@ static func roll_potential(rng: RandomNumberGenerator, age: int) -> int:
 	return 0
 
 
+## Highest cap allowed outside a soldier's top ELITE_GROUPS groups: everyone keeps a hole or two.
+const NON_ELITE_CAP := 89
+const ELITE_GROUPS := 2
+
+
 ## Rolls every group cap: age-based headroom x the potential multiplier x a random per-group
 ## factor, so higher potential means higher caps overall but which groups get them is random.
+## Only the two highest caps may go past NON_ELITE_CAP (a group already above it keeps its rating).
 static func roll_caps(s: Soldier, rng: RandomNumberGenerator, extra := 0) -> void:
 	for g in Stats.UPGRADABLE_GROUPS:
 		var room: float = float(roll_group_headroom(rng, s.age, g)) * POTENTIAL_HEADROOM[s.potential] * rng.randf_range(0.3, 1.7)
 		s.group_caps[g] = mini(Stats.MAX_RATING, s.group_rating(g) + roundi(room) + extra)
+	limit_elite_caps(s)
 
 
-## Group cap headroom by age. Physical peak ends ~29, skill peak ~33; mentality keeps growing.
+## Holds every group outside the top ELITE_GROUPS caps to NON_ELITE_CAP (or its current rating).
+static func limit_elite_caps(s: Soldier) -> void:
+	var order: Array = Stats.UPGRADABLE_GROUPS.duplicate()
+	order.sort_custom(func(a, b): return s.group_cap(a) > s.group_cap(b))
+	for g in order.slice(ELITE_GROUPS):
+		s.group_caps[g] = maxi(s.group_rating(g), mini(s.group_cap(g), NON_ELITE_CAP))
+
+
+## Group cap headroom by age. Physical growth ends ~28, skills ~30, mentality ~33.
 static func roll_group_headroom(rng: RandomNumberGenerator, age: int, group: StringName) -> int:
-	var peak := 33
+	var peak := 30
 	if group == Stats.PHYSICALITY:
-		peak = 29
+		peak = 28
 	elif group == Stats.MENTALITY:
-		peak = 36
+		peak = 33
 	var years_left := peak - age
 	if years_left <= 0:
 		return rng.randi_range(0, 1)

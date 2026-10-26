@@ -378,12 +378,12 @@ func test_aging_decline() -> void:
 	var r := Aging.age_soldier(young, rng)
 	check(young.age == 25 and r["changes"].is_empty(), "no decline before peak")
 	var vet := make_soldier(2, 70)
-	vet.age = 33
+	vet.age = 32
 	var before := {}
 	for g in Stats.GROUP_ORDER:
 		before[g] = vet.group_rating(g)
 	r = Aging.age_soldier(vet, rng)
-	check(vet.age == 34, "aged")
+	check(vet.age == 33, "aged")
 	check(vet.group_rating(Stats.PHYSICALITY) < before[Stats.PHYSICALITY], "physicality declines first")
 	check(vet.group_rating(Stats.MENTALITY) == before[Stats.MENTALITY], "mentality holds until later")
 	for g in Stats.UPGRADABLE_GROUPS:

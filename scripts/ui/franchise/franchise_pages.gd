@@ -350,6 +350,13 @@ func preview(m: ScheduledMatch) -> Control:
 		col.add_child(UiKit.table(["SLOT", "STARTER", "OVR"], rows, [60, 240, 60], {}, colors))
 		h.add_child(col)
 	v.add_child(h)
+	v.add_child(_section("%s  vs  %s  -  SEASON TEAM STATS PER GAME (LEAGUE RANK)" % [m.away.abbrev, m.home.abbrev]))
+	var cmp := _vbox(6)
+	cmp.custom_minimum_size.x = 1064
+	cmp.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	for row in hub.compare_rows(m.away, m.home):
+		cmp.add_child(hub.compare_bar(row, m.away.color, m.home.color))
+	v.add_child(cmp)
 	if not m.is_played() and m.week == s.week and m.involves(s.user_team()):
 		var play := UiKit.button("Play %s  >>" % s.week_label(m.week), hub.advance, 20)
 		play.custom_minimum_size = Vector2(300, 56)
@@ -742,7 +749,7 @@ func _fill_pane(pane: Control, s: Soldier, team: Team) -> void:
 	mid.add_child(UiKit.label(("\"%s\"" % s.callsign.to_upper()) if s.callsign != "" else s.last_name.to_upper(), 40, Color.WHITE))
 	var slot := team.slot_of(s) if team != null else &""
 	var where := ("Starting " + team.scheme.label_for_slot(slot) if slot != &"" else "Bench") if team != null else "Free agent"
-	mid.add_child(UiKit.label("%s   ·   AGE %d   ·   %s   ·   LVL %d" % [Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), s.age, where.to_upper(), s.level], 15, UiKit.MUTED))
+	mid.add_child(UiKit.label("%s   ·   AGE %d   ·   %s" % [Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), s.age, where.to_upper()], 15, UiKit.MUTED))
 	var facts := _row(34)
 	facts.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var role := _row_role(team, s)
@@ -932,7 +939,7 @@ func _player_header(s: Soldier, team: Team) -> Control:
 		var slot := team.slot_of(s)
 		where = "%s  ·  %s" % [team.name, ("Starting " + team.scheme.label_for_slot(slot)) if slot != &"" else "Bench"]
 	var yrs_in := maxi(1, _season().year - s.draft_year + 1) if s.draft_year > 0 else 0
-	mid.add_child(UiKit.label("%s   ·   AGE %d   ·   %s   ·   LVL %d%s" % [Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), s.age, where.to_upper(), s.level,
+	mid.add_child(UiKit.label("%s   ·   AGE %d   ·   %s%s" % [Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), s.age, where.to_upper(),
 		("   ·   YEAR %d" % yrs_in) if yrs_in > 0 else ""], 15, UiKit.MUTED))
 	if s.trade_request and team != null and s.retired_year == 0:
 		mid.add_child(UiKit.label("⚑ TRADE REQUESTED", 15, UiKit.ACCENT))
@@ -1971,10 +1978,9 @@ func _bracket_card(m: ScheduledMatch) -> Button:
 				hub.open("Match Preview", func(): return preview(m)))
 
 
-## League-wide team stats this season (regular season and playoffs), sortable.
-func league_team_stats() -> Control:
+## Per-team season totals (regular season and playoffs): team -> {gp, w, l, kills, deaths, ...}.
+func team_aggregates() -> Dictionary:
 	var s := _season()
-	var v := _vbox()
 	var agg := {}
 	for t in s.league.teams:
 		agg[t] = {"team": t, "gp": 0, "w": 0, "l": 0, "gw": 0, "gl": 0, "pf": 0, "pa": 0, "kills": 0, "deaths": 0, "assists": 0,
@@ -2000,7 +2006,14 @@ func league_team_stats() -> Control:
 			var a: Dictionary = agg[t]
 			for k in ["kills", "deaths", "assists", "damage", "shots", "hits", "headshots", "saves", "wipes", "hill_s", "caps"]:
 				a[k] += line.get(k, 0)
-	var list: Array = agg.values()
+	return agg
+
+
+## League-wide team stats this season (regular season and playoffs), sortable.
+func league_team_stats() -> Control:
+	var s := _season()
+	var v := _vbox()
+	var list: Array = team_aggregates().values()
 	var cols: Array = [["TEAM", 230, &"name"], ["DIV", 70, &"div"], ["GP", 40, &"gp"], ["W-L", 60, &"w"], ["GW-GL", 70, &"gw"], ["PF", 50, &"pf"], ["PA", 50, &"pa"],
 		["K", 52, &"kills"], ["D", 52, &"deaths"], ["K/D", 50, &"kd"], ["A", 52, &"assists"], ["DMG/G", 64, &"dmg_g"], ["HIT%", 52, &"hit"],
 		["HS%", 50, &"hs"], ["SAVES", 54, &"saves"], ["WIPES", 54, &"wipes"], ["HILL/G", 62, &"hill_g"], ["CAPS", 48, &"caps"], ["OVR", 44, &"ovr"]]
@@ -2408,7 +2421,7 @@ func _scout_tools(d: Draft) -> Control:
 const PCOL_PORTRAIT := 48
 const PCOL_NAME := 180
 const PCOL_PROJ := 104
-const PCOL_AREA := 50
+const PCOL_AREA := 66
 const PCOL_GROUP := 136
 const PCOL_ACTION := 96
 const PCOL_SEP := 10
@@ -2416,7 +2429,7 @@ const PCOL_SEP := 10
 
 ## Sortable prospect header (shared by Scouting and the Draft Room).
 func _prospect_header(rebuild: Callable) -> Control:
-	var cols := [["", PCOL_PORTRAIT], ["PROSPECT", PCOL_NAME, &"name"], ["AREA", PCOL_AREA, &"area"], ["PROJECTED", PCOL_PROJ, &"proj"]]
+	var cols := [["", PCOL_PORTRAIT], ["PROSPECT", PCOL_NAME, &"name"], ["SCOUT", PCOL_AREA, &"area"], ["PROJECTED", PCOL_PROJ, &"proj"]]
 	for g in Stats.GROUP_ORDER:
 		cols.append([Stats.GROUP_LABELS[g].to_upper(), PCOL_GROUP, g])
 	return _sort_header(&"prospects", cols, rebuild)
@@ -2524,6 +2537,8 @@ func _prospect_row(p: Prospect, action_text: String, action_enabled: bool, actio
 		"age %d  -  %s  -  %s" % [p.soldier.age, Scheme.ROLE_NAMES[p.listed_role], p.soldier.home_state], PCOL_NAME))
 	var area := UiKit.label(p.area_grade, 22, AREA_COLORS.get(p.area_grade, UiKit.TEXT))
 	area.custom_minimum_size.x = PCOL_AREA
+	area.tooltip_text = "Scout grade: your area scouts' quick read on where he ranks in this class\n(A = top 5%, F = bottom). A rough, noisy hint - scout him to see his real ratings."
+	area.mouse_filter = Control.MOUSE_FILTER_PASS
 	area.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	area.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	hb.add_child(area)
@@ -2574,7 +2589,7 @@ func scouting() -> Control:
 	var v := _vbox(10)
 	v.add_child(UiKit.rich("[font_size=22][color=white]%d DRAFT CLASS[/color][/font_size]     [color=#38bdf8]%d scout points[/color] available  (+%d per week, unspent points carry over)" % [
 		d.year, d.scout_points, Draft.POINTS_PER_WEEK], 16))
-	var help := UiKit.label("AREA is your area scouts' quick read on the whole class (A = top 5%%, F = bottom of the class) - a noisy hint, not a guarantee. Each point scouts 2 random stat groups: the first look at a group shows a 3-grade range, a second narrows it to 2. Once every group is down to 2 grades, each point pins 1 group to its exact grade. Up to %d points per prospect. Projected rounds are the league consensus - potential stays hidden until draft day." % Draft.MAX_POINTS_PER_PROSPECT, 14, UiKit.MUTED)
+	var help := UiKit.label("SCOUT is the grade from your area scouts: a quick read on where he ranks in the whole class (A = top 5%%, F = bottom of the class) - a noisy hint, not a guarantee. Each point scouts 2 random stat groups: the first look at a group shows a 3-grade range, a second narrows it to 2. Once every group is down to 2 grades, each point pins 1 group to its exact grade. Up to %d points per prospect. Projected rounds are the league consensus - potential stays hidden until draft day." % Draft.MAX_POINTS_PER_PROSPECT, 14, UiKit.MUTED)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(help)
 	if _season().preseason_camp:

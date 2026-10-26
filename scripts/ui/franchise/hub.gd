@@ -7,6 +7,8 @@ const TABS := ["Home", "Team", "League", "Personnel", "Settings"]
 const HERO := Vector2(600, 240)
 const TILE := Vector2(290, 170)
 const SMALL := Vector2(290, 120)
+## League tiles that list a division or several leaders.
+const TALL := Vector2(290, 236)
 
 var app: Control
 var season: Season
@@ -278,6 +280,52 @@ func _advance_offseason() -> void:
 			app.toast("Welcome to the %d season.%s" % [season.year, (" " + err) if err != "" else ""])
 
 
+## "Sim to" choices available now: [[key, label], ...]. Empty in the offseason and camp.
+func sim_to_targets() -> Array:
+	if season.phase == Season.PHASE_OFFSEASON or season.preseason_camp:
+		return []
+	var out: Array = [[&"week", "Next week (sim %s)" % season.week_label(season.week)]]
+	if season.phase == Season.PHASE_REGULAR:
+		if season.week < Trades.DEADLINE_WEEK:
+			out.append([&"deadline", "Trade deadline (start of Week %d)" % Trades.DEADLINE_WEEK])
+		out.append([&"regular", "End of regular season"])
+	out.append([&"season", "End of season (through the Final)"])
+	return out
+
+
+## Sims week after week (the user's matches included) until `target`. Stops early when the
+## user's roster isn't legal to play.
+func sim_to(target: StringName) -> void:
+	if target == &"week":
+		sim_week()
+		return
+	var keep_going := func() -> bool:
+		match target:
+			&"deadline":
+				return season.phase == Season.PHASE_REGULAR and season.week < Trades.DEADLINE_WEEK
+			&"regular":
+				return season.phase == Season.PHASE_REGULAR
+		return season.phase != Season.PHASE_OFFSEASON
+	var weeks := 0
+	while keep_going.call():
+		if _roster_blocked():
+			_build_header()
+			return
+		season.sim_week()
+		weeks += 1
+	_autosave()
+	page_stack.clear()
+	tab_index = 0
+	refresh()
+	match target:
+		&"deadline":
+			app.toast("Simmed %d week%s. Trade deadline week: last chance to deal." % [weeks, "" if weeks == 1 else "s"])
+		&"regular":
+			app.toast("Regular season complete. %s" % ("You made the playoffs!" if season.playoff_seeds.has(season.user_team()) else "Your season is over."))
+		_:
+			app.toast("%s win the title." % (season.champion.name if season.champion else "-"))
+
+
 ## Opening camp of a new franchise: warn once about unused drills, then close it and go to Week 1.
 func _close_preseason_camp() -> void:
 	var user := season.user_team()
@@ -431,6 +479,23 @@ func _build_header() -> void:
 	adv.custom_minimum_size = Vector2(260, 64)
 	adv.set_meta(&"skip_autofocus", true)
 	UiKit.style_button(adv, UiKit.ACCENT.darkened(0.45), Color.WHITE, 10)
+	var sim_targets := sim_to_targets()
+	if not sim_targets.is_empty():
+		var mb := MenuButton.new()
+		mb.name = "SimToMenu"
+		mb.text = "SIM TO  v"
+		mb.flat = false
+		mb.focus_mode = Control.FOCUS_ALL
+		mb.custom_minimum_size = Vector2(140, 64)
+		mb.add_theme_font_size_override("font_size", 18)
+		mb.set_meta(&"skip_autofocus", true)
+		UiKit.style_button(mb, UiKit.PANEL_HI, UiKit.ACCENT, 10)
+		var pop := mb.get_popup()
+		pop.add_theme_font_size_override("font_size", 18)
+		for i in sim_targets.size():
+			pop.add_item(sim_targets[i][1], i)
+		pop.id_pressed.connect(func(id: int): sim_to(sim_targets[id][0]))
+		hb.add_child(mb)
 	hb.add_child(adv)
 
 
@@ -572,9 +637,9 @@ func _home_sections() -> Array:
 		UiKit.tile("Contracts", "Cap space %s" % Contracts.money(Contracts.cap_space(team, season.cap_year())), SMALL, Color("#eab308"), open_contracts),
 	]
 	var league_tiles: Array = [
-		UiKit.tile("Standings", _mini_standings(), TILE, Color("#a855f7"), open_standings),
-		UiKit.tile("League Leaders", _leader_blurb(), TILE, Color("#eab308"), func(): open("League Leaders", pages.leaders)),
-		UiKit.tile("Playoff Picture", _playoff_blurb(), TILE, Color("#f43f5e"), func(): open("Playoff Picture", pages.playoffs)),
+		UiKit.tile("Standings", _mini_standings(), TALL, Color("#a855f7"), open_standings),
+		UiKit.tile("League Leaders", _leader_blurb(), TALL, Color("#eab308"), func(): open("League Leaders", pages.leaders)),
+		UiKit.tile("Playoff Picture", _playoff_blurb(), TALL, Color("#f43f5e"), func(): open("Playoff Picture", pages.playoffs)),
 	]
 	if season.camp_open():
 		actions.insert(0, UiKit.tile("Training Camp", "[color=#38bdf8]%d of %d drills left[/color]\nOne player per drill" % [
@@ -683,8 +748,8 @@ func _match_pane(m: ScheduledMatch, team: Team) -> Control:
 	var vs := UiKit.label("VS", 22, UiKit.MUTED)
 	vs.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	mid.add_child(vs)
-	for cmp in _compare_rows(team, opp):
-		mid.add_child(_compare_bar(cmp[0], cmp[1], cmp[2], team.color, opp.color))
+	for cmp in compare_rows(team, opp):
+		mid.add_child(compare_bar(cmp, team.color, opp.color))
 	row.add_child(mid)
 	row.add_child(_team_block(opp, true))
 	v.add_child(row)
@@ -721,15 +786,47 @@ func _team_block(t: Team, right: bool) -> Control:
 	return v
 
 
-## [label, ours, theirs] from each side's starters.
-func _compare_rows(a: Team, b: Team) -> Array:
+## Season team stats per game with league rank: {label, a, b, a_text, b_text, lower_better}.
+## Before either side has played, falls back to the starters' group ratings.
+func compare_rows(a: Team, b: Team) -> Array:
+	var agg: Dictionary = pages.team_aggregates()
 	var rows: Array = []
-	for g in Stats.GROUP_ORDER:
-		if g == Stats.DURABILITY:
-			continue
-		rows.append([Stats.GROUP_LABELS[g].to_upper(), _avg(a, func(x: Soldier): return x.group_rating(g)), _avg(b, func(x: Soldier): return x.group_rating(g))])
-	rows.append(["MORALE", _avg(a, func(x: Soldier): return x.morale), _avg(b, func(x: Soldier): return x.morale)])
-	rows.append(["ENERGY", _avg(a, func(x: Soldier): return 100.0 - x.fatigue), _avg(b, func(x: Soldier): return 100.0 - x.fatigue)])
+	if int(agg[a]["gp"]) == 0 and int(agg[b]["gp"]) == 0:
+		for g in Stats.GROUP_ORDER:
+			if g == Stats.DURABILITY:
+				continue
+			var x := _avg(a, func(s: Soldier): return s.group_rating(g))
+			var y := _avg(b, func(s: Soldier): return s.group_rating(g))
+			rows.append({"label": Stats.GROUP_LABELS[g].to_upper() + " (RATING)", "a": x, "b": y, "a_text": str(x), "b_text": str(y), "lower": false})
+		return rows
+	var per := func(k: String) -> Callable:
+		return func(r: Dictionary) -> float: return float(r[k]) / maxi(1, int(r["gp"]))
+	var defs: Array = [
+		["KILLS / GAME", per.call("kills"), "%.1f", false],
+		["DEATHS / GAME", per.call("deaths"), "%.1f", true],
+		["ASSISTS / GAME", per.call("assists"), "%.1f", false],
+		["CAPTURES / GAME", per.call("caps"), "%.1f", false],
+		["HILL TIME / GAME", per.call("hill_s"), "secs", false],
+		["K/D", func(r: Dictionary) -> float: return float(r["kills"]) / maxi(1, int(r["deaths"])), "%.2f", false],
+		["WIN %", func(r: Dictionary) -> float: return 100.0 * float(r["w"]) / maxi(1, int(r["gp"])), "%d%%", false],
+	]
+	var played: Array = agg.values().filter(func(r: Dictionary): return int(r["gp"]) > 0)
+	for d in defs:
+		var f: Callable = d[1]
+		var lower: bool = d[3]
+		var vals: Array = played.map(func(r: Dictionary): return f.call(r))
+		var fmt := func(t: Team) -> String:
+			var r: Dictionary = agg[t]
+			if int(r["gp"]) == 0:
+				return "-"
+			var x: float = f.call(r)
+			var rank := 1
+			for o in vals:
+				if (o < x if lower else o > x):
+					rank += 1
+			var txt: String = MatchEngine._fmt_secs(x) if d[2] == "secs" else (d[2] % (roundi(x) if d[2] == "%d%%" else x))
+			return "%s (#%d)" % [txt, rank]
+		rows.append({"label": d[0], "a": f.call(agg[a]), "b": f.call(agg[b]), "a_text": fmt.call(a), "b_text": fmt.call(b), "lower": lower})
 	return rows
 
 
@@ -743,11 +840,21 @@ func _avg(t: Team, f: Callable) -> int:
 	return roundi(total / list.size())
 
 
-func _compare_bar(title: String, ours: int, theirs: int, c1: Color, c2: Color) -> Control:
+func compare_bar(row: Dictionary, c1: Color, c2: Color) -> Control:
+	var title: String = row["label"]
+	var lower: bool = row["lower"]
+	var ours := float(row["a"])
+	var theirs := float(row["b"])
+	var ours_better := ours <= theirs if lower else ours >= theirs
+	var theirs_better := theirs <= ours if lower else theirs >= ours
+	if lower:
+		var tmp := ours
+		ours = theirs
+		theirs = tmp
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 8)
-	var l := UiKit.label(str(ours), 16, Color.WHITE if ours >= theirs else UiKit.MUTED)
-	l.custom_minimum_size.x = 30
+	var l := UiKit.label(row["a_text"], 16, Color.WHITE if ours_better else UiKit.MUTED)
+	l.custom_minimum_size.x = 92
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	h.add_child(l)
 	var mid := VBoxContainer.new()
@@ -773,8 +880,8 @@ func _compare_bar(title: String, ours: int, theirs: int, c1: Color, c2: Color) -
 	bar.add_child(right)
 	mid.add_child(bar)
 	h.add_child(mid)
-	var r := UiKit.label(str(theirs), 16, Color.WHITE if theirs >= ours else UiKit.MUTED)
-	r.custom_minimum_size.x = 30
+	var r := UiKit.label(row["b_text"], 16, Color.WHITE if theirs_better else UiKit.MUTED)
+	r.custom_minimum_size.x = 92
 	h.add_child(r)
 	return h
 
@@ -1000,15 +1107,15 @@ func _team_sections() -> Array:
 func _league_sections() -> Array:
 	return [
 		["SEASON", [
-			UiKit.tile("Standings", _mini_standings(), TILE, Color("#a855f7"), open_standings),
+			UiKit.tile("Standings", _mini_standings(), TALL, Color("#a855f7"), open_standings),
 			UiKit.tile("Schedule", "Full league schedule by week.", TILE, Color("#6366f1"),
 				func(): open("Scores & Schedule", func(): return pages.scores(clampi(season.week, 1, season.total_weeks())))),
 			UiKit.tile("Scores", "Results from around the league.", TILE, UiKit.INFO,
 				func(): open("Scores & Schedule", func(): return pages.scores(_last_week_with_results()))),
-			UiKit.tile("Playoff Picture", _playoff_blurb(), TILE, Color("#f43f5e"), func(): open("Playoff Picture", pages.playoffs)),
+			UiKit.tile("Playoff Picture", _playoff_blurb(), TALL, Color("#f43f5e"), func(): open("Playoff Picture", pages.playoffs)),
 		]],
 		["STATS", [
-			UiKit.tile("League Leaders", _leader_blurb(), TILE, Color("#eab308"), func(): open("League Leaders", pages.leaders)),
+			UiKit.tile("League Leaders", _leader_blurb(), TALL, Color("#eab308"), func(): open("League Leaders", pages.leaders)),
 			UiKit.tile("League Stats", "Every soldier's season stats, sortable by any column.", TILE, Color("#0ea5e9"), func(): open("League Stats", pages.league_stats)),
 			UiKit.tile("Team Stats", "Every team's season totals: K/D, damage, accuracy, hill time.", TILE, Color("#10b981"), func(): open("League Team Stats", pages.league_team_stats)),
 			UiKit.tile("Team Rankings", "Every team by OVR and record.", TILE, Color("#22c55e"), func(): open("Team Rankings", pages.team_rankings)),
@@ -1220,7 +1327,7 @@ func _mini_standings() -> String:
 		var row: StandingRow = rows[i]
 		var c := "white" if row.team.user_controlled else "#8b97ab"
 		lines.append("[color=%s]%d. %s  %d-%d[/color]" % [c, i + 1, row.team.abbrev, row.wins, row.losses])
-	return "\n".join(lines)
+	return "[font_size=15]%s[/font_size]" % "\n".join(lines)
 
 
 func _headline() -> String:
@@ -1236,9 +1343,32 @@ func _leader_blurb() -> String:
 	var top := pages.season_totals()
 	if top.is_empty():
 		return "Kills, assists and damage leaders."
-	top.sort_custom(func(a, b): return a["kills"] > b["kills"])
-	var s: Soldier = top[0]["soldier"]
-	return "Kills leader:\n[color=white]%s[/color] (%s)  %d K" % [UiKit.esc(s.full_name()), top[0]["team"].abbrev, top[0]["kills"]]
+	# Rate stats need a real sample: at least half the games of the busiest player.
+	var most := 0
+	for t in top:
+		most = maxi(most, int(t["matches"]))
+	var qualified := top.filter(func(t): return int(t["matches"]) * 2 >= most)
+	var cats: Array = [
+		["K", top, func(t): return float(t["kills"]), func(t): return str(t["kills"])],
+		["A", top, func(t): return float(t["assists"]), func(t): return str(t["assists"])],
+		["CAP", top, func(t): return float(t["caps"]), func(t): return str(t["caps"])],
+		["K/D", qualified, func(t): return float(t["kills"]) / maxi(1, int(t["deaths"])), func(t): return "%.2f" % (float(t["kills"]) / maxi(1, int(t["deaths"])))],
+		["HIT%", qualified, func(t): return float(t["hits"]) / maxi(1, int(t["shots"])), func(t): return "%d%%" % roundi(100.0 * t["hits"] / maxi(1, int(t["shots"])))],
+	]
+	var lines: Array[String] = []
+	for c in cats:
+		var pool: Array = c[1]
+		if pool.is_empty():
+			continue
+		var f: Callable = c[2]
+		var best: Dictionary = pool[0]
+		for t in pool:
+			if f.call(t) > f.call(best):
+				best = t
+		var so: Soldier = best["soldier"]
+		lines.append("[color=#8b97ab]%s[/color]  [color=white]%s[/color] %s  [color=#eab308]%s[/color]" % [
+			c[0], UiKit.esc(so.callsign), best["team"].abbrev, c[3].call(best)])
+	return "[font_size=15]%s[/font_size]" % "\n".join(lines)
 
 
 func _awards_blurb() -> String:

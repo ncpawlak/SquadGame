@@ -32,9 +32,18 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   franchise). Team OVRs start from 93 (New York Empire) down to 70 (Little Rock Riverhawks). Every team has the same
   cap, so payrolls (and cap space) differ. `tools/build_league.gd` regenerates `league.json` from the table in
   `league_data.gd` with one fixed seed (only needed if the table changes).
+  **Rating shape**: every player has a role-driven profile - one signature group above the rest, his role's core
+  groups at his level and one or two clear holes - so nobody is 90+ in every group and 99s are rare. Players
+  21 and under start mostly in the low 60s to mid 70s (a couple of story prodigies excepted); ratings climb
+  toward a 26-30 prime, which is where most of the league's best players sit.
+- **Header**: **Sim To** (next to Advance, in season) sims ahead to the next week, the trade deadline, the end of
+  the regular season or the end of the season, stopping early if your roster needs fixing.
+- **Home tiles**: full-height division standings, a **League Leaders** tile with the leader in kills, assists,
+  captures, K/D and hit% (rate stats need half the games of the most-played player), and the playoff picture.
 - **Team select**: a big pane on top shows the hovered/focused team - logo in its colours, division, OVR and
-  preseason rank, cap space, average age, expectation, backstory, starters' average group ratings and its top 3
-  players - over 4 division rows of 5 team buttons. Click to start.
+  preseason rank, cap space, average age, expectation, backstory (a fixed 5-line box), starters' average group
+  ratings and its top 3 players in the team's uniform - over 4 division rows of 5 team tiles (name and a big OVR).
+  Click to start.
 - **Season loop** (`scripts/season/`): 12 weeks. Each team plays its 4 division rivals home and away (8), one team
   from each other division (3) and has one **bye**. The **playoffs** take 8 teams: the 4 division winners are seeds
   1-4 (by record), then the 4 best other records are wild cards 5-8. Bracket 1v8, 4v5, 2v7, 3v6 (no reseeding),
@@ -76,8 +85,8 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   - Injury: Glass, Fragile, Durable, Sturdy, Iron Man
 
   Grade thresholds: below 58, 58-67, 68-76, 77-85, 86+.
-  **Area scouts** give every prospect a coarse **AREA** grade (A, B+, B, C+, C, D, F; noisy, from his true
-  quality) - a cheap first sort of the big class. Once a season you can send a **region scout** trip (East, South,
+  **Area scouts** give every prospect a free, coarse **SCOUT** grade (A, B+, B, C+, C, D, F; noisy, from his
+  true quality - hover it for the explanation) - a cheap first sort of the big class. Once a season you can send a **region scout** trip (East, South,
   Central, West): every available prospect from that region gets 4 free points. **Auto-scout** spends your points
   for you: "Up to 3" gives everyone a first look, "Up to 6" deepens those already at 3 - favorites first, then
   the big board. Star a prospect to make him a **favorite**; the list filters by region and favorites.
@@ -311,10 +320,13 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
   - XP from matches and weekly training gives skill points (SP): every 500 XP (+150 per batch) = 3 SP.
     Levels are internal; the UI shows an XP bar toward the next SP.
   - SP buy +1 to a whole group. That spreads N points (N = stats in the group) randomly across the group, at most +2 per stat.
-  - Cost rises with the group rating: 2 SP below 60, up to 6 SP at 90+.
+  - Cost rises with the group rating: 1 SP below 60, 2 below 80, 3 below 90, 4 below 95, 6 at 95+. Stats already
+    94+ are 4× less likely to receive upgrade points, so 99s stay rare.
+  - Only a soldier's two highest group caps may exceed 89 (`PlayerGenerator.limit_elite_caps`), so even
+    superstars keep a hole or two.
   - **XP gain scales with age AND potential** (`AGE_POTENTIAL_XP`), tuned for these season OVR gains (before age
     decline): 19-22 A +5-7 / B +3-4 / C +1-2 / D-F 0-1; 23-26 A +3-4 / B +2-3 / C +1; 27-30 A +1-2 / B +1;
-    31-33 A +1-3 / B 0-1; 34+ A 0-1. Good seasons push a soldier toward the top of his range.
+    31-33 small; 34+ next to none. Good seasons push a soldier toward the top of his range.
   - **Potential** is an A–F grade, rolled by age (young players skew higher); draft phenoms are A (sometimes B).
   - Each group has a hidden cap (CFB27 style). Headroom comes from age, is multiplied by the potential grade
     (A 1.7× … F 0.4×) and by a random per-group factor, so a high grade means more room overall but which
@@ -324,8 +336,9 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
     age 30–32 50% chance of −1, 33+ −1 (award winners exempt). Max ±2 a year. Each step up adds 2–6 to a
     random group's cap; each step down removes 2–6 (never below the current rating).
   - **Aging** (scripts/sim/aging.gd): everyone ages a year each offseason. Past a group's peak age
-    (Physicality 28, Injury 29, Accuracy 31, Handling 32, Objective 33, Mentality 34) its stats drop each year, ~1 per stat
-    the first year and faster after (up to 6). Caps drop with them.
+    (Physicality 28, Injury 29, Accuracy 30, Handling 31, Objective 31, Mentality 33) its stats drop each year, ~1 per stat
+    the first year and faster after (+0.75 a year, up to 6). Caps drop with them. Cap headroom also runs out
+    earlier (physical ~28, skills ~30, mentality ~33), so most players peak between 26 and 30.
   - AI teams spend their points automatically, favouring groups their role uses (`scripts/sim/progression.gd`).
 - **Training intensity** (`scripts/sim/training.gd`), per soldier, per week:
   - Rest: 0.25× XP (film study), extra recovery. Injured soldiers also get film-study XP.

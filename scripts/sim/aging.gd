@@ -8,10 +8,10 @@ extends RefCounted
 const PEAK_AGE := {
 	Stats.PHYSICALITY: 28,
 	Stats.DURABILITY: 29,
-	Stats.ACCURACY: 31,
-	Stats.HANDLING: 32,
-	Stats.MENTALITY: 34,
-	Stats.OBJECTIVE: 33,
+	Stats.ACCURACY: 30,
+	Stats.HANDLING: 31,
+	Stats.MENTALITY: 33,
+	Stats.OBJECTIVE: 31,
 }
 const MAX_LOSS_PER_STAT := 6
 
@@ -20,7 +20,7 @@ const MAX_LOSS_PER_STAT := 6
 static func decline_rate(years_past: int) -> float:
 	if years_past <= 0:
 		return 0.0
-	return minf(1.0 + 0.5 * (years_past - 1), float(MAX_LOSS_PER_STAT))
+	return minf(1.0 + 0.75 * (years_past - 1), float(MAX_LOSS_PER_STAT))
 
 
 ## Ages one soldier by a year. Returns {soldier, age, changes: group -> rating change (<= 0)}.

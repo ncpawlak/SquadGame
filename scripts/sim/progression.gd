@@ -6,7 +6,8 @@ extends RefCounted
 ##   grows several OVR a season, a veteran barely moves; age decline still applies on top.
 ## - Every xp_to_next() XP grants SKILL_POINTS_PER_LEVEL SP (levels are internal, not shown).
 ## - Upgrading a group raises its rating (the average of its stats) by 1: the group's N stats
-##   receive N points, handed out one at a time at random (max +2 per stat per upgrade, 99 max).
+##   receive N points, handed out one at a time at random (max +2 per stat per upgrade, 99 max;
+##   stats already 94+ are much less likely to get them, so 99s stay rare).
 ## - Cost scales with the group's current rating. A group can't be upgraded past its cap.
 
 const SKILL_POINTS_PER_LEVEL := 3
@@ -25,9 +26,9 @@ const MVP_XP := 75.0
 const AGE_POTENTIAL_XP := [
 	[22, [0.2, 0.3, 0.75, 2.6, 7.5]],
 	[26, [0.1, 0.15, 0.5, 1.7, 2.5]],
-	[30, [0.05, 0.1, 0.2, 0.6, 1.3]],
-	[33, [0.05, 0.05, 0.15, 0.5, 1.2]],
-	[99, [0.05, 0.05, 0.05, 0.15, 0.5]],
+	[30, [0.05, 0.1, 0.2, 0.5, 1.0]],
+	[33, [0.05, 0.05, 0.1, 0.25, 0.5]],
+	[99, [0.05, 0.05, 0.05, 0.1, 0.25]],
 ]
 
 
@@ -56,7 +57,9 @@ static func group_cost(group_rating: int) -> int:
 		return 2
 	if group_rating < 90:
 		return 3
-	return 4
+	if group_rating < 95:
+		return 4
+	return 6
 
 
 static func upgrade_cost(soldier: Soldier, group: StringName) -> int:
@@ -122,13 +125,27 @@ static func upgrade_group(soldier: Soldier, group: StringName, rng: RandomNumber
 				open.append(s)
 		if open.is_empty():
 			break
-		var pick: StringName = open[rng.randi_range(0, open.size() - 1)]
+		var pick := pick_gain_stat(open, func(s): return soldier.stats[s] + gains[s], rng)
 		gains[pick] += 1
 	var ovr_before := soldier.best_ovr()
 	for s in members:
 		soldier.stats[s] += gains[s]
 	soldier.log_progress("Level up (skill points)", gains, ovr_before)
 	return gains
+
+
+## Picks which stat gets the next upgrade point: stats already 94+ are 4x less likely.
+## `value_of(stat)` returns the stat's current value (including points handed out so far).
+static func pick_gain_stat(open: Array, value_of: Callable, rng: RandomNumberGenerator) -> StringName:
+	var total := 0.0
+	for s in open:
+		total += 1.0 if value_of.call(s) < 94 else 0.25
+	var roll := rng.randf() * total
+	for s in open:
+		roll -= 1.0 if value_of.call(s) < 94 else 0.25
+		if roll <= 0.0:
+			return s
+	return open[-1]
 
 
 ## How much a group matters to a role's OVR: the sum of the role's weights on its stats

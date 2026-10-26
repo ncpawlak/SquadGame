@@ -172,6 +172,7 @@ static func set_potential(so: Soldier, grade: int, rng: RandomNumberGenerator) -
 		var g: StringName = Stats.UPGRADABLE_GROUPS[rng.randi_range(0, Stats.UPGRADABLE_GROUPS.size() - 1)]
 		var amount := rng.randi_range(2, 6) * signi(steps)
 		so.group_caps[g] = clampi(so.group_cap(g) + amount, so.group_rating(g), Stats.MAX_RATING)
+	PlayerGenerator.limit_elite_caps(so)
 
 
 func award_for(so: Soldier) -> Array:

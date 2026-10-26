@@ -116,14 +116,7 @@ func show_team_select() -> void:
 		for t: Team in div_teams:
 			var idx := preview.league.teams.find(t)
 			var rank := ranked.find(t) + 1
-			var b := Button.new()
-			b.custom_minimum_size = Vector2(0, 64)
-			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			b.text = "%s   %d" % [t.name, t.team_ovr()]
-			b.clip_text = true
-			b.add_theme_font_size_override("font_size", 16)
-			UiKit.style_button(b, t.color.darkened(0.35), t.color2, 8)
-			b.add_theme_color_override("font_color", Color.WHITE)
+			var b := _team_tile(t)
 			var show := func(): _fill_team_pane(pane, preview, t, rank, ranked.size())
 			b.mouse_entered.connect(show)
 			b.focus_entered.connect(show)
@@ -134,6 +127,33 @@ func show_team_select() -> void:
 		grid.add_child(line)
 	_fill_team_pane(pane, preview, ranked[0], 1, ranked.size())
 	_set_screen(margin)
+
+
+## A team-select tile: name on a team-colored card with the OVR in the pane's big number style.
+func _team_tile(t: Team) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(0, 92)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.clip_text = true
+	UiKit.style_button(b, t.color.darkened(0.35), t.color2, 8)
+	var col := VBoxContainer.new()
+	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 8)
+	col.add_theme_constant_override("separation", -4)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	var nm := UiKit.label(t.name, 15, Color.WHITE)
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nm.clip_text = true
+	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(nm)
+	var ovr := UiKit.label(str(t.team_ovr()), 46, UiKit.ovr_color(t.team_ovr()))
+	ovr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ovr.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	ovr.add_theme_constant_override("outline_size", 6)
+	ovr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(ovr)
+	b.add_child(col)
+	return b
 
 
 ## The big team-select pane: identity, OVR, backstory, average group ratings and the top 3 players.
@@ -180,6 +200,11 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 	hb.add_child(mid)
 	var story := UiKit.label(t.backstory, 17, UiKit.TEXT)
 	story.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	# Fixed 5-line box so hovering teams with longer stories doesn't resize the pane.
+	story.custom_minimum_size.y = 24 * 5
+	story.max_lines_visible = 5
+	story.clip_text = true
+	story.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	mid.add_child(story)
 	mid.add_child(UiKit.label("STARTERS' AVERAGE GROUP RATINGS", 13, UiKit.MUTED))
 	var starters := t.starters()
@@ -220,13 +245,14 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 	for s: Soldier in best.slice(0, 3):
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
-		row.add_child(Portrait.new(s, 58))
+		row.add_child(Portrait.new(s, 58, t.color2, t))
 		var info := VBoxContainer.new()
 		info.add_theme_constant_override("separation", 0)
 		info.add_child(UiKit.label(s.full_name(), 17, Color.WHITE))
 		info.add_child(UiKit.rich("[color=%s]%d OVR[/color]  [color=#8b97ab]%s  -  age %d[/color]" % [
 			UiKit.hex(UiKit.ovr_color(s.best_ovr())), s.best_ovr(), Scheme.ROLE_NAMES[Scheme.best_role(s.stats)], s.age], 14))
 		info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(info)
 		top_col.add_child(row)
 
