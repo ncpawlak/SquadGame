@@ -28,25 +28,68 @@ func _row(sep := 12) -> HBoxContainer:
 
 # --- standings / schedule / scores ------------------------------------------------
 
+## "div" = one table per division, "league" = the whole league in one table.
+var standings_view := "div"
+
+
 func standings() -> Control:
 	var s := _season()
 	var v := _vbox()
-	v.add_child(_section("%s  -  %d SEASON  -  top %d qualify for the playoffs" % [Season.DIVISION_NAME.to_upper(), s.year, Season.PLAYOFF_TEAMS]))
+	var field := s.playoff_field()
+	var seeds := {}
+	for i in field.size():
+		seeds[field[i]] = i + 1
+	var n_div := s.divisions().size()
+	if s.has_divisions():
+		var nav := _row()
+		for o in [["div", "Divisions"], ["league", "Whole league"]]:
+			var val: String = o[0]
+			var b := UiKit.button(("[ %s ]" % o[1]) if standings_view == val else o[1], func():
+				standings_view = val
+				hub.replace("Standings", standings), 15)
+			b.custom_minimum_size.x = 150
+			nav.add_child(b)
+		v.add_child(nav)
+		v.add_child(_section("%d SEASON  -  the %d division winners plus %d wild cards make the playoffs  -  SEED = if the season ended today" % [
+			s.year, n_div, s.playoff_teams - n_div]))
+		if standings_view == "div":
+			for d in s.divisions():
+				v.add_child(_section(d.to_upper() + " DIVISION"))
+				v.add_child(_standings_table(s.division_standings(d), seeds, true))
+		else:
+			v.add_child(_standings_table(s.standings(), seeds, false))
+	else:
+		v.add_child(_section("%s  -  %d SEASON  -  top %d qualify for the playoffs" % [Season.DIVISION_NAME.to_upper(), s.year, s.playoff_teams]))
+		v.add_child(_standings_table(s.standings(), seeds, false))
+	v.add_child(UiKit.label("Matches are best of 3 (TDM, King of the Hill, TDM Sudden Death). Tiebreakers: head-to-head, division record, game differential, then TDM point differential. Click a team for its roster.", 13, UiKit.MUTED))
+	return v
+
+
+## One standings table. `div_rank`: number rows within the table instead of league rank.
+func _standings_table(table_rows: Array, seeds: Dictionary, div_rank: bool) -> Control:
+	var s := _season()
 	var rows: Array = []
 	var hl := {}
 	var colors := {}
-	var table_rows: Array = s.standings()
+	var n_div := s.divisions().size() if s.has_divisions() else 0
 	for i in table_rows.size():
 		var r: StandingRow = table_rows[i]
-		rows.append([r.rank, r.team.name, r.wins, r.losses, "%.3f" % r.win_pct(), r.games_won, r.games_lost,
-			("%+d" % r.game_diff()), ("%+d" % r.point_diff()), r.streak, r.last5 if r.last5 != "" else "-", r.team.team_ovr()])
+		var seed := int(seeds.get(r.team, 0))
+		var seed_text := "-"
+		if seed > 0:
+			seed_text = "%d%s" % [seed, (" DIV" if seed <= n_div else " WC") if n_div > 0 else ""]
+		rows.append([i + 1 if div_rank else r.rank, r.team.name, r.wins, r.losses, "%.3f" % r.win_pct(),
+			"%d-%d" % [r.div_wins, r.div_losses] if n_div > 0 else "-", r.games_won, r.games_lost,
+			("%+d" % r.game_diff()), ("%+d" % r.point_diff()), r.streak, r.last5 if r.last5 != "" else "-", r.team.team_ovr(), seed_text])
 		if r.team.user_controlled:
 			hl[i] = r.team.color.darkened(0.6)
-		colors[i] = {0: Color.WHITE if r.rank <= Season.PLAYOFF_TEAMS else UiKit.MUTED, 7: UiKit.GOOD if r.game_diff() > 0 else (UiKit.BAD if r.game_diff() < 0 else UiKit.TEXT)}
-	v.add_child(UiKit.table(["#", "TEAM", "W", "L", "PCT", "GW", "GL", "G DIFF", "PTS DIFF", "STRK", "LAST 5", "OVR"], rows,
-		[30, 260, 50, 50, 70, 50, 50, 70, 80, 60, 90, 50], hl, colors))
-	v.add_child(UiKit.label("Matches are best of 3 (TDM, King of the Hill, TDM Sudden Death). Tiebreakers: head-to-head, then game differential, then TDM point differential.", 13, UiKit.MUTED))
-	return v
+		colors[i] = {0: Color.WHITE if seed > 0 else UiKit.MUTED, 8: UiKit.GOOD if r.game_diff() > 0 else (UiKit.BAD if r.game_diff() < 0 else UiKit.TEXT),
+			13: UiKit.ACCENT if seed > 0 and seed <= n_div else (UiKit.INFO if seed > 0 else UiKit.MUTED)}
+	return UiKit.table(["#", "TEAM", "W", "L", "PCT", "DIV", "GW", "GL", "G DIFF", "PTS DIFF", "STRK", "LAST 5", "OVR", "SEED"], rows,
+		[30, 250, 44, 44, 64, 56, 44, 44, 64, 76, 56, 80, 46, 70], hl, colors,
+		func(i: int):
+			var t: Team = (table_rows[i] as StandingRow).team
+			hub.open(t.name, func(): return team_roster(t)))
 
 
 func schedule() -> Control:
@@ -64,7 +107,7 @@ func schedule() -> Control:
 			if x.involves(team):
 				m = x
 		if m == null:
-			if w <= Season.REGULAR_WEEKS and s.bye_team(w) == team:
+			if s.is_bye(team, w):
 				rows.append([s.week_label(w), "BYE", "", "", ""])
 				colors[rows.size() - 1] = {1: UiKit.MUTED}
 				targets.append(null)
@@ -112,8 +155,9 @@ func scores(w: int) -> Control:
 		v.add_child(UiKit.label("Matchups not set yet - decided by earlier playoff results.", 16, UiKit.MUTED))
 	for m in matches:
 		v.add_child(_score_card(m))
-	if w <= Season.REGULAR_WEEKS and s.bye_team(w):
-		v.add_child(UiKit.label("BYE: %s" % s.bye_team(w).name, 15, UiKit.MUTED))
+	var byes: Array = s.bye_teams(w)
+	if not byes.is_empty():
+		v.add_child(UiKit.label("BYE: %s" % ", ".join(PackedStringArray(byes.map(func(t: Team): return t.name))), 15, UiKit.MUTED))
 	return v
 
 
@@ -400,7 +444,7 @@ func progression() -> Control:
 ## Column sort per table mode: mode -> [key, descending].
 var _sort := {}
 const DEFAULT_SORT := {&"roster": [&"slot", false], &"progress": [&"sp", true], &"fa": [&"ovr", true], &"contracts": [&"salary", true], &"drill": [&"ovr", true],
-	&"team_stats": [&"kills", true], &"league_stats": [&"kills", true], &"prospects": [&"proj", true]}
+	&"team_stats": [&"kills", true], &"league_stats": [&"kills", true], &"prospects": [&"proj", true], &"league_teams": [&"w", true]}
 
 
 func _sort_state(mode: StringName) -> Array:
@@ -413,7 +457,7 @@ func _set_sort(mode: StringName, key: StringName) -> void:
 		_sort[mode] = [key, not cur[1]]
 	else:
 		# Names and lineup slots read best ascending; everything else best-first.
-		_sort[mode] = [key, not (key in [&"name", &"slot", &"age", &"team", &"role"])]
+		_sort[mode] = [key, not (key in [&"name", &"slot", &"age", &"team", &"role", &"div"])]
 
 
 func _sort_value(s: Soldier, key: StringName, team: Team) -> Variant:
@@ -1266,7 +1310,10 @@ func _dna_panel(s: Soldier, team: Team) -> Control:
 	var v := _vbox(8)
 	v.add_child(_section("WHAT DRIVES HIM  -  %s" % d.headline().to_upper()))
 	for m in d.ranked():
-		v.add_child(_meter(String(Dna.LABELS[m]).to_upper(), d.value(m), 99, UiKit.ACCENT if d.value(m) >= 60 else UiKit.ACCENT.darkened(0.45), "%d  -  %s" % [d.value(m), Dna.BLURBS[m]], 130))
+		var blurb: String = Dna.BLURBS[m]
+		if m == &"hometown" and s.home_state != "":
+			blurb += " (%s, %s region)" % [LeagueData.state_name(s.home_state), LeagueData.region_of(s.home_state)]
+		v.add_child(_meter(String(Dna.LABELS[m]).to_upper(), d.value(m), 99, UiKit.ACCENT if d.value(m) >= 60 else UiKit.ACCENT.darkened(0.45), "%d  -  %s" % [d.value(m), blurb], 130))
 	v.add_child(_section("PERSONALITY"))
 	v.add_child(_meter("TEMPERAMENT", d.temperament, 99, UiKit.INFO, "%d  -  %s (low = takes hard bargaining and broken promises personally)" % [d.temperament, d.temperament_label()], 130))
 	v.add_child(_meter("SAVVY", d.savvy, 99, UiKit.INFO, "%d  -  %s (high = sees through weak arguments, holds a higher floor)" % [d.savvy, d.savvy_label()], 130))
@@ -1857,42 +1904,154 @@ func leaders() -> Control:
 func playoffs() -> Control:
 	var s := _season()
 	var v := _vbox(16)
+	var first_week := s.regular_weeks + 1
+	var n_div := s.divisions().size() if s.has_divisions() else 0
 	if s.phase == Season.PHASE_REGULAR:
-		v.add_child(_section("IF THE SEASON ENDED TODAY"))
-		var rows: Array = s.standings()
-		var seeds: Array = rows.slice(0, Season.PLAYOFF_TEAMS)
-		for pair in [[0, 3], [1, 2]]:
-			var a: StandingRow = seeds[pair[0]]
-			var b: StandingRow = seeds[pair[1]]
+		var field := s.playoff_field()
+		v.add_child(_section("IF THE SEASON ENDED TODAY  -  %s" % (
+			"%d division winners (seeds 1-%d) + %d wild cards" % [n_div, n_div, s.playoff_teams - n_div] if n_div > 0 else "top %d" % s.playoff_teams)))
+		var order := Season.bracket_order(field.size())
+		for k in order.size() / 2:
 			var p := UiKit.panel(UiKit.PANEL, 10)
-			p.add_child(UiKit.rich("SEMIFINAL   [color=white](%d) %s  %d-%d[/color]   vs   [color=white](%d) %s  %d-%d[/color]" % [
-				a.rank, UiKit.esc(a.team.name), a.wins, a.losses, b.rank, UiKit.esc(b.team.name), b.wins, b.losses], 18))
+			var parts: Array[String] = []
+			for sd in [order[2 * k], order[2 * k + 1]]:
+				var t: Team = field[sd - 1]
+				parts.append("[color=white](%d) %s  %s[/color]%s" % [sd, UiKit.esc(t.name), s.record_text(t),
+					(" [color=%s]%s[/color]" % [UiKit.hex(UiKit.ACCENT), s.division_of(t).to_upper() + " LEADER"]) if sd <= n_div else ""])
+			p.add_child(UiKit.rich("%s   %s   vs   %s" % [s.week_label(first_week).to_upper(), parts[0], parts[1]], 17))
 			v.add_child(p)
 		var out: Array[String] = []
-		for r in rows.slice(Season.PLAYOFF_TEAMS):
-			out.append("%s (%d-%d)" % [r.team.name, r.wins, r.losses])
-		v.add_child(UiKit.label("On the outside: " + ", ".join(out), 16, UiKit.MUTED))
-		v.add_child(UiKit.label("Semifinals in week %d, the Final in week %d." % [Season.REGULAR_WEEKS + 1, Season.REGULAR_WEEKS + 2], 14, UiKit.MUTED))
+		for r in s.standings():
+			if not field.has(r.team) and out.size() < 6:
+				out.append("%s (%s)" % [r.team.name, s.record_text(r.team)])
+		v.add_child(UiKit.label("In the hunt: " + ", ".join(out), 16, UiKit.MUTED))
+		var stages: Array[String] = []
+		for w in range(first_week, s.total_weeks() + 1):
+			stages.append("%s in week %d" % [s.week_label(w), w])
+		v.add_child(UiKit.label(", ".join(stages) + ". The better seed is at home; the bracket is fixed (no reseeding).", 14, UiKit.MUTED))
 		return v
 	v.add_child(_section("%d PLAYOFF BRACKET" % s.year))
-	var bracket := _row(30)
-	var semis := _vbox(20)
-	var finals := _vbox(20)
-	finals.alignment = BoxContainer.ALIGNMENT_CENTER
-	for m in s.playoff_matches:
-		var card := _score_card(m)
-		card.custom_minimum_size = Vector2(480, 150)
-		if m.stage == Season.STAGE_FINAL:
-			finals.add_child(card)
-		else:
-			semis.add_child(card)
-	if finals.get_child_count() == 0:
-		finals.add_child(UiKit.label("FINAL\nWinners of the semifinals", 18, UiKit.MUTED))
-	bracket.add_child(semis)
-	bracket.add_child(finals)
+	var bracket := _row(24)
+	for r in s.playoff_rounds():
+		var w := first_week + r
+		var col := _vbox(16)
+		col.alignment = BoxContainer.ALIGNMENT_CENTER
+		col.add_child(_section(s.week_label(w).to_upper()))
+		var ms: Array = s.matches_for_week(w)
+		for m in ms:
+			col.add_child(_bracket_card(m))
+		for i in range(ms.size(), maxi(1, s.playoff_teams >> (r + 1))):
+			var ph := UiKit.panel(UiKit.PANEL, 10)
+			ph.custom_minimum_size = Vector2(330, 120)
+			ph.add_child(UiKit.label("TBD", 18, UiKit.MUTED))
+			col.add_child(ph)
+		bracket.add_child(col)
 	v.add_child(bracket)
 	if s.champion:
 		v.add_child(UiKit.rich("[font_size=34][color=#f59e0b]CHAMPIONS: %s[/color][/font_size]" % UiKit.esc(s.champion.name), 18))
+	return v
+
+
+## A bracket slot: seeds, names and series score (better seed on top).
+func _bracket_card(m: ScheduledMatch) -> Button:
+	var s := _season()
+	var body := ""
+	for t in [m.home, m.away]:
+		var won: bool = m.is_played() and m.winner() == t
+		body += "[color=%s](%d) %s[/color]   [color=%s]%s[/color]\n" % [
+			"white" if (won or not m.is_played()) else "#8b97ab", int(s.playoff_seeds.get(t, 0)), UiKit.esc(t.name), UiKit.hex(UiKit.ACCENT),
+			str(m.games_for(t)) if m.is_played() else s.record_text(t)]
+	body += ("[font_size=13]%s[/font_size]" % _games_brief(m.result)) if m.is_played() else "Upcoming"
+	var accent := m.home.color if not m.is_played() else m.winner().color
+	return UiKit.tile(s.week_label(m.week), body, Vector2(330, 120), accent,
+		func():
+			if m.is_played():
+				hub.open("Match Recap", func(): return recap(m))
+			else:
+				hub.open("Match Preview", func(): return preview(m)))
+
+
+## League-wide team stats this season (regular season and playoffs), sortable.
+func league_team_stats() -> Control:
+	var s := _season()
+	var v := _vbox()
+	var agg := {}
+	for t in s.league.teams:
+		agg[t] = {"team": t, "gp": 0, "w": 0, "l": 0, "gw": 0, "gl": 0, "pf": 0, "pa": 0, "kills": 0, "deaths": 0, "assists": 0,
+			"damage": 0.0, "shots": 0, "hits": 0, "headshots": 0, "saves": 0, "wipes": 0, "hill_s": 0.0, "caps": 0}
+	var all: Array = s.regular_matches() + s.playoff_matches
+	for m: ScheduledMatch in all:
+		if not m.is_played():
+			continue
+		for t: Team in [m.home, m.away]:
+			var a: Dictionary = agg[t]
+			var opp := m.opponent_of(t)
+			a["gp"] += 1
+			a["w" if m.winner() == t else "l"] += 1
+			a["gw"] += m.games_for(t)
+			a["gl"] += m.games_for(opp)
+			a["pf"] += m.points_for(t)
+			a["pa"] += m.points_for(opp)
+		for id in m.result.box:
+			var line: Dictionary = m.result.box[id]
+			var t: Team = m.result.teams[int(line["team"])]
+			if not agg.has(t):
+				continue
+			var a: Dictionary = agg[t]
+			for k in ["kills", "deaths", "assists", "damage", "shots", "hits", "headshots", "saves", "wipes", "hill_s", "caps"]:
+				a[k] += line.get(k, 0)
+	var list: Array = agg.values()
+	var cols: Array = [["TEAM", 230, &"name"], ["DIV", 70, &"div"], ["GP", 40, &"gp"], ["W-L", 60, &"w"], ["GW-GL", 70, &"gw"], ["PF", 50, &"pf"], ["PA", 50, &"pa"],
+		["K", 52, &"kills"], ["D", 52, &"deaths"], ["K/D", 50, &"kd"], ["A", 52, &"assists"], ["DMG/G", 64, &"dmg_g"], ["HIT%", 52, &"hit"],
+		["HS%", 50, &"hs"], ["SAVES", 54, &"saves"], ["WIPES", 54, &"wipes"], ["HILL/G", 62, &"hill_g"], ["CAPS", 48, &"caps"], ["OVR", 44, &"ovr"]]
+	var st := _sort_state(&"league_teams")
+	var key: StringName = st[0]
+	var desc: bool = st[1]
+	var val := func(a: Dictionary, k: StringName) -> Variant:
+		match k:
+			&"name": return (a["team"] as Team).name
+			&"div": return s.division_of(a["team"])
+			&"kd": return float(a["kills"]) / maxi(1, int(a["deaths"]))
+			&"dmg_g": return float(a["damage"]) / maxi(1, int(a["gp"]))
+			&"hit": return float(a["hits"]) / maxi(1, int(a["shots"]))
+			&"hs": return float(a["headshots"]) / maxi(1, int(a["hits"]))
+			&"hill_g": return float(a["hill_s"]) / maxi(1, int(a["gp"]))
+			&"ovr": return (a["team"] as Team).team_ovr()
+		return a.get(String(k), 0)
+	list.sort_custom(func(a: Dictionary, b: Dictionary):
+		var va: Variant = val.call(a, key)
+		var vb: Variant = val.call(b, key)
+		if va == vb:
+			return (a["team"] as Team).id < (b["team"] as Team).id
+		return va > vb if desc else va < vb)
+	var rows: Array = []
+	var hl := {}
+	var colors := {}
+	for i in list.size():
+		var a: Dictionary = list[i]
+		var t: Team = a["team"]
+		rows.append([t.name, s.division_of(t), a["gp"], "%d-%d" % [a["w"], a["l"]], "%d-%d" % [a["gw"], a["gl"]], a["pf"], a["pa"],
+			a["kills"], a["deaths"], "%.2f" % val.call(a, &"kd"), a["assists"], int(val.call(a, &"dmg_g")), "%d%%" % roundi(100.0 * val.call(a, &"hit")),
+			"%d%%" % roundi(100.0 * val.call(a, &"hs")), a["saves"], a["wipes"], MatchEngine._fmt_secs(val.call(a, &"hill_g")), a["caps"], t.team_ovr()])
+		colors[i] = {0: Color.WHITE}
+		if t.user_controlled:
+			hl[i] = t.color.darkened(0.6)
+	v.add_child(UiKit.label("Season totals for every team (regular season + playoffs). PF/PA = TDM points. Click a column to sort; click a team for its roster.", 15, UiKit.MUTED))
+	var headers: Array = []
+	var widths: Array = []
+	for c in cols:
+		headers.append(c[0])
+		widths.append(c[1])
+	var table := UiKit.table(headers, rows, widths, hl, colors, func(i: int):
+		var t: Team = list[i]["team"]
+		hub.open(t.name, func(): return team_roster(t)))
+	var old_header := table.get_child(0)
+	table.remove_child(old_header)
+	old_header.queue_free()
+	var sort_header := _sort_header(&"league_teams", cols, func(): hub.replace(hub.page_stack[-1]["title"], league_team_stats))
+	table.add_child(sort_header)
+	table.move_child(sort_header, 0)
+	v.add_child(table)
 	return v
 
 
@@ -1919,6 +2078,12 @@ func team_rankings() -> Control:
 func news() -> Control:
 	var v := _vbox(10)
 	var items := headlines(40)
+	var wire: Array = _season().news.latest(15)
+	if not wire.is_empty():
+		v.add_child(_section("LEAGUE WIRE"))
+		for n in wire:
+			v.add_child(_wire_panel(n))
+		v.add_child(_section("RESULTS"))
 	var d := _season().draft
 	if not d.news.is_empty():
 		v.add_child(_section("PROSPECT WATCH  -  %d draft class" % d.year))
@@ -1950,6 +2115,62 @@ func news() -> Control:
 		p.add_child(UiKit.rich(h, 17))
 		v.add_child(p)
 	return v
+
+
+## Save (saving = true) or load page: the autosave plus the manual slots.
+func save_load(saving: bool) -> Control:
+	var v := _vbox(12)
+	v.add_child(_section("SAVE FRANCHISE  -  pick a slot (overwrites it)" if saving else "LOAD FRANCHISE  -  unsaved progress is lost"))
+	for slot in range(SaveSystem.AUTO_SLOT if not saving else 1, SaveSystem.SLOTS + 1):
+		v.add_child(save_slot_tile(slot, saving, hub.app, func(): hub.replace(hub.page_stack[-1]["title"], func(): return save_load(saving))))
+	return v
+
+
+## One slot tile; shared by the hub page and the title screen's load menu.
+static func save_slot_tile(slot: int, saving: bool, app: Node, refresh: Callable) -> Control:
+	var info := SaveSystem.slot_info(slot)
+	var name := "AUTOSAVE" if slot == SaveSystem.AUTO_SLOT else "SLOT %d" % slot
+	var body := "[color=#8b97ab]Empty[/color]"
+	if not info.is_empty():
+		body = "[color=white]%s[/color]   %s season  -  %s\n[color=#8b97ab]saved %s[/color]" % [UiKit.esc(String(info.get("team", "?"))),
+			str(info.get("year", "?")), String(info.get("week", "")), String(info.get("saved_at", "")).replace("T", " ")]
+	var cb := func():
+		if saving:
+			var err := SaveSystem.save(app.season, slot, name)
+			app.toast("Saved to %s." % name.to_lower() if err == "" else err)
+			refresh.call()
+		elif info.is_empty():
+			app.toast("That slot is empty.")
+		else:
+			var loaded := SaveSystem.load_slot(slot)
+			if loaded == null:
+				app.toast("Could not load that save.")
+				return
+			app.season = loaded
+			app.show_hub()
+			app.toast("Loaded %s %d." % [loaded.user_team().name, loaded.year])
+	var t := UiKit.tile(name, body, Vector2(720, 96), UiKit.ACCENT if not info.is_empty() else UiKit.MUTED, cb)
+	if saving or not info.is_empty():
+		return t
+	t.disabled = true
+	return t
+
+
+## One league-wire story (LeagueNews item).
+func _wire_panel(n: Dictionary) -> Control:
+	var p := UiKit.panel(UiKit.PANEL, 8)
+	var accent := UiKit.ACCENT
+	for ab in n.get("teams", []):
+		var t: Team = _season().league.team_by_abbrev(ab)
+		if t != null:
+			# Dark primaries (Seattle green, Atlanta black...) fall back to the secondary colour.
+			accent = t.color if t.color.get_luminance() >= 0.35 else t.color2
+			while accent.get_luminance() < 0.45:
+				accent = accent.lightened(0.2)
+			break
+	p.add_child(UiKit.rich("[color=%s]%s[/color]  [color=#8b97ab]-  %s %d[/color]\n%s" % [UiKit.hex(accent), UiKit.esc(String(n["headline"])),
+		n["when"], n["year"], UiKit.esc(String(n["body"]))], 17))
+	return p
 
 
 ## Starter promises judged and talks that broke down, newest season first (BBCode).
@@ -2116,12 +2337,70 @@ func _filter_row(title: String, rebuild: Callable) -> HBoxContainer:
 	return row
 
 
+## Scouting-only filters: home region ("" = all) and favorites only.
+var region_filter := ""
+var favorites_only := false
+
+
 func _filtered(list: Array[Prospect]) -> Array[Prospect]:
 	var out: Array[Prospect] = []
 	for p in list:
-		if role_filter == -1 or int(p.listed_role) == role_filter:
-			out.append(p)
+		if role_filter != -1 and int(p.listed_role) != role_filter:
+			continue
+		if region_filter != "" and LeagueData.region_of(p.soldier.home_state) != region_filter:
+			continue
+		if favorites_only and not p.favorite:
+			continue
+		out.append(p)
 	return out
+
+
+const AREA_COLORS := {"A": Color("#22c55e"), "B+": Color("#38bdf8"), "B": Color("#38bdf8"), "C+": Color("#e5e7eb"), "C": Color("#e5e7eb"),
+	"D": Color("#f97316"), "F": Color("#ef4444")}
+
+
+## Scouting tools: once-a-season region scout, auto-scout, region/favorites filters.
+func _scout_tools(d: Draft) -> Control:
+	var v := _vbox(6)
+	var r1 := _row(8)
+	r1.add_child(UiKit.label("Region scout (once a season, free):", 15, UiKit.MUTED))
+	for region in LeagueData.DIVISIONS:
+		var reg: String = region
+		var b := UiKit.button("%s (%d)" % [reg, d.in_region(reg).size()], func():
+			var n := d.scout_region(reg)
+			hub.app.toast("Scouted %d prospects from the %s region." % [n, reg] if n >= 0 else "Region scout already used this season.")
+			hub.replace("Scouting", scouting), 15)
+		b.disabled = d.region_scouted != "" or _season().preseason_camp
+		r1.add_child(b)
+	if d.region_scouted != "":
+		r1.add_child(UiKit.label("used on the %s" % d.region_scouted, 15, UiKit.ACCENT))
+	v.add_child(r1)
+	var r2 := _row(8)
+	r2.add_child(UiKit.label("Auto-scout (favorites first, then the big board):", 15, UiKit.MUTED))
+	for lvl in Draft.AUTO_SCOUT_LEVELS:
+		var level: int = lvl
+		var b := UiKit.button("Up to %d" % level, func():
+			var n := d.auto_scout(level)
+			hub.app.toast("Auto-scouted %d prospects. %d points left." % [n, d.scout_points])
+			hub.replace("Scouting", scouting), 15)
+		b.disabled = d.scout_points <= 0
+		r2.add_child(b)
+	v.add_child(r2)
+	var r3 := _row(8)
+	r3.add_child(UiKit.label("Region:", 15, UiKit.MUTED))
+	for region in [""] + LeagueData.DIVISIONS:
+		var reg: String = region
+		var name := "All" if reg == "" else reg
+		var b := UiKit.button(("[ %s ]" % name) if region_filter == reg else name, func():
+			region_filter = reg
+			hub.replace("Scouting", scouting), 15)
+		r3.add_child(b)
+	var fav := UiKit.button("[ ★ Favorites ]" if favorites_only else "★ Favorites", func():
+		favorites_only = not favorites_only
+		hub.replace("Scouting", scouting), 15)
+	r3.add_child(fav)
+	v.add_child(r3)
+	return v
 
 
 ## Prospect table layout (shared by Scouting and the Draft Room): portrait, name/age/pos,
@@ -2129,6 +2408,7 @@ func _filtered(list: Array[Prospect]) -> Array[Prospect]:
 const PCOL_PORTRAIT := 48
 const PCOL_NAME := 180
 const PCOL_PROJ := 104
+const PCOL_AREA := 50
 const PCOL_GROUP := 136
 const PCOL_ACTION := 96
 const PCOL_SEP := 10
@@ -2136,7 +2416,7 @@ const PCOL_SEP := 10
 
 ## Sortable prospect header (shared by Scouting and the Draft Room).
 func _prospect_header(rebuild: Callable) -> Control:
-	var cols := [["", PCOL_PORTRAIT], ["PROSPECT", PCOL_NAME, &"name"], ["PROJECTED", PCOL_PROJ, &"proj"]]
+	var cols := [["", PCOL_PORTRAIT], ["PROSPECT", PCOL_NAME, &"name"], ["AREA", PCOL_AREA, &"area"], ["PROJECTED", PCOL_PROJ, &"proj"]]
 	for g in Stats.GROUP_ORDER:
 		cols.append([Stats.GROUP_LABELS[g].to_upper(), PCOL_GROUP, g])
 	return _sort_header(&"prospects", cols, rebuild)
@@ -2148,10 +2428,18 @@ func _prospect_value(p: Prospect, key: StringName) -> Variant:
 	match key:
 		&"name": return p.soldier.last_name + " " + p.soldier.first_name
 		&"proj": return p.projected_rank
+		&"area": return -_area_rank(p.area_grade)
 	var w: Variant = p.reveals.get(key)
 	if w == null:
 		return -1.0
 	return ((w as Vector2i).x + (w as Vector2i).y) / 2.0
+
+
+func _area_rank(g: String) -> int:
+	for i in Draft.AREA_GRADES.size():
+		if Draft.AREA_GRADES[i][0] == g:
+			return i
+	return Draft.AREA_GRADES.size()
 
 
 ## Prospects in the current prospect sort (default: the consensus big board).
@@ -2220,8 +2508,8 @@ func _prospect_row(p: Prospect, action_text: String, action_enabled: bool, actio
 	var row := _row(PCOL_SEP)
 	var info := Button.new()
 	UiKit.style_button(info, UiKit.PANEL, UiKit.ACCENT, 6)
-	info.custom_minimum_size = Vector2(PCOL_PORTRAIT + PCOL_NAME + PCOL_PROJ + PCOL_GROUP * Stats.GROUP_ORDER.size()
-		+ PCOL_SEP * (2 + Stats.GROUP_ORDER.size()) + 28, 70)
+	info.custom_minimum_size = Vector2(PCOL_PORTRAIT + PCOL_NAME + PCOL_AREA + PCOL_PROJ + PCOL_GROUP * Stats.GROUP_ORDER.size()
+		+ PCOL_SEP * (3 + Stats.GROUP_ORDER.size()) + 28, 70)
 	info.pressed.connect(func(): hub.open(p.soldier.full_name(), func(): return prospect(p)))
 	var hb := _row(PCOL_SEP)
 	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2232,8 +2520,13 @@ func _prospect_row(p: Prospect, action_text: String, action_enabled: bool, actio
 	hb.offset_bottom = -6
 	info.add_child(hb)
 	hb.add_child(Portrait.new(p.soldier, PCOL_PORTRAIT))
-	hb.add_child(_two_lines(p.soldier.full_name(), Color.WHITE,
-		"age %d  -  %s" % [p.soldier.age, Scheme.ROLE_NAMES[p.listed_role]], PCOL_NAME))
+	hb.add_child(_two_lines(("★ " if p.favorite else "") + p.soldier.full_name(), Color.WHITE,
+		"age %d  -  %s  -  %s" % [p.soldier.age, Scheme.ROLE_NAMES[p.listed_role], p.soldier.home_state], PCOL_NAME))
+	var area := UiKit.label(p.area_grade, 22, AREA_COLORS.get(p.area_grade, UiKit.TEXT))
+	area.custom_minimum_size.x = PCOL_AREA
+	area.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	area.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hb.add_child(area)
 	var status := "scouted %d/%d" % [p.points, Draft.MAX_POINTS_PER_PROSPECT]
 	if not p.is_available():
 		status = "pick %d - %s" % [p.pick_number, p.drafted_by.abbrev]
@@ -2247,6 +2540,13 @@ func _prospect_row(p: Prospect, action_text: String, action_enabled: bool, actio
 	act.custom_minimum_size = Vector2(PCOL_ACTION, 70)
 	act.disabled = not action_enabled
 	row.add_child(act)
+	if p.is_available():
+		var star := UiKit.button("★" if p.favorite else "☆", func():
+			p.favorite = not p.favorite
+			hub.replace(hub.page_stack[-1]["title"], hub.page_stack[-1]["build"]), 18)
+		star.custom_minimum_size = Vector2(44, 70)
+		star.tooltip_text = "Favorite: auto-scout covers favorites first"
+		row.add_child(star)
 	return row
 
 
@@ -2274,7 +2574,7 @@ func scouting() -> Control:
 	var v := _vbox(10)
 	v.add_child(UiKit.rich("[font_size=22][color=white]%d DRAFT CLASS[/color][/font_size]     [color=#38bdf8]%d scout points[/color] available  (+%d per week, unspent points carry over)" % [
 		d.year, d.scout_points, Draft.POINTS_PER_WEEK], 16))
-	var help := UiKit.label("Each point scouts 2 random stat groups: the first look at a group shows a 3-grade range, a second narrows it to 2. Once every group is down to 2 grades, each point pins 1 group to its exact grade. Up to %d points per prospect. Projected rounds are the league consensus - potential stays hidden until draft day." % Draft.MAX_POINTS_PER_PROSPECT, 14, UiKit.MUTED)
+	var help := UiKit.label("AREA is your area scouts' quick read on the whole class (A = top 5%%, F = bottom of the class) - a noisy hint, not a guarantee. Each point scouts 2 random stat groups: the first look at a group shows a 3-grade range, a second narrows it to 2. Once every group is down to 2 grades, each point pins 1 group to its exact grade. Up to %d points per prospect. Projected rounds are the league consensus - potential stays hidden until draft day." % Draft.MAX_POINTS_PER_PROSPECT, 14, UiKit.MUTED)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(help)
 	if _season().preseason_camp:
@@ -2290,6 +2590,7 @@ func scouting() -> Control:
 		recent.reverse()
 		for n in recent:
 			v.add_child(_story_panel(n, true))
+	v.add_child(_scout_tools(d))
 	v.add_child(_filter_row("Scouting", scouting))
 	var list := _sorted_prospects(_filtered(d.prospects))
 	v.add_child(_section("%d PROSPECTS  -  click a column to sort  -  click a row for his full report" % list.size()))
@@ -2535,7 +2836,7 @@ func mock_draft() -> Control:
 		var team: Team = e["team"]
 		var p: Prospect = e["prospect"]
 		var need := " (need)" if Draft.need_bonus(team, p) > 0.0 else ""
-		rows.append([e["pick"], team.name, (int(e["pick"]) - 1) / Season.TEAM_COUNT + 1,
+		rows.append([e["pick"], team.name, (int(e["pick"]) - 1) / _season().league.teams.size() + 1,
 			p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role] + need, Draft.projection_text(p.projected_rank),
 			"%d/%d" % [p.points, Draft.MAX_POINTS_PER_PROSPECT]])
 		if team.user_controlled:
@@ -3021,7 +3322,7 @@ func _soldier_table(headers: Array, rows: Array, widths: Array, targets: Array, 
 func teams() -> Control:
 	var s := _season()
 	var v := _vbox(12)
-	v.add_child(_section("ALL TEAMS  -  %s season cap %s (hard cap, same for every team)" % [s.cap_year(), Contracts.money(Contracts.SALARY_CAP)]))
+	v.add_child(_section("ALL TEAMS  -  %s season cap %s (hard cap, same for every team)  -  salary floor %s" % [s.cap_year(), Contracts.money(Contracts.SALARY_CAP), Contracts.money(Contracts.SALARY_FLOOR)]))
 	var rows: Array = []
 	var hl := {}
 	var colors := {}
@@ -3034,12 +3335,13 @@ func teams() -> Control:
 		var avg_age := 0.0
 		for a in ages:
 			avg_age += a
-		rows.append([t.name, s.record_text(t), t.team_ovr(), t.roster.size(), "%.1f" % (avg_age / maxi(1, ages.size())),
-			Contracts.money(Contracts.payroll(t, s.cap_year())), Contracts.money(space)])
-		colors[i] = {2: UiKit.ovr_color(t.team_ovr()), 6: UiKit.GOOD if space >= 0 else UiKit.BAD}
+		var pay := Contracts.payroll(t, s.cap_year())
+		rows.append([t.name, s.division_of(t), s.record_text(t), t.team_ovr(), t.roster.size(), "%.1f" % (avg_age / maxi(1, ages.size())),
+			Contracts.money(pay), Contracts.money(space), "below floor" if pay < Contracts.SALARY_FLOOR else ""])
+		colors[i] = {3: UiKit.ovr_color(t.team_ovr()), 7: UiKit.GOOD if space >= 0 else UiKit.BAD, 8: UiKit.BAD}
 		if t.user_controlled:
 			hl[i] = t.color.darkened(0.6)
-	v.add_child(UiKit.table(["TEAM", "RECORD", "OVR", "PLAYERS", "AVG AGE", "PAYROLL", "CAP SPACE"], rows, [280, 90, 60, 80, 90, 120, 120], hl, colors,
+	v.add_child(UiKit.table(["TEAM", "DIV", "RECORD", "OVR", "PLAYERS", "AVG AGE", "PAYROLL", "CAP SPACE", ""], rows, [260, 80, 80, 60, 80, 90, 110, 110, 110], hl, colors,
 		func(i: int):
 			var t: Team = list[i]
 			hub.open(t.name, func(): return team_roster(t))))

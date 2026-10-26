@@ -6,20 +6,25 @@ extends RefCounted
 ##   The cap year is the current season, or next season during the offseason.
 ## - New deals (re-signs, free-agent offers) must fit under the cap, except minimum-salary deals,
 ##   which are always allowed so a team can fill its roster. Draft picks get fixed rookie deals.
+## - Salary floor: a team whose payroll ends a season under SALARY_FLOOR pays the shortfall as a
+##   penalty on next season's cap (booked like dead money).
 ## - Releasing a soldier leaves DEAD_MONEY_SHARE of each remaining year on the cap.
 ## - Asking salary comes from OVR, age and potential, plus a premium for deal lengths the soldier
 ##   doesn't want (see preferred_years); free agents drop their price the longer they go unsigned.
 
-const SALARY_CAP := 54000
+const SALARY_CAP := 150000
+const SALARY_FLOOR := 30000
 const MIN_SALARY := 750
-const MAX_SALARY := 12000
+const MAX_SALARY := 20000
+## Market salary by OVR (interpolated): [ovr, $K].
+const MARKET_CURVE := [[60, 750], [70, 1000], [75, 2000], [80, 4000], [85, 6500], [90, 9000], [95, 14000], [99, 20000]]
 const MAX_YEARS := 5
 const DEAD_MONEY_SHARE := 0.5
 const YEARS_PREMIUM := 0.06
 const RESIGN_DISCOUNT := 0.95
 ## Rookie scale: pick 1 earns ROOKIE_TOP, the last pick ROOKIE_BOTTOM. Years by round.
-const ROOKIE_TOP := 2000
-const ROOKIE_BOTTOM := 800
+const ROOKIE_TOP := 5000
+const ROOKIE_BOTTOM := 750
 const ROOKIE_YEARS := [3, 2, 2]
 
 
@@ -39,16 +44,26 @@ static func contract_text(c: Contract) -> String:
 	return "%s x %d yr%s" % [money(c.salary), c.years, "" if c.years == 1 else "s"]
 
 
-## Fair yearly salary for a soldier: steep in OVR, a premium for young high-potential players and
-## a discount for players past 30.
+## Fair yearly salary for a soldier: MARKET_CURVE by OVR, a premium for young high-potential
+## players and a discount for players past 30.
 static func market_value(s: Soldier) -> int:
-	var t := clampf((s.best_ovr() - 50) / 40.0, 0.0, 1.15)
-	var v := MIN_SALARY + (MAX_SALARY - MIN_SALARY) * t * t
+	var v := curve_salary(s.best_ovr())
 	var youth := clampf((30.0 - s.age) / 8.0, 0.0, 1.0)
 	v *= 1.0 + 0.12 * (s.potential - 2) * youth
 	if s.age > 30:
 		v *= maxf(0.5, 1.0 - 0.08 * (s.age - 30))
 	return _round_salary(v)
+
+
+static func curve_salary(ovr: float) -> float:
+	if ovr <= MARKET_CURVE[0][0]:
+		return float(MARKET_CURVE[0][1])
+	for i in range(1, MARKET_CURVE.size()):
+		var hi: Array = MARKET_CURVE[i]
+		if ovr <= hi[0]:
+			var lo: Array = MARKET_CURVE[i - 1]
+			return lerpf(lo[1], hi[1], (ovr - lo[0]) / float(hi[0] - lo[0]))
+	return float(MARKET_CURVE[-1][1])
 
 
 ## Deal length the soldier wants: young players bet on themselves, prime players want security,
@@ -133,6 +148,25 @@ static func expiring(team: Team) -> Array[Soldier]:
 	for s in team.roster:
 		if s.contract != null and s.contract.is_expiring():
 			out.append(s)
+	return out
+
+
+## Salary-floor penalty for `cap_year`'s payroll (0 if at or over the floor). Dead money and
+## earlier penalties count toward the floor.
+static func floor_shortfall(team: Team, cap_year: int) -> int:
+	return maxi(0, SALARY_FLOOR - payroll(team, cap_year))
+
+
+## Season end: teams under the floor have the shortfall booked onto next season's cap.
+## Returns [{team, amount}].
+static func charge_floor(league: League, cap_year: int) -> Array:
+	var out: Array = []
+	for t in league.teams:
+		var short := floor_shortfall(t, cap_year)
+		if short > 0:
+			t.dead_money[cap_year + 1] = int(t.dead_money.get(cap_year + 1, 0)) + short
+			t.floor_penalties[cap_year] = short
+			out.append({"team": t, "amount": short})
 	return out
 
 

@@ -9,7 +9,7 @@ extends RefCounted
 ##     W_money x money (salary / his asking price for that length, capped at 1.3)
 ##   + W_win x team quality (team OVR) + W_time x playing time (would he start there? a starter
 ##     promise counts for a lot) + loyalty (his former club, scaled by trust) + security (deal
-##     length vs what he wants).
+##     length vs what he wants) + hometown (a club near home, scaled by his Hometown DNA).
 
 const W_MONEY := 0.70
 const W_TEAM := 0.15
@@ -20,6 +20,7 @@ const DNA_WIN := [0.05, 0.20]
 const DNA_TIME := [0.05, 0.20]
 const LOYALTY_BONUS := 0.12
 const SECURITY_BONUS := 0.05
+const HOMETOWN_BONUS := 0.10
 ## A starter promise: a backup treats it as nearly a starting job; a starter likes the guarantee.
 const PROMISE_ROLE := 0.45
 const PROMISE_STARTER_BONUS := 0.15
@@ -135,7 +136,7 @@ static func score(team: Team, s: Soldier, salary: int, years: int, promise := fa
 	var d := s.get_dna()
 	var w := weights(s)
 	var money := minf(1.3, float(salary) / float(maxi(1, Contracts.asking(s, years))))
-	var team_q := clampf((team.team_ovr() - 58.0) / 20.0, 0.0, 1.0)
+	var team_q := clampf((team.team_ovr() - 72.0) / 25.0, 0.0, 1.0)
 	var starts := would_start(team, s)
 	var role := 1.0 if starts else 0.3
 	if promise:
@@ -143,6 +144,7 @@ static func score(team: Team, s: Soldier, salary: int, years: int, promise := fa
 	var sc: float = w[0] * money + w[1] * team_q + w[2] * role
 	if s.former_team != "" and s.former_team == team.abbrev:
 		sc += LOYALTY_BONUS * d.n(&"loyalty") * clampf((s.trust - 30.0) / 40.0, -1.0, 1.0)
+	sc += HOMETOWN_BONUS * Dna.hometown_pull(s, team)
 	sc += SECURITY_BONUS * (d.n(&"security") - 0.5) * 2.0 * clampf((years - Contracts.preferred_years(s)) / 2.0, -1.0, 1.0)
 	return sc
 

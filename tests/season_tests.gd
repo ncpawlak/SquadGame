@@ -47,7 +47,18 @@ func _init() -> void:
 		"test_roster_rules",
 		"test_ai_weekly_training",
 		"test_camp_respects_caps",
+		"test_fixed_league",
+		"test_division_schedule",
+		"test_playoff_bracket",
+		"test_salary_floor",
+		"test_hometown_pull",
+		"test_region_and_auto_scout",
+		"test_league_news",
+		"test_match_form_upsets",
 	]
+	# Legacy tests run on a generated 5-team single-division league (fast); the expansion
+	# tests switch to the fixed 20-team league themselves.
+	Season.fixture_teams = 5
 	var only := OS.get_environment("ONLY")
 	if only != "":
 		tests = tests.filter(func(x): return only.split(",").has(x))
@@ -85,6 +96,11 @@ func fake_result(m: ScheduledMatch, home_games: int, away_games: int, tdm := [0,
 	m.result = r
 
 
+func _bye(s: Season, w: int) -> Team:
+	var b: Array = s.bye_teams(w)
+	return b[0] if not b.is_empty() else null
+
+
 func find_match(s: Season, home: Team, away: Team) -> ScheduledMatch:
 	for m in s.regular_matches():
 		if m.home == home and m.away == away:
@@ -104,7 +120,7 @@ func row_of(rows: Array, team: Team) -> StandingRow:
 func test_schedule_shape() -> void:
 	var s := Season.new_franchise(1234)
 	check(s.league.teams.size() == 5, "5 teams")
-	check(s.schedule.size() == Season.REGULAR_WEEKS, "10 regular weeks")
+	check(s.schedule.size() == s.regular_weeks, "10 regular weeks")
 	var home := {}
 	var away := {}
 	var byes := {}
@@ -115,10 +131,10 @@ func test_schedule_shape() -> void:
 		away[t] = 0
 		byes[t] = 0
 		games[t] = 0
-	for w in range(1, Season.REGULAR_WEEKS + 1):
+	for w in range(1, s.regular_weeks + 1):
 		var ms := s.matches_for_week(w)
 		check(ms.size() == 2, "week %d has 2 matches" % w)
-		var bye := s.bye_team(w)
+		var bye := _bye(s, w)
 		check(bye != null, "week %d has a bye" % w)
 		byes[bye] += 1
 		var seen := {bye: true}
@@ -143,7 +159,7 @@ func test_schedule_shape() -> void:
 			if a == b:
 				continue
 			check(pair_count.get("%d>%d" % [a.id, b.id], 0) == 1, "%s hosts %s exactly once" % [a.abbrev, b.abbrev])
-	check(s.bye_team(11) == null, "no bye in playoffs")
+	check(_bye(s, 11) == null, "no bye in playoffs")
 
 
 func test_new_franchise_user_team() -> void:
@@ -303,11 +319,11 @@ func test_determinism() -> void:
 	check(a.champion.id == b.champion.id, "same champion")
 	var c := Season.new_franchise(556)
 	var sc := ""
-	for w in range(1, c.REGULAR_WEEKS + 1):
+	for w in range(1, c.regular_weeks + 1):
 		for m in c.matches_for_week(w):
 			sc += "%d>%d|" % [m.home.id, m.away.id]
 	var sa_sched := ""
-	for w in range(1, a.REGULAR_WEEKS + 1):
+	for w in range(1, a.regular_weeks + 1):
 		for m in a.matches_for_week(w):
 			sa_sched += "%d>%d|" % [m.home.id, m.away.id]
 	check(sc != sa_sched or true, "different seeds may differ")
@@ -430,7 +446,7 @@ func test_start_next_season() -> void:
 	check(s.year == 2027, "year incremented")
 	check(s.week == 1 and s.phase == Season.PHASE_REGULAR, "back to week 1 regular")
 	check(s.champion == null and s.playoff_matches.is_empty(), "playoffs cleared")
-	check(s.schedule.size() == Season.REGULAR_WEEKS, "schedule regenerated")
+	check(s.schedule.size() == s.regular_weeks, "schedule regenerated")
 	for r: StandingRow in s.standings():
 		check(r.games() == 0 and r.wins == 0 and r.streak == "-", "records reset")
 		check(s.record_text(r.team) == "0-0", "record text reset")
@@ -573,7 +589,7 @@ func test_scouting_windows() -> void:
 	check(not d2.can_scout(d2.prospects[1]), "no points, no scouting")
 	check(Draft.window_text(Stats.ACCURACY, Vector2i(1, 4)) == "Inconsistent - Sharpshooter", "window text")
 	check(Draft.window_text(Stats.ACCURACY, null) == "?", "unseen text")
-	check(Draft.tier_of(49) == 0 and Draft.tier_of(50) == 1 and Draft.tier_of(80) == 4, "tier thresholds")
+	check(Draft.tier_of(57) == 0 and Draft.tier_of(58) == 1 and Draft.tier_of(85) == 3 and Draft.tier_of(86) == 4, "tier thresholds")
 
 
 func test_draft_order_and_picks() -> void:
@@ -581,7 +597,7 @@ func test_draft_order_and_picks() -> void:
 	s.sim_to_end_of_season()
 	var d := s.draft
 	check(d.is_started() and not d.is_complete(), "draft order set after the final")
-	var per_round := Season.TEAM_COUNT
+	var per_round := s.league.teams.size()
 	check(d.order.size() == per_round * Draft.ROUNDS, "pick count")
 	check(d.order[per_round - 1] == s.champion, "champion picks last in round 1")
 	check(d.original[per_round * 2 - 1] == s.champion, "no snake: champion last in round 2 too")
@@ -731,7 +747,7 @@ func test_projections_and_mock() -> void:
 	check(ranks.size() == Draft.CLASS_SIZE and ranks.has(1) and ranks.has(Draft.CLASS_SIZE), "ranks 1..N unique")
 	# Mock during the season: every pick, distinct prospects, no state change.
 	var mock := d.mock(s.mock_pick_order())
-	check(mock.size() == Season.TEAM_COUNT * Draft.ROUNDS, "mock covers every pick (%d)" % mock.size())
+	check(mock.size() == s.league.teams.size() * Draft.ROUNDS, "mock covers every pick (%d)" % mock.size())
 	var seen := {}
 	for e in mock:
 		seen[e["prospect"]] = true
@@ -748,7 +764,7 @@ func test_projections_and_mock() -> void:
 		s2.sim_to_end_of_season()
 		s2.finish_draft()
 		for p in s2.draft.picks():
-			if p.pick_number <= Season.TEAM_COUNT:
+			if p.pick_number <= s2.league.teams.size():
 				total += 1
 				if p.projected_rank <= 10:
 					hits += 1
@@ -1245,7 +1261,8 @@ func test_starter_promises() -> void:
 
 
 func test_trades() -> void:
-	var s := Season.new_franchise(123)
+	# The real 20-team league: pick values are keyed to the 60-pick board.
+	var s := _fixed(123)
 	var tr := s.trades
 	var user := s.user_team()
 	var ai: Team = s.league.teams.filter(func(t: Team): return t != user)[0]
@@ -1262,7 +1279,10 @@ func test_trades() -> void:
 	var p1 := Trades.pick_asset(s.draft.year, 1, user)
 	var p2 := Trades.pick_asset(s.draft.year, 2, user)
 	check(tr.value(s, p1, ai) > tr.value(s, p2, ai), "1st-round pick beats 2nd-round pick")
-	check(tr.picks_of(s, user).size() == 2 * Draft.ROUNDS, "each team owns its picks for two drafts")
+	var all_picks := 0
+	for t in s.league.teams:
+		all_picks += tr.picks_of(s, t).size()
+	check(all_picks == s.league.teams.size() * 2 * Draft.ROUNDS, "every pick for two drafts is owned (%d)" % all_picks)
 	# Rules.
 	check(tr.window_open(s), "window open in week 1")
 	check(tr.validate(s, user, [], ai, []) != "", "empty deal rejected")
@@ -1279,9 +1299,9 @@ func test_trades() -> void:
 	check(not tr.window_open(s) and tr.validate(s, user, [p2], ai, [Trades.pick_asset(s.draft.year, 2, ai)]) != "", "deadline closes the window")
 	s.week = wk
 	# Lopsided offers are refused and cost patience; at zero they stop listening.
-	var space := Contracts.cap_space(user, s.cap_year()) + my_worst.contract.salary
+	var space := Contracts.cap_space(user, s.cap_year())
 	var star: Soldier = by_ovr.call(ai).filter(func(x: Soldier): return x.contract.salary <= space)[0]
-	var low := [Trades.player_asset(my_worst), Trades.pick_asset(s.draft.year + 1, Draft.ROUNDS, user)]
+	var low := [Trades.pick_asset(s.draft.year + 1, Draft.ROUNDS, user)]
 	var r := tr.propose(s, ai, low, [Trades.player_asset(star)])
 	check(r["result"] == "rejected" and tr.patience_of(ai) == Trades.PATIENCE - 1, "lowball rejected, patience drops (%s)" % r["text"])
 	tr.propose(s, ai, low, [Trades.player_asset(star)])
@@ -1308,6 +1328,7 @@ func test_trades() -> void:
 			loyal.trade_request = true
 			tr.block[loyal.id] = true
 		var morale_before := loyal.morale if loyal != null else 0.0
+		var logged := tr.history.size()
 		r = tr.propose(s, ai, pkg, want)
 		check(r["result"] == "accepted", "proposal accepted")
 		check(user.roster.has(mid) and not ai.roster.has(mid), "player moved to user")
@@ -1316,7 +1337,7 @@ func test_trades() -> void:
 			check(not loyal.trade_request and not tr.block.has(loyal.id), "request and block cleared")
 			check(loyal.trust == Soldier.TRUST_NEUTRAL, "trust resets with the new club")
 			check(not is_equal_approx(loyal.morale, morale_before), "trade moves morale")
-		check(tr.history.size() == 1 and tr.last_trades.size() == 1, "trade logged")
+		check(tr.history.size() == logged + 1, "trade logged")
 	# Loyal players are upset to leave; the rest of the logic is mood text.
 	var vet: Soldier = by_ovr.call(ai)[1]
 	vet.get_dna().loyalty = 100
@@ -1476,3 +1497,206 @@ func test_camp_respects_caps() -> void:
 		var res := c.run(t, Stats.PHYSICALITY, so, rng)
 		check(not res.is_empty() and so.group_rating(Stats.PHYSICALITY) <= r0 + 1, "drill stops at the cap (%d > %d)" % [so.group_rating(Stats.PHYSICALITY), r0 + 1])
 		check(so.group_caps[Stats.PHYSICALITY] == r0 + 1, "cap isn't raised")
+
+
+# --- league expansion (fixed 20-team league) ---------------------------------------
+
+func _fixed(seed_value: int, team_index := 0) -> Season:
+	Season.fixture_teams = 0
+	var s := Season.new_franchise(seed_value, team_index)
+	Season.fixture_teams = 5
+	return s
+
+
+func test_fixed_league() -> void:
+	var a := _fixed(5)
+	var b := _fixed(6, 3)
+	check(a.league.teams.size() == 20, "20 teams (%d)" % a.league.teams.size())
+	check(a.divisions().size() == 4, "4 divisions")
+	for d in a.divisions():
+		check(a.division_teams(d).size() == 5, "%s has 5 teams" % d)
+	for i in a.league.teams.size():
+		var t: Team = a.league.teams[i]
+		var row: Array = LeagueData.TEAMS[i]
+		check(t.abbrev == row[0] and t.division == row[5] and t.backstory != "", "%s identity from LeagueData" % t.abbrev)
+		check(t.roster.size() == Team.ROSTER_SIZE, "%s has %d players" % [t.abbrev, t.roster.size()])
+		check(absi(t.team_ovr() - int(row[7])) <= 2, "%s OVR %d near target %d" % [t.abbrev, t.team_ovr(), row[7]])
+		check(t.color == Color(row[3]) and t.color2 == Color(row[4]), "%s colors" % t.abbrev)
+		# Fixed rosters: the same players whatever the seed.
+		var names_a: Array = t.roster.map(func(x: Soldier): return x.full_name())
+		var names_b: Array = b.league.teams[i].roster.map(func(x: Soldier): return x.full_name())
+		check(names_a == names_b, "%s roster is fixed across seeds" % t.abbrev)
+		check(Contracts.payroll(t, a.cap_year()) <= Contracts.SALARY_CAP, "%s under the cap" % t.abbrev)
+	check(b.user_team() == b.league.teams[3], "user team index honoured")
+
+
+func test_division_schedule() -> void:
+	var s := _fixed(11)
+	check(s.regular_weeks == 12, "12 regular weeks")
+	check(s.total_weeks() == 15, "12 + 3 playoff weeks (%d)" % s.total_weeks())
+	var games := {}
+	var div_games := {}
+	var byes := {}
+	var cross := {}
+	var pairs := {}
+	for t in s.league.teams:
+		games[t] = 0
+		div_games[t] = 0
+		byes[t] = 0
+		cross[t] = {}
+	for w in range(1, s.regular_weeks + 1):
+		var seen := {}
+		for t in s.bye_teams(w):
+			byes[t] += 1
+			seen[t] = true
+			check(s.is_bye(t, w), "is_bye agrees")
+		for m: ScheduledMatch in s.matches_for_week(w):
+			check(not seen.has(m.home) and not seen.has(m.away), "team appears once in week %d" % w)
+			seen[m.home] = true
+			seen[m.away] = true
+			games[m.home] += 1
+			games[m.away] += 1
+			var key := "%d>%d" % [m.home.id, m.away.id]
+			pairs[key] = int(pairs.get(key, 0)) + 1
+			if s.division_of(m.home) == s.division_of(m.away):
+				div_games[m.home] += 1
+				div_games[m.away] += 1
+			else:
+				cross[m.home][s.division_of(m.away)] = int(cross[m.home].get(s.division_of(m.away), 0)) + 1
+				cross[m.away][s.division_of(m.home)] = int(cross[m.away].get(s.division_of(m.home), 0)) + 1
+		check(seen.size() == 20, "all 20 teams accounted for in week %d" % w)
+	for t in s.league.teams:
+		check(games[t] == 11, "%s plays 11 games (%d)" % [t.abbrev, games[t]])
+		check(byes[t] == 1, "%s has 1 bye" % t.abbrev)
+		check(s.bye_week_of(t) >= 1, "%s bye week known" % t.abbrev)
+		check(div_games[t] == 8, "%s plays 8 division games" % t.abbrev)
+		check(cross[t].size() == 3 and cross[t].values().all(func(n): return n == 1), "%s plays one team from each other division" % t.abbrev)
+		for o in s.division_teams(s.division_of(t)):
+			if o != t:
+				check(pairs.get("%d>%d" % [t.id, o.id], 0) == 1, "%s hosts %s once" % [t.abbrev, o.abbrev])
+
+
+func test_playoff_bracket() -> void:
+	check(Season.bracket_order(8) == [1, 8, 4, 5, 2, 7, 3, 6], "8-team bracket order")
+	var s := _fixed(21)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4
+	for m: ScheduledMatch in s.regular_matches():
+		var home_wins := rng.randf() < 0.5
+		fake_result(m, 2 if home_wins else rng.randi_range(0, 1), rng.randi_range(0, 1) if home_wins else 2, [rng.randi_range(0, 50), rng.randi_range(0, 50)])
+	var field := s.playoff_field()
+	check(field.size() == 8, "8-team field")
+	var leaders := {}
+	for d in s.divisions():
+		leaders[(s.division_standings(d)[0] as StandingRow).team] = true
+	for i in 4:
+		check(leaders.has(field[i]), "seed %d is a division winner" % (i + 1))
+	var rest: Array = []
+	for r in s.standings():
+		if not leaders.has(r.team):
+			rest.append(r.team)
+	for i in 4:
+		check(field[4 + i] == rest[i], "wild card %d is the best non-winner" % (i + 1))
+	s.week = s.regular_weeks + 1
+	s.phase = Season.PHASE_PLAYOFFS
+	s._create_first_playoff_round()
+	var qf: Array = s.matches_for_week(s.regular_weeks + 1)
+	check(qf.size() == 4, "4 quarterfinals")
+	for m: ScheduledMatch in qf:
+		check(int(s.playoff_seeds[m.home]) + int(s.playoff_seeds[m.away]) == 9, "seeds pair to 9")
+		check(int(s.playoff_seeds[m.home]) < int(s.playoff_seeds[m.away]), "better seed hosts")
+	check(s.week_label(s.regular_weeks + 1) == "Quarterfinals" and s.week_label(s.total_weeks()) == "Final", "playoff week labels")
+
+
+func test_salary_floor() -> void:
+	var s := _fixed(31)
+	var t: Team = s.league.teams[19]
+	for so in t.roster:
+		so.contract.salary = 1000
+	var short := Contracts.floor_shortfall(t, s.cap_year())
+	check(short == Contracts.SALARY_FLOOR - Contracts.payroll(t, s.cap_year()), "shortfall = floor - payroll")
+	var charged := Contracts.charge_floor(s.league, s.cap_year())
+	var mine: Array = charged.filter(func(e): return e["team"] == t)
+	check(mine.size() == 1 and int(mine[0]["amount"]) == short, "penalty charged for the shortfall")
+	check(int(t.floor_penalties.get(s.cap_year(), 0)) == short, "penalty recorded on the team")
+	var rich: Team = s.league.teams[0]
+	check(Contracts.floor_shortfall(rich, s.cap_year()) == 0, "teams above the floor pay nothing")
+
+
+func test_hometown_pull() -> void:
+	var s := _fixed(41)
+	var det: Team = s.league.team_by_abbrev("DET")
+	var ind: Team = s.league.team_by_abbrev("IND")
+	var las: Team = s.league.team_by_abbrev("LAS")
+	var so: Soldier = s.league.free_agents[0] if not s.league.free_agents.is_empty() else s.league.teams[5].roster[0]
+	so.home_state = "MI"
+	so.get_dna().hometown = 90
+	var home := Dna.hometown_pull(so, det)
+	var region := Dna.hometown_pull(so, ind)
+	check(home > 0.0, "home-state club pulls (%.2f)" % home)
+	check(is_equal_approx(region, home * 0.5), "same-region club pulls half (%.2f vs %.2f)" % [region, home])
+	check(Dna.hometown_pull(so, las) == 0.0, "other regions don't pull")
+	so.get_dna().hometown = 10
+	check(Dna.hometown_pull(so, det) < home, "low Hometown motivation pulls less")
+
+
+func test_region_and_auto_scout() -> void:
+	var s := _fixed(51)
+	var d := s.draft
+	check(d.prospects.size() == Draft.CLASS_SIZE, "class size %d" % d.prospects.size())
+	var grades := {}
+	for p in d.prospects:
+		grades[p.area_grade] = true
+	check(grades.has("A") and grades.has("F"), "area grades span the class")
+	var east := d.in_region("East")
+	check(not east.is_empty(), "East prospects exist")
+	var pts := d.scout_points
+	check(d.scout_region("East") == east.size(), "region scout covers the region")
+	for p in east:
+		check(p.points >= mini(Draft.REGION_SCOUT_POINTS, Draft.MAX_POINTS_PER_PROSPECT) or p.fully_scouted(), "%s scouted by the region trip" % p.soldier.full_name())
+	check(d.scout_points == pts, "region scout is free")
+	check(d.scout_region("West") == -1, "only one region scout per season")
+	var fav: Prospect = null
+	for p in d.prospects:
+		if p.points == 0 and (fav == null or p.projected_rank > fav.projected_rank):
+			fav = p
+	fav.favorite = true
+	d.scout_points = 3
+	d.auto_scout(Draft.AUTO_SCOUT_LEVELS[0])
+	check(fav.points >= Draft.AUTO_SCOUT_LEVELS[0], "auto-scout covers favorites first (%d)" % fav.points)
+	check(d.scout_points == 0, "auto-scout spends points")
+	check(d.favorites() == [fav], "favorites list")
+
+
+func test_league_news() -> void:
+	var s := _fixed(61)
+	var wire: Array = s.news.items
+	check(not wire.is_empty(), "preseason stories exist")
+	var det_ride := wire.filter(func(n): return n["kind"] == "last_ride" and (n["teams"] as Array).has("DET"))
+	check(not det_ride.is_empty(), "Detroit's veteran captain gets a last-ride story")
+	var seen := {}
+	for n in wire:
+		var key := "%s/%d/%d" % [n["kind"], n["soldier_id"], n["year"]]
+		check(not seen.has(key) or int(n["soldier_id"]) < 0, "no duplicate story %s" % key)
+		seen[key] = true
+	s.sim_week()
+	check(s.news.items.size() >= wire.size(), "week stories append")
+	check(s.news.latest(3).size() <= 3, "latest caps")
+	for n in s.news.latest(5, "DET"):
+		check((n["teams"] as Array).has("DET"), "team filter")
+
+
+func test_match_form_upsets() -> void:
+	var s := _fixed(71)
+	var a: Team = s.league.team_by_abbrev("SEA")
+	var b: Team = s.league.team_by_abbrev("ARL")
+	for t in [a, b]:
+		t.auto_lineup()
+	var upsets := 0
+	var games := 16
+	var strong := a if a.team_ovr() >= b.team_ovr() else b
+	for i in games:
+		var r := MatchEngine.simulate(a, b, 1000 + i)
+		if r.winner() != strong:
+			upsets += 1
+	check(upsets >= 1 and upsets < games, "close teams split results (%d/%d upsets)" % [upsets, games])

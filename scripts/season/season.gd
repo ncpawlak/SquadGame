@@ -1,7 +1,11 @@
 class_name Season
 extends RefCounted
-## Franchise season loop (Madden/FIFA career style): one division, double round robin
-## regular season, top-N playoffs, then the offseason draft (see Draft).
+## Franchise season loop (Madden/FIFA career style). The franchise league is the fixed 20-team
+## league (League.load_fixed): four divisions of five, a 12-week regular season (home and away
+## against each division rival, one game against a team from each other division, one bye),
+## then an 8-team bracket - the four division winners (seeds 1-4 by record) and four wild cards
+## (seeds 5-8) - 1v8, 4v5, 2v7, 3v6, quarterfinals to the final. The compact test fixture
+## (`fixture_teams` > 0: one generated division, double round robin, top 4) still works.
 ##
 ## Weekly flow (sim_week): AI teams set training intensity and lineups (resting tired/injured
 ## soldiers; the user's injured starters are auto-replaced), every team trains at each soldier's
@@ -10,13 +14,17 @@ extends RefCounted
 ## derived from the played fixtures, so there is no separate record state.
 
 const DIVISION_NAME := "Premier Division"
-const TEAM_COUNT := 5
-const REGULAR_WEEKS := 10
-const PLAYOFF_TEAMS := 4
+const TEAM_COUNT := 20
+const DIVISION_WEEKS := 12
+const DIVISION_PLAYOFF_TEAMS := 8
+const FIXTURE_PLAYOFF_TEAMS := 4
+## Tests: > 0 makes new_franchise build a generated single-division league of this many teams.
+static var fixture_teams := 0
 const PHASE_REGULAR := &"regular"
 const PHASE_PLAYOFFS := &"playoffs"
 const PHASE_OFFSEASON := &"offseason"
 const STAGE_REGULAR := &"regular"
+const STAGE_QUARTERFINAL := &"quarterfinal"
 const STAGE_SEMIFINAL := &"semifinal"
 const STAGE_FINAL := &"final"
 ## Offseason stages (Madden-style): re-sign your expiring players, run the draft, then free
@@ -41,6 +49,14 @@ const INITIAL_FREE_AGENTS := 18
 const UNDRAFTED_TO_FA := 12
 
 var league: League
+## Regular-season length and playoff field (set from the league's shape when the franchise starts).
+var regular_weeks := DIVISION_WEEKS
+var playoff_teams := DIVISION_PLAYOFF_TEAMS
+## Seed of every playoff team this season (Team -> 1..playoff_teams).
+var playoff_seeds := {}
+## Salary-floor penalties charged at the end of the most recent season: [{team, amount}].
+var last_floor_penalties: Array = []
+var news := LeagueNews.new()
 var year: int = 2026
 var week: int = 1
 var phase: StringName = PHASE_REGULAR
@@ -87,7 +103,7 @@ var preseason_camp := false
 var past_drafts: Array = []
 ## Prospect stories from the most recent sim_week.
 var last_prospect_news: Array = []
-## Regular-season week w -> the team on bye.
+## Regular-season week w -> the teams on bye (Array).
 var _byes: Array = []
 var _week_prepared := false
 ## Week key (see _week_key) of the user's last weekly training.
@@ -100,23 +116,29 @@ var _rng := RandomNumberGenerator.new()
 ## With `with_camp`, the franchise opens in preseason training camp (close_preseason_camp starts Week 1).
 static func new_franchise(seed_value: int, user_team_index := 0, start_year := 2026, with_camp := false) -> Season:
 	var s := Season.new()
-	s.league = League.generate(seed_value, TEAM_COUNT)
-	for i in s.league.teams.size():
-		s.league.teams[i].user_controlled = (i == user_team_index)
 	s.year = start_year
 	var crng := RandomNumberGenerator.new()
 	crng.seed = _mix([seed_value, start_year, 0xC0475])
-	Contracts.assign_initial(s.league, start_year, crng)
-	var roles := [Scheme.Role.FRONTMAN, Scheme.Role.CENTER, Scheme.Role.FLEX]
-	for i in INITIAL_FREE_AGENTS:
-		var so := PlayerGenerator.generate(crng, s.league.next_soldier_id, roles[i % roles.size()], crng.randf_range(50.0, 64.0))
-		s.league.next_soldier_id += 1
-		s.league.add_free_agent(so, start_year - 1)
+	if fixture_teams > 0:
+		s.league = League.generate(seed_value, fixture_teams)
+		Contracts.assign_initial(s.league, start_year, crng)
+		var roles := [Scheme.Role.FRONTMAN, Scheme.Role.CENTER, Scheme.Role.FLEX]
+		for i in INITIAL_FREE_AGENTS:
+			var so := PlayerGenerator.generate(crng, s.league.next_soldier_id, roles[i % roles.size()], crng.randf_range(60.0, 74.0))
+			s.league.next_soldier_id += 1
+			s.league.add_free_agent(so, start_year - 1)
+	else:
+		s.league = League.load_fixed(seed_value)
+	for i in s.league.teams.size():
+		s.league.teams[i].user_controlled = (i == user_team_index)
+	s._configure()
 	var mrng := RandomNumberGenerator.new()
 	mrng.seed = _mix([seed_value, start_year, 0x307A1E])
 	for so in s.league.all_soldiers():
 		so.morale = mrng.randf_range(68.0, 84.0)
 	s._begin_season()
+	if s.has_divisions():
+		s._apply_opening_pick_trades()
 	if with_camp:
 		s.camp = Camp.make(start_year - 1)
 		s.preseason_camp = true
@@ -137,6 +159,53 @@ func _stamp_log() -> void:
 		Soldier.log_when = week_label(week)
 
 
+## Season shape from the league: divisions -> the division format, otherwise a double round robin.
+func _configure() -> void:
+	if has_divisions():
+		regular_weeks = DIVISION_WEEKS
+		playoff_teams = DIVISION_PLAYOFF_TEAMS
+	else:
+		var n := league.teams.size()
+		regular_weeks = 2 * (n - 1 if n % 2 == 0 else n)
+		playoff_teams = mini(FIXTURE_PLAYOFF_TEAMS, n)
+
+
+func has_divisions() -> bool:
+	return divisions().size() > 1
+
+
+## Division names in display order ([DIVISION_NAME] for a single-division league).
+func divisions() -> Array:
+	var out: Array = []
+	for d in LeagueData.DIVISIONS:
+		for t in league.teams:
+			if t.division == d:
+				out.append(d)
+				break
+	return out if not out.is_empty() else [DIVISION_NAME]
+
+
+func division_of(team: Team) -> String:
+	return team.division if team.division != "" else DIVISION_NAME
+
+
+func division_teams(div: String) -> Array:
+	return league.teams.filter(func(t: Team): return division_of(t) == div)
+
+
+## The division table: standings() rows of that division, in order.
+func division_standings(div: String) -> Array:
+	return standings().filter(func(r: StandingRow): return division_of(r.team) == div)
+
+
+## Opening-day pick trades from the league's backstory (Louisville and Little Rock stockpiled picks).
+func _apply_opening_pick_trades() -> void:
+	for pt in LeagueData.OPENING_PICK_TRADES:
+		var owner := league.team_by_abbrev(pt[3])
+		if owner != null and league.team_by_abbrev(pt[2]) != null:
+			trades.pick_owner["%d:%d:%s" % [year + int(pt[0]), int(pt[1]), pt[2]]] = owner
+
+
 func user_team() -> Team:
 	for t in league.teams:
 		if t.user_controlled:
@@ -145,13 +214,13 @@ func user_team() -> Team:
 
 
 func total_weeks() -> int:
-	return REGULAR_WEEKS + playoff_rounds()
+	return regular_weeks + playoff_rounds()
 
 
-## Number of knockout rounds needed for PLAYOFF_TEAMS (4 -> semis + final = 2).
+## Number of knockout rounds for the playoff field (8 -> quarters, semis, final = 3).
 func playoff_rounds() -> int:
 	var rounds := 0
-	var n := PLAYOFF_TEAMS
+	var n := playoff_teams
 	while n > 1:
 		n = ceili(n / 2.0)
 		rounds += 1
@@ -159,7 +228,7 @@ func playoff_rounds() -> int:
 
 
 func week_label(w: int) -> String:
-	if w <= REGULAR_WEEKS:
+	if w <= regular_weeks:
 		return "Week %d" % w
 	var from_end := total_weeks() - w
 	match from_end:
@@ -169,13 +238,15 @@ func week_label(w: int) -> String:
 			return "Semifinals"
 		2:
 			return "Quarterfinals"
-	return "Playoffs Round %d" % (w - REGULAR_WEEKS)
+	return "Playoffs Round %d" % (w - regular_weeks)
 
 
 func stage_for_week(w: int) -> StringName:
-	if w <= REGULAR_WEEKS:
+	if w <= regular_weeks:
 		return STAGE_REGULAR
-	return STAGE_FINAL if w == total_weeks() else STAGE_SEMIFINAL
+	if w == total_weeks():
+		return STAGE_FINAL
+	return STAGE_SEMIFINAL if w == total_weeks() - 1 else STAGE_QUARTERFINAL
 
 
 func matches_for_week(w: int) -> Array:
@@ -188,10 +259,23 @@ func matches_for_week(w: int) -> Array:
 	return out
 
 
-func bye_team(w: int) -> Team:
+## Teams on bye in regular-season week w (empty in the playoffs).
+func bye_teams(w: int) -> Array:
 	if w >= 1 and w <= _byes.size():
 		return _byes[w - 1]
-	return null
+	return []
+
+
+func is_bye(team: Team, w: int) -> bool:
+	return bye_teams(w).has(team)
+
+
+## The week `team` is on bye (0 = none).
+func bye_week_of(team: Team) -> int:
+	for w in _byes.size():
+		if _byes[w].has(team):
+			return w + 1
+	return 0
 
 
 func next_match_for(team: Team) -> ScheduledMatch:
@@ -242,12 +326,17 @@ func standings() -> Array:
 			row.games_lost += m.games_for(opp)
 			row.points_for += m.points_for(t)
 			row.points_against += m.points_for(opp)
+			var div_game := t.division != "" and t.division == opp.division
 			if m.winner() == t:
 				row.wins += 1
+				if div_game:
+					row.div_wins += 1
 				h2h[t][opp] = int(h2h[t].get(opp, 0)) + 1
 				results[t].append("W")
 			else:
 				row.losses += 1
+				if div_game:
+					row.div_losses += 1
 				results[t].append("L")
 	for t in league.teams:
 		var row: StandingRow = rows[t]
@@ -263,7 +352,8 @@ func standings() -> Array:
 					break
 				n += 1
 			row.streak = "%s%d" % [last, n]
-	# Head-to-head wins among the teams tied on wins.
+	# Tiebreakers: head-to-head wins among the teams tied on wins, then division record, then
+	# round (game) differential, then point differential.
 	var h2h_score := {}
 	for t in league.teams:
 		var score := 0
@@ -278,6 +368,8 @@ func standings() -> Array:
 			return a.wins > b.wins
 		if h2h_score[a.team] != h2h_score[b.team]:
 			return h2h_score[a.team] > h2h_score[b.team]
+		if a.div_wins != b.div_wins:
+			return a.div_wins > b.div_wins
 		if a.game_diff() != b.game_diff():
 			return a.game_diff() > b.game_diff()
 		if a.point_diff() != b.point_diff():
@@ -379,6 +471,7 @@ func sim_week() -> Array:
 	Morale.update_week(league, played)
 	var news_week := week
 	_advance()
+	news.week_stories(self, played, news_week)
 	if phase == PHASE_OFFSEASON:
 		_resolve_promises()
 		negotiations.clear()
@@ -516,6 +609,7 @@ func start_next_season() -> void:
 	if phase != PHASE_OFFSEASON:
 		push_warning("start_next_season() is only valid in the offseason.")
 		return
+	_stamp_log()
 	while offseason_stage != OFF_DONE:
 		advance_offseason()
 	# Last call for free agency: pending offers (the user's too) are answered. The user's roster
@@ -721,8 +815,9 @@ func _open_free_agency() -> void:
 	fa.ai_offers(self, _rng)
 
 
-## Round-1 draft order: teams that missed the playoffs first (worst record first), then
-## semifinal losers, the runner-up, and the champion last.
+## Draft order (the same every round): teams that missed the playoffs first (worst record
+## first), then playoff teams by how far they went (worst record first within a round), the
+## runner-up, and the champion last.
 func draft_order() -> Array:
 	var finish := {}
 	for t in league.teams:
@@ -730,11 +825,11 @@ func draft_order() -> Array:
 	for m in playoff_matches:
 		if not m.is_played():
 			continue
+		var rnd: int = m.week - regular_weeks
 		for t: Team in [m.home, m.away]:
-			finish[t] = maxi(finish[t], 1)
+			finish[t] = maxi(finish[t], rnd)
 		if m.stage == STAGE_FINAL:
-			finish[m.opponent_of(m.winner())] = 2
-			finish[m.winner()] = 3
+			finish[m.winner()] = rnd + 1
 	var rows := standings()
 	rows.reverse()
 	var teams: Array = []
@@ -786,6 +881,7 @@ func _begin_season() -> void:
 	last_injuries = []
 	injury_log = []
 	_rng.seed = _mix([league.league_seed, year, 0x5EA5])
+	playoff_seeds = {}
 	_build_schedule()
 	trades.new_season(self)
 	draft = Draft.generate(_mix([league.league_seed, year, 0xD2AF]), year, league.next_soldier_id)
@@ -793,13 +889,14 @@ func _begin_season() -> void:
 	league.next_soldier_id += Draft.CLASS_SIZE
 	draft.scout_points = Draft.POINTS_PER_WEEK
 	league.ensure_callsigns()
+	news.begin_season(self)
 	_stamp_log()
 
 
 func _advance() -> void:
 	week += 1
 	if phase == PHASE_REGULAR:
-		if week > REGULAR_WEEKS:
+		if week > regular_weeks:
 			phase = PHASE_PLAYOFFS
 			_create_first_playoff_round()
 		return
@@ -817,6 +914,8 @@ func _advance() -> void:
 		var retire_rng := RandomNumberGenerator.new()
 		retire_rng.seed = _mix([league.league_seed, year, 0x2E71])
 		retirements.append_array(Retirement.run(self, retire_rng))
+		last_floor_penalties = Contracts.charge_floor(league, year)
+		news.end_season(self, last_floor_penalties)
 		Contracts.rollover(league)
 		offseason_stage = OFF_RESIGN
 		fa_day = 0
@@ -830,32 +929,202 @@ func _advance() -> void:
 	_create_round(winners)
 
 
+## The playoff field in seed order: with divisions, the division winners (seeded by record) then
+## the best remaining records as wild cards; otherwise the top of the table.
+func playoff_field() -> Array:
+	var rows := standings()
+	var field: Array = []
+	if has_divisions():
+		var led := {}
+		for r in rows:
+			if not led.has(r.team.division):
+				led[r.team.division] = true
+				field.append(r.team)
+		for r in rows:
+			if field.size() >= playoff_teams:
+				break
+			if not field.has(r.team):
+				field.append(r.team)
+	else:
+		for r in rows.slice(0, playoff_teams):
+			field.append(r.team)
+	return field
+
+
+## Bracket slots by seed for a field of n: 4 -> [1,4,2,3], 8 -> [1,8,4,5,2,7,3,6].
+static func bracket_order(n: int) -> Array:
+	var order: Array = [1]
+	var size := 1
+	while size < n:
+		size *= 2
+		var next: Array = []
+		for s in order:
+			next.append(s)
+			next.append(size + 1 - s)
+		order = next
+	return order
+
+
 func _create_first_playoff_round() -> void:
-	var seeds: Array = []
-	for r in standings().slice(0, PLAYOFF_TEAMS):
-		seeds.append(r.team)
-	_create_round(seeds)
+	var field := playoff_field()
+	playoff_seeds = {}
+	for i in field.size():
+		playoff_seeds[field[i]] = i + 1
+	var slots: Array = []
+	for seed in bracket_order(field.size()):
+		slots.append(field[seed - 1])
+	_create_round(slots)
 
 
-## `teams` ordered by seed (best first); pairs 1 v N, 2 v N-1, ... with the better seed at home.
-## For later rounds the winners keep bracket order, so slot i plays slot N-1-i.
+## `teams` in bracket order: slot 2k plays slot 2k+1, the better seed at home. Winners keep
+## bracket order, so the bracket halves never cross until the final.
 func _create_round(teams: Array) -> void:
-	var n := teams.size()
-	for i in n / 2:
+	for i in teams.size() / 2:
+		var a: Team = teams[2 * i]
+		var b: Team = teams[2 * i + 1]
 		var m := ScheduledMatch.new()
 		m.week = week
 		m.stage = stage_for_week(week)
-		m.home = teams[i]
-		m.away = teams[n - 1 - i]
+		var a_top := int(playoff_seeds.get(a, 99)) <= int(playoff_seeds.get(b, 99))
+		m.home = a if a_top else b
+		m.away = b if a_top else a
 		m.match_seed = _match_seed(week, i)
 		playoff_matches.append(m)
 
 
-## Circle-method round robin (dummy BYE slot for odd counts); second half mirrors the first
-## with home/away swapped. Team order is shuffled deterministically per league seed + year.
 func _build_schedule() -> void:
 	schedule = []
 	_byes = []
+	if has_divisions():
+		_build_division_schedule()
+	else:
+		_build_round_robin()
+
+
+## The division format (4 divisions of 5): each division plays a home-and-away round robin (10
+## rounds; each team sits out 2). In the first leg the four teams sitting out meet across
+## divisions (pairing A-B / C-D); in the second leg they take their bye. Two more full rounds
+## pair the remaining division matchups (A-C / B-D, A-D / B-C), so every team plays 8 division
+## games, one game against each other division, and has exactly one bye in 12 weeks.
+## Cross-division opponents favour rivalries. Week order is shuffled per league seed + year.
+func _build_division_schedule() -> void:
+	var srng := RandomNumberGenerator.new()
+	srng.seed = _mix([league.league_seed, year, 0x5C4E])
+	var divs := divisions()
+	var members := {}
+	for d in divs:
+		var ts: Array = division_teams(d)
+		_shuffle(ts, srng)
+		members[d] = ts
+	var pairings: Array = [[[0, 1], [2, 3]], [[0, 2], [1, 3]], [[0, 3], [1, 2]]]
+	_shuffle(pairings, srng)
+	var rounds: Array = []  # each: {pairs: [[home, away]], byes: []}
+	# Division round robin, circle method on 5 + a dummy slot.
+	var div_rounds := {}  # div -> Array of {pairs, sitting}
+	for d in divs:
+		var order: Array = members[d].duplicate()
+		order.append(null)
+		var n := order.size()
+		var legs: Array = []
+		for r in n - 1:
+			var pairs: Array = []
+			var sitting: Team = null
+			for i in n / 2:
+				var a: Team = order[i]
+				var b: Team = order[n - 1 - i]
+				if a == null or b == null:
+					sitting = b if a == null else a
+					continue
+				pairs.append([a, b] if (r + i) % 2 == 0 else [b, a])
+			legs.append({"pairs": pairs, "sitting": sitting})
+			order.insert(1, order.pop_back())
+		div_rounds[d] = legs
+	var bye_pairing: Array = pairings[0]
+	for leg in 2:
+		for r in 5:
+			var pairs: Array = []
+			var byes: Array = []
+			var sitting := {}
+			for d in divs:
+				var rd: Dictionary = div_rounds[d][r]
+				for p in rd["pairs"]:
+					pairs.append(p if leg == 0 else [p[1], p[0]])
+				sitting[d] = rd["sitting"]
+			if leg == 0:
+				for dp in bye_pairing:
+					var a: Team = sitting[divs[dp[0]]]
+					var b: Team = sitting[divs[dp[1]]]
+					pairs.append([a, b] if srng.randf() < 0.5 else [b, a])
+			else:
+				for d in divs:
+					byes.append(sitting[d])
+			rounds.append({"pairs": pairs, "byes": byes})
+	for k in [1, 2]:
+		var pairs: Array = []
+		for dp in pairings[k]:
+			var a_list: Array = members[divs[dp[0]]]
+			var b_list: Array = _best_cross_match(a_list, members[divs[dp[1]]], srng)
+			for i in a_list.size():
+				pairs.append([a_list[i], b_list[i]] if srng.randf() < 0.5 else [b_list[i], a_list[i]])
+		rounds.append({"pairs": pairs, "byes": []})
+	_shuffle(rounds, srng)
+	for w in rounds.size():
+		var wk: Array = []
+		var pairs: Array = rounds[w]["pairs"]
+		for k in pairs.size():
+			var m := ScheduledMatch.new()
+			m.week = w + 1
+			m.stage = STAGE_REGULAR
+			m.home = pairs[k][0]
+			m.away = pairs[k][1]
+			m.match_seed = _match_seed(w + 1, k)
+			wk.append(m)
+		schedule.append(wk)
+		_byes.append(rounds[w]["byes"])
+
+
+## A one-to-one pairing of `a` with a permutation of `b`, preferring rivalry games.
+func _best_cross_match(a: Array, b: Array, srng: RandomNumberGenerator) -> Array:
+	var best: Array = b.duplicate()
+	_shuffle(best, srng)
+	var best_score := -1
+	for perm in _permutations(b):
+		var score := 0
+		for i in a.size():
+			if LeagueData.rivals(a[i].abbrev, perm[i].abbrev):
+				score += 1
+		if score > best_score:
+			best_score = score
+			best = perm
+	if best_score == 0:
+		best = b.duplicate()
+		_shuffle(best, srng)
+	return best
+
+
+static func _permutations(items: Array) -> Array:
+	if items.size() <= 1:
+		return [items.duplicate()]
+	var out: Array = []
+	for i in items.size():
+		var rest := items.duplicate()
+		var head = rest.pop_at(i)
+		for p in _permutations(rest):
+			out.append([head] + p)
+	return out
+
+
+static func _shuffle(arr: Array, srng: RandomNumberGenerator) -> void:
+	for i in range(arr.size() - 1, 0, -1):
+		var j := srng.randi_range(0, i)
+		var tmp = arr[i]
+		arr[i] = arr[j]
+		arr[j] = tmp
+
+
+## Single-division fixture: circle-method round robin (dummy BYE slot for odd counts); second
+## half mirrors the first with home/away swapped. Team order shuffled per league seed + year.
+func _build_round_robin() -> void:
 	var order: Array = league.teams.duplicate()
 	var srng := RandomNumberGenerator.new()
 	srng.seed = _mix([league.league_seed, year, 0x5C4E])
@@ -885,11 +1154,11 @@ func _build_schedule() -> void:
 			else:
 				pairs.append([b, a])
 		first_half.append(pairs)
-		first_byes.append(bye)
+		first_byes.append([bye] if bye != null else [])
 		# Rotate all but the first slot.
 		var last = order.pop_back()
 		order.insert(1, last)
-	var rounds_needed := REGULAR_WEEKS
+	var rounds_needed := regular_weeks
 	var w := 0
 	while w < rounds_needed:
 		var leg := w / half_weeks

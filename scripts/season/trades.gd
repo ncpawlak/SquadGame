@@ -6,7 +6,7 @@ extends RefCounted
 ##
 ## An asset is a Dictionary: {"soldier": Soldier} or {"pick": true, "year", "round", "orig": Team}.
 
-const DEADLINE_WEEK := 6
+const DEADLINE_WEEK := 8
 const MAX_ASSETS := 3
 ## The AI accepts when what it gets is worth this much more than what it gives.
 const ACCEPT_MARGIN := 1.05
@@ -239,7 +239,7 @@ func player_value(season: Season, s: Soldier, team: Team, giving := false) -> fl
 	var v := curve(eff)
 	if s.contract != null:
 		var surplus := float(Contracts.market_value(s) - s.contract.salary) * mini(maxi(s.contract.years, 0), 3)
-		v += surplus / 150.0 * float({CONTENDER: 0.7, BALANCED: 1.0, REBUILDING: 1.3}[m])
+		v += surplus / 420.0 * float({CONTENDER: 0.7, BALANCED: 1.0, REBUILDING: 1.3}[m])
 	if s.is_injured() and season.phase != Season.PHASE_OFFSEASON:
 		v *= maxf(0.5, 1.0 - 0.07 * s.injury_weeks * (1.3 if m == CONTENDER else 1.0))
 	if not giving and m == CONTENDER and not FreeAgency.would_start(team, s):
@@ -251,7 +251,7 @@ func player_value(season: Season, s: Soldier, team: Team, giving := false) -> fl
 
 func pick_value(season: Season, a: Dictionary, team: Team) -> float:
 	var idx := pick_index(season, a)
-	var v := curve(74.0 - 1.2 * idx) + 8.0
+	var v := curve(82.0 - 0.32 * idx) + 8.0
 	v *= float({CONTENDER: 0.8, BALANCED: 1.0, REBUILDING: 1.25}[mode(season, team)])
 	if a["year"] > season.draft.year:
 		v *= NEXT_YEAR_PICK

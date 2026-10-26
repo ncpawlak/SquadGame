@@ -24,6 +24,10 @@ var group_caps: Dictionary = {}
 var potential: int = 2
 ## Year he was drafted (0 = not a draftee). Used for Rookie of the Year.
 var draft_year: int = 0
+## Overall pick number he went at (0 = undrafted / unknown).
+var draft_pick: int = 0
+## League-news story kinds already written about him: kind -> year (see LeagueNews).
+var news_tags: Dictionary = {}
 
 # Contract / free agency
 ## Current deal (null = free agent, retired, or a debug soldier).
@@ -70,6 +74,8 @@ var promise: Dictionary = {}
 var trade_request := false
 ## Abbrev of the last club that released him (free-agent loyalty).
 var former_team := ""
+## Two-letter home state ("" = unknown). Hometown DNA pulls him toward clubs near home.
+var home_state := ""
 const TRUST_NEUTRAL := 50.0
 ## Share of his team's matches a promised starter must start (missed weeks injured don't count).
 const PROMISE_SHARE := 0.75

@@ -22,6 +22,10 @@ var scouts: Dictionary = {}
 var consensus := 0.0
 ## 1-based rank on the consensus big board; drives the projected round.
 var projected_rank := 0
+## Rough free "area scout" letter (A..F), class-relative and noisy.
+var area_grade := "C"
+## Starred by the user (favorites list, auto-scout goes first).
+var favorite := false
 var drafted_by: Team = null
 var pick_number := 0
 

@@ -54,8 +54,9 @@ static func start(p_season: Season, p_team: Team, s: Soldier) -> Negotiation:
 	n.soldier = s
 	var d := s.get_dna()
 	var trust_t := (s.trust - Soldier.TRUST_NEUTRAL) / 50.0
-	n.demand_mult = 1.0 + 0.10 * (2.0 * d.n(&"money") - 1.0) - 0.06 * d.n(&"loyalty") - 0.10 * trust_t
-	n.floor_mult = 0.80 + 0.10 * d.n(&"savvy") - 0.08 * d.n(&"loyalty") - 0.05 * trust_t
+	var home := Dna.hometown_pull(s, p_team)
+	n.demand_mult = 1.0 + 0.10 * (2.0 * d.n(&"money") - 1.0) - 0.06 * d.n(&"loyalty") - 0.10 * trust_t - 0.06 * home
+	n.floor_mult = 0.80 + 0.10 * d.n(&"savvy") - 0.08 * d.n(&"loyalty") - 0.05 * trust_t - 0.05 * home
 	n._opening()
 	n.floor_mult = minf(n.floor_mult, n.demand_mult - 0.03)
 	return n
@@ -260,7 +261,8 @@ func _opening() -> void:
 		&"winning": "He wants to know this team can win a title.",
 		&"playing_time": "He needs to know he's a starter here.",
 		&"loyalty": "He'd like to stay. Make it easy for him.",
-		&"security": "He's looking for a long-term commitment."}
+		&"security": "He's looking for a long-term commitment.",
+		&"hometown": "He likes playing close to home. Give him a reason to stay." if Dna.hometown_pull(s, team) > 0.0 else "He's always wanted to play closer to home."}
 	_say("note", "Agent: " + String(wants[lead]))
 
 

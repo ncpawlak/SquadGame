@@ -12,6 +12,9 @@ var games_lost: int
 var points_for: int
 var points_against: int
 var streak: String = "-"
+## Record against division rivals (a tiebreaker), and the playoff seed (0 = out) once set.
+var div_wins: int
+var div_losses: int
 var last5: String = ""
 
 

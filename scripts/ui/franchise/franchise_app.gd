@@ -60,7 +60,7 @@ func show_title() -> void:
 	if season:
 		col.add_child(_menu_button("Resume Franchise", show_hub))
 	col.add_child(_menu_button("New Franchise", show_team_select))
-	col.add_child(_menu_button("Load Franchise", func(): toast("Save / load is coming in a later milestone.")))
+	col.add_child(_menu_button("Load Franchise", show_load_menu))
 	col.add_child(_menu_button("Exhibition Match", func(): toast("Exhibition mode is coming soon. Use Debug Sim Tools for now.")))
 	col.add_child(_menu_button("Debug Sim Tools", open_debug))
 	if not OS.has_feature("web"):
@@ -77,8 +77,8 @@ func show_team_select() -> void:
 		preview_seed = randi_range(1, 999999)
 	var preview := Season.new_franchise(preview_seed, 0)
 	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 18)
-	var margin := _margin(root, 48)
+	root.add_theme_constant_override("separation", 14)
+	var margin := _margin(root, 36)
 
 	var head := HBoxContainer.new()
 	root.add_child(head)
@@ -88,44 +88,160 @@ func show_team_select() -> void:
 	head.add_child(_spacer_w(16))
 	var tt := VBoxContainer.new()
 	tt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tt.add_child(UiKit.label("CHOOSE YOUR TEAM", 34, Color.WHITE))
-	tt.add_child(UiKit.label("%s  -  %d teams  -  %s season  -  league seed %d" % [
-		Season.DIVISION_NAME, preview.league.teams.size(), preview.year, preview_seed], 16, UiKit.MUTED))
+	tt.add_child(UiKit.label("CHOOSE YOUR TEAM", 30, Color.WHITE))
+	tt.add_child(UiKit.label("%d teams  -  %d divisions  -  %s season  -  hover a team for its scouting report, click to take over" % [
+		preview.league.teams.size(), preview.divisions().size(), preview.year], 15, UiKit.MUTED))
 	head.add_child(tt)
-	var reroll := UiKit.button("Reroll League", func():
-		preview_seed = randi_range(1, 999999)
-		show_team_select())
-	reroll.set_meta(&"skip_autofocus", true)
-	head.add_child(reroll)
 
-	var scroll := ScrollContainer.new()
-	scroll.follow_focus = true
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	root.add_child(scroll)
-	var row := HFlowContainer.new()
-	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_theme_constant_override("h_separation", 18)
-	row.add_theme_constant_override("v_separation", 18)
-	scroll.add_child(row)
+	var pane := PanelContainer.new()
+	pane.custom_minimum_size.y = 330
+	root.add_child(pane)
+
 	var ranked := preview.league.teams.duplicate()
 	ranked.sort_custom(func(a: Team, b: Team): return a.team_ovr() > b.team_ovr())
-	for i in preview.league.teams.size():
-		var t: Team = preview.league.teams[i]
-		var star: Soldier = null
-		for s in t.roster:
-			if star == null or s.best_ovr() > star.best_ovr():
-				star = s
-		var rank := ranked.find(t) + 1
-		var body := "[font_size=44][color=%s]%d[/color][/font_size] OVR\n\n" % [UiKit.hex(UiKit.ovr_color(t.team_ovr())), t.team_ovr()]
-		body += "Preseason rank: [color=white]%s[/color]\n" % UiKit.ordinal(rank)
-		body += "Star: [color=white]%s[/color] (%d)\n" % [UiKit.esc(star.full_name()), star.best_ovr()]
-		body += "Avg age: [color=white]%.1f[/color]\n\n" % _avg_age(t)
-		body += "[color=%s]%s[/color]" % [UiKit.hex(UiKit.ACCENT), _expectation(rank, ranked.size())]
-		var idx := i
-		var card := UiKit.tile(t.name, body, Vector2(280, 300), t.color, func(): start_franchise(preview_seed, idx))
-		row.add_child(card)
+	var grid := VBoxContainer.new()
+	grid.add_theme_constant_override("separation", 8)
+	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(grid)
+	var first: Button = null
+	for d in preview.divisions():
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 10)
+		var dl := UiKit.label(d.to_upper(), 15, UiKit.MUTED)
+		dl.custom_minimum_size.x = 90
+		dl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		line.add_child(dl)
+		var div_teams: Array = preview.division_teams(d)
+		div_teams.sort_custom(func(a: Team, b: Team): return a.team_ovr() > b.team_ovr())
+		for t: Team in div_teams:
+			var idx := preview.league.teams.find(t)
+			var rank := ranked.find(t) + 1
+			var b := Button.new()
+			b.custom_minimum_size = Vector2(0, 64)
+			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			b.text = "%s   %d" % [t.name, t.team_ovr()]
+			b.clip_text = true
+			b.add_theme_font_size_override("font_size", 16)
+			UiKit.style_button(b, t.color.darkened(0.35), t.color2, 8)
+			b.add_theme_color_override("font_color", Color.WHITE)
+			var show := func(): _fill_team_pane(pane, preview, t, rank, ranked.size())
+			b.mouse_entered.connect(show)
+			b.focus_entered.connect(show)
+			b.pressed.connect(func(): start_franchise(preview_seed, idx))
+			line.add_child(b)
+			if first == null:
+				first = b
+		grid.add_child(line)
+	_fill_team_pane(pane, preview, ranked[0], 1, ranked.size())
 	_set_screen(margin)
+
+
+## The big team-select pane: identity, OVR, backstory, average group ratings and the top 3 players.
+func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, count: int) -> void:
+	for c in pane.get_children():
+		c.queue_free()
+	var sb := UiKit.flat(UiKit.PANEL, 12, 3, t.color2)
+	sb.content_margin_left = 22
+	sb.content_margin_right = 22
+	sb.content_margin_top = 16
+	sb.content_margin_bottom = 16
+	pane.add_theme_stylebox_override("panel", sb)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 26)
+	pane.add_child(hb)
+
+	# Identity column: colors, name, OVR and expectations.
+	var id_col := VBoxContainer.new()
+	id_col.custom_minimum_size.x = 330
+	id_col.add_theme_constant_override("separation", 6)
+	hb.add_child(id_col)
+	var logo := PanelContainer.new()
+	logo.add_theme_stylebox_override("panel", UiKit.flat(t.color, 10, 4, t.color2))
+	logo.custom_minimum_size = Vector2(120, 84)
+	logo.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	var ab := UiKit.label(t.abbrev, 34, t.color2 if t.color2.get_luminance() > t.color.get_luminance() + 0.2 or t.color.get_luminance() < 0.5 else Color.BLACK)
+	ab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	logo.add_child(ab)
+	id_col.add_child(logo)
+	id_col.add_child(UiKit.label(t.name.to_upper(), 28, Color.WHITE))
+	id_col.add_child(UiKit.label("%s Division  -  %s" % [t.division, LeagueData.state_name(t.home_state)], 15, UiKit.MUTED))
+	id_col.add_child(UiKit.rich("[font_size=46][color=%s]%d[/color][/font_size] OVR   [color=#8b97ab]preseason #%d of %d[/color]" % [
+		UiKit.hex(UiKit.ovr_color(t.team_ovr())), t.team_ovr(), rank, count], 16))
+	var space := Contracts.cap_space(t, preview.cap_year())
+	id_col.add_child(UiKit.rich("Cap space [color=%s]%s[/color]   -   avg age [color=white]%.1f[/color]" % [
+		"#22c55e" if space >= 0 else "#ef4444", Contracts.money(space), _avg_age(t)], 15))
+	id_col.add_child(UiKit.label(_expectation(rank, count), 16, UiKit.ACCENT))
+
+	# Backstory + group ratings.
+	var mid := VBoxContainer.new()
+	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mid.add_theme_constant_override("separation", 10)
+	hb.add_child(mid)
+	var story := UiKit.label(t.backstory, 17, UiKit.TEXT)
+	story.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	mid.add_child(story)
+	mid.add_child(UiKit.label("STARTERS' AVERAGE GROUP RATINGS", 13, UiKit.MUTED))
+	var starters := t.starters()
+	for g in Stats.GROUP_ORDER:
+		var total := 0
+		for s in starters:
+			total += s.group_rating(g)
+		var avg := roundi(float(total) / maxi(1, starters.size()))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		var gl := UiKit.label(Stats.GROUP_LABELS[g], 15, UiKit.TEXT)
+		gl.custom_minimum_size.x = 120
+		row.add_child(gl)
+		var bar := ProgressBar.new()
+		bar.min_value = 40
+		bar.max_value = 99
+		bar.value = avg
+		bar.show_percentage = false
+		bar.custom_minimum_size = Vector2(0, 14)
+		bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		bar.add_theme_stylebox_override("background", UiKit.flat(UiKit.LINE, 4))
+		bar.add_theme_stylebox_override("fill", UiKit.flat(UiKit.ovr_color(avg), 4))
+		row.add_child(bar)
+		var vl := UiKit.label(str(avg), 16, UiKit.ovr_color(avg))
+		vl.custom_minimum_size.x = 34
+		row.add_child(vl)
+		mid.add_child(row)
+
+	# Top 3 players.
+	var top_col := VBoxContainer.new()
+	top_col.custom_minimum_size.x = 330
+	top_col.add_theme_constant_override("separation", 8)
+	hb.add_child(top_col)
+	top_col.add_child(UiKit.label("TOP PLAYERS", 13, UiKit.MUTED))
+	var best: Array = t.roster.duplicate()
+	best.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
+	for s: Soldier in best.slice(0, 3):
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		row.add_child(Portrait.new(s, 58))
+		var info := VBoxContainer.new()
+		info.add_theme_constant_override("separation", 0)
+		info.add_child(UiKit.label(s.full_name(), 17, Color.WHITE))
+		info.add_child(UiKit.rich("[color=%s]%d OVR[/color]  [color=#8b97ab]%s  -  age %d[/color]" % [
+			UiKit.hex(UiKit.ovr_color(s.best_ovr())), s.best_ovr(), Scheme.ROLE_NAMES[Scheme.best_role(s.stats)], s.age], 14))
+		info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(info)
+		top_col.add_child(row)
+
+
+func show_load_menu() -> void:
+	var root := CenterContainer.new()
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 12)
+	root.add_child(col)
+	col.add_child(UiKit.label("LOAD FRANCHISE", 34, Color.WHITE))
+	for slot in range(SaveSystem.AUTO_SLOT, SaveSystem.SLOTS + 1):
+		col.add_child(FranchisePages.save_slot_tile(slot, false, self, show_load_menu))
+	var back := UiKit.button("< Back", show_title)
+	col.add_child(back)
+	_set_screen(root)
 
 
 func start_franchise(seed_value: int, team_index: int) -> void:
@@ -298,12 +414,12 @@ func _avg_age(t: Team) -> float:
 
 
 func _expectation(rank: int, count: int) -> String:
-	if rank == 1:
+	if rank <= 3:
 		return "Expectation: Win the title"
-	if rank <= 2:
+	if rank <= 6:
 		return "Expectation: Contender"
-	if rank <= Season.PLAYOFF_TEAMS - 1:
+	if rank <= Season.DIVISION_PLAYOFF_TEAMS:
 		return "Expectation: Make the playoffs"
-	if rank < count:
+	if rank <= count - 5:
 		return "Expectation: Fight for a playoff spot"
 	return "Expectation: Rebuild"

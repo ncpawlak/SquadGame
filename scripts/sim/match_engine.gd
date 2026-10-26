@@ -45,6 +45,14 @@ const KOTH_HOLD_TO_WIN_S := 120.0
 const ROUNDS_TO_WIN := 4
 const MAX_ROUNDS := 7
 const TICK_SECONDS := 0.5
+## Match-day form, in rating points added to every stat for this match only: a squad-wide swing
+## (the whole team is sharp or flat) plus a smaller personal one. Without it a match is hundreds of
+## engagements and the better roster almost always wins; with it upsets happen like real sports.
+const TEAM_FORM_SD := 12.0
+const PLAYER_FORM_SD := 3.0
+const FORM_LIMIT := 2.2
+## Team form beyond this many points gets a line in the match log.
+const FORM_NOTE := 10.0
 const ROUND_TIME_LIMIT_S := 120.0
 ## Arena games end on the scoreboard; this only guards against a stalemate.
 const ARENA_SAFETY_LIMIT_S := 1800.0
@@ -106,6 +114,8 @@ class Combatant:
 	var damage_to: Dictionary = {}
 	## 1.0 = fresh; < 1.0 scales FATIGUE_STATS for a soldier who came in tired.
 	var condition := 1.0
+	## Match-day form in rating points (see TEAM_FORM_SD).
+	var form := 0.0
 	## Enemy who last dropped this soldier below SAVE_HP, and when (for teammate saves).
 	var endangered_by: Combatant = null
 	var endangered_tick := -100
@@ -135,7 +145,7 @@ class Combatant:
 			var v := float(soldier.eff_stat(s))
 			if condition < 1.0 and FATIGUE_STATS.has(s):
 				v *= condition
-			_stats[s] = v
+			_stats[s] = clampf(v + form, 1.0, 110.0)
 		var b: Dictionary = Scheme.ROLE_BEHAVIOUR[role]
 		for key in b:
 			_behaviour[key] = b[key]
@@ -161,6 +171,8 @@ var visual_events: Array[Dictionary] = []
 ## [team 0 combatants, team 1 combatants]
 var squads: Array = []
 var finished := false
+## Match-day form per squad, in rating points (see TEAM_FORM_SD).
+var team_form: Array[float] = [0.0, 0.0]
 
 var _rng := RandomNumberGenerator.new()
 var _result: MatchResult
@@ -240,10 +252,20 @@ func start(team_a: Team, team_b: Team, seed_value: int) -> void:
 	_result = MatchResult.new()
 	_result.match_seed = seed_value
 	_result.teams = [team_a, team_b]
+	team_form = [_roll_form(TEAM_FORM_SD), _roll_form(TEAM_FORM_SD)]
 	squads = [_build_squad(team_a, 0), _build_squad(team_b, 1)]
 	_everyone = squads[0] + squads[1]
 	_result.events.append("=== %s vs %s (seed %d) ===" % [team_a.name, team_b.name, seed_value])
 	_result.events.append("%s OVR %d | %s OVR %d" % [team_a.abbrev, team_a.team_ovr(), team_b.abbrev, team_b.team_ovr()])
+	for i in 2:
+		if team_form[i] >= FORM_NOTE:
+			_result.events.append("%s look razor sharp in warmups." % _result.teams[i].abbrev)
+		elif team_form[i] <= -FORM_NOTE:
+			_result.events.append("%s look flat in warmups." % _result.teams[i].abbrev)
+
+
+func _roll_form(sd: float) -> float:
+	return clampf(_rng.randfn(0.0, sd), -sd * FORM_LIMIT, sd * FORM_LIMIT)
 
 
 ## Advances one tick (starting the next game or round first if one just ended).
@@ -285,6 +307,7 @@ func _build_squad(team: Team, index: int) -> Array:
 		c.slot_id = slot_id
 		c.role = team.scheme.role_for_slot(slot_id)
 		c.condition = 1.0 - Conditioning.penalty(s.fatigue)
+		c.form = team_form[index] + _roll_form(PLAYER_FORM_SD)
 		c.setup()
 		c.pos = ArenaMap.spawn_point(index, slot_id)
 		c.prev_pos = c.pos
@@ -722,6 +745,8 @@ func _act(c: Combatant, allies: Array, enemies: Array) -> void:
 
 ## Picks among the enemies in sight; null if none.
 func _pick_target(c: Combatant, allies: Array) -> Combatant:
+	if c.visible.is_empty():
+		return null
 	var focus := c.stat(Stats.TEAMWORK) / 100.0
 	var awareness := c.stat(Stats.AWARENESS) / 100.0
 	var candidates: Array = []

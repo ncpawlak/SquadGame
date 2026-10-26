@@ -1,6 +1,8 @@
 class_name League
 extends RefCounted
-## Container for teams. Milestone 1 uses 2 teams + single matches; a full league/season comes next.
+## Container for teams and free agents. The franchise league is the fixed 20-team league loaded
+## from data/league.json (see LeagueData); `generate` builds a small random league (exhibitions
+## of old, and the compact test fixture).
 
 const CITIES := [
 	"Boston", "Denver", "Austin", "Seattle", "Chicago", "Atlanta", "Phoenix", "Detroit",
@@ -39,15 +41,94 @@ static func generate(seed_value: int, team_count := 2) -> League:
 		t.abbrev = CITIES[i % CITIES.size()].left(3).to_upper()
 		t.color = COLORS[i % COLORS.size()]
 		t.color2 = secondary_for(t.color, i)
-		var quality := league.rng.randf_range(62.0, 74.0)
+		var quality := league.rng.randf_range(70.0, 82.0)
 		t.roster = PlayerGenerator.generate_roster(league.rng, league.next_soldier_id, quality)
 		league.next_soldier_id += t.roster.size()
+		for s in t.roster:
+			s.home_state = LeagueData.random_state(league.rng)
 		t.auto_lineup()
 		league.teams.append(t)
 	if not league.teams.is_empty():
 		league.teams[0].user_controlled = true
 	league.ensure_callsigns()
 	return league
+
+
+const DATA_PATH := "res://data/league.json"
+
+
+## The fixed franchise league: every team, player and free agent from data/league.json.
+static func load_fixed(seed_value: int, path := DATA_PATH) -> League:
+	var data: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if typeof(data) != TYPE_DICTIONARY:
+		push_error("League data missing or invalid: %s" % path)
+		return generate(seed_value, LeagueData.TEAMS.size())
+	var league := League.new()
+	league.league_seed = seed_value
+	league.rng.seed = seed_value
+	for i in LeagueData.TEAMS.size():
+		league.teams.append(team_from_row(LeagueData.TEAMS[i], i + 1))
+	var by_abbrev := {}
+	for t in league.teams:
+		by_abbrev[t.abbrev] = t
+	var max_id := 0
+	for d: Dictionary in data["players"]:
+		var s := soldier_from_dict(d)
+		max_id = maxi(max_id, s.id)
+		var team: Team = by_abbrev.get(String(d.get("team", "")))
+		if team != null:
+			team.roster.append(s)
+		else:
+			league.free_agents.append(s)
+			s.fa_since = int(d.get("fa_since", 0))
+	league.next_soldier_id = max_id + 1
+	for t in league.teams:
+		t.auto_lineup()
+	league.ensure_callsigns()
+	return league
+
+
+static func team_from_row(row: Array, id: int) -> Team:
+	var t := Team.new()
+	t.id = id
+	t.abbrev = row[0]
+	t.city = row[1]
+	t.nickname = row[2]
+	t.name = "%s %s" % [row[1], row[2]]
+	t.color = Color(row[3])
+	t.color2 = Color(row[4])
+	t.division = row[5]
+	t.home_state = row[6]
+	t.backstory = row[8]
+	return t
+
+
+## A soldier from his league.json entry (stats keyed by Stats abbreviations, caps by group).
+static func soldier_from_dict(d: Dictionary) -> Soldier:
+	var s := Soldier.new()
+	s.id = int(d["id"])
+	s.first_name = d["first"]
+	s.last_name = d["last"]
+	s.callsign = d.get("callsign", "")
+	s.age = int(d["age"])
+	s.home_state = d.get("state", "")
+	s.potential = int(d["potential"])
+	s.draft_year = int(d.get("draft_year", 0))
+	var st: Dictionary = d["stats"]
+	for k in Stats.ALL:
+		s.stats[k] = int(st.get(Stats.ABBREV[k], 60))
+	var caps: Dictionary = d["caps"]
+	for g in Stats.UPGRADABLE_GROUPS:
+		s.group_caps[g] = int(caps.get(String(g), s.group_rating(g)))
+	if d.has("salary"):
+		s.contract = Contract.make(int(d["salary"]), int(d["years"]), int(d.get("signed", 2026)), bool(d.get("rookie", false)))
+	if d.has("dna"):
+		var dna := Dna.new()
+		for k: String in d["dna"]:
+			dna.set(k, int(d["dna"][k]))
+		s.dna = dna
+	s.look = Look.generate(s.id, s.age, Scheme.best_role(s.stats))
+	return s
 
 
 ## Auto-picks a contrasting accent colour for `primary` (deterministic per team index).
@@ -111,6 +192,13 @@ func ensure_callsigns() -> void:
 		if s.callsign == "" or taken.has(s.callsign.to_lower()):
 			s.callsign = Callsigns.pick(s, taken)
 		taken[s.callsign.to_lower()] = true
+
+
+func team_by_abbrev(abbrev: String) -> Team:
+	for t in teams:
+		if t.abbrev == abbrev:
+			return t
+	return null
 
 
 func team_of(s: Soldier) -> Team:

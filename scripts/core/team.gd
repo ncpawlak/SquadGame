@@ -7,6 +7,12 @@ const ROSTER_SIZE := 12
 var id: int
 var name: String
 var abbrev: String
+var city := ""
+var nickname := ""
+## Division (LeagueData.DIVISIONS) and two-letter home state.
+var division := ""
+var home_state := ""
+var backstory := ""
 var color: Color = Color.WHITE
 ## Accent colour for gear trim (goggle frames, straps, brims...).
 var color2: Color = Color("#e5e7eb")
@@ -18,6 +24,8 @@ var lineup: Dictionary = {}
 var user_controlled := false
 ## Cap year -> dead money ($K) still owed to released soldiers.
 var dead_money: Dictionary = {}
+## Season year -> salary-floor penalty charged for it (also booked into next year's dead money).
+var floor_penalties: Dictionary = {}
 
 
 func starters() -> Array[Soldier]:
@@ -72,7 +80,30 @@ func auto_lineup(consider_fatigue := false) -> void:
 	if pool.size() < slot_ids.size():
 		pool = roster.duplicate()
 	var best := {"score": -1.0, "pick": []}
-	_search(pool, slot_ids, 0, [], 0.0, best, consider_fatigue)
+	# Value of each pool soldier in each slot, computed once (the search visits ~10^5 nodes).
+	var vals: Array = []
+	var same_as_prev: Array[bool] = []
+	for d in slot_ids.size():
+		var role := scheme.role_for_slot(slot_ids[d])
+		same_as_prev.append(d > 0 and scheme.role_for_slot(slot_ids[d - 1]) == role)
+		var row := PackedFloat64Array()
+		for s in pool:
+			var value := float(s.ovr_at_role(role))
+			if consider_fatigue:
+				value *= 1.0 - Conditioning.penalty(s.fatigue)
+			row.append(value)
+		vals.append(row)
+	# Upper bound on what the remaining slots can add (each slot's best value), for pruning.
+	var bound := PackedFloat64Array()
+	bound.resize(slot_ids.size() + 1)
+	bound[slot_ids.size()] = 0.0
+	for d in range(slot_ids.size() - 1, -1, -1):
+		var top := 0.0
+		for v in vals[d]:
+			top = maxf(top, v)
+		bound[d] = bound[d + 1] + top
+	best["bound"] = bound
+	_search(vals, same_as_prev, pool.size(), 0, [], 0, 0.0, best)
 	lineup.clear()
 	for i in slot_ids.size():
 		lineup[slot_ids[i]] = pool[best["pick"][i]]
@@ -136,9 +167,9 @@ func keep_value(s: Soldier) -> float:
 	elif ahead >= slots + 2:
 		v -= 2.0 * float(ahead - slots - 1)
 	if s.contract != null and s.contract.years > 0:
-		v += minf(6.0, float(Contracts.dead_money_if_released(s)) / 1500.0)
+		v += minf(6.0, float(Contracts.dead_money_if_released(s)) / 4200.0)
 		var surplus := float(Contracts.market_value(s) - s.contract.salary) * mini(s.contract.years, 3)
-		v += clampf(surplus / 1000.0, -3.0, 3.0)
+		v += clampf(surplus / 2800.0, -3.0, 3.0)
 	return v
 
 
@@ -175,29 +206,39 @@ func injured() -> Array[Soldier]:
 	return out
 
 
-func _search(pool: Array[Soldier], slot_ids: Array[StringName], depth: int, picked: Array, score: float, best: Dictionary, fatigue: bool) -> void:
-	if depth == slot_ids.size():
+func _search(vals: Array, same_as_prev: Array[bool], n: int, depth: int, picked: Array, used: int, score: float, best: Dictionary) -> void:
+	if depth == vals.size():
 		if score > best["score"]:
 			best["score"] = score
 			best["pick"] = picked.duplicate()
 		return
-	var role := scheme.role_for_slot(slot_ids[depth])
-	for i in pool.size():
-		if picked.has(i):
+	if score + best["bound"][depth] <= best["score"]:
+		return
+	var row: PackedFloat64Array = vals[depth]
+	var start := 0
+	# Identical adjacent slots (FM1/FM2) are interchangeable: enforce ordering to prune.
+	if same_as_prev[depth]:
+		start = picked[depth - 1] + 1
+	for i in range(start, n):
+		if used & (1 << i):
 			continue
-		# Identical adjacent slots (FM1/FM2) are interchangeable: enforce ordering to prune.
-		if depth > 0 and scheme.role_for_slot(slot_ids[depth - 1]) == role and i < picked[depth - 1]:
-			continue
-		var value := float(pool[i].ovr_at_role(role))
-		if fatigue:
-			value *= 1.0 - Conditioning.penalty(pool[i].fatigue)
 		picked.append(i)
-		_search(pool, slot_ids, depth + 1, picked, score + value, best, fatigue)
+		_search(vals, same_as_prev, n, depth + 1, picked, used | (1 << i), score + row[i], best)
 		picked.pop_back()
 
 
-## Team OVR: average positional OVR of the starting five.
+## Team OVR: average best-role OVR of the whole roster (stars lift it, thin depth drags it).
 func team_ovr() -> int:
+	if roster.is_empty():
+		return 0
+	var total := 0
+	for s in roster:
+		total += s.best_ovr()
+	return roundi(float(total) / roster.size())
+
+
+## Average positional OVR of the starting five.
+func starters_ovr() -> int:
 	var total := 0
 	var n := 0
 	for slot_id in lineup:

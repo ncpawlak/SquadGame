@@ -18,12 +18,23 @@ extends RefCounted
 ## ("claimed #1 for long range target practice") point at an extreme stat. Most stories are
 ## true, some are misleading, and none reveal a tier outright.
 ##
+## Free scouting: every prospect carries a rough "area scout" grade (a noisy class-relative
+## letter), and once per season (Week 1) the user may send scouts to one region: every prospect
+## from that region's states is scouted to REGION_SCOUT_POINTS for free. Auto-scout spends points
+## for him (favorites first, then the big board). Prospects can be starred as favorites.
+##
 ## Draft: same order every round (worst team first, champion last) for ROUNDS rounds. AI teams pick on a
 ## pick-day read of the consensus value plus a bonus for their weakest position.
 
-const CLASS_SIZE := 36
+const CLASS_SIZE := 110
 const ROUNDS := 3
-const POINTS_PER_WEEK := 14
+const POINTS_PER_WEEK := 20
+const REGION_SCOUT_POINTS := 4
+## Auto-scout levels: "up to 3" gives every group a first look, "up to 6" narrows every group.
+const AUTO_SCOUT_LEVELS := [3, 6]
+## Area-scout grades by class percentile (best first) and the noise on their read (OVR points).
+const AREA_GRADES := [["A", 0.05], ["B+", 0.15], ["B", 0.30], ["C+", 0.50], ["C", 0.70], ["D", 0.88], ["F", 1.0]]
+const AREA_NOISE := 4.0
 const MAX_POINTS_PER_PROSPECT := 8
 ## Window width (in tiers) after the 1st, 2nd and 3rd scout of a group.
 const WINDOW_WIDTHS := [3, 2, 1]
@@ -32,7 +43,7 @@ const GROUPS_PER_POINT := 2
 ## Scouts a group needs before the one-group, exact-tier phase starts.
 const BROAD_SCOUTS := 2
 ## Group rating thresholds for tiers 1..4 (tier 0 is below the first).
-const TIER_THRESHOLDS := [50, 60, 70, 80]
+const TIER_THRESHOLDS := [58, 68, 77, 86]
 const TIER_COUNT := 5
 const TIER_NAMES := {
 	Stats.ACCURACY: ["Spray & Pray", "Inconsistent", "Steady Aim", "Marksman", "Sharpshooter"],
@@ -42,19 +53,19 @@ const TIER_NAMES := {
 	Stats.OBJECTIVE: ["Point Shy", "Wanderer", "Contester", "Point Man", "King of the Hill"],
 	Stats.DURABILITY: ["Glass", "Fragile", "Durable", "Sturdy", "Iron Man"],
 }
-const PROSPECT_QUALITY := 57.0
+const PROSPECT_QUALITY := 66.0
 const PROSPECT_QUALITY_SD := 6.0
 ## Blue-chippers per class [min, max], their OVR at the listed position [min, max] and minimum
 ## potential. They are day-one starters.
-const BLUE_CHIPS := [1, 3]
-const BLUE_CHIP_OVR := [70, 74]
+const BLUE_CHIPS := [3, 6]
+const BLUE_CHIP_OVR := [76, 79]
 const BLUE_CHIP_MIN_POTENTIAL := 3
 ## Chance a class has a generational talent (one per class at most), and his OVR [min, max].
 const GENERATIONAL_CHANCE := 0.18
-const GENERATIONAL_OVR := [74, 77]
+const GENERATIONAL_OVR := [80, 82]
 ## Specialists per class [min, max] and the range of their elite group's stats.
-const SPECIALISTS := [3, 5]
-const SPECIALIST_STAT := [74, 86]
+const SPECIALISTS := [8, 12]
+const SPECIALIST_STAT := [84, 95]
 ## Prospect news: stories per week (weights for 0, 1, 2) and how far a rising/falling story moves
 ## the consensus. Facts (drill results, class rankings, measured strengths/weaknesses) are always
 ## true; rumors ("reportedly", "one scout claims", "word is") and stock buzz are true
@@ -67,8 +78,8 @@ const NEWS_STOCK_SHIFT := 1.5
 const NEWS_HINT_SHIFT := 0.6
 ## A stat at or above GREAT (or at or below POOR) is "newsworthy" for a stat story. A false rumor
 ## is about a stat inside the ordinary band [POOR + 8, GREAT - 8].
-const NEWS_GREAT := 72
-const NEWS_POOR := 42
+const NEWS_GREAT := 82
+const NEWS_POOR := 52
 const NEWS_ORDINARY_MARGIN := 8
 const RISING_LINES := [
 	"%s is turning heads in workouts; his stock is climbing.",
@@ -138,8 +149,8 @@ const STAT_NOUNS := {
 	Stats.BREACH: "point pushing", Stats.OBJ_IQ: "objective IQ", Stats.TOUGHNESS: "recovery from knocks", Stats.INJURY: "medicals",
 }
 ## Phenoms: every non-injury stat at least this (they play any position well).
-const PHENOM_STAT_MIN := 54
-const PHENOM_STAT_MAX := 64
+const PHENOM_STAT_MIN := 64
+const PHENOM_STAT_MAX := 74
 const PHENOM_EXTRA_HEADROOM := 6
 ## League-wide evaluation error baked into each prospect's consensus value (OVR points).
 const CONSENSUS_NOISE := 3.0
@@ -158,6 +169,8 @@ var prospects: Array[Prospect] = []
 var news: Array = []
 var _news_rng := RandomNumberGenerator.new()
 var scout_points := 0
+## Region the user's scouts covered this season ("" = not used yet).
+var region_scouted := ""
 ## One team per pick, in order. Empty until the draft order is set (after the Final).
 var order: Array[Team] = []
 ## Who each pick originally belonged to (order before trades), same indexing as `order`.
@@ -180,6 +193,7 @@ static func generate(seed_value: int, draft_year: int, first_id: int) -> Draft:
 		p.listed_role = roles[rng.randi_range(0, roles.size() - 1)]
 		var quality := PROSPECT_QUALITY + rng.randfn(0.0, PROSPECT_QUALITY_SD)
 		p.soldier = PlayerGenerator.generate(rng, first_id + i, p.listed_role, quality, rng.randi_range(19, 22))
+		p.soldier.home_state = LeagueData.random_state(rng)
 		d.prospects.append(p)
 	# Usually one phenom, sometimes none or two.
 	var roll := rng.randf()
@@ -202,7 +216,23 @@ static func generate(seed_value: int, draft_year: int, first_id: int) -> Draft:
 	for p in d.prospects:
 		p.consensus = true_value(p) + rng.randfn(0.0, CONSENSUS_NOISE) - (PHENOM_UNDERRATE if p.phenom else 0.0)
 	d.rerank()
+	d._grade_area(rng)
 	return d
+
+
+## Rough area-scout letter for every prospect: his class percentile on a noisy read.
+func _grade_area(rng: RandomNumberGenerator) -> void:
+	var reads := {}
+	for p in prospects:
+		reads[p] = true_value(p) + rng.randfn(0.0, AREA_NOISE)
+	var board := prospects.duplicate()
+	board.sort_custom(func(a: Prospect, b: Prospect): return reads[a] > reads[b])
+	for i in board.size():
+		var pct := float(i + 1) / board.size()
+		for g in AREA_GRADES:
+			if pct <= g[1]:
+				board[i].area_grade = g[0]
+				break
 
 
 ## Recomputes every prospect's big-board rank from the consensus.
@@ -469,6 +499,69 @@ func scout(p: Prospect) -> Array[StringName]:
 	return out
 
 
+## Scouts `p` up to `level` points without spending the user's points (region scouting).
+func scout_free(p: Prospect, level: int) -> void:
+	while p.points < mini(level, MAX_POINTS_PER_PROSPECT) and not p.fully_scouted():
+		scout_points += 1
+		scout(p)
+
+
+func region_of(p: Prospect) -> String:
+	return LeagueData.region_of(p.soldier.home_state)
+
+
+## Prospects from `region`.
+func in_region(region: String) -> Array[Prospect]:
+	var out: Array[Prospect] = []
+	for p in prospects:
+		if region_of(p) == region:
+			out.append(p)
+	return out
+
+
+## The once-a-season region scout: every prospect from `region` scouted to REGION_SCOUT_POINTS.
+## Returns how many prospects it covered (-1 if already used this season).
+func scout_region(region: String) -> int:
+	if region_scouted != "":
+		return -1
+	region_scouted = region
+	var n := 0
+	for p in in_region(region):
+		if p.is_available():
+			scout_free(p, REGION_SCOUT_POINTS)
+			n += 1
+	return n
+
+
+## Auto-scout: spends scout points bringing prospects up to `level` points (level 3 covers
+## everyone below 3; level 6 only those already at 3+). Favorites go first, then the big board.
+## Returns how many prospects were scouted.
+func auto_scout(level: int) -> int:
+	var lo := 0 if level <= AUTO_SCOUT_LEVELS[0] else AUTO_SCOUT_LEVELS[0]
+	var board: Array = available().filter(func(p: Prospect): return p.points >= lo and p.points < level)
+	board.sort_custom(func(a: Prospect, b: Prospect):
+		if a.favorite != b.favorite:
+			return a.favorite
+		return a.projected_rank < b.projected_rank)
+	var n := 0
+	for p in board:
+		if scout_points <= 0:
+			break
+		while p.points < level and can_scout(p):
+			scout(p)
+		n += 1
+	return n
+
+
+func favorites() -> Array[Prospect]:
+	var out: Array[Prospect] = []
+	for p in prospects:
+		if p.favorite:
+			out.append(p)
+	out.sort_custom(func(a: Prospect, b: Prospect): return a.projected_rank < b.projected_rank)
+	return out
+
+
 func _narrow(p: Prospect, g: StringName) -> void:
 	var n: int = p.scouts.get(g, 0)
 	var width: int = WINDOW_WIDTHS[n]
@@ -537,6 +630,7 @@ func make_pick(p: Prospect) -> bool:
 	p.drafted_by = team
 	p.pick_number = next_pick
 	p.soldier.draft_year = year
+	p.soldier.draft_pick = p.pick_number
 	p.soldier.contract = Contracts.rookie_contract(p.pick_number, order.size(), year)
 	team.roster.append(p.soldier)
 	p.soldier.morale = 82.0
@@ -556,6 +650,7 @@ static func true_value(p: Prospect) -> float:
 
 ## "Early 1st", "Mid 2nd", ... or "Undrafted" for a 1-based big-board rank.
 static func projection_text(rank: int, picks_per_round: int = Season.TEAM_COUNT) -> String:
+	picks_per_round = maxi(1, picks_per_round)
 	var rnd := (rank - 1) / picks_per_round + 1
 	if rnd > ROUNDS:
 		return "Undrafted"
@@ -564,7 +659,7 @@ static func projection_text(rank: int, picks_per_round: int = Season.TEAM_COUNT)
 
 
 func projection(p: Prospect) -> String:
-	return projection_text(p.projected_rank)
+	return projection_text(p.projected_rank, league.teams.size() if league != null else Season.TEAM_COUNT)
 
 
 ## The team's weakest starting position (lowest average starter OVR at that role).

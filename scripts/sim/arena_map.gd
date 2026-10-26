@@ -126,26 +126,34 @@ static func on_hill(p: Vector2) -> bool:
 
 ## Tall walls block sight; crates don't.
 static func line_of_sight(a: Vector2, b: Vector2) -> bool:
+	var box := _seg_box(a, b)
 	for r in walls:
-		if seg_hits_rect(a, b, r):
+		if r.intersects(box, true) and seg_hits_rect(a, b, r):
 			return false
 	return true
 
 
 ## A shot from a to b crosses a crate (the target is behind cover).
 static func through_cover(a: Vector2, b: Vector2) -> bool:
+	var box := _seg_box(a, b)
 	for r in crates:
-		if seg_hits_rect(a, b, r):
+		if r.intersects(box, true) and seg_hits_rect(a, b, r):
 			return true
 	return false
 
 
 ## Straight walk from a to b doesn't clip any obstacle.
 static func walk_clear(a: Vector2, b: Vector2) -> bool:
+	var box := _seg_box(a, b)
 	for r in _grown:
-		if seg_hits_rect(a, b, r):
+		if r.intersects(box, true) and seg_hits_rect(a, b, r):
 			return false
 	return true
+
+
+## The segment's bounding box (a cheap native pre-check before the exact segment test).
+static func _seg_box(a: Vector2, b: Vector2) -> Rect2:
+	return Rect2(minf(a.x, b.x), minf(a.y, b.y), absf(b.x - a.x), absf(b.y - a.y))
 
 
 ## Liang-Barsky segment vs axis-aligned rect.

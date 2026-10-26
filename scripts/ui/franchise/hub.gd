@@ -203,6 +203,7 @@ func sim_week() -> void:
 		return
 	var label := season.week_label(season.week)
 	var played: Array = season.sim_week()
+	_autosave()
 	page_stack.clear()
 	_build_header()
 	_build_tabs()
@@ -269,6 +270,7 @@ func _advance_offseason() -> void:
 					season.camp.drills_left(user), "" if season.camp.drills_left(user) == 1 else "s"])
 				return
 			season.start_next_season()
+			_autosave()
 			page_stack.clear()
 			tab_index = 0
 			refresh()
@@ -286,11 +288,19 @@ func _close_preseason_camp() -> void:
 			season.camp.drills_left(user), "" if season.camp.drills_left(user) == 1 else "s"])
 		return
 	season.close_preseason_camp()
+	_autosave()
 	_camp_skip_warned = false
 	page_stack.clear()
 	tab_index = 0
 	refresh()
 	app.toast("Training camp is over. Welcome to the %d season." % season.year)
+
+
+## Autosave slot, written after every week and at the start of each season. Failures only toast.
+func _autosave() -> void:
+	var err := SaveSystem.autosave(season)
+	if err != "":
+		app.toast("Autosave failed: " + err)
 
 
 func _rebuild_and_open(title: String, build: Callable) -> void:
@@ -395,8 +405,17 @@ func _build_header() -> void:
 	hb.add_child(info)
 	info.add_child(UiKit.label(team.name.to_upper(), 30, Color.WHITE))
 	var rank := _rank_of(team)
-	info.add_child(UiKit.label("%s   -   %s in %s   -   Team OVR %d" % [
-		season.record_text(team), UiKit.ordinal(rank), Season.DIVISION_NAME, team.team_ovr()], 16, UiKit.MUTED))
+	var where := "%s in %s" % [UiKit.ordinal(rank), Season.DIVISION_NAME]
+	if season.has_divisions():
+		var div := season.division_of(team)
+		var drank := 0
+		var drows: Array = season.division_standings(div)
+		for i in drows.size():
+			if (drows[i] as StandingRow).team == team:
+				drank = i + 1
+		where = "%s in the %s   -   %s in the league" % [UiKit.ordinal(drank), div, UiKit.ordinal(rank)]
+	info.add_child(UiKit.label("%s   -   %s   -   Team OVR %d" % [
+		season.record_text(team), where, team.team_ovr()], 16, UiKit.MUTED))
 
 	var when := VBoxContainer.new()
 	when.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -452,7 +471,9 @@ func _phase_text() -> String:
 			return "OFFSEASON - PRESEASON"
 		Season.PHASE_PLAYOFFS:
 			return "PLAYOFFS - %s" % season.week_label(season.week).to_upper()
-	return "WEEK %d of %d" % [season.week, Season.REGULAR_WEEKS]
+	if season.is_bye(season.user_team(), season.week):
+		return "WEEK %d of %d - BYE" % [season.week, season.regular_weeks]
+	return "WEEK %d of %d" % [season.week, season.regular_weeks]
 
 
 func _advance_text() -> String:
@@ -820,6 +841,15 @@ func _news_tiles() -> Array:
 		var a: Dictionary = season.review.awards[0]
 		out.append(UiKit.tile("%d MVP" % season.review.year, "[color=white]%s[/color] (%s)" % [UiKit.esc(a["soldier"].display_name()), a["team"].abbrev],
 			SMALL, UiKit.ACCENT, func(): open("Season Awards", pages.awards)))
+	for n in season.news.latest(3):
+		var accent := Color("#14b8a6")
+		for ab in n.get("teams", []):
+			var nt := season.league.team_by_abbrev(ab)
+			if nt != null:
+				accent = nt.color
+				break
+		out.append(UiKit.tile("League Wire", "[color=white]%s[/color]\n[font_size=13]%s[/font_size]" % [UiKit.esc(String(n["headline"])), UiKit.esc(String(n["body"]))],
+			SMALL, accent, func(): open("League News", pages.news)))
 	var hist: Array = season.fa.history
 	for i in range(hist.size() - 1, maxi(-1, hist.size() - 4), -1):
 		var e: Dictionary = hist[i]
@@ -973,13 +1003,14 @@ func _league_sections() -> Array:
 			UiKit.tile("Standings", _mini_standings(), TILE, Color("#a855f7"), open_standings),
 			UiKit.tile("Schedule", "Full league schedule by week.", TILE, Color("#6366f1"),
 				func(): open("Scores & Schedule", func(): return pages.scores(clampi(season.week, 1, season.total_weeks())))),
-			UiKit.tile("Scores", "Results from around the division.", TILE, UiKit.INFO,
+			UiKit.tile("Scores", "Results from around the league.", TILE, UiKit.INFO,
 				func(): open("Scores & Schedule", func(): return pages.scores(_last_week_with_results()))),
 			UiKit.tile("Playoff Picture", _playoff_blurb(), TILE, Color("#f43f5e"), func(): open("Playoff Picture", pages.playoffs)),
 		]],
 		["STATS", [
 			UiKit.tile("League Leaders", _leader_blurb(), TILE, Color("#eab308"), func(): open("League Leaders", pages.leaders)),
 			UiKit.tile("League Stats", "Every soldier's season stats, sortable by any column.", TILE, Color("#0ea5e9"), func(): open("League Stats", pages.league_stats)),
+			UiKit.tile("Team Stats", "Every team's season totals: K/D, damage, accuracy, hill time.", TILE, Color("#10b981"), func(): open("League Team Stats", pages.league_team_stats)),
 			UiKit.tile("Team Rankings", "Every team by OVR and record.", TILE, Color("#22c55e"), func(): open("Team Rankings", pages.team_rankings)),
 			UiKit.tile("League News", _headline(), TILE, Color("#14b8a6"), func(): open("League News", pages.news)),
 		]],
@@ -1071,8 +1102,10 @@ func _settings_sections() -> Array:
 	return [
 		["FRANCHISE", [
 			UiKit.tile("Sim Options", "Sim a week, to the playoffs, or the whole season.", TILE, UiKit.ACCENT, func(): open("Sim Options", pages.sim_options)),
-			UiKit.tile("Save Franchise", "Save your progress.", TILE, UiKit.MUTED, func(): app.toast("Save / load is coming in a later milestone."), "SOON"),
-			UiKit.tile("Load Franchise", "Load a saved franchise.", TILE, UiKit.MUTED, func(): app.toast("Save / load is coming in a later milestone."), "SOON"),
+			UiKit.tile("Save Franchise", "%d save slots. The autosave updates every week." % SaveSystem.SLOTS, TILE, Color("#22c55e"),
+				func(): open("Save Franchise", func(): return pages.save_load(true))),
+			UiKit.tile("Load Franchise", "Load a saved franchise or the autosave.", TILE, UiKit.INFO,
+				func(): open("Load Franchise", func(): return pages.save_load(false))),
 			UiKit.tile("Franchise Settings", "Difficulty, injuries, trade logic.", TILE, UiKit.MUTED,
 				func(): coming_soon("Franchise Settings", ["Sim difficulty", "Injuries on/off and frequency", "Trade AI strictness", "Salary cap rules"]), "SOON"),
 		]],
@@ -1175,16 +1208,27 @@ func _score_for(m: ScheduledMatch, team: Team) -> String:
 	return "%d-%d" % [m.games_for(team), m.games_for(m.opponent_of(team))]
 
 
+## The user's division (or the whole league when there are no divisions).
 func _mini_standings() -> String:
 	var lines: Array[String] = []
-	for row in season.standings():
+	var rows: Array = season.standings()
+	if season.has_divisions():
+		var div := season.division_of(season.user_team())
+		lines.append("[color=#8b97ab]%s DIVISION[/color]" % div.to_upper())
+		rows = season.division_standings(div)
+	for i in rows.size():
+		var row: StandingRow = rows[i]
 		var c := "white" if row.team.user_controlled else "#8b97ab"
-		lines.append("[color=%s]%d. %s  %d-%d[/color]" % [c, row.rank, row.team.abbrev, row.wins, row.losses])
+		lines.append("[color=%s]%d. %s  %d-%d[/color]" % [c, i + 1, row.team.abbrev, row.wins, row.losses])
 	return "\n".join(lines)
 
 
 func _headline() -> String:
 	var news := pages.headlines(1)
+	if news.is_empty():
+		var wire: Array = season.news.latest(1)
+		if not wire.is_empty():
+			return String(wire[0]["headline"])
 	return news[0] if not news.is_empty() else "Preseason: %d teams chase the %s title." % [season.league.teams.size(), Season.DIVISION_NAME]
 
 
@@ -1206,9 +1250,12 @@ func _awards_blurb() -> String:
 
 func _playoff_blurb() -> String:
 	if season.phase == Season.PHASE_REGULAR:
-		var rows := season.standings()
-		var cut: StandingRow = rows[Season.PLAYOFF_TEAMS - 1]
-		return "Top %d make the playoffs.\nCurrently #%d: %s (%d-%d)" % [Season.PLAYOFF_TEAMS, Season.PLAYOFF_TEAMS, cut.team.abbrev, cut.wins, cut.losses]
+		var field := season.playoff_field()
+		var last: Team = field[-1]
+		var user := season.user_team()
+		var mine := field.find(user)
+		return "%d teams make the playoffs.\nYou: %s\nLast seed in: %s (%s)" % [season.playoff_teams,
+			("[color=#22c55e]seed %d[/color]" % (mine + 1)) if mine >= 0 else "[color=#ef4444]outside[/color]", last.abbrev, season.record_text(last)]
 	if season.champion:
 		return "Champion: [color=white]%s[/color]" % UiKit.esc(season.champion.name)
 	return "Playoffs underway: %s" % season.week_label(season.week)

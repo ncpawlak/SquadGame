@@ -7,12 +7,22 @@ const FIRST_NAMES := [
 	"Ivan", "Luca", "Mateo", "Theo", "Andre", "Malik", "Hugo", "Felix", "Jasper", "Dante",
 	"Ezra", "Silas", "Cole", "Rhys", "Bruno", "Kenji", "Omar", "Viktor", "Elias", "Sami",
 	"Tomas", "Reed", "Jalen", "Arlo", "Cyrus", "Damon", "Emil", "Gage", "Hank", "Idris",
+	"Jordan", "Tyler", "Caleb", "Isaiah", "Darius", "Trent", "Brody", "Colton", "Devin", "Garrett",
+	"Jamal", "Keegan", "Landon", "Miles", "Nolan", "Pierce", "Quentin", "Rashad", "Shane", "Troy",
+	"Victor", "Wyatt", "Xavier", "Zeke", "Aaron", "Beau", "Cody", "Derek", "Evan", "Finn",
+	"Grady", "Hector", "Javier", "Kendrick", "Logan", "Mason", "Nate", "Oscar", "Preston", "Ray",
+	"Santiago", "Travis", "Ulysses", "Vince", "Warren", "Yusuf", "Zach", "Brock", "Chase", "Dmitri",
 ]
 const LAST_NAMES := [
 	"Reyes", "Novak", "Okafor", "Lindqvist", "Hart", "Moreau", "Kowalski", "Tanaka", "Silva",
 	"Brennan", "Vance", "Ortiz", "Petrov", "Haddad", "Fischer", "Mbeki", "Calloway", "Ruiz",
 	"Sato", "Grant", "Ivers", "Duarte", "Kerr", "Lowe", "Mercer", "Nash", "Pike", "Quinn",
 	"Rourke", "Stone", "Thorne", "Ueda", "Voss", "Wilder", "Yates", "Zane", "Bishop", "Cruz",
+	"Adams", "Barrett", "Carver", "Dalton", "Ellison", "Foster", "Garza", "Holloway", "Ingram", "Jennings",
+	"Keller", "Lawson", "Maddox", "Navarro", "O'Neal", "Palmer", "Ramsey", "Sutton", "Tate", "Underwood",
+	"Vaughn", "Whitaker", "York", "Abbott", "Brooks", "Cannon", "Delgado", "Easton", "Fletcher", "Gibbs",
+	"Hayes", "Irwin", "Jacobs", "Kimura", "Lockhart", "Mendez", "Nolan", "Oduya", "Park", "Rhodes",
+	"Salazar", "Townsend", "Valdez", "Webb", "Boone", "Crawford", "Drake", "Fuentes", "Hale", "Knox",
 ]
 
 ## Stat offsets relative to the soldier's base quality.

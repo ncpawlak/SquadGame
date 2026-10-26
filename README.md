@@ -23,13 +23,27 @@ The Web preset is the no-threads build, so it runs on any static host without sp
 
 ## Franchise mode (main screen)
 
-Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-style).
+Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-style). Title → Load Franchise opens the save slots.
 
-- **Season loop** (`scripts/season/`): 1 division ("Premier Division"), 5 teams. Double round robin: 10 weeks,
-  8 matches per team, one bye per week. Top 4 make the playoffs: semis (1v4, 2v3, higher seed hosts), then the final.
+- **The league** (`scripts/core/league_data.gd`, `data/league.json`): 20 fixed franchises in 4 divisions of 5 -
+  East (NYE, DET, BOS, IND, BKN), South (CHA, ATL, MIA, NSH, ORL), Central (ARL, CHI, STL, LOU, LRK) and West
+  (LAS, SEA, SDV, REN, DEN) - each with its city, colours, home state, backstory and a **hand-authored 12-man
+  roster** (names, ratings, ages, potential, DNA, home states and contracts are fixed; the same in every new
+  franchise). Team OVRs start from 93 (New York Empire) down to 70 (Little Rock Riverhawks). Every team has the same
+  cap, so payrolls (and cap space) differ. `tools/build_league.gd` regenerates `league.json` from the table in
+  `league_data.gd` with one fixed seed (only needed if the table changes).
+- **Team select**: a big pane on top shows the hovered/focused team - logo in its colours, division, OVR and
+  preseason rank, cap space, average age, expectation, backstory, starters' average group ratings and its top 3
+  players - over 4 division rows of 5 team buttons. Click to start.
+- **Season loop** (`scripts/season/`): 12 weeks. Each team plays its 4 division rivals home and away (8), one team
+  from each other division (3) and has one **bye**. The **playoffs** take 8 teams: the 4 division winners are seeds
+  1-4 (by record), then the 4 best other records are wild cards 5-8. Bracket 1v8, 4v5, 2v7, 3v6 (no reseeding),
+  higher seed hosts: Quarterfinals → Semifinals → Final.
   Then the end-of-season review (awards and potential changes), the offseason (re-sign → draft → free agency → training camp),
   and aging → next season (rosters, ratings and contracts carry over).
-- **Standings**: match W/L, tiebreakers head-to-head, then game differential (games won − lost across the best-of-3
+- **Standings** (League → Standings): Divisions / Whole league toggle with W-L, division record and a SEED column
+  (DIV / WC) for the current playoff picture. League → Playoffs shows the projected bracket in-season and the live
+  bracket in the playoffs. Ties: match W/L, then head-to-head, then game differential (games won − lost across the best-of-3
   matches), then TDM point differential.
 - **Match day**: Play Week opens a matchup screen (both starting fives, OVRs; click a soldier for his player card) with **Watch** and **Sim**.
   Sim plays it instantly. Watch opens the live viewer (`scripts/ui/franchise/match_viewer.gd`): a top-down
@@ -47,8 +61,8 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   week is played. Spend SP on the player page (or **Auto-progress all** on the Progression page). The Home "Progress Players"
   tile counts only soldiers who can afford an upgrade right now ("x players can level up"). Injured starters are
   auto-replaced by the best healthy bench soldier.
-- **Scouting** (`scripts/season/draft.gd`, `prospect.gd`): each season has a class of 36 recruits (age 19–22).
-  You only see name, age and listed position. You get 14 scout points a week (unspent points carry over); scouting opens in Week 1, not during training camp.
+- **Scouting** (`scripts/season/draft.gd`, `prospect.gd`): each season has a class of 110 recruits (age 19–22)
+  from every state. You only see name, age, listed position and home state. You get 20 scout points a week (unspent points carry over); scouting opens in Week 1, not during training camp.
   Each point spent on a prospect scouts **2 stat groups**, each shown as a range of named grades, e.g. Accuracy
   "Steady Aim - Marksman". The first look at a group shows 3 grades, a second narrows it to 2 (every group gets a
   first look before any gets a second). After 6 points every group is down to 2 grades; from then on each point
@@ -61,26 +75,31 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   - Objective: Point Shy, Wanderer, Contester, Point Man, King of the Hill
   - Injury: Glass, Fragile, Durable, Sturdy, Iron Man
 
-  Grade thresholds: below 50, 50s, 60s, 70s, 80+.
+  Grade thresholds: below 58, 58-67, 68-76, 77-85, 86+.
+  **Area scouts** give every prospect a coarse **AREA** grade (A, B+, B, C+, C, D, F; noisy, from his true
+  quality) - a cheap first sort of the big class. Once a season you can send a **region scout** trip (East, South,
+  Central, West): every available prospect from that region gets 4 free points. **Auto-scout** spends your points
+  for you: "Up to 3" gives everyone a first look, "Up to 6" deepens those already at 3 - favorites first, then
+  the big board. Star a prospect to make him a **favorite**; the list filters by region and favorites.
   Most classes hide one unlabelled **phenom** (sometimes none or two). A phenom lists one position but grades
   well in every group, so he can play anywhere. AI teams don't know who they are, and the league consensus
   underrates them.
-  Every class also has **standouts**: 1-3 unlabelled **blue chips** (day-one starters at 70-74 OVR, B/A potential),
-  sometimes (about 1 class in 5) a **generational** talent (74-77 OVR, A potential), and 3-5 **specialists** (one
-  group in the 74-86 range). Scouting is how you find them.
+  Every class also has **standouts**: 3-6 unlabelled **blue chips** (day-one contributors at 76-79 OVR, B/A potential),
+  sometimes (about 1 class in 5) a **generational** talent (80-82 OVR, A potential), and 8-12 **specialists** (one
+  stat in the 84-95 range). Scouting is how you find them.
 - **Prospect news**: 0-2 stories a week during the season (Scouting page, League News → Prospect Watch, Home tiles):
   stock rising, stock falling, and stat notes ("claimed #1 in the country for long range target practice").
   Stories nudge the consensus board, and none says outright who is a blue chip. **Facts** are always true:
   class rankings ("finished the ruck march first") go only to the real class leader (or last place) in that
-  stat, and measured reports only to standout (72+) or poor (42-) ratings. **Rumors** ("Word is...", "reportedly",
+  stat, and measured reports only to standout (82+) or poor (52-) ratings. **Rumors** ("Word is...", "reportedly",
   stock rising/falling) are true about half the time, so scout before you believe them.
   Every prospect shows a **projected pick** (Early/Mid/Late 1st or 2nd, or Undrafted) from a noisy league-consensus
   board. The **Mock Draft** page (Personnel → Draft, or the Scouting page) predicts every pick from the current
   standings. The Scouting list and Draft Room are a table: portrait, name/age/position, projection, then one column per
   stat group (a 5-segment bar lit where his grade could be, best grade on top). Click any header to sort (groups sort by
   the middle of the scouted range; unscouted sinks). Each grade is colored: red Poor, orange Below average, gray Average, blue Good, green Elite.
-- **Draft**: after the Final, 3 rounds, same order every round (like football). Teams that missed the playoffs pick first (worst record first),
-  then semifinal losers, the runner-up, and the champion last. AI teams pick from the consensus board with a little noise, leaning toward their weakest position.
+- **Draft**: after the Final, 3 rounds (60 picks), same order every round (like football). Teams that missed the playoffs pick first (worst record first),
+  then quarterfinal losers, semifinal losers, the runner-up, and the champion last. AI teams pick from the consensus board with a little noise, leaning toward their weakest position.
   The Draft Room runs a **clock**: you have 2:00 on your pick (then the best available is auto-picked) and CPU teams
   pick after 5 seconds. The clock only runs while the Draft Room is open. **Sim to next pick** skips one CPU pick;
   you can also sim to your pick, draft a prospect or auto-pick. Draftees get rookie contracts (cheaper
@@ -89,14 +108,16 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   a note for blue chips, specialists, steals and reaches, and click-through to each player's profile. Past recaps
   stay under Personnel → Draft.
 - **Contracts & payroll** (`scripts/core/contract.gd`, `scripts/season/contracts.gd`): every soldier has a salary
-  and years left. Hard cap of $54M per team per season, the same for everyone (Madden-style); minimum salary
-  $750K always fits. Contracts tick down after the Final. Releasing a player leaves 50% of his remaining money on
+  and years left. Hard cap of $150M per team per season, the same for everyone (Madden-style); minimum salary
+  $750K always fits. **Salary floor** $30M: a team whose payroll ends a season below it pays the shortfall as a
+  penalty (charged to its cap, reported in News); League → Teams flags teams below the floor. Contracts tick down after the Final. Releasing a player leaves 50% of his remaining money on
   the cap as dead money, split over his remaining years. Personnel → Contracts & Payroll shows cap space, every
   contract and future commitments. Trades have to fit under the cap too.
 - **Player DNA** (`scripts/core/dna.gd`, player page → DNA tab, fully visible): five motivations - Money,
   Winning, Playing Time, Loyalty, Security - plus Temperament (thick- vs thin-skinned) and Savvy (negotiating
   skill), 1-99. Rolled once per soldier (young players lean money/playing time, veterans winning/security) with one
-  clear headline motivation. **Trust** (0-100, starts 50) is his relationship with his club: kept promises and fair
+  clear headline motivation. **Hometown** (the DNA tab shows his home state): free agents add up to 10% interest for
+  their home state's club (half for a club in the same region), scaled by this motivation. **Trust** (0-100, starts 50) is his relationship with his club: kept promises and fair
   talks build it, hardball, broken promises and walk-outs cost it; it carries across seasons and resets when he
   changes teams.
 - **Re-sign negotiation** (`scripts/season/negotiation.gd`, Home → Re-sign Players): each expiring player names
@@ -113,7 +134,7 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   thin-skinned **request a trade**. His next negotiation opens sour. Results show under News → Player Relations.
 - **Trades** (`scripts/season/trades.gd`, Personnel → Trades, or "Trade for Him" / "Shop" on any player card):
   up to 3 assets a side - players under contract past this season and this year's and next year's draft picks
-  (expiring contracts can't be traded). The window is open in preseason camp, through Week 6 (the deadline), and
+  (expiring contracts can't be traded). The window is open in preseason camp, through Week 8 (the deadline), and
   in the offseason from the draft on (including during the live draft); closed for the rest of the season and the
   playoffs. Trades can push a roster past 12 (you must cut before your next match; AI teams restructure right away:
   shop their least valuable surplus to teams with room for a pick, else cut, weighing OVR, potential, age, years
@@ -151,7 +172,20 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
 - **Retirement** (`scripts/season/retirement.gd`): soldiers retire from age 35 (always by 39), more likely as
   they decline. Free agents unsigned for a season retire if they're weak or 33+, which keeps the pool churning.
   Home/League → Retirements lists them by year, toggling between your team and the league.
-- **Other teams**: League → Teams lists every club's record, OVR, payroll and cap space; click one for its roster.
+- **Other teams**: League → Teams lists every club's division, record, OVR, payroll and cap space; click one for its roster.
+  League → **Team Stats** compares all 20 teams (record, games and point differential, kills, deaths, K/D, hit%,
+  HS%, wipes, hill time, captures, payroll), sortable by any column.
+- **League Wire** (`scripts/season/league_news.gd`, News page, Home tiles): condition-based stories around the
+  league, written from the real state of the league so they keep coming in future seasons with new players -
+  a veteran star on a contender in his final contract year (or 35+) wants **one more ring** (and how it ended),
+  hometown heroes, contract-year breakouts, rookie starters, busts, trade requests, **rivalry** results
+  (division and backstory rivals), the champion, and salary-floor penalties. Each story fires once per player per
+  season, capped per kind per week.
+- **Save / Load** (`scripts/save/save_system.gd`, Settings → Save Franchise / Load Franchise, title → Load Franchise): 3 manual slots
+  plus an **autosave** after every week, the season rollover and camp. A save is the whole league graph (shared
+  objects, RNG states) as compressed text, so a loaded game continues exactly as the original would have.
+- **Match-day form**: each match rolls a small team form swing (and a smaller per-soldier one), so close teams split
+  results and upsets happen without changing ratings.
 - **Awards** (scripts/season/season_review.gd, Home → Awards): after the Final the league hands out Season MVP,
   Best Frontman/Center/Flex, Rookie of the Year and a 5-man All-League team (2 FM, 1 C, 2 FX), ranked on impact
   per game (min 4 games). During the season the page shows the MVP race. It also lists potential changes and
@@ -225,6 +259,7 @@ godot --headless --path . --script res://tests/run_tests.gd     # sim/progressio
 godot --headless --path . --script res://tests/season_tests.gd  # season loop tests (slow; ONLY=test_a,test_b runs a subset)
 godot --headless --path . --script res://tests/ui_smoke.gd      # debug UI smoke test
 godot --headless --path . --script res://tests/franchise_smoke.gd  # franchise menus through a full season
+godot --headless --path . --script res://tests/save_tests.gd    # save/load round trips and determinism after load
 ```
 
 Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 matches per stat.
@@ -251,7 +286,7 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
   - Frontman ×2, Center, Left Flex, Right Flex.
   - Each role has its own OVR weights (`scripts/core/scheme.gd`).
   - Role also drives in-sim behaviour: frontmen push the middle, the center anchors back, flexes flank the edges.
-- **Rosters:** 12 soldiers each (5 starters + 7 bench). The league currently has 2 teams.
+- **Rosters:** 12 soldiers each (5 starters + 7 bench). The franchise league has 20 teams (the debug sim generates its own small league).
 - **Match:**
   - **Best of 3 games**, always in this order (a 2-0 sweep skips game 3), 0.5s ticks. Same lineup all match;
     fatigue carries across games (partial recovery between them).
@@ -309,10 +344,11 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
 
 ## Roadmap
 
-- Seasons and schedules
+- Seasons and schedules (done: 20 teams, 4 divisions, 8-team playoffs)
+- Save / Load (done)
 - Scouting and the end-of-season draft (done)
 - Contracts, hard cap, free agency, retirement, DNA, re-sign negotiation and starter promises (done)
-- Trades: in-season (Week 6 deadline), offseason and draft-day, trade block and AI offers (done)
+- Trades: in-season (Week 8 deadline), offseason and draft-day, trade block and AI offers (done)
 - Best-of-3 match modes (done; next: more modes and per-mode schemes)
 - Visual combat
 - Android and PC exports

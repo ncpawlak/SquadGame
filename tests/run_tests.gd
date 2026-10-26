@@ -285,7 +285,8 @@ func test_different_seeds_vary() -> void:
 
 func test_better_team_wins_more() -> void:
 	var wr := win_rate(make_team(1, 75), make_team(2, 55), 100)
-	check(wr > 0.9, "75-rated team should crush 55-rated team (%.2f)" % wr)
+	# Match-day form leaves room for the odd upset even in a mismatch.
+	check(wr > 0.82, "75-rated team should crush 55-rated team (%.2f)" % wr)
 	wr = win_rate(make_team(1, 65), make_team(2, 60), 200)
 	check(wr > 0.55, "65 should beat 60 more often (%.2f)" % wr)
 

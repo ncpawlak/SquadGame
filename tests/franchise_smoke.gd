@@ -16,7 +16,7 @@ func _init() -> void:
 	await process_frame
 	var hub = app.screen
 	_check(hub.season.user_team() == hub.season.league.teams[2], "picked team is user team")
-	_check(hub.season.league.teams.size() == 5, "5 teams")
+	_check(hub.season.league.teams.size() == 20, "20 teams")
 
 	# Every tab builds, with tiles.
 	for i in hub.TABS.size():
@@ -183,6 +183,7 @@ func _init() -> void:
 	var d: Draft = hub.season.draft
 	var user: Team = hub.season.user_team()
 	var before_draft := user.roster.size()
+	var my_picks: int = hub.season.trades.picks_of(hub.season, user).filter(func(a): return a["year"] == d.year).size()
 	_check(d.is_started() and not d.is_complete(), "draft is open")
 	hub.advance()  # blocked while picks remain
 	await process_frame
@@ -209,7 +210,7 @@ func _init() -> void:
 		else:
 			_check(_press(hub, "Sim "), "sim to pick button")
 		await process_frame
-	_check(user.roster.size() == before_draft + Draft.ROUNDS, "user drafted %d" % Draft.ROUNDS)
+	_check(user.roster.size() == before_draft + my_picks, "user drafted %d (%d)" % [my_picks, user.roster.size() - before_draft])
 	await _visit_pages(hub, "post-draft")
 	hub.advance()  # open free agency
 	await process_frame
@@ -238,6 +239,10 @@ func _init() -> void:
 		guard2 += 1
 	_check(hub.season.offseason_stage == Season.OFF_CAMP, "free agency days finished into training camp")
 	var drill_guy: Soldier = user.starters()[0]
+	for x in user.starters():
+		if not Progression.is_capped(x, Stats.ACCURACY):
+			drill_guy = x
+			break
 	var ovr_before := drill_guy.best_ovr()
 	var res: Dictionary = hub.season.run_drill(Stats.ACCURACY, drill_guy)
 	_check(not res.is_empty() and res["points"] > 0, "user ran the accuracy drill")
