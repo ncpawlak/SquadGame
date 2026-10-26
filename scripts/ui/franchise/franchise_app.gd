@@ -77,8 +77,8 @@ func show_team_select() -> void:
 		preview_seed = randi_range(1, 999999)
 	var preview := Season.new_franchise(preview_seed, 0)
 	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 14)
-	var margin := _margin(root, 36)
+	root.add_theme_constant_override("separation", 10)
+	var margin := _margin(root, 22)
 
 	var head := HBoxContainer.new()
 	root.add_child(head)
@@ -94,13 +94,13 @@ func show_team_select() -> void:
 	head.add_child(tt)
 
 	var pane := PanelContainer.new()
-	pane.custom_minimum_size.y = 330
+	pane.custom_minimum_size.y = 250
 	root.add_child(pane)
 
 	var ranked := preview.league.teams.duplicate()
 	ranked.sort_custom(func(a: Team, b: Team): return a.team_ovr() > b.team_ovr())
 	var grid := VBoxContainer.new()
-	grid.add_theme_constant_override("separation", 8)
+	grid.add_theme_constant_override("separation", 6)
 	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(grid)
 	var first: Button = null
@@ -129,16 +129,16 @@ func show_team_select() -> void:
 	_set_screen(margin)
 
 
-## A team-select tile: name on a team-colored card with the OVR in the pane's big number style.
+## A team-select tile: name, then the logo inside a ring filled to the team OVR (ring and number in the OVR colour).
 func _team_tile(t: Team) -> Button:
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(0, 92)
+	b.custom_minimum_size = Vector2(0, 122)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.clip_text = true
 	UiKit.style_button(b, t.color.darkened(0.35), t.color2, 8)
 	var col := VBoxContainer.new()
 	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 8)
-	col.add_theme_constant_override("separation", -4)
+	col.add_theme_constant_override("separation", 2)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
 	var nm := UiKit.label(t.name, 15, Color.WHITE)
@@ -146,12 +146,21 @@ func _team_tile(t: Team) -> Button:
 	nm.clip_text = true
 	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(nm)
-	var ovr := UiKit.label(str(t.team_ovr()), 46, UiKit.ovr_color(t.team_ovr()))
-	ovr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var o := t.team_ovr()
+	var line := HBoxContainer.new()
+	line.alignment = BoxContainer.ALIGNMENT_CENTER
+	line.add_theme_constant_override("separation", 8)
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ring := RingGauge.new(o, 100, UiKit.ovr_color(o), str(o), 86)
+	ring.logo = UiKit.logo_tex(t.abbrev)
+	line.add_child(ring)
+	var ovr := UiKit.label(str(o), 30, UiKit.ovr_color(o))
+	ovr.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	ovr.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-	ovr.add_theme_constant_override("outline_size", 6)
-	ovr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.add_child(ovr)
+	ovr.add_theme_constant_override("outline_size", 5)
+	if ring.logo != null:
+		line.add_child(ovr)
+	col.add_child(line)
 	b.add_child(col)
 	return b
 
@@ -167,24 +176,21 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 	sb.content_margin_bottom = 16
 	pane.add_theme_stylebox_override("panel", sb)
 	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 26)
+	hb.add_theme_constant_override("separation", 24)
 	pane.add_child(hb)
 
-	# Identity column: colors, name, OVR and expectations.
+	var logo := UiKit.team_logo(t, 190)
+	logo.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hb.add_child(logo)
+
+	# Identity column: name, OVR and expectations.
 	var id_col := VBoxContainer.new()
-	id_col.custom_minimum_size.x = 330
-	id_col.add_theme_constant_override("separation", 6)
+	id_col.custom_minimum_size.x = 300
+	id_col.add_theme_constant_override("separation", 4)
 	hb.add_child(id_col)
-	var logo := PanelContainer.new()
-	logo.add_theme_stylebox_override("panel", UiKit.flat(t.color, 10, 4, t.color2))
-	logo.custom_minimum_size = Vector2(120, 84)
-	logo.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	var ab := UiKit.label(t.abbrev, 34, t.color2 if t.color2.get_luminance() > t.color.get_luminance() + 0.2 or t.color.get_luminance() < 0.5 else Color.BLACK)
-	ab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	ab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	logo.add_child(ab)
-	id_col.add_child(logo)
-	id_col.add_child(UiKit.label(t.name.to_upper(), 28, Color.WHITE))
+	var nm := UiKit.label(t.name.to_upper(), 26, Color.WHITE)
+	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	id_col.add_child(nm)
 	id_col.add_child(UiKit.label("%s Division  -  %s" % [t.division, LeagueData.state_name(t.home_state)], 15, UiKit.MUTED))
 	id_col.add_child(UiKit.rich("[font_size=46][color=%s]%d[/color][/font_size] OVR   [color=#8b97ab]preseason #%d of %d[/color]" % [
 		UiKit.hex(UiKit.ovr_color(t.team_ovr())), t.team_ovr(), rank, count], 16))
@@ -196,7 +202,7 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 	# Backstory + group ratings.
 	var mid := VBoxContainer.new()
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	mid.add_theme_constant_override("separation", 10)
+	mid.add_theme_constant_override("separation", 6)
 	hb.add_child(mid)
 	var story := UiKit.label(t.backstory, 17, UiKit.TEXT)
 	story.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -207,6 +213,12 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 	story.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	mid.add_child(story)
 	mid.add_child(UiKit.label("STARTERS' AVERAGE GROUP RATINGS", 13, UiKit.MUTED))
+	var groups := GridContainer.new()
+	groups.columns = 2
+	groups.add_theme_constant_override("h_separation", 24)
+	groups.add_theme_constant_override("v_separation", 4)
+	groups.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mid.add_child(groups)
 	var starters := t.starters()
 	for g in Stats.GROUP_ORDER:
 		var total := 0
@@ -216,14 +228,14 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
 		var gl := UiKit.label(Stats.GROUP_LABELS[g], 15, UiKit.TEXT)
-		gl.custom_minimum_size.x = 120
+		gl.custom_minimum_size.x = 104
 		row.add_child(gl)
 		var bar := ProgressBar.new()
 		bar.min_value = 40
 		bar.max_value = 99
 		bar.value = avg
 		bar.show_percentage = false
-		bar.custom_minimum_size = Vector2(0, 14)
+		bar.custom_minimum_size = Vector2(70, 14)
 		bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		bar.add_theme_stylebox_override("background", UiKit.flat(UiKit.LINE, 4))
@@ -232,12 +244,13 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 		var vl := UiKit.label(str(avg), 16, UiKit.ovr_color(avg))
 		vl.custom_minimum_size.x = 34
 		row.add_child(vl)
-		mid.add_child(row)
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		groups.add_child(row)
 
 	# Top 3 players.
 	var top_col := VBoxContainer.new()
-	top_col.custom_minimum_size.x = 330
-	top_col.add_theme_constant_override("separation", 8)
+	top_col.custom_minimum_size.x = 300
+	top_col.add_theme_constant_override("separation", 6)
 	hb.add_child(top_col)
 	top_col.add_child(UiKit.label("TOP PLAYERS", 13, UiKit.MUTED))
 	var best: Array = t.roster.duplicate()

@@ -7,6 +7,7 @@ var _fraction := 0.0
 var _color: Color
 var _text: String
 var _thickness: float
+var logo: Texture2D
 
 
 func _init(value: float, max_value: float, color: Color, text: String, diameter := 84) -> void:
@@ -26,6 +27,10 @@ func _draw() -> void:
 	draw_arc(c, r, 0.0, TAU, 64, UiKit.LINE, _thickness, true)
 	if _fraction > 0.0:
 		draw_arc(c, r, -PI / 2.0, -PI / 2.0 + TAU * _fraction, 64, _color, _thickness, true)
+	if logo != null:
+		var inner := (r - _thickness / 2.0) * 2.0 * 0.86
+		draw_texture_rect(logo, Rect2(c - Vector2(inner, inner) / 2.0, Vector2(inner, inner)), false)
+		return
 	var font := get_theme_default_font()
 	var fs := int(d * 0.3)
 	var w := font.get_string_size(_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x

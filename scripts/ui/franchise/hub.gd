@@ -494,14 +494,7 @@ func _build_header() -> void:
 	hb.add_theme_constant_override("separation", 18)
 	_header.add_child(hb)
 
-	var logo := PanelContainer.new()
-	logo.add_theme_stylebox_override("panel", UiKit.flat(team.color, 10))
-	logo.custom_minimum_size = Vector2(72, 72)
-	var ab := UiKit.label(team.abbrev, 24, Color.WHITE)
-	ab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	ab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	logo.add_child(ab)
-	hb.add_child(logo)
+	hb.add_child(UiKit.team_logo(team, 80))
 
 	var info := VBoxContainer.new()
 	info.add_theme_constant_override("separation", 2)
@@ -729,7 +722,7 @@ func _home_top() -> Control:
 		var won := last.winner() == team
 		var body := "[font_size=28][color=%s]%s[/color] %s[/font_size]  %s %s\n%s" % [
 			UiKit.hex(UiKit.GOOD if won else UiKit.BAD), "W" if won else "L", _score_for(last, team),
-			"vs" if last.home == team else "@", UiKit.esc(last.opponent_of(team).abbrev), season.week_label(last.week)]
+			"vs" if last.home == team else "@", UiKit.logo_bb(last.opponent_of(team), 26) + UiKit.esc(last.opponent_of(team).abbrev), season.week_label(last.week)]
 		side.add_child(UiKit.tile("Last Result", body, Vector2(300, 158), UiKit.INFO,
 			func(): open("Match Recap", func(): return pages.recap(last))))
 	else:
@@ -825,17 +818,23 @@ func _team_block(t: Team, right: bool) -> Control:
 	v.custom_minimum_size.x = 210
 	v.add_theme_constant_override("separation", 2)
 	var align := HORIZONTAL_ALIGNMENT_RIGHT if right else HORIZONTAL_ALIGNMENT_LEFT
-	var chip_row := HBoxContainer.new()
-	chip_row.alignment = BoxContainer.ALIGNMENT_END if right else BoxContainer.ALIGNMENT_BEGIN
-	chip_row.add_child(UiKit.team_chip(t, 20))
-	v.add_child(chip_row)
-	var n := UiKit.label(t.name.to_upper(), 20, Color.WHITE)
+	var logo_row := HBoxContainer.new()
+	logo_row.alignment = BoxContainer.ALIGNMENT_END if right else BoxContainer.ALIGNMENT_BEGIN
+	logo_row.add_theme_constant_override("separation", 12)
+	var o := UiKit.label(str(t.team_ovr()), 50, UiKit.ovr_color(t.team_ovr()))
+	o.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	if right:
+		logo_row.add_child(o)
+	logo_row.add_child(UiKit.team_logo(t, 100))
+	if not right:
+		logo_row.add_child(o)
+	v.add_child(logo_row)
+	# Full name under the logo; wraps to a second line instead of clipping.
+	var n := UiKit.label(t.name.to_upper(), 18, Color.WHITE)
 	n.horizontal_alignment = align
-	n.clip_text = true
+	n.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	n.custom_minimum_size.x = 210
 	v.add_child(n)
-	var o := UiKit.label(str(t.team_ovr()), 54, UiKit.ovr_color(t.team_ovr()))
-	o.horizontal_alignment = align
-	v.add_child(o)
 	var r := UiKit.label("%s   ·   #%d" % [season.record_text(t), _rank_of(t)], 15, UiKit.MUTED)
 	r.horizontal_alignment = align
 	v.add_child(r)
@@ -985,7 +984,7 @@ func _news_tiles() -> Array:
 	if not potw.is_empty():
 		var ps: Soldier = potw["soldier"]
 		var pl: Dictionary = potw["line"]
-		out.append(UiKit.tile("Player of the Week  ·  " + season.week_label(week), "[color=white]%s[/color] (%s)\n%d K  %d A  %d SV  %d dmg" % [
+		out.append(UiKit.tile("Player of the Week  ·  " + season.week_label(week), UiKit.logo_bb(potw["team"], 20) + "[color=white]%s[/color] (%s)\n%d K  %d A  %d SV  %d dmg" % [
 			UiKit.esc(ps.tag()), potw["team"].abbrev, pl["kills"], pl["assists"], pl.get("saves", 0), pl["damage"]],
 			SMALL, UiKit.ACCENT, func(): pages.open_player(ps)))
 	for m: ScheduledMatch in season.matches_for_week(week):
@@ -994,7 +993,7 @@ func _news_tiles() -> Array:
 		var win := m.winner()
 		var mvp := pages._soldier(m.result.mvp_id)
 		var line: Dictionary = m.result.box.get(m.result.mvp_id, {})
-		var body := "[color=white]%s %d - %d %s[/color]" % [win.abbrev, m.games_for(win), m.games_for(m.loser()), m.loser().abbrev]
+		var body := "%s[color=white]%s %d - %d %s[/color] %s" % [UiKit.logo_bb(win, 20), win.abbrev, m.games_for(win), m.games_for(m.loser()), m.loser().abbrev, UiKit.logo_bb(m.loser(), 20)]
 		body += "\n[font_size=13]%s[/font_size]" % pages._games_brief(m.result)
 		if mvp != null and not line.is_empty():
 			body += "\nMVP [color=#f59e0b]%s[/color]  %d K  %d SV" % [UiKit.esc(mvp.tag()), line["kills"], line.get("saves", 0)]
@@ -1002,26 +1001,28 @@ func _news_tiles() -> Array:
 		out.append(UiKit.tile("Final  ·  " + season.week_label(m.week), body, SMALL, win.color, func(): open("Match Recap", func(): return pages.recap(mm))))
 	if season.review != null and not season.review.awards.is_empty():
 		var a: Dictionary = season.review.awards[0]
-		out.append(UiKit.tile("%d MVP" % season.review.year, "[color=white]%s[/color] (%s)" % [UiKit.esc(a["soldier"].display_name()), a["team"].abbrev],
+		out.append(UiKit.tile("%d MVP" % season.review.year, UiKit.logo_bb(a["team"], 20) + "[color=white]%s[/color] (%s)" % [UiKit.esc(a["soldier"].display_name()), a["team"].abbrev],
 			SMALL, UiKit.ACCENT, func(): open("Season Awards", pages.awards)))
 	for n in season.news.latest(3):
 		var accent := Color("#14b8a6")
+		var wire_logo := ""
 		for ab in n.get("teams", []):
 			var nt := season.league.team_by_abbrev(ab)
 			if nt != null:
 				accent = nt.color
+				wire_logo = UiKit.logo_bb(nt, 20)
 				break
-		out.append(UiKit.tile("League Wire", "[color=white]%s[/color]\n[font_size=13]%s[/font_size]" % [UiKit.esc(String(n["headline"])), UiKit.esc(String(n["body"]))],
+		out.append(UiKit.tile("League Wire", wire_logo + "[color=white]%s[/color]\n[font_size=13]%s[/font_size]" % [UiKit.esc(String(n["headline"])), UiKit.esc(String(n["body"]))],
 			SMALL, accent, func(): open("League News", pages.news)))
 	var hist: Array = season.fa.history
 	for i in range(hist.size() - 1, maxi(-1, hist.size() - 4), -1):
 		var e: Dictionary = hist[i]
 		var so: Soldier = e["soldier"]
-		out.append(UiKit.tile("Signing", "[color=white]%s[/color] (%d OVR) to %s\n%s x %d yr" % [UiKit.esc(so.display_name()), so.best_ovr(),
+		out.append(UiKit.tile("Signing", UiKit.logo_bb(e["team"], 20) + "[color=white]%s[/color] (%d OVR) to %s\n%s x %d yr" % [UiKit.esc(so.display_name()), so.best_ovr(),
 			e["team"].abbrev, Contracts.money(e["salary"]), e["years"]], SMALL, Color("#14b8a6"), func(): pages.open_player(so)))
 	for inj in season.last_injuries.slice(0, 2):
 		var so: Soldier = inj["soldier"]
-		out.append(UiKit.tile("Injury", "[color=white]%s[/color] (%s)\n%s, out %d wk%s" % [UiKit.esc(so.tag()), inj["team"].abbrev, inj["name"],
+		out.append(UiKit.tile("Injury", UiKit.logo_bb(inj["team"], 20) + "[color=white]%s[/color] (%s)\n%s, out %d wk%s" % [UiKit.esc(so.tag()), inj["team"].abbrev, inj["name"],
 			inj["weeks"], "" if inj["weeks"] == 1 else "s"], SMALL, UiKit.BAD, func(): open("Injuries", pages.injuries)))
 	for n in season.last_prospect_news:
 		var pr: Prospect = n["prospect"]
@@ -1038,13 +1039,13 @@ func _news_tiles() -> Array:
 	var ret := season.retirements_in(season.year)
 	for r in ret.slice(0, 2):
 		var so: Soldier = r["soldier"]
-		out.append(UiKit.tile("Retirement", "[color=white]%s[/color] retires at %d\n%s" % [UiKit.esc(so.display_name()), r["age"],
+		out.append(UiKit.tile("Retirement", UiKit.logo_bb(r["team"], 20) + "[color=white]%s[/color] retires at %d\n%s" % [UiKit.esc(so.display_name()), r["age"],
 			r["team"].abbrev if r["team"] != null else "free agent"], SMALL, Color("#94a3b8"), open_retirements))
 	if not season.trades.offers.is_empty():
 		out.push_front(UiKit.tile("Trade Offers", "[color=#f59e0b]%d team%s[/color] want to deal with you.\nOffers expire at week's end." % [season.trades.offers.size(),
 			"" if season.trades.offers.size() == 1 else "s"], SMALL, Color("#f97316"), func(): open("Trade Offers", pages.trade_offers)))
 	for e in season.trades.last_trades.slice(0, 3):
-		out.append(UiKit.tile("Trade", "[color=white]%s[/color] <-> [color=white]%s[/color]\n[font_size=13]%s for %s[/font_size]" % [e["a"].abbrev, e["b"].abbrev,
+		out.append(UiKit.tile("Trade", "%s[color=white]%s[/color] <-> %s[color=white]%s[/color]\n[font_size=13]%s for %s[/font_size]" % [UiKit.logo_bb(e["a"], 20), e["a"].abbrev, UiKit.logo_bb(e["b"], 20), e["b"].abbrev,
 			UiKit.esc(pages._join_or_nothing(e["a_gave"])), UiKit.esc(pages._join_or_nothing(e["b_gave"]))], SMALL, Color("#f97316"), func(): open("Trade Log", pages.trade_log)))
 	if out.is_empty():
 		out.append(UiKit.tile("League News", _headline(), SMALL, Color("#14b8a6"), func(): open("League News", pages.news)))
@@ -1326,12 +1327,47 @@ func _next_match_tile(team: Team) -> Button:
 			season.week_label(season.week), season.week_label(m.week), "vs" if m.home == team else "@", UiKit.esc(m.opponent_of(team).name)]
 		return UiKit.tile("This Week", bye, HERO, UiKit.MUTED, func(): open("Match Preview", func(): return pages.preview(m)))
 	var opp := m.opponent_of(team)
-	var body := "[font_size=34][color=white]%s %s[/color][/font_size]\n%s   -   %s\n\n%s  OVR %d   vs   %s  OVR %d\nRecord %s   vs   %s" % [
-		"vs" if m.home == team else "@", UiKit.esc(opp.name), season.week_label(m.week),
-		"Home" if m.home == team else "Away",
-		team.abbrev, team.team_ovr(), opp.abbrev, opp.team_ovr(),
-		season.record_text(team), season.record_text(opp)]
-	return UiKit.tile("Next Match", body, HERO, opp.color, func(): open("Match Preview", func(): return pages.preview(m)))
+	var tile := UiKit.tile("Next Match", "", HERO, opp.color, func(): open("Match Preview", func(): return pages.preview(m)))
+	var box: VBoxContainer = tile.get_child(1)
+	box.get_child(1).queue_free()
+	var row := HBoxContainer.new()
+	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(_matchup_side(team))
+	var mid := VBoxContainer.new()
+	mid.alignment = BoxContainer.ALIGNMENT_CENTER
+	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var vs := UiKit.label("VS" if m.home == team else "@", 34, Color.WHITE)
+	vs.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mid.add_child(vs)
+	var wk := UiKit.label("%s\n%s" % [season.week_label(m.week), "Home" if m.home == team else "Away"], 14, UiKit.MUTED)
+	wk.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mid.add_child(wk)
+	row.add_child(mid)
+	row.add_child(_matchup_side(opp))
+	box.add_child(row)
+	return tile
+
+
+## One side of the next-match tile: logo, full name (wraps rather than clipping) and OVR / record.
+func _matchup_side(t: Team) -> VBoxContainer:
+	var v := VBoxContainer.new()
+	v.custom_minimum_size.x = 210
+	v.add_theme_constant_override("separation", 2)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var logo := UiKit.team_logo(t, 96)
+	logo.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(logo)
+	var nm := UiKit.label(t.name, 17, Color.WHITE)
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	nm.custom_minimum_size.x = 210
+	v.add_child(nm)
+	var o := t.team_ovr()
+	var info := UiKit.rich("[center][color=%s]%d OVR[/color]  [color=#8b97ab]%s[/color][/center]" % [UiKit.hex(UiKit.ovr_color(o)), o, season.record_text(t)], 14)
+	v.add_child(info)
+	return v
 
 
 func _advance_blurb() -> String:
@@ -1382,7 +1418,7 @@ func _mini_standings() -> String:
 	for i in rows.size():
 		var row: StandingRow = rows[i]
 		var c := "white" if row.team.user_controlled else "#8b97ab"
-		lines.append("[color=%s]%d. %s  %d-%d[/color]" % [c, i + 1, row.team.abbrev, row.wins, row.losses])
+		lines.append("[color=%s]%d. %s%s  %d-%d[/color]" % [c, i + 1, UiKit.logo_bb(row.team, 18), row.team.abbrev, row.wins, row.losses])
 	return "[font_size=15]%s[/font_size]" % "\n".join(lines)
 
 

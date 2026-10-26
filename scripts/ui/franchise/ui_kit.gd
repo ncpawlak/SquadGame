@@ -162,8 +162,9 @@ static func table(headers: Array, rows: Array, col_widths: Array, highlight_rows
 		if cell_colors.has(i):
 			var colors: Dictionary = cell_colors[i]
 			for col in colors:
-				var l: Label = hb.get_child(col)
-				l.add_theme_color_override("font_color", colors[col])
+				var l := hb.get_child(col) as Label
+				if l != null:
+					l.add_theme_color_override("font_color", colors[col])
 		if on_row.is_valid():
 			var idx := i
 			b.pressed.connect(func(): on_row.call(idx))
@@ -176,6 +177,22 @@ static func _cells(cells: Array, col_widths: Array, color: Color, size: int) -> 
 	hb.add_theme_constant_override("separation", 10)
 	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for c in cells.size():
+		if cells[c] is Team:
+			# Team cell: small logo + name.
+			var t: Team = cells[c]
+			var th := HBoxContainer.new()
+			th.add_theme_constant_override("separation", 6)
+			th.custom_minimum_size.x = col_widths[c] if c < col_widths.size() else 60
+			th.clip_contents = true
+			th.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			th.add_child(team_logo(t, size + 10))
+			var tl := label(t.name if th.custom_minimum_size.x >= 140 else t.abbrev, size, color)
+			tl.clip_text = true
+			tl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			tl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			th.add_child(tl)
+			hb.add_child(th)
+			continue
 		var l := label(str(cells[c]), size, color)
 		l.custom_minimum_size.x = col_widths[c] if c < col_widths.size() else 60
 		l.clip_text = true
@@ -217,8 +234,53 @@ static func hex(c: Color) -> String:
 	return "#" + c.to_html(false)
 
 
-## Coloured team chip: abbreviation on the team colour.
-static func team_chip(team: Team, size := 16) -> PanelContainer:
+static var _logos := {}
+
+
+## Team logo texture (assets/logos/<ABBR>.png), or null when the team has none.
+static func logo_tex(abbrev: String) -> Texture2D:
+	if not _logos.has(abbrev):
+		var path := "res://assets/logos/%s.png" % abbrev
+		_logos[abbrev] = load(path) if ResourceLoader.exists(path) else null
+	return _logos[abbrev]
+
+
+## Inline logo for rich text ("" when the team has none).
+static func logo_bb(team: Team, size := 22) -> String:
+	if team == null or logo_tex(team.abbrev) == null:
+		return ""
+	return "[img=%dx%d]res://assets/logos/%s.png[/img] " % [size, size, team.abbrev]
+
+
+## Square team logo; falls back to the coloured chip when the team has no logo.
+static func team_logo(team: Team, size := 48) -> Control:
+	var tex := logo_tex(team.abbrev)
+	if tex == null:
+		return team_chip(team, maxi(12, size / 3), false)
+	var r := TextureRect.new()
+	r.texture = tex
+	r.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	r.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	r.custom_minimum_size = Vector2(size, size)
+	r.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return r
+
+
+## Logo followed by the coloured abbreviation chip.
+static func team_badge(team: Team, size := 16) -> HBoxContainer:
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 6)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	h.add_child(team_logo(team, int(size * 1.9)))
+	h.add_child(team_chip(team, size, false))
+	return h
+
+
+## Coloured team chip: abbreviation on the team colour (with a small logo in front by default).
+static func team_chip(team: Team, size := 16, with_logo := true) -> Control:
+	if with_logo and logo_tex(team.abbrev) != null:
+		return team_badge(team, size)
 	var p := PanelContainer.new()
 	var sb := flat(team.color.darkened(0.25), 6)
 	sb.content_margin_top = 2

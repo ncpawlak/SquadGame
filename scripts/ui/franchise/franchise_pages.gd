@@ -78,7 +78,7 @@ func _standings_table(table_rows: Array, seeds: Dictionary, div_rank: bool) -> C
 		var seed_text := "-"
 		if seed > 0:
 			seed_text = "%d%s" % [seed, (" DIV" if seed <= n_div else " WC") if n_div > 0 else ""]
-		rows.append([i + 1 if div_rank else r.rank, r.team.name, r.wins, r.losses, "%.3f" % r.win_pct(),
+		rows.append([i + 1 if div_rank else r.rank, r.team, r.wins, r.losses, "%.3f" % r.win_pct(),
 			"%d-%d" % [r.div_wins, r.div_losses] if n_div > 0 else "-", r.games_won, r.games_lost,
 			("%+d" % r.game_diff()), ("%+d" % r.point_diff()), r.streak, r.last5 if r.last5 != "" else "-", r.team.team_ovr(), seed_text])
 		if r.team.user_controlled:
@@ -166,7 +166,7 @@ func _score_card(m: ScheduledMatch) -> Button:
 	var body := ""
 	for t in [m.away, m.home]:
 		var won: bool = m.is_played() and m.winner() == t
-		body += "[color=%s]%s  %s[/color]   [color=%s]%s[/color]\n" % [
+		body += "%s[color=%s]%s  %s[/color]   [color=%s]%s[/color]\n" % [UiKit.logo_bb(t, 26),
 			"white" if (won or not m.is_played()) else "#8b97ab", t.abbrev, UiKit.esc(t.name), UiKit.hex(UiKit.ACCENT),
 			str(m.games_for(t)) if m.is_played() else s.record_text(t)]
 	if m.is_played():
@@ -175,7 +175,7 @@ func _score_card(m: ScheduledMatch) -> Button:
 	else:
 		body += "Upcoming  -  %s" % m.stage
 	var accent := m.home.color if not m.is_played() else m.winner().color
-	return UiKit.tile("%s @ %s" % [m.away.abbrev, m.home.abbrev], body, Vector2(560, 150), accent,
+	return UiKit.tile("%s @ %s" % [m.away.abbrev, m.home.abbrev], body, Vector2(560, 160), accent,
 		func():
 			if m.is_played():
 				hub.open("Match Recap", func(): return recap(m))
@@ -201,9 +201,9 @@ func week_results(label: String, played: Array) -> Control:
 			mine = m
 	if mine:
 		var won := mine.winner() == team
-		var banner := UiKit.rich("[font_size=40][color=%s]%s[/color][/font_size]   [font_size=28]%s %s  %s[/font_size]" % [
+		var banner := UiKit.rich("[font_size=40][color=%s]%s[/color][/font_size]   [font_size=28]%s %s%s  %s[/font_size]" % [
 			UiKit.hex(UiKit.GOOD if won else UiKit.BAD), "VICTORY" if won else "DEFEAT",
-			"vs" if mine.home == team else "@", UiKit.esc(mine.opponent_of(team).name),
+			"vs" if mine.home == team else "@", UiKit.logo_bb(mine.opponent_of(team), 44), UiKit.esc(mine.opponent_of(team).name),
 			"%d-%d" % [mine.games_for(team), mine.games_for(mine.opponent_of(team))]], 18)
 		v.add_child(banner)
 		v.add_child(UiKit.button("View full recap", func(): hub.open("Match Recap", func(): return recap(mine))))
@@ -337,7 +337,7 @@ func preview(m: ScheduledMatch) -> Control:
 	for t in [m.away, m.home]:
 		var col := _vbox(6)
 		col.custom_minimum_size.x = 520
-		col.add_child(UiKit.team_chip(t, 22))
+		col.add_child(UiKit.team_logo(t, 96))
 		col.add_child(UiKit.label(t.name, 26, Color.WHITE))
 		col.add_child(UiKit.label("Record %s   -   OVR %d" % [s.record_text(t), t.team_ovr()], 16, UiKit.MUTED))
 		var rows: Array = []
@@ -367,8 +367,8 @@ func preview(m: ScheduledMatch) -> Control:
 func recap(m: ScheduledMatch) -> Control:
 	var r := m.result
 	var v := _vbox(16)
-	var head := UiKit.rich("[font_size=36][color=white]%s %d  -  %d %s[/color][/font_size]\n%s  -  winner [color=white]%s[/color]" % [
-		m.home.abbrev, m.games_for(m.home), m.games_for(m.away), m.away.abbrev,
+	var head := UiKit.rich("%s[font_size=36][color=white]%s %d  -  %d %s[/color][/font_size] %s\n%s  -  winner [color=white]%s[/color]" % [
+		UiKit.logo_bb(m.home, 56), m.home.abbrev, m.games_for(m.home), m.games_for(m.away), m.away.abbrev, UiKit.logo_bb(m.away, 56),
 		_season().week_label(m.week), UiKit.esc(m.winner().name)], 16)
 	v.add_child(head)
 
@@ -1965,12 +1965,12 @@ func _bracket_card(m: ScheduledMatch) -> Button:
 	var body := ""
 	for t in [m.home, m.away]:
 		var won: bool = m.is_played() and m.winner() == t
-		body += "[color=%s](%d) %s[/color]   [color=%s]%s[/color]\n" % [
+		body += "%s[color=%s](%d) %s[/color]   [color=%s]%s[/color]\n" % [UiKit.logo_bb(t, 30),
 			"white" if (won or not m.is_played()) else "#8b97ab", int(s.playoff_seeds.get(t, 0)), UiKit.esc(t.name), UiKit.hex(UiKit.ACCENT),
 			str(m.games_for(t)) if m.is_played() else s.record_text(t)]
 	body += ("[font_size=13]%s[/font_size]" % _games_brief(m.result)) if m.is_played() else "Upcoming"
 	var accent := m.home.color if not m.is_played() else m.winner().color
-	return UiKit.tile(s.week_label(m.week), body, Vector2(330, 120), accent,
+	return UiKit.tile(s.week_label(m.week), body, Vector2(340, 140), accent,
 		func():
 			if m.is_played():
 				hub.open("Match Recap", func(): return recap(m))
@@ -2173,16 +2173,21 @@ static func save_slot_tile(slot: int, saving: bool, app: Node, refresh: Callable
 func _wire_panel(n: Dictionary) -> Control:
 	var p := UiKit.panel(UiKit.PANEL, 8)
 	var accent := UiKit.ACCENT
+	var h := _row(12)
+	p.add_child(h)
 	for ab in n.get("teams", []):
 		var t: Team = _season().league.team_by_abbrev(ab)
 		if t != null:
+			h.add_child(UiKit.team_logo(t, 52))
 			# Dark primaries (Seattle green, Atlanta black...) fall back to the secondary colour.
 			accent = t.color if t.color.get_luminance() >= 0.35 else t.color2
 			while accent.get_luminance() < 0.45:
 				accent = accent.lightened(0.2)
 			break
-	p.add_child(UiKit.rich("[color=%s]%s[/color]  [color=#8b97ab]-  %s %d[/color]\n%s" % [UiKit.hex(accent), UiKit.esc(String(n["headline"])),
-		n["when"], n["year"], UiKit.esc(String(n["body"]))], 17))
+	var body := UiKit.rich("[color=%s]%s[/color]  [color=#8b97ab]-  %s %d[/color]\n%s" % [UiKit.hex(accent), UiKit.esc(String(n["headline"])),
+		n["when"], n["year"], UiKit.esc(String(n["body"]))], 17)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.add_child(body)
 	return p
 
 
@@ -2741,7 +2746,7 @@ func draft_room() -> Control:
 	var refresh := func(): hub.replace("Draft Room", draft_room)
 	if not d.is_complete():
 		var t := d.on_the_clock()
-		var head := "[font_size=24][color=%s]%s[/color][/font_size]   Round %d  -  Pick %d of %d" % [
+		var head := "%s[font_size=24][color=%s]%s[/color][/font_size]   Round %d  -  Pick %d of %d" % [UiKit.logo_bb(t, 40),
 			"#f59e0b" if t.user_controlled else "white",
 			"YOU ARE ON THE CLOCK" if t.user_controlled else ("On the clock: " + UiKit.esc(t.name)),
 			d.round_of(d.next_pick), d.next_pick + 1, d.order.size()]
@@ -2814,7 +2819,7 @@ func draft_room() -> Control:
 			proj = Draft.projection_text(p.projected_rank)
 		elif i == d.next_pick:
 			sel = "ON THE CLOCK"
-		rows.append([i + 1, team.name, d.round_of(i), sel, pos, proj])
+		rows.append([i + 1, team, d.round_of(i), sel, pos, proj])
 		if team.user_controlled:
 			hl[i] = team.color.darkened(0.6)
 		if i == d.next_pick and not d.is_complete():
@@ -2930,7 +2935,7 @@ func draft_recap(d: Draft) -> Control:
 		yours.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(yours)
 	var headers: Array = ["PICK", "RD", "TEAM", "PLAYER", "POS", "AGE", "OVR", "POT"]
-	var widths: Array = [44, 30, 56, 200, 90, 40, 46, 40]
+	var widths: Array = [44, 30, 84, 200, 90, 40, 46, 40]
 	for g in Stats.GROUP_ORDER:
 		headers.append(RECAP_GROUP_ABBREV[g])
 		widths.append(44)
@@ -2943,7 +2948,7 @@ func draft_recap(d: Draft) -> Control:
 		var p: Prospect = picks[i]
 		var so := p.soldier
 		var tag: Array = tag_of.call(p)
-		var row: Array = [p.pick_number, d.round_of(p.pick_number - 1), p.drafted_by.abbrev, so.full_name(),
+		var row: Array = [p.pick_number, d.round_of(p.pick_number - 1), p.drafted_by, so.full_name(),
 			Scheme.ROLE_NAMES[p.listed_role], so.age, so.best_ovr(), so.potential_letter()]
 		var c := {6: UiKit.ovr_color(so.best_ovr()), 7: potential_color(so.potential)}
 		for gi in Stats.GROUP_ORDER.size():
@@ -3367,7 +3372,7 @@ func team_roster(t: Team) -> Control:
 	var s := _season()
 	var v := _vbox(12)
 	var top := _row(14)
-	top.add_child(UiKit.team_chip(t, 18))
+	top.add_child(UiKit.team_logo(t, 72))
 	var info := UiKit.rich("%s   -   OVR [color=white]%d[/color]   -   %d players   -   payroll [color=white]%s[/color]   -   cap space %s%s" % [
 		s.record_text(t), t.team_ovr(), t.roster.size(), Contracts.money(Contracts.payroll(t, s.cap_year())),
 		Contracts.money(Contracts.cap_space(t, s.cap_year())),

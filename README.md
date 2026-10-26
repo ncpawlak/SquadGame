@@ -32,6 +32,9 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   franchise). Team OVRs start from 85 (New York Empire) down to 65 (Little Rock Riverhawks), league average ~75: most players sit between 60 and 85 and only a handful are 90+. Each team carries 2-4 A/B potential players (better teams more); most are C or lower. Every team has the same
   cap, so payrolls (and cap space) differ. `tools/build_league.gd` regenerates `league.json` from the table in
   `league_data.gd` with one fixed seed (only needed if the table changes).
+- **Team logos** (`assets/logos/<ABBR>.png`, 256x256 transparent PNGs): shown on team-select tiles (inside an
+  OVR ring), the hub header, home matchup, standings, playoff bracket, scores, news, draft and roster screens via
+  `UiKit.team_logo` / `UiKit.logo_bb`; a team without a logo falls back to its coloured abbreviation chip.
   **Rating shape**: every player has a role-driven profile - one signature group above the rest, his role's core
   groups at his level and one or two clear holes - so nobody is 90+ in every group and 99s are rare. Players
   21 and under start around 60-66 (a couple of story prodigies excepted); ratings climb
