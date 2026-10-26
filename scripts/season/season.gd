@@ -63,6 +63,7 @@ var offseason_stage: StringName = &""
 var fa_day := 0
 ## Free-agent offers and signing history.
 var fa := FreeAgency.new()
+var trades := Trades.new()
 ## Signings from the most recent resolution (free-agency day or week).
 var last_signings: Array = []
 ## Every retirement, oldest first: Retirement.run records.
@@ -383,7 +384,15 @@ func sim_week() -> Array:
 		last_prospect_news = draft.weekly_news(news_week)
 		draft.scout_points += Draft.POINTS_PER_WEEK
 		fa.ai_offers(self, _rng, true)
+	_trade_tick()
 	return played
+
+
+## Weekly trade activity on its own RNG so trades never shift match or injury rolls.
+func _trade_tick() -> void:
+	var trng := RandomNumberGenerator.new()
+	trng.seed = _mix([league.league_seed, year, week, String(offseason_stage).hash(), fa_day, 0x7DADE])
+	trades.weekly(self, trng)
 
 
 ## Counts this week's matches toward starter promises. Weeks a soldier sat out injured don't count.
@@ -550,10 +559,12 @@ func advance_offseason() -> Array:
 					camp.ai_run(t, _rng)
 			offseason_xp(CAMP_WEEK_XP)
 			offseason_stage = OFF_DONE
+			_trade_tick()
 			return []
 		_:
 			return []
 	offseason_xp(OFFSEASON_WEEK_XP)
+	_trade_tick()
 	return signed
 
 
@@ -687,7 +698,7 @@ func draft_order() -> Array:
 func mock_pick_order() -> Array:
 	if draft.is_started():
 		return draft.order
-	return Draft.snake(draft_order())
+	return trades.owned_order(draft.year, draft_order())
 
 
 ## Completes the draft (AI picks for everyone still on the clock, including the user).
@@ -697,6 +708,7 @@ func finish_draft() -> void:
 		return
 	if not draft.is_started():
 		draft.set_order(draft_order())
+		trades.apply_owners(self)
 	draft.sim_to_end()
 
 
@@ -718,6 +730,7 @@ func _begin_season() -> void:
 	injury_log = []
 	_rng.seed = _mix([league.league_seed, year, 0x5EA5])
 	_build_schedule()
+	trades.new_season(self)
 	draft = Draft.generate(_mix([league.league_seed, year, 0xD2AF]), year, league.next_soldier_id)
 	draft.league = league
 	league.next_soldier_id += Draft.CLASS_SIZE
@@ -752,6 +765,7 @@ func _advance() -> void:
 		fa_day = 0
 		camp = Camp.make(year)
 		draft.set_order(draft_order())
+		trades.apply_owners(self)
 		return
 	var winners: Array = []
 	for m in last_round:

@@ -90,7 +90,7 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   and years left. Hard cap of $54M per team per season, the same for everyone (Madden-style); minimum salary
   $750K always fits. Contracts tick down after the Final. Releasing a player leaves 50% of his remaining money on
   the cap as dead money, split over his remaining years. Personnel → Contracts & Payroll shows cap space, every
-  contract and future commitments. Trades (later) will have to fit under the cap.
+  contract and future commitments. Trades have to fit under the cap too.
 - **Player DNA** (`scripts/core/dna.gd`, player page → DNA tab, fully visible): five motivations - Money,
   Winning, Playing Time, Loyalty, Security - plus Temperament (thick- vs thin-skinned) and Savvy (negotiating
   skill), 1-99. Rolled once per soldier (young players lean money/playing time, veterans winning/security) with one
@@ -109,6 +109,19 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
 - **Starter promises** (re-signs and free-agent offers): he must start 75% of next season's games (weeks out
   injured don't count). Kept → trust +12; broken → trust −25, morale −10, and players who need to start or are
   thin-skinned **request a trade**. His next negotiation opens sour. Results show under News → Player Relations.
+- **Trades** (`scripts/season/trades.gd`, Personnel → Trades, or "Trade for Him" / "Shop" on any player card):
+  up to 3 assets a side - players under contract past this season and this year's and next year's draft picks
+  (expiring contracts can't be traded). The window is open in preseason camp, through Week 6 (the deadline), and
+  in the offseason from the draft on (including during the live draft); closed for the rest of the season and the
+  playoffs. Both teams must stay at 8-12 players and can't go over the cap by taking on salary; contracts and picks
+  just move (no salary retention). Each AI team is a **Contender**, **Balanced** or **Rebuilding** (team OVR plus
+  record): contenders pay for starters who fit their weakest role, rebuilders pay for youth, picks and cheap
+  contracts and sell their 30+ veterans. The **Trade Center** shows a hidden-math interest bar and the GM's
+  one-liner; **Propose** (accepted, countered, or refused), **What would it take?** (the cheapest package of yours
+  they'd accept), patience pips (each refusal costs one, one recovers a week). Put players on the **Trade Block**
+  and AI teams send **Trade Offers** (they expire at week's end). AI teams also trade with each other. Traded players
+  lose morale by their Loyalty (players who asked out are relieved), trust resets, and requests clear. Trades show
+  in News and the Trade Log; traded picks move in the mock and real draft order.
 - **Offseason** (advance button walks the stages): **Re-sign** (Sign at Ask or Negotiate; AI teams re-sign
   their keepers) → **Draft** → **Free agency** (3 days) → **Training camp** → next season. Rosters max out at 12 (5 starters + 7 backups).
   In the offseason your roster can run over (draft picks, extra signings), but you can't advance to Week 1 until
@@ -177,7 +190,7 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
 - **Callsigns** (`scripts/core/callsigns.gd`): every soldier gets a unique callsign that fits his best group
   (e.g. Ivan "Ironside" Hart). Used in tables, leaders and the lineup instead of jersey numbers.
 - **Hub tabs**: Home, Team, League, Personnel, Settings. Tiles marked **SOON** are laid out but not built yet
-  (trades, contract negotiation, staff, facilities).
+  (staff, facilities, records).
 
 Controls:
 
@@ -290,9 +303,9 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
 ## Roadmap
 
 - Seasons and schedules
-- Scouting and the end-of-season draft (done; next: draft-day trades)
+- Scouting and the end-of-season draft (done)
 - Contracts, hard cap, free agency, retirement, DNA, re-sign negotiation and starter promises (done)
-- In-season trades (must fit under the cap)
+- Trades: in-season (Week 6 deadline), offseason and draft-day, trade block and AI offers (done)
 - Best-of-3 match modes (done; next: more modes and per-mode schemes)
 - Visual combat
 - Android and PC exports

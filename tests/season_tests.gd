@@ -43,6 +43,7 @@ func _init() -> void:
 		"test_fa_dna_weights",
 		"test_resign_negotiation",
 		"test_starter_promises",
+		"test_trades",
 	]
 	var only := OS.get_environment("ONLY")
 	if only != "":
@@ -1209,3 +1210,107 @@ func test_starter_promises() -> void:
 		bench.contract.years = 0
 		var n := s.negotiation(user, bench)
 		check(n != null and n.patience < Negotiation.MAX_PATIENCE, "broken promise sours the next talks")
+
+
+func test_trades() -> void:
+	var s := Season.new_franchise(123)
+	var tr := s.trades
+	var user := s.user_team()
+	var ai: Team = s.league.teams.filter(func(t: Team): return t != user)[0]
+	var by_ovr := func(t: Team) -> Array:
+		var r: Array = t.roster.filter(func(x: Soldier): return Trades.tradeable(x))
+		r.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
+		return r
+	var ai_best: Soldier = by_ovr.call(ai)[0]
+	var mine: Array = by_ovr.call(user)
+	var my_worst: Soldier = mine[mine.size() - 1]
+	# Valuation basics.
+	check(Trades.curve(80) > Trades.curve(70) and Trades.curve(70) > Trades.curve(60), "value curve rises with OVR")
+	check(tr.player_value(s, ai_best, ai) > tr.player_value(s, my_worst, ai), "a star is worth more than a scrub")
+	var p1 := Trades.pick_asset(s.draft.year, 1, user)
+	var p2 := Trades.pick_asset(s.draft.year, 2, user)
+	check(tr.value(s, p1, ai) > tr.value(s, p2, ai), "1st-round pick beats 2nd-round pick")
+	check(tr.picks_of(s, user).size() == 2 * Draft.ROUNDS, "each team owns its picks for two drafts")
+	# Rules.
+	check(tr.window_open(s), "window open in week 1")
+	check(tr.validate(s, user, [], ai, []) != "", "empty deal rejected")
+	var four: Array = mine.slice(0, 4).map(func(x): return Trades.player_asset(x))
+	check(tr.validate(s, user, four, ai, [Trades.player_asset(ai_best)]) != "", "max assets per side")
+	check(tr.validate(s, user, [Trades.player_asset(ai_best)], ai, []) != "", "can't trade a player you don't own")
+	check(tr.validate(s, user, [Trades.pick_asset(s.draft.year, 1, ai)], ai, []) != "", "can't trade a pick you don't own")
+	var yrs: int = my_worst.contract.years
+	my_worst.contract.years = 0
+	check(tr.validate(s, user, [Trades.player_asset(my_worst)], ai, [p1]) != "", "expiring contracts can't be traded")
+	my_worst.contract.years = yrs
+	var wk := s.week
+	s.week = Trades.DEADLINE_WEEK + 1
+	check(not tr.window_open(s) and tr.validate(s, user, [p2], ai, [Trades.pick_asset(s.draft.year, 2, ai)]) != "", "deadline closes the window")
+	s.week = wk
+	# Lopsided offers are refused and cost patience; at zero they stop listening.
+	var space := Contracts.cap_space(user, s.cap_year()) + my_worst.contract.salary
+	var star: Soldier = by_ovr.call(ai).filter(func(x: Soldier): return x.contract.salary <= space)[0]
+	var low := [Trades.player_asset(my_worst), Trades.pick_asset(s.draft.year + 1, Draft.ROUNDS, user)]
+	var r := tr.propose(s, ai, low, [Trades.player_asset(star)])
+	check(r["result"] == "rejected" and tr.patience_of(ai) == Trades.PATIENCE - 1, "lowball rejected, patience drops (%s)" % r["text"])
+	tr.propose(s, ai, low, [Trades.player_asset(star)])
+	tr.propose(s, ai, low, [Trades.player_asset(star)])
+	check(tr.patience_of(ai) == 0, "patience runs out")
+	r = tr.propose(s, ai, low, [Trades.player_asset(star)])
+	check(r["result"] == "rejected" and ai.roster.has(star), "no deals at zero patience")
+	tr.weekly(s, RandomNumberGenerator.new())
+	check(tr.patience_of(ai) == 1, "patience recovers weekly")
+	tr.patience[ai.abbrev] = Trades.PATIENCE
+	# What would it take for a mid player: the AI accepts its own answer.
+	var mid: Soldier = by_ovr.call(ai)[4]
+	var want := [Trades.player_asset(mid)]
+	var pkg := tr.what_would_it_take(s, ai, [], want)
+	check(not pkg.is_empty(), "what-would-it-take finds a package for a role player")
+	if not pkg.is_empty():
+		check(tr.interest(s, ai, pkg, want) >= 1.0, "the package satisfies them")
+		var loyal: Soldier = null
+		for a in pkg:
+			if not Trades.is_pick(a):
+				loyal = a["soldier"]
+		if loyal != null:
+			loyal.get_dna().loyalty = 95
+			loyal.trade_request = true
+			tr.block[loyal.id] = true
+		var morale_before := loyal.morale if loyal != null else 0.0
+		r = tr.propose(s, ai, pkg, want)
+		check(r["result"] == "accepted", "proposal accepted")
+		check(user.roster.has(mid) and not ai.roster.has(mid), "player moved to user")
+		if loyal != null:
+			check(ai.roster.has(loyal) and not user.roster.has(loyal), "user player moved to AI")
+			check(not loyal.trade_request and not tr.block.has(loyal.id), "request and block cleared")
+			check(loyal.trust == Soldier.TRUST_NEUTRAL, "trust resets with the new club")
+			check(not is_equal_approx(loyal.morale, morale_before), "trade moves morale")
+		check(tr.history.size() == 1 and tr.last_trades.size() == 1, "trade logged")
+	# Loyal players are upset to leave; the rest of the logic is mood text.
+	var vet: Soldier = by_ovr.call(ai)[1]
+	vet.get_dna().loyalty = 100
+	vet.trade_request = false
+	var m0 := vet.morale
+	tr.execute(s, ai, [Trades.player_asset(vet)], user, [p2])
+	check(vet.morale < m0 or is_equal_approx(m0, 100.0), "loyal player's morale drops")
+	check(tr.history.back()["reactions"][0]["mood"] == "upset", "loyal player is upset")
+	check(tr.owner_of(p2) == ai and tr.picks_of(s, ai).any(func(a): return Trades.key_of(a) == Trades.key_of(p2)), "pick ownership moves")
+	# Traded pick shows up in the mock order and the real draft order.
+	var mock := s.mock_pick_order()
+	var n := s.league.teams.size()
+	var r2 := mock.slice(n, 2 * n)
+	check(r2.count(ai) == 2 and not r2.has(user), "traded 2nd-rounder in the mock order")
+	# A season of AI activity: AI-to-AI trades happen and nobody is flipped twice in a year.
+	var s2 := Season.new_franchise(5)
+	var guard := 0
+	while s2.phase == Season.PHASE_REGULAR and guard < 20:
+		s2.sim_week()
+		guard += 1
+	check(s2.trades.history.any(func(e): return e["ai"]), "AI teams trade among themselves")
+	var seen := {}
+	for e in s2.trades.history:
+		for rr in e["reactions"]:
+			var id: int = rr["soldier"].id
+			check(not seen.has(id), "no player flipped twice in a season")
+			seen[id] = true
+	for t: Team in s2.league.teams:
+		check(t.roster.size() >= Trades.MIN_ROSTER and t.roster.size() <= Team.ROSTER_SIZE, "rosters stay legal (%s %d)" % [t.abbrev, t.roster.size()])

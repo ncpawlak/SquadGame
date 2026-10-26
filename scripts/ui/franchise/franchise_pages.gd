@@ -890,6 +890,8 @@ func _player_header(s: Soldier, team: Team) -> Control:
 	var yrs_in := maxi(1, _season().year - s.draft_year + 1) if s.draft_year > 0 else 0
 	mid.add_child(UiKit.label("%s   ·   AGE %d   ·   %s   ·   LVL %d%s" % [Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), s.age, where.to_upper(), s.level,
 		("   ·   YEAR %d" % yrs_in) if yrs_in > 0 else ""], 15, UiKit.MUTED))
+	if s.trade_request and team != null and s.retired_year == 0:
+		mid.add_child(UiKit.label("⚑ TRADE REQUESTED", 15, UiKit.ACCENT))
 	var awards := _awards_of(s)
 	if not awards.is_empty():
 		var a := UiKit.label("★ " + "   ★ ".join(awards.slice(0, 4)), 14, UiKit.ACCENT)
@@ -937,10 +939,20 @@ func _player_overview(s: Soldier, team: Team) -> Control:
 		add_action.call("Upgrade Ratings (%d SP)" % s.skill_points, func(): _player_refresh(s, 1))
 		add_action.call("Contract", func(): _player_refresh(s, 2))
 		add_action.call("Release", func(): _player_refresh(s, 2))
+		var tr := _season().trades
+		add_action.call("★ On the Block" if tr.block.has(s.id) else "Put on Trade Block", func():
+			if tr.block.has(s.id):
+				tr.block.erase(s.id)
+			else:
+				tr.block[s.id] = true
+			_player_refresh(s, 0), Trades.tradeable(s))
+		add_action.call("Shop in Trade Center", func(): open_trade(null, {}, Trades.player_asset(s)), Trades.tradeable(s))
 	elif team == null and s.retired_year == 0:
 		add_action.call("Make Offer", func(): open_offer(s))
 		add_action.call("Ratings", func(): _player_refresh(s, 1))
 	else:
+		if team != null and s.retired_year == 0:
+			add_action.call("Trade for Him", func(): open_trade(team, Trades.player_asset(s)), Trades.tradeable(s))
 		add_action.call("Ratings", func(): _player_refresh(s, 1))
 		add_action.call("Contract", func(): _player_refresh(s, 2))
 	add_action.call("Season Stats", func(): _player_refresh(s, 3))
@@ -1914,6 +1926,14 @@ func news() -> Control:
 		recent.reverse()
 		for n in recent:
 			v.add_child(_story_panel(n, true))
+		v.add_child(_section("RESULTS"))
+	var th: Array = _season().trades.history
+	if not th.is_empty():
+		v.add_child(_section("TRADES"))
+		for i in range(th.size() - 1, maxi(-1, th.size() - 9), -1):
+			var tp := UiKit.panel(UiKit.PANEL, 8)
+			tp.add_child(UiKit.rich(trade_headline(th[i]), 17))
+			v.add_child(tp)
 		v.add_child(_section("RESULTS"))
 	var rel := _relations_news()
 	if not rel.is_empty():
@@ -3746,3 +3766,471 @@ func _team_of(s: Soldier) -> Team:
 
 func _grade(s: Soldier) -> String:
 	return s.potential_letter()
+
+
+# --- trades -------------------------------------------------------------------------
+
+var _trade_partner: Team
+var _trade_give: Array = []
+var _trade_get: Array = []
+var _trade_counter: Dictionary = {}
+var _trade_msg := ""
+var _trade_msg_color := UiKit.MUTED
+
+
+func _ai_teams() -> Array:
+	var user := _season().user_team()
+	return _season().league.teams.filter(func(t: Team): return t != user)
+
+
+## Opens the trade builder with `partner` (keeps the current one when null) and optionally
+## drops an asset onto either side.
+func open_trade(partner: Team = null, get_asset: Dictionary = {}, give_asset: Dictionary = {}) -> void:
+	var user := _season().user_team()
+	if partner == null or partner == user:
+		partner = _trade_partner if _trade_partner != null and _trade_partner != user else _ai_teams()[0]
+	if partner != _trade_partner:
+		_trade_get = []
+	_trade_partner = partner
+	if not get_asset.is_empty() and not Trades.contains(_trade_get, get_asset) and _trade_get.size() < Trades.MAX_ASSETS:
+		_trade_get.append(get_asset)
+	if not give_asset.is_empty() and not Trades.contains(_trade_give, give_asset) and _trade_give.size() < Trades.MAX_ASSETS:
+		_trade_give.append(give_asset)
+	_trade_counter = {}
+	_trade_msg = ""
+	hub.open("Trade Center", trade_center)
+
+
+func _trade_rebuild() -> void:
+	hub.replace("Trade Center", trade_center)
+
+
+func _owns(team: Team, a: Dictionary) -> bool:
+	var tr := _season().trades
+	if Trades.is_pick(a):
+		return tr.owner_of(a) == team and not tr.pick_used(_season(), a)
+	return team.roster.has(a["soldier"]) and Trades.tradeable(a["soldier"])
+
+
+func trade_center() -> Control:
+	var s := _season()
+	var tr := s.trades
+	var user := s.user_team()
+	if _trade_partner == null or _trade_partner == user:
+		_trade_partner = _ai_teams()[0]
+	var ai := _trade_partner
+	_trade_give = _trade_give.filter(func(a): return _owns(user, a))
+	_trade_get = _trade_get.filter(func(a): return _owns(ai, a))
+	var v := _vbox(12)
+	var top := _row(10)
+	top.add_child(UiKit.label("PARTNER", 15, UiKit.MUTED))
+	top.add_child(UiKit.button("  <  ", func(): _cycle_partner(-1), 18))
+	var chip := UiKit.team_chip(ai, 20)
+	chip.custom_minimum_size.x = 280
+	top.add_child(chip)
+	top.add_child(UiKit.button("  >  ", func(): _cycle_partner(1), 18))
+	var m := tr.mode(s, ai)
+	var mcol: String = {Trades.CONTENDER: "#22c55e", Trades.BALANCED: "#e5e7eb", Trades.REBUILDING: "#38bdf8"}[m]
+	var info := UiKit.rich("[color=%s]%s[/color]   -   OVR [color=white]%d[/color]   -   %s   -   cap space [color=white]%s[/color]" % [
+		mcol, Trades.MODE_NAMES[m].to_upper(), ai.team_ovr(), s.record_text(ai), Contracts.money(Contracts.cap_space(ai, s.cap_year()))], 16)
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top.add_child(info)
+	var pips := ""
+	for i in Trades.PATIENCE:
+		pips += "[color=%s]●[/color]" % ("#f59e0b" if i < tr.patience_of(ai) else "#334155")
+	var pat := UiKit.rich("PATIENCE  [font_size=22]%s[/font_size]" % pips, 15)
+	pat.custom_minimum_size.x = 190
+	pat.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top.add_child(pat)
+	v.add_child(top)
+	var open := tr.window_open(s)
+	v.add_child(UiKit.rich("TRADE WINDOW  [color=%s]%s[/color]   -   max %d assets a side   -   both teams must stay under the cap" % [
+		"#22c55e" if open else "#ef4444", tr.window_text(s), Trades.MAX_ASSETS], 15))
+	var sides := _row(16)
+	sides.add_child(_trade_side("YOU GIVE", user, _trade_give))
+	sides.add_child(_trade_side("YOU GET", ai, _trade_get))
+	v.add_child(sides)
+	var both_empty := _trade_give.is_empty() and _trade_get.is_empty()
+	var it := tr.interest(s, ai, _trade_give, _trade_get) if not _trade_get.is_empty() else 0.0
+	var irow := _row(14)
+	irow.add_child(UiKit.label("INTEREST", 15, UiKit.MUTED))
+	irow.add_child(_interest_bar(it))
+	var q := UiKit.rich("[i]\"%s\"[/i]   [color=#8b97ab]- %s front office[/color]" % [UiKit.esc(tr.quote(s, ai, _trade_give, _trade_get)), UiKit.esc(ai.abbrev)], 17)
+	q.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	q.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	irow.add_child(q)
+	v.add_child(irow)
+	var err := "" if both_empty else tr.validate(s, user, _trade_give, ai, _trade_get)
+	v.add_child(UiKit.rich(_trade_after_text(user, _trade_give, _trade_get) + "        " + _trade_after_text(ai, _trade_get, _trade_give), 15))
+	if err != "":
+		v.add_child(UiKit.label(err, 15, UiKit.BAD))
+	var actions := _row(10)
+	var propose := UiKit.button("Propose Trade", func():
+		var r := tr.propose(s, ai, _trade_give, _trade_get)
+		_trade_counter = {}
+		match r["result"]:
+			"accepted":
+				hub.app.toast(r["text"])
+				_trade_msg = "Trade complete. Welcome to the new guys."
+				_trade_msg_color = UiKit.GOOD
+				_trade_give = []
+				_trade_get = []
+			"counter":
+				_trade_counter = r
+				_trade_msg = r["text"]
+				_trade_msg_color = UiKit.ACCENT
+			_:
+				_trade_msg = r["text"]
+				_trade_msg_color = UiKit.BAD
+		_trade_rebuild(), 18)
+	propose.disabled = err != "" or _trade_get.is_empty() or not open
+	actions.add_child(propose)
+	var wwit := UiKit.button("What would it take?", func():
+		var g := tr.what_would_it_take(s, ai, _trade_give, _trade_get)
+		_trade_counter = {}
+		if g.is_empty():
+			_trade_msg = "%s: \"Nothing you could add gets this done.\"" % ai.abbrev
+			_trade_msg_color = UiKit.BAD
+		else:
+			_trade_give = g
+			_trade_msg = "%s would do it for this package." % ai.abbrev
+			_trade_msg_color = UiKit.INFO
+		_trade_rebuild(), 16)
+	wwit.disabled = _trade_get.is_empty() or not open
+	actions.add_child(wwit)
+	actions.add_child(UiKit.button("Clear", func():
+		_trade_give = []
+		_trade_get = []
+		_trade_counter = {}
+		_trade_msg = ""
+		_trade_rebuild(), 16))
+	actions.add_child(UiKit.button("Offers (%d)" % tr.offers.size(), func(): hub.open("Trade Offers", trade_offers), 16))
+	actions.add_child(UiKit.button("Trade Block", func(): hub.open("Trade Block", trade_block), 16))
+	actions.add_child(UiKit.button("Trade Log", func(): hub.open("Trade Log", trade_log), 16))
+	v.add_child(actions)
+	if _trade_msg != "":
+		v.add_child(UiKit.label(_trade_msg, 17, _trade_msg_color))
+	if not _trade_counter.is_empty():
+		v.add_child(_counter_panel(ai))
+	var lists := _row(16)
+	lists.add_child(_asset_list("YOUR ROSTER & PICKS", user, true))
+	lists.add_child(_asset_list("%s ROSTER & PICKS" % ai.name.to_upper(), ai, false))
+	v.add_child(lists)
+	var tip := UiKit.label("Click players or picks to add them to the deal. The AI judges value by its situation: contenders want starters now; rebuilders want youth, picks and cheap contracts. Each refusal costs a patience pip (it recovers weekly). ★ = on the block (shopped or asked out); those come cheaper.", 14, UiKit.MUTED)
+	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(tip)
+	return v
+
+
+func _cycle_partner(dir: int) -> void:
+	var teams := _ai_teams()
+	var i := teams.find(_trade_partner)
+	_trade_partner = teams[(i + dir + teams.size()) % teams.size()]
+	_trade_get = []
+	_trade_counter = {}
+	_trade_msg = ""
+	_trade_rebuild()
+
+
+func _trade_after_text(t: Team, out_assets: Array, in_assets: Array) -> String:
+	var s := _season()
+	var players_in := in_assets.filter(func(a): return not Trades.is_pick(a))
+	var players_out := out_assets.filter(func(a): return not Trades.is_pick(a))
+	var sal := 0
+	for a in players_in:
+		sal += a["soldier"].contract.salary
+	for a in players_out:
+		sal -= a["soldier"].contract.salary
+	var space := Contracts.cap_space(t, s.cap_year()) - sal
+	var roster := t.roster.size() + players_in.size() - players_out.size()
+	return "[color=#8b97ab]%s AFTER[/color]  cap space [color=%s]%s[/color]  -  roster [color=white]%d[/color]/%d" % [
+		t.abbrev, "#22c55e" if space >= 0 else "#ef4444", Contracts.money(space), roster, Team.ROSTER_SIZE]
+
+
+func _interest_bar(it: float) -> Control:
+	const BAR_MAX := 1.25
+	const BAR_W := 360.0
+	var bar := ProgressBar.new()
+	bar.max_value = BAR_MAX
+	bar.step = 0.0
+	bar.value = clampf(it, 0.0, BAR_MAX)
+	bar.show_percentage = false
+	bar.custom_minimum_size = Vector2(BAR_W, 18)
+	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bar.add_theme_stylebox_override("background", UiKit.flat(UiKit.LINE, 4))
+	var col := UiKit.GOOD if it >= 1.0 else (UiKit.ACCENT if it >= Trades.COUNTER_FLOOR else UiKit.BAD)
+	var fill := UiKit.flat(col, 4)
+	fill.content_margin_top = 0
+	fill.content_margin_bottom = 0
+	bar.add_theme_stylebox_override("fill", fill)
+	var tick := ColorRect.new()
+	tick.color = Color(1, 1, 1, 0.85)
+	tick.position = Vector2(BAR_W / BAR_MAX - 1.0, -3)
+	tick.size = Vector2(2, 24)
+	tick.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar.add_child(tick)
+	return bar
+
+
+## One side of the deal: the chosen assets (click to remove).
+func _trade_side(title: String, team: Team, list: Array) -> Control:
+	var p := UiKit.panel(UiKit.PANEL, 10)
+	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	p.custom_minimum_size.y = 150
+	var v := _vbox(6)
+	p.add_child(v)
+	var head := _row(8)
+	head.add_child(UiKit.label("%s  (%d/%d)" % [title, list.size(), Trades.MAX_ASSETS], 16, UiKit.ACCENT))
+	head.add_child(UiKit.team_chip(team, 13))
+	v.add_child(head)
+	if list.is_empty():
+		v.add_child(UiKit.label("Click players or picks below to add them.", 15, UiKit.MUTED))
+	for a in list:
+		var asset: Dictionary = a
+		var row := _row(10)
+		if not Trades.is_pick(asset):
+			row.add_child(Portrait.new(asset["soldier"], 34, team.color, team))
+		var txt := _asset_line(asset)
+		var b := UiKit.button("✕  " + txt, func():
+			_trade_give = Trades.without(_trade_give, asset)
+			_trade_get = Trades.without(_trade_get, asset)
+			_trade_counter = {}
+			_trade_rebuild(), 15)
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(b)
+		v.add_child(row)
+	return p
+
+
+func _asset_line(a: Dictionary) -> String:
+	var s := _season()
+	if Trades.is_pick(a):
+		return s.trades.pick_text(s, a)
+	var so: Soldier = a["soldier"]
+	return "%s  -  %s  -  %d OVR  -  age %d  -  %s x %d" % [so.display_name(), Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], so.best_ovr(), so.age,
+		Contracts.money(so.contract.salary), so.contract.years]
+
+
+## A team's roster and picks; clicking toggles an asset on that side of the deal.
+func _asset_list(title: String, team: Team, mine: bool) -> Control:
+	var s := _season()
+	var tr := s.trades
+	var v := _vbox(4)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_child(_section(title))
+	var hdr := _row(PCOL_SEP)
+	for c in [["", 24], ["SOLDIER", 200], ["POS", 70], ["AGE", 40], ["POT", 40], ["OVR", 46], ["CONTRACT", 110], ["ROLE", 90]]:
+		var l := UiKit.label(c[0], 13, UiKit.MUTED)
+		l.custom_minimum_size.x = c[1]
+		hdr.add_child(l)
+	v.add_child(hdr)
+	var chosen := _trade_give if mine else _trade_get
+	var roster: Array = team.roster.duplicate()
+	roster.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
+	for so: Soldier in roster:
+		var asset := Trades.player_asset(so)
+		var ok := Trades.tradeable(so)
+		var picked := Trades.contains(chosen, asset)
+		var hb := _row(PCOL_SEP)
+		var star := UiKit.label("★" if tr.on_block(s, team, so) else "", 16, UiKit.ACCENT)
+		star.custom_minimum_size.x = 24
+		hb.add_child(star)
+		hb.add_child(_two_lines(so.display_name(), Color.WHITE if ok else UiKit.MUTED, "TRADE REQUESTED" if so.trade_request else "", 200, 15))
+		hb.add_child(_big_cell(Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], UiKit.TEXT, 70, 14))
+		hb.add_child(_big_cell(str(so.age), UiKit.TEXT, 40, 15))
+		hb.add_child(_big_cell(so.potential_letter(), potential_color(so.potential), 40, 18))
+		hb.add_child(_big_cell(str(so.best_ovr()), UiKit.ovr_color(so.best_ovr()), 46, 20))
+		hb.add_child(_two_lines(Contracts.money(so.contract.salary) if so.contract != null else "-", Color.WHITE,
+			("%d yr%s" % [so.contract.years, "" if so.contract.years == 1 else "s"]) if ok else "EXPIRING", 110, 15))
+		var slot := team.slot_of(so)
+		hb.add_child(_two_lines(team.scheme.label_for_slot(slot) if slot != &"" else "Bench", Color.WHITE if slot != &"" else UiKit.MUTED,
+			_status_text(so), 90, 14))
+		var row := _row(6)
+		var btn := _click_wrap(hb, func(): _toggle_asset(asset, mine), 46)
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.disabled = not ok
+		if picked:
+			btn.add_theme_stylebox_override("normal", UiKit.flat(UiKit.ACCENT.darkened(0.65), 6, 2, UiKit.ACCENT))
+		row.add_child(btn)
+		row.add_child(UiKit.button("Card", func(): open_player(so), 13))
+		v.add_child(row)
+	var picks := tr.picks_of(s, team)
+	if not picks.is_empty():
+		v.add_child(_section("DRAFT PICKS"))
+	for a in picks:
+		var asset: Dictionary = a
+		var picked := Trades.contains(chosen, asset)
+		var hb := _row(PCOL_SEP)
+		var sp := Control.new()
+		sp.custom_minimum_size.x = 24
+		hb.add_child(sp)
+		var via := "" if asset["orig"] == team else "   via %s" % asset["orig"].abbrev
+		hb.add_child(_two_lines(tr.pick_text(s, asset, false) + via, Color.WHITE, tr.pick_text(s, asset).get_slice("  -  ", 1), 420, 15))
+		var btn := _click_wrap(hb, func(): _toggle_asset(asset, mine), 42)
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if picked:
+			btn.add_theme_stylebox_override("normal", UiKit.flat(UiKit.ACCENT.darkened(0.65), 6, 2, UiKit.ACCENT))
+		v.add_child(btn)
+	return v
+
+
+func _toggle_asset(a: Dictionary, mine: bool) -> void:
+	var list := _trade_give if mine else _trade_get
+	if Trades.contains(list, a):
+		list = Trades.without(list, a)
+	elif list.size() >= Trades.MAX_ASSETS:
+		hub.app.toast("At most %d assets per side." % Trades.MAX_ASSETS)
+		return
+	else:
+		list = list + [a]
+	if mine:
+		_trade_give = list
+	else:
+		_trade_get = list
+	_trade_counter = {}
+	_trade_msg = ""
+	_trade_rebuild()
+
+
+func _counter_panel(ai: Team) -> Control:
+	var s := _season()
+	var c := _trade_counter
+	var p := UiKit.panel(UiKit.PANEL_HI, 10)
+	var v := _vbox(8)
+	p.add_child(v)
+	v.add_child(UiKit.label("COUNTER-OFFER FROM %s" % ai.name.to_upper(), 17, UiKit.ACCENT))
+	v.add_child(UiKit.rich("[color=#8b97ab]YOU GIVE[/color]  %s" % UiKit.esc(", ".join(PackedStringArray(c["give"].map(func(a): return Trades.asset_text(s, a))))), 16))
+	v.add_child(UiKit.rich("[color=#8b97ab]YOU GET[/color]   %s" % UiKit.esc(", ".join(PackedStringArray(c["get"].map(func(a): return Trades.asset_text(s, a))))), 16))
+	var h := _row(10)
+	h.add_child(UiKit.button("Accept Counter", func():
+		var err := s.trades.validate(s, s.user_team(), c["give"], ai, c["get"])
+		if err != "":
+			hub.app.toast(err)
+			return
+		s.trades.execute(s, s.user_team(), c["give"], ai, c["get"])
+		hub.app.toast("Trade complete with %s." % ai.name)
+		_trade_give = []
+		_trade_get = []
+		_trade_counter = {}
+		_trade_msg = "Trade complete. Welcome to the new guys."
+		_trade_msg_color = UiKit.GOOD
+		_trade_rebuild(), 16))
+	h.add_child(UiKit.button("Load into builder", func():
+		_trade_give = c["give"]
+		_trade_get = c["get"]
+		_trade_counter = {}
+		_trade_rebuild(), 15))
+	h.add_child(UiKit.button("Decline", func():
+		_trade_counter = {}
+		_trade_msg = ""
+		_trade_rebuild(), 15))
+	v.add_child(h)
+	return p
+
+
+func trade_offers() -> Control:
+	var s := _season()
+	var tr := s.trades
+	var v := _vbox(12)
+	v.add_child(UiKit.label("Offers from other teams. They expire when the week ends.", 17, Color.WHITE))
+	if tr.offers.is_empty():
+		v.add_child(UiKit.label("No offers right now. Put players on the trade block to draw interest.", 16, UiKit.MUTED))
+	for o in tr.offers.duplicate():
+		var offer: Dictionary = o
+		var team: Team = offer["team"]
+		var p := UiKit.panel(UiKit.PANEL, 10)
+		var pv := _vbox(8)
+		p.add_child(pv)
+		pv.add_child(UiKit.team_chip(team, 16))
+		pv.add_child(UiKit.rich("[color=#8b97ab]THEY OFFER[/color]   [color=white]%s[/color]" % UiKit.esc(", ".join(PackedStringArray(offer["give"].map(func(a): return Trades.asset_text(s, a))))), 17))
+		pv.add_child(UiKit.rich("[color=#8b97ab]FOR YOUR[/color]     [color=white]%s[/color]" % UiKit.esc(", ".join(PackedStringArray(offer["get"].map(func(a): return Trades.asset_text(s, a))))), 17))
+		var h := _row(10)
+		h.add_child(UiKit.button("Accept", func():
+			var err := tr.accept_offer(s, offer)
+			hub.app.toast(err if err != "" else "Trade complete with %s." % team.name)
+			hub.replace("Trade Offers", trade_offers), 16))
+		h.add_child(UiKit.button("Counter in builder", func():
+			_trade_partner = team
+			_trade_give = offer["get"].duplicate()
+			_trade_get = offer["give"].duplicate()
+			_trade_counter = {}
+			_trade_msg = ""
+			hub.open("Trade Center", trade_center), 15))
+		h.add_child(UiKit.button("Decline", func():
+			tr.offers.erase(offer)
+			hub.replace("Trade Offers", trade_offers), 15))
+		pv.add_child(h)
+		v.add_child(p)
+	return v
+
+
+func trade_block() -> Control:
+	var s := _season()
+	var tr := s.trades
+	var user := s.user_team()
+	var v := _vbox(8)
+	v.add_child(UiKit.label("Put players on the block and AI teams send you offers for them (check Trade Offers each week).", 17, Color.WHITE))
+	var roster: Array = user.roster.duplicate()
+	roster.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
+	for so: Soldier in roster:
+		var p := so
+		var row := _row(12)
+		row.add_child(Portrait.new(so, 40, user.color, user))
+		var nm := _two_lines(so.display_name(), Color.WHITE, "%s  -  age %d  -  %d OVR  -  POT %s" % [Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], so.age, so.best_ovr(), so.potential_letter()], 360, 16)
+		row.add_child(nm)
+		var ctext := ("%s x %d" % [Contracts.money(so.contract.salary), so.contract.years]) if Trades.tradeable(so) else "EXPIRING"
+		row.add_child(_big_cell(ctext, UiKit.TEXT, 130, 15))
+		if so.trade_request:
+			row.add_child(_big_cell("TRADE REQUESTED", UiKit.ACCENT, 170, 14))
+		var on := tr.block.has(so.id)
+		var b := UiKit.button("★ On the block" if on else "Add to block", func():
+			if tr.block.has(p.id):
+				tr.block.erase(p.id)
+			else:
+				tr.block[p.id] = true
+			hub.replace("Trade Block", trade_block), 15)
+		b.custom_minimum_size.x = 170
+		b.disabled = not Trades.tradeable(so)
+		if on:
+			UiKit.style_button(b, UiKit.ACCENT.darkened(0.55), Color.WHITE, 6)
+		row.add_child(b)
+		row.add_child(UiKit.button("Shop him", func(): open_trade(null, {}, Trades.player_asset(p)), 14))
+		v.add_child(row)
+	return v
+
+
+func trade_log() -> Control:
+	var s := _season()
+	var v := _vbox(10)
+	var hist: Array = s.trades.history
+	if hist.is_empty():
+		v.add_child(UiKit.label("No trades yet.", 17, UiKit.MUTED))
+	for i in range(hist.size() - 1, -1, -1):
+		var p := UiKit.panel(UiKit.PANEL, 8)
+		p.add_child(UiKit.rich(trade_headline(hist[i]), 16))
+		v.add_child(p)
+	return v
+
+
+## BBCode news line for one trade log entry, with player reactions.
+func trade_headline(e: Dictionary) -> String:
+	var a: Team = e["a"]
+	var b: Team = e["b"]
+	var t := "[color=#f97316]TRADE[/color]  [color=#8b97ab]%d %s[/color]   [color=white]%s[/color] send %s to [color=white]%s[/color] for %s." % [
+		e["year"], e["when"], UiKit.esc(a.name), UiKit.esc(_join_or_nothing(e["a_gave"])), UiKit.esc(b.name), UiKit.esc(_join_or_nothing(e["b_gave"]))]
+	for r in e["reactions"]:
+		var so: Soldier = r["soldier"]
+		match r["mood"]:
+			"upset":
+				t += "\n   [color=#ef4444]%s is upset to leave %s.[/color]" % [UiKit.esc(so.display_name()), r["from"].abbrev]
+			"relieved":
+				t += "\n   [color=#22c55e]%s got the fresh start he asked for.[/color]" % UiKit.esc(so.display_name())
+			"thrilled":
+				t += "\n   [color=#22c55e]%s is thrilled to join a stronger team.[/color]" % UiKit.esc(so.display_name())
+	return t
+
+
+static func _join_or_nothing(list: Array) -> String:
+	return "nothing" if list.is_empty() else ", ".join(PackedStringArray(list))

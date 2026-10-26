@@ -119,6 +119,8 @@ var _news_rng := RandomNumberGenerator.new()
 var scout_points := 0
 ## One team per pick, in order. Empty until the draft order is set (after the Final).
 var order: Array[Team] = []
+## Who each pick originally belonged to (order before trades), same indexing as `order`.
+var original: Array[Team] = []
 var next_pick := 0
 var _rng := RandomNumberGenerator.new()
 ## Set by the season so drafted rookies get a league-unique callsign.
@@ -376,6 +378,7 @@ func set_order(teams_in_order: Array) -> void:
 	order = []
 	for t in snake(teams_in_order):
 		order.append(t)
+	original = order.duplicate()
 	next_pick = 0
 
 

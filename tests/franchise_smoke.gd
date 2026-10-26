@@ -284,6 +284,19 @@ func _visit_pages(hub, phase: String) -> void:
 		"other_roster": func(): return p.team_roster(hub.season.league.teams[1]),
 		"signings": func(): return p.signings("Test", hub.season.fa.history.slice(-5)),
 		"training_camp": p.training_camp, "league_stats": p.league_stats, "negotiate": p.negotiate,
+		"trade_center": p.trade_center, "trade_offers": p.trade_offers, "trade_block": p.trade_block, "trade_log": p.trade_log,
+		"trade_center_deal": func():
+			var ai: Team = p._ai_teams()[0]
+			p._trade_partner = ai
+			p._trade_get = [Trades.player_asset(ai.roster[0])]
+			p._trade_give = hub.season.trades.picks_of(hub.season, hub.season.user_team()).slice(0, 1)
+			var c: Control = p.trade_center()
+			p._trade_give = []
+			p._trade_get = []
+			return c,
+		"other_player_card": func():
+			p._player_tab = 0
+			return p.player(hub.season.league.teams[1].roster[0] if hub.season.league.teams[1] != hub.season.user_team() else hub.season.league.teams[2].roster[0]),
 	}
 	for tab in p.PLAYER_TABS.size():
 		var ti: int = tab

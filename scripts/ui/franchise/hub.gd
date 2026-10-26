@@ -806,6 +806,12 @@ func _news_tiles() -> Array:
 		var so: Soldier = r["soldier"]
 		out.append(UiKit.tile("Retirement", "[color=white]%s[/color] retires at %d\n%s" % [UiKit.esc(so.display_name()), r["age"],
 			r["team"].abbrev if r["team"] != null else "free agent"], SMALL, Color("#94a3b8"), open_retirements))
+	if not season.trades.offers.is_empty():
+		out.push_front(UiKit.tile("Trade Offers", "[color=#f59e0b]%d team%s[/color] want to deal with you.\nOffers expire at week's end." % [season.trades.offers.size(),
+			"" if season.trades.offers.size() == 1 else "s"], SMALL, Color("#f97316"), func(): open("Trade Offers", pages.trade_offers)))
+	for e in season.trades.last_trades.slice(0, 3):
+		out.append(UiKit.tile("Trade", "[color=white]%s[/color] <-> [color=white]%s[/color]\n[font_size=13]%s for %s[/font_size]" % [e["a"].abbrev, e["b"].abbrev,
+			UiKit.esc(pages._join_or_nothing(e["a_gave"])), UiKit.esc(pages._join_or_nothing(e["b_gave"]))], SMALL, Color("#f97316"), func(): open("Trade Log", pages.trade_log)))
 	if out.is_empty():
 		out.append(UiKit.tile("League News", _headline(), SMALL, Color("#14b8a6"), func(): open("League News", pages.news)))
 	out.append(UiKit.tile("All News", "Every result and headline this season.", SMALL, Color("#14b8a6"), func(): open("League News", pages.news)))
@@ -951,16 +957,30 @@ func _league_sections() -> Array:
 	]
 
 
+func _trade_tiles() -> Array:
+	var tr := season.trades
+	var open := tr.window_open(season)
+	var team := season.user_team()
+	var on_block := team.roster.filter(func(x: Soldier): return tr.block.has(x.id)).size()
+	return [
+		UiKit.tile("Trade Center", "Build deals with any team (up to %d assets a side).
+Window: [color=%s]%s[/color]" % [Trades.MAX_ASSETS,
+			"#22c55e" if open else "#ef4444", tr.window_text(season)], TILE, Color("#f97316"), func(): pages.open_trade()),
+		UiKit.tile("Trade Offers", ("[color=#f59e0b]%d offer%s[/color] waiting." % [tr.offers.size(), "" if tr.offers.size() == 1 else "s"]) if not tr.offers.is_empty()
+			else "No offers right now.", TILE, Color("#f97316"), func(): open("Trade Offers", pages.trade_offers)),
+		UiKit.tile("Trade Block", "%d of your players on the block.
+AI teams send offers for them." % on_block, TILE, Color("#f97316"), func(): open("Trade Block", pages.trade_block)),
+		UiKit.tile("Trade Log", "%d trades so far." % tr.history.size(), TILE, Color("#f97316"), func(): open("Trade Log", pages.trade_log)),
+	]
+
+
 func _personnel_sections() -> Array:
 	var soon := func(title: String, sub: String, color: Color, bullets: Array) -> Button:
 		return UiKit.tile(title, sub, TILE, color, func(): coming_soon(title, bullets), "SOON")
 	var team := season.user_team()
 	var n_exp := Contracts.expiring(team).size()
 	return [
-		["TRADES", [
-			soon.call("Trade Center", "Propose trades with other teams.", Color("#f97316"), ["Player-for-player and multi-player trades", "AI trade evaluation", "In-season trade deadline", "Trades must fit under the salary cap"]),
-			soon.call("Trade Block", "Shop your players around the league.", Color("#f97316"), ["List players for trade", "Receive AI offers"]),
-		]],
+		["TRADES", _trade_tiles()],
 		["CONTRACTS", [
 			UiKit.tile("Contracts & Payroll", "Payroll [color=white]%s[/color] of %s\nCap space [color=%s]%s[/color]\nRelease players (dead money applies)." % [
 				Contracts.money(Contracts.payroll(team, season.cap_year())), Contracts.money(Contracts.SALARY_CAP),
