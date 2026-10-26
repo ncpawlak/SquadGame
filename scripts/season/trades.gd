@@ -13,7 +13,11 @@ const ACCEPT_MARGIN := 1.05
 ## Below acceptance but at least this share of it, the AI counters instead of refusing.
 const COUNTER_FLOOR := 0.85
 const PATIENCE := 3
+## Fewest players a team can be left with by a trade: in-season, and before Week 1 (offseason
+## and preseason camp). There is no maximum: a team over Team.ROSTER_SIZE must cut down before its
+## next match (AI teams restructure right away, see restructure()).
 const MIN_ROSTER := 8
+const MIN_ROSTER_OFFSEASON := 5
 const NEXT_YEAR_PICK := 0.85
 ## Getting several pieces is worth less than one piece of the same total (roster spots, quality).
 const DEPTH_WEIGHTS := [1.0, 0.8, 0.65]
@@ -41,6 +45,9 @@ var history: Array = []
 var last_trades: Array = []
 ## Soldier id -> year he was last traded; the AI won't flip him again that year.
 var acquired := {}
+## AI roster moves after going over the limit: {year, when, team, soldier, kind (&"cut"/&"traded"), to}.
+var moves: Array = []
+var _restructuring := false
 
 var _cache_key := ""
 var _modes := {}
@@ -121,10 +128,10 @@ func apply_owners(season: Season) -> void:
 ## Full pick order (all rounds) from a round-1 order, with traded picks moved to their owners.
 func owned_order(year: int, round1: Array) -> Array:
 	var out: Array = []
-	var snake := Draft.snake(round1)
+	var picks := Draft.full_order(round1)
 	var n := maxi(1, round1.size())
-	for i in snake.size():
-		out.append(owner(year, i / n + 1, snake[i]))
+	for i in picks.size():
+		out.append(owner(year, i / n + 1, picks[i]))
 	return out
 
 
@@ -163,7 +170,7 @@ func pick_index(season: Season, a: Dictionary) -> int:
 	var n := round1.size()
 	var pos := maxi(0, round1.find(a["orig"]))
 	var rnd: int = a["round"] - 1
-	return rnd * n + (pos if rnd % 2 == 0 else n - 1 - pos)
+	return rnd * n + pos
 
 
 func pick_text(season: Season, a: Dictionary, with_projection := true) -> String:
@@ -320,7 +327,12 @@ static func _players(list: Array) -> int:
 	return list.filter(func(a): return not is_pick(a)).size()
 
 
-## "" when the deal is legal, otherwise why not.
+static func min_roster(season: Season) -> int:
+	return MIN_ROSTER_OFFSEASON if season.phase == Season.PHASE_OFFSEASON or season.preseason_camp else MIN_ROSTER
+
+
+## "" when the deal is legal, otherwise why not. Rosters may go over the limit (cut before the
+## next match); they may not drop below min_roster().
 func validate(season: Season, a: Team, a_give: Array, b: Team, b_give: Array) -> String:
 	if not window_open(season):
 		return "The trade window is closed."
@@ -341,13 +353,12 @@ func validate(season: Season, a: Team, a_give: Array, b: Team, b_give: Array) ->
 				if not tradeable(s):
 					return "%s's contract is expiring; he can't be traded." % s.display_name()
 	var cy := season.cap_year()
+	var floor_n := min_roster(season)
 	for side in [[a, a_give, b_give], [b, b_give, a_give]]:
 		var t: Team = side[0]
 		var after: int = t.roster.size() - _players(side[1]) + _players(side[2])
-		if after > Team.ROSTER_SIZE and FreeAgency.roster_capped(season, t) and _players(side[2]) > _players(side[1]):
-			return "%s would have %d players (max %d)." % [t.name, after, Team.ROSTER_SIZE]
-		if after < MIN_ROSTER:
-			return "%s would be left with only %d players (min %d)." % [t.name, after, MIN_ROSTER]
+		if after < floor_n and _players(side[1]) > _players(side[2]):
+			return "%s would be left with only %d players (min %d)." % [t.name, after, floor_n]
 		var incoming := _salary(side[2])
 		var outgoing := _salary(side[1])
 		var payroll := Contracts.payroll(t, cy) + incoming - outgoing
@@ -480,10 +491,10 @@ func execute(season: Season, a: Team, a_give: Array, b: Team, b_give: Array) -> 
 	for t: Team in [a, b]:
 		if t.user_controlled:
 			t.fill_injured()
-		else:
+		elif t.roster.size() >= t.scheme.slot_ids().size():
 			t.auto_lineup()
 	apply_owners(season)
-	var when := "Offseason" if season.phase == Season.PHASE_OFFSEASON else ("Preseason" if season.preseason_camp else season.week_label(season.week))
+	var when := _when(season)
 	var e := {"year": season.year, "when": when, "a": a, "b": b, "a_gave": a_give.map(func(x): return asset_text(season, x)),
 		"b_gave": b_give.map(func(x): return asset_text(season, x)), "reactions": reactions, "ai": not (a.user_controlled or b.user_controlled)}
 	history.append(e)
@@ -493,7 +504,85 @@ func execute(season: Season, a: Team, a_give: Array, b: Team, b_give: Array) -> 
 		moved[key_of(x)] = true
 	offers = offers.filter(func(o): return not (o["give"] + o["get"]).any(func(x): return moved.has(key_of(x))))
 	_cache_key = ""
+	for t: Team in [a, b]:
+		if not t.user_controlled and t.is_over_roster_limit():
+			restructure(season, t)
 	return e
+
+
+static func _when(season: Season) -> String:
+	return "Offseason" if season.phase == Season.PHASE_OFFSEASON else ("Preseason" if season.preseason_camp else season.week_label(season.week))
+
+
+# --- AI roster restructuring ---------------------------------------------------------
+
+## An AI team over `limit` (default Team.ROSTER_SIZE) gets back under it: it first shops its
+## least valuable players (Team.keep_value: OVR, upside, age, depth, dead money, contract) to AI
+## teams with roster room for a draft pick, and cuts whoever nobody wants. Returns
+## {traded: [Soldier], cut: [Soldier]}.
+func restructure(season: Season, team: Team, limit := Team.ROSTER_SIZE) -> Dictionary:
+	var out := {"traded": [], "cut": []}
+	if team.user_controlled or _restructuring:
+		return out
+	_restructuring = true
+	while team.roster.size() > limit:
+		var order: Array = team.roster.duplicate()
+		var kv := {}
+		for s in order:
+			kv[s] = team.keep_value(s)
+		order.sort_custom(func(p: Soldier, q: Soldier): return kv[p] < kv[q])
+		var dealt := false
+		if window_open(season):
+			for s: Soldier in order.slice(0, 3):
+				if not tradeable(s) or _fresh(season, s):
+					continue
+				var deal := _dump_deal(season, team, s)
+				if deal.is_empty():
+					continue
+				execute(season, team, [player_asset(s)], deal["buyer"], [deal["pick"]])
+				out["traded"].append(s)
+				moves.append({"year": season.year, "when": _when(season), "team": team, "soldier": s, "kind": &"traded", "to": deal["buyer"]})
+				dealt = true
+				break
+		if not dealt:
+			var s: Soldier = order[0]
+			season.release_player(team, s)
+			out["cut"].append(s)
+			moves.append({"year": season.year, "when": _when(season), "team": team, "soldier": s, "kind": &"cut", "to": null})
+	if team.roster.size() >= team.scheme.slot_ids().size():
+		team.auto_lineup()
+	_restructuring = false
+	_cache_key = ""
+	return out
+
+
+## The best pick (to `seller`) an AI team with roster room will give for `s`: {buyer, pick} or {}.
+func _dump_deal(season: Season, seller: Team, s: Soldier) -> Dictionary:
+	var want := [player_asset(s)]
+	var best := {}
+	var best_v := 0.0
+	for buyer: Team in season.league.teams:
+		if buyer == seller or buyer.user_controlled or buyer.roster.size() >= Team.ROSTER_SIZE:
+			continue
+		var picks := picks_of(season, buyer)
+		var cost := {}
+		for p in picks:
+			cost[key_of(p)] = value(season, p, buyer, true)
+		picks.sort_custom(func(p, q): return cost[key_of(p)] < cost[key_of(q)])
+		for p in picks:
+			if ratio(season, buyer, want, [p]) < ACCEPT_MARGIN:
+				break
+			if validate(season, buyer, [p], seller, want) != "":
+				continue
+			var v := value(season, p, seller)
+			if v > best_v:
+				best_v = v
+				best = {"buyer": buyer, "pick": p}
+	return best
+
+
+func moves_in(year: int) -> Array:
+	return moves.filter(func(m): return m["year"] == year)
 
 
 func _move(season: Season, x: Dictionary, from: Team, to: Team) -> Dictionary:

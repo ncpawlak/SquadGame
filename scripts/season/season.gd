@@ -31,8 +31,11 @@ const OFF_DONE := &"done"
 const OFFSEASON_WEEK_XP := 100.0
 const CAMP_WEEK_XP := 250.0
 const FA_DAYS := 3
-## The user needs at least this many soldiers to start a season (AI teams fill to ROSTER_SIZE).
-const ROSTER_MIN := 10
+## Roster rules: Week 1 is played with exactly Team.ROSTER_SIZE; after that a team plays with
+## ROSTER_MIN..ROSTER_SIZE. Trades may push a team over the limit (or, before Week 1, down to
+## Trades.MIN_ROSTER_OFFSEASON); it must be fixed before the team's next match. AI teams fix it
+## at once (Trades.restructure); the user is held at the hub (user_roster_error).
+const ROSTER_MIN := 8
 const INITIAL_FREE_AGENTS := 18
 ## Only the best undrafted prospects turn pro as free agents; the rest go home.
 const UNDRAFTED_TO_FA := 12
@@ -304,6 +307,7 @@ func prepare_week() -> void:
 	close_preseason_camp()
 	_stamp_log()
 	last_signings = fa.resolve(self, _rng, week_label(week))
+	_fix_rosters()
 	_prepare_lineups()
 	for t in league.teams:
 		if t.user_controlled:
@@ -447,6 +451,57 @@ func _prepare_lineups() -> void:
 			Training.ai_set_intensities(t)
 
 
+## Why the user can't play this week yet ("" = he can): Week 1 needs exactly Team.ROSTER_SIZE
+## players; later weeks need ROSTER_MIN..ROSTER_SIZE.
+func user_roster_error() -> String:
+	if phase == PHASE_OFFSEASON:
+		return ""
+	var n := user_team().roster.size()
+	var first := phase == PHASE_REGULAR and week == 1
+	if n > Team.ROSTER_SIZE:
+		var extra := n - Team.ROSTER_SIZE
+		return "You have %d players. Release %d (or trade them away) to get down to %d before %s." % [
+			n, extra, Team.ROSTER_SIZE, "Week 1" if first else "your next match"]
+	var lo := Team.ROSTER_SIZE if first else ROSTER_MIN
+	if n < lo:
+		var short := lo - n
+		if first:
+			return "Week 1 needs exactly %d players. You have %d: sign %d more free agent%s." % [lo, n, short, "" if short == 1 else "s"]
+		return "You need at least %d players to play. You have %d: sign %d more." % [lo, n, short]
+	return ""
+
+
+## Answers the user's pending free-agent offers now (he needs players before he can play).
+## Only soldiers he bid on decide. Returns the signings.
+func resolve_user_offers() -> Array:
+	var user := user_team()
+	if fa.offers_by(user).is_empty():
+		return []
+	_stamp_log()
+	var when := "Preseason" if preseason_camp or (phase == PHASE_REGULAR and week == 1) else week_label(week)
+	var out := fa.resolve(self, _rng, when, user)
+	last_signings = out
+	return out
+
+
+## Safety net before a week is played: AI teams over the limit restructure and short-handed
+## AI teams sign free agents; an illegal user roster (only reachable outside the hub, e.g.
+## headless sims) is cut/filled automatically.
+func _fix_rosters() -> void:
+	for t in league.teams:
+		if t.user_controlled:
+			if user_roster_error() != "":
+				for s in t.cut_to_limit():
+					Contracts.charge_release(t, s, cap_year())
+					league.add_free_agent(s, year)
+				fa.fill_roster(self, t, Team.ROSTER_SIZE if week == 1 and phase == PHASE_REGULAR else ROSTER_MIN, week_label(week))
+			continue
+		if t.is_over_roster_limit():
+			trades.restructure(self, t)
+		if t.roster.size() < ROSTER_MIN:
+			fa.fill_roster(self, t, Team.ROSTER_SIZE, week_label(week))
+
+
 func sim_to_end_of_regular_season() -> void:
 	while phase == PHASE_REGULAR:
 		sim_week()
@@ -463,11 +518,14 @@ func start_next_season() -> void:
 		return
 	while offseason_stage != OFF_DONE:
 		advance_offseason()
+	# Last call for free agency: pending offers (the user's too) are answered. The user's roster
+	# is left as is - he must reach exactly ROSTER_SIZE before Week 1 (user_roster_error).
+	fa.resolve(self, _rng, "Preseason")
 	for t in league.teams:
-		for s in t.cut_to_limit():
-			Contracts.charge_release(t, s, cap_year())
-			league.add_free_agent(s, year)
-		fa.fill_roster(self, t, ROSTER_MIN if t.user_controlled else Team.ROSTER_SIZE, "Preseason")
+		if t.user_controlled:
+			continue
+		trades.restructure(self, t)
+		fa.fill_roster(self, t, Team.ROSTER_SIZE, "Preseason")
 	fa.offers.clear()
 	negotiations.clear()
 	var arng := RandomNumberGenerator.new()
@@ -657,10 +715,9 @@ func _open_free_agency() -> void:
 	for t in league.teams:
 		if t.user_controlled:
 			continue
-		# AI teams keep a spot open to bid on free agents (filled in preseason if they miss).
-		for s in t.cut_to_limit(Team.ROSTER_SIZE - 1):
-			Contracts.charge_release(t, s, cap_year())
-			league.add_free_agent(s, year)
+		# AI teams keep a spot open to bid on free agents (filled in preseason if they miss):
+		# surplus players are shopped for picks first, then cut.
+		trades.restructure(self, t, Team.ROSTER_SIZE - 1)
 	fa.ai_offers(self, _rng)
 
 

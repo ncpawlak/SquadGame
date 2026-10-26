@@ -152,6 +152,8 @@ func advance() -> void:
 	if season.preseason_camp:
 		_close_preseason_camp()
 		return
+	if _roster_blocked():
+		return
 	var m := user_match_this_week()
 	if m and not m.is_played() and not _on_matchup_page():
 		season.prepare_week()
@@ -177,7 +179,7 @@ func _on_matchup_page() -> bool:
 
 ## Watch the user's match live; when the viewer finishes, the rest of the week is simmed.
 func watch_match(m: ScheduledMatch) -> void:
-	if viewer or m.is_played():
+	if viewer or m.is_played() or _roster_blocked():
 		return
 	viewer = MatchViewer.new()
 	viewer.setup(m)
@@ -197,12 +199,39 @@ func _on_viewer_finished(r: MatchResult, m: ScheduledMatch) -> void:
 
 ## Sim the rest of the week (the user's match too, unless it was already watched) and show results.
 func sim_week() -> void:
+	if _roster_blocked():
+		return
 	var label := season.week_label(season.week)
 	var played: Array = season.sim_week()
 	page_stack.clear()
 	_build_header()
 	_build_tabs()
 	open("%s Results" % label, func(): return pages.week_results(label, played))
+
+
+## The user's roster must be legal before he plays (exactly ROSTER_SIZE for Week 1, ROSTER_MIN..
+## ROSTER_SIZE after). Short-handed with offers out, those offers are answered first. Returns true
+## (and sends him to fix it) when he can't play yet.
+func _roster_blocked() -> bool:
+	var err := season.user_roster_error()
+	if err == "":
+		return false
+	var user := season.user_team()
+	var signed: Array = []
+	if user.roster.size() < Team.ROSTER_SIZE:
+		signed = season.resolve_user_offers()
+		err = season.user_roster_error()
+	if not signed.is_empty():
+		var names: Array = signed.map(func(e): return e["soldier"].display_name())
+		_rebuild_and_open("Signings", func(): return pages.signings("Your offers", signed))
+		app.toast("Signed %s.%s" % [", ".join(names), (" " + err) if err != "" else " Roster set: advance to play."])
+		return true
+	if user.is_over_roster_limit():
+		_rebuild_and_open("Contracts & Payroll", pages.contracts)
+	else:
+		_rebuild_and_open("Free Agents", pages.free_agents)
+	app.toast(err)
+	return true
 
 
 ## Set when the user was warned about unused camp drills (advancing again skips them).
@@ -233,10 +262,6 @@ func _advance_offseason() -> void:
 				app.toast("Free agency is over. Training camp is open: send a player to each drill.")
 		_:
 			var user := season.user_team()
-			if user.is_over_roster_limit():
-				_rebuild_and_open("Contracts & Payroll", pages.contracts)
-				app.toast("Can't start the season with %d players: release down to %d (player > Contract tab > Release)." % [user.roster.size(), Team.ROSTER_SIZE])
-				return
 			if season.camp_open() and season.camp.drills_left(user) > 0 and not _camp_skip_warned:
 				_camp_skip_warned = true
 				_rebuild_and_open("Training Camp", pages.training_camp)
@@ -247,7 +272,8 @@ func _advance_offseason() -> void:
 			page_stack.clear()
 			tab_index = 0
 			refresh()
-			app.toast("Welcome to the %d season." % season.year)
+			var err := season.user_roster_error()
+			app.toast("Welcome to the %d season.%s" % [season.year, (" " + err) if err != "" else ""])
 
 
 ## Opening camp of a new franchise: warn once about unused drills, then close it and go to Week 1.
@@ -568,7 +594,7 @@ func _home_top() -> Control:
 		side.add_child(UiKit.tile("Last Result", "No matches played yet.", Vector2(300, 158), UiKit.INFO,
 			func(): app.toast("Play a match first.")))
 	h.add_child(side)
-	var cuts := _roster_cut_banner(team)
+	var cuts := _roster_banner(team)
 	if cuts == null:
 		return h
 	var v := VBoxContainer.new()
@@ -578,17 +604,32 @@ func _home_top() -> Control:
 	return v
 
 
-## Offseason rosters can run over the limit (draft picks, extra signings); the season can't
-## start until the user cuts back down.
-func _roster_cut_banner(team: Team) -> Control:
-	if not team.is_over_roster_limit():
+## Rosters can run over the limit (trades, draft picks, extra signings) or short (trades,
+## expiring deals). Week 1 needs exactly ROSTER_SIZE, later matches ROSTER_MIN..ROSTER_SIZE.
+func _roster_banner(team: Team) -> Control:
+	var n := team.roster.size()
+	var before_week1 := season.phase == Season.PHASE_OFFSEASON or season.preseason_camp or (season.phase == Season.PHASE_REGULAR and season.week == 1)
+	var lo := Team.ROSTER_SIZE if before_week1 else Season.ROSTER_MIN
+	if n <= Team.ROSTER_SIZE and n >= lo:
 		return null
-	var extra := team.roster.size() - Team.ROSTER_SIZE
-	var body := "[color=white]%d / %d players.[/color]  Release [color=#ef4444]%d player%s[/color] before you can advance to Week 1 of the %d season.  Open a player > Contract tab > Release." % [
-		team.roster.size(), Team.ROSTER_SIZE, extra, "" if extra == 1 else "s", season.year + (1 if season.phase == Season.PHASE_OFFSEASON else 0)]
-	var t := UiKit.tile("Roster Cuts Required", body, Vector2(1214, 86), UiKit.BAD, open_contracts)
-	t.name = "RosterCutBanner"
-	return t
+	# Early offseason: the roster is still taking shape (expiring deals leave, picks arrive).
+	if season.phase == Season.PHASE_OFFSEASON and n < lo and season.offseason_stage in [Season.OFF_RESIGN, Season.OFF_DRAFT]:
+		return null
+	var when := "Week 1 of the %d season" % (season.year + (1 if season.phase == Season.PHASE_OFFSEASON else 0)) if before_week1 else "your next match"
+	if n > Team.ROSTER_SIZE:
+		var extra := n - Team.ROSTER_SIZE
+		var body := "[color=white]%d / %d players.[/color]  Release or trade [color=#ef4444]%d player%s[/color] before %s.  Open a player > Contract tab > Release." % [
+			n, Team.ROSTER_SIZE, extra, "" if extra == 1 else "s", when]
+		var t := UiKit.tile("Roster Cuts Required", body, Vector2(1214, 86), UiKit.BAD, open_contracts)
+		t.name = "RosterCutBanner"
+		return t
+	var short := lo - n
+	var need := "exactly %d" % lo if before_week1 else "at least %d" % lo
+	var body2 := "[color=white]%d / %d players.[/color]  You need %s for %s: sign [color=#f59e0b]%d more free agent%s[/color] (or trade for them)." % [
+		n, Team.ROSTER_SIZE, need, when, short, "" if short == 1 else "s"]
+	var t2 := UiKit.tile("Roster Spots Open", body2, Vector2(1214, 86), UiKit.ACCENT, open_free_agents)
+	t2.name = "RosterShortBanner"
+	return t2
 
 
 func _match_pane(m: ScheduledMatch, team: Team) -> Control:
@@ -1016,7 +1057,7 @@ func _draft_history_tile() -> Button:
 func _draft_blurb() -> String:
 	var d := season.draft
 	if not d.is_started():
-		return "%d rounds after the Final. Worst finish picks first, snake order." % Draft.ROUNDS
+		return "%d rounds after the Final. Worst finish picks first every round." % Draft.ROUNDS
 	if season.offseason_stage == Season.OFF_RESIGN:
 		return "Re-signing window first.\nThe draft starts when you advance."
 	if d.is_complete():
@@ -1066,7 +1107,7 @@ func _next_match_tile(team: Team) -> Button:
 				next_step = "Training camp: send one player to each drill (%d left), then start the season." % season.camp.drills_left(team)
 				target = open_camp
 			_:
-				next_step = "Free agency is over. Set your roster (%d-%d) and start the season." % [Season.ROSTER_MIN, Team.ROSTER_SIZE]
+				next_step = "Free agency is over. Week 1 needs exactly %d players (you have %d). Start the season when ready." % [Team.ROSTER_SIZE, team.roster.size()]
 				target = open_contracts
 		var body := "[font_size=30][color=white]%s[/color][/font_size]\n%d champions.\n\n%s" % [
 			UiKit.esc(champ.name if champ else "-"), season.year, next_step]
@@ -1107,15 +1148,18 @@ func _advance_blurb() -> String:
 			Season.OFF_FREE_AGENCY:
 				return "Players answer this round of offers. Best offer (money, team, playing time) wins." + (
 					"\nTraining camp follows." if season.fa_day >= Season.FA_DAYS else "")
-		if season.user_team().is_over_roster_limit():
-			return "[color=#ef4444]Cut to %d players first[/color] (you have %d)." % [Team.ROSTER_SIZE, season.user_team().roster.size()]
 		if season.camp_open() and season.camp.drills_left(season.user_team()) > 0:
 			return "Close camp ([color=#f59e0b]%d drills unused[/color]) and start the %d season." % [season.camp.drills_left(season.user_team()), season.year + 1]
-		return "Roll over to the %d season. Roster must be %d-%d." % [season.year + 1, Season.ROSTER_MIN, Team.ROSTER_SIZE]
+		var n := season.user_team().roster.size()
+		var note := "" if n == Team.ROSTER_SIZE else "  [color=#f59e0b]You have %d: get to %d before Week 1.[/color]" % [n, Team.ROSTER_SIZE]
+		return "Roll over to the %d season. Week 1 needs exactly %d players.%s" % [season.year + 1, Team.ROSTER_SIZE, note]
 	if season.preseason_camp:
 		if season.camp.drills_left(season.user_team()) > 0:
 			return "Close camp ([color=#f59e0b]%d drills unused[/color]) and go to Week 1." % season.camp.drills_left(season.user_team())
 		return "Close camp and go to Week 1."
+	var err := season.user_roster_error()
+	if err != "":
+		return "[color=#ef4444]%s[/color]" % err
 	return "Train, play every match this week and award XP.\n\n[color=white]Space / Y[/color]"
 
 

@@ -41,7 +41,7 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   An intermission card shows each game's winner and the series score. A watched match plays out exactly like a
   simmed one with the same seed.
 - **Each week**: all teams train at each soldier's intensity, every match is played, XP is awarded, then fatigue
-  and injuries update. AI teams auto-spend skill points and pick intensities. Home → **Weekly Training** opens the
+  and injuries update. AI teams train every week on Auto (rest the exhausted, ease veterans, push fresh young players) and auto-spend skill points. Home → **Weekly Training** opens the
   intensity screen; **Confirm & Train** runs this week's training right away and shows the results (XP gained, the
   new XP bar, level-ups and SP). Once per week; if you skip it, your team trains at its set intensities when the
   week is played. Spend SP on the player page (or **Auto-progress all** on the Progression page). The Home "Progress Players"
@@ -70,14 +70,16 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   group in the 74-86 range). Scouting is how you find them.
 - **Prospect news**: 0-2 stories a week during the season (Scouting page, League News → Prospect Watch, Home tiles):
   stock rising, stock falling, and stat notes ("claimed #1 in the country for long range target practice").
-  Stories nudge the consensus board. About 1 in 5 is wrong (hype or smoke), and none says outright who is a
-  blue chip, so scout before you believe it.
+  Stories nudge the consensus board, and none says outright who is a blue chip. **Facts** are always true:
+  class rankings ("finished the ruck march first") go only to the real class leader (or last place) in that
+  stat, and measured reports only to standout (72+) or poor (42-) ratings. **Rumors** ("Word is...", "reportedly",
+  stock rising/falling) are true about half the time, so scout before you believe them.
   Every prospect shows a **projected pick** (Early/Mid/Late 1st or 2nd, or Undrafted) from a noisy league-consensus
   board. The **Mock Draft** page (Personnel → Draft, or the Scouting page) predicts every pick from the current
   standings. The Scouting list and Draft Room are a table: portrait, name/age/position, projection, then one column per
   stat group (a 5-segment bar lit where his grade could be, best grade on top). Click any header to sort (groups sort by
   the middle of the scouted range; unscouted sinks). Each grade is colored: red Poor, orange Below average, gray Average, blue Good, green Elite.
-- **Draft**: after the Final, 3 rounds in snake order. Teams that missed the playoffs pick first (worst record first),
+- **Draft**: after the Final, 3 rounds, same order every round (like football). Teams that missed the playoffs pick first (worst record first),
   then semifinal losers, the runner-up, and the champion last. AI teams pick from the consensus board with a little noise, leaning toward their weakest position.
   The Draft Room runs a **clock**: you have 2:00 on your pick (then the best available is auto-picked) and CPU teams
   pick after 5 seconds. The clock only runs while the Draft Room is open. **Sim to next pick** skips one CPU pick;
@@ -113,7 +115,10 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   up to 3 assets a side - players under contract past this season and this year's and next year's draft picks
   (expiring contracts can't be traded). The window is open in preseason camp, through Week 6 (the deadline), and
   in the offseason from the draft on (including during the live draft); closed for the rest of the season and the
-  playoffs. Both teams must stay at 8-12 players and can't go over the cap by taking on salary; contracts and picks
+  playoffs. Trades can push a roster past 12 (you must cut before your next match; AI teams restructure right away:
+  shop their least valuable surplus to teams with room for a pick, else cut, weighing OVR, potential, age, years
+  left, dead money and depth at his role). A trade can't drop a team below 8 in-season or 5 in the offseason, and
+  teams can't go over the cap by taking on salary; contracts and picks
   just move (no salary retention). Each AI team is a **Contender**, **Balanced** or **Rebuilding** (team OVR plus
   record): contenders pay for starters who fit their weakest role, rebuilders pay for youth, picks and cheap
   contracts and sell their 30+ veterans. The **Trade Center** shows a hidden-math interest bar and the GM's
@@ -124,8 +129,9 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   in News and the Trade Log; traded picks move in the mock and real draft order.
 - **Offseason** (advance button walks the stages): **Re-sign** (Sign at Ask or Negotiate; AI teams re-sign
   their keepers) → **Draft** → **Free agency** (3 days) → **Training camp** → next season. Rosters max out at 12 (5 starters + 7 backups).
-  In the offseason your roster can run over (draft picks, extra signings), but you can't advance to Week 1 until
-  you release down to 12; Home shows a red "Roster Cuts Required" banner while you're over. In-season the limit is hard.
+  In the offseason your roster can be any size (trades, draft picks, extra signings), but **Week 1 needs exactly 12**:
+  release down or sign up to it (red "Roster Cuts Required" / amber "Roster Spots Open" banner on Home). After Week 1
+  you can play with 8-12; going over 12 by trade blocks your next match until you cut. AI teams always fill to 12.
 - **Training camp** (`scripts/season/camp.gd`, Home → Training Camp): one drill per rating group (Marksmanship Range,
   Weapons Lab, Combine Gauntlet, War Room, Hill Assault, Iron Conditioning). Pick a drill, pick a soldier, see his ratings boost.
   One soldier per drill and one drill per soldier. The point pool depends on potential (A 9-13, B 7-10, C 5-8, D 3-6,

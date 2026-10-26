@@ -18,7 +18,7 @@ extends RefCounted
 ## ("claimed #1 for long range target practice") point at an extreme stat. Most stories are
 ## true, some are misleading, and none reveal a tier outright.
 ##
-## Draft: snake order (worst team first, champion last) for ROUNDS rounds. AI teams pick on a
+## Draft: same order every round (worst team first, champion last) for ROUNDS rounds. AI teams pick on a
 ## pick-day read of the consensus value plus a bonus for their weakest position.
 
 const CLASS_SIZE := 36
@@ -55,47 +55,87 @@ const GENERATIONAL_OVR := [74, 77]
 ## Specialists per class [min, max] and the range of their elite group's stats.
 const SPECIALISTS := [3, 5]
 const SPECIALIST_STAT := [74, 86]
-## Prospect news: stories per week (weights for 0, 1, 2), the share of misleading stories and
-## how far a rising/falling story moves the consensus.
+## Prospect news: stories per week (weights for 0, 1, 2) and how far a rising/falling story moves
+## the consensus. Facts (drill results, class rankings, measured strengths/weaknesses) are always
+## true; rumors ("reportedly", "one scout claims", "word is") and stock buzz are true
+## NEWS_RUMOR_TRUE of the time, so they can't be trusted or ignored.
 const NEWS_WEIGHTS := [25, 55, 20]
-const NEWS_MISLEAD_CHANCE := 0.22
+const NEWS_RUMOR_TRUE := 0.5
+## Share of stat stories that are rumors (the rest are facts).
+const NEWS_RUMOR_SHARE := 0.4
 const NEWS_STOCK_SHIFT := 1.5
 const NEWS_HINT_SHIFT := 0.6
-## A stat at or above GREAT (or at or below POOR) is "newsworthy" for a stat story.
+## A stat at or above GREAT (or at or below POOR) is "newsworthy" for a stat story. A false rumor
+## is about a stat inside the ordinary band [POOR + 8, GREAT - 8].
 const NEWS_GREAT := 72
 const NEWS_POOR := 42
+const NEWS_ORDINARY_MARGIN := 8
 const RISING_LINES := [
 	"%s is turning heads in workouts; his stock is climbing.",
-	"Scouts are buzzing about %s after a dominant showcase.",
+	"Scouts are buzzing about %s; his stock is climbing.",
 	"%s keeps rising on draft boards. One GM called him \"the real deal.\"",
 	"Word is several teams have %s much higher than the mocks.",
 ]
 const FALLING_LINES := [
 	"Concerns are mounting about %s; his stock is sliding.",
-	"%s struggled at the regional combine and is falling on some boards.",
+	"Word is %s struggled in a private workout and is falling on some boards.",
 	"Teams are reportedly cooling on %s after private workouts.",
 	"One scout on %s: \"I just don't see it translating.\"",
 ]
-## stat -> [great story, poor story]
+## Class rankings: stat -> [best in the class, worst in the class]. Only told about the prospect
+## who really is first (or last) in the whole class in that stat, by a clear point.
 const STAT_LINES := {
-	Stats.LONG_ACC: ["%s claimed #1 in the country for long range target practice.", "%s couldn't find the target past 300m at his workout."],
-	Stats.MEDIUM_ACC: ["%s topped the mid-range qualification course.", "%s had trouble at mid range, scattering shots across the lane."],
-	Stats.SHORT_ACC: ["%s went a perfect 30-for-30 in the close-quarters shoot house.", "%s was missing point-blank targets in the shoot house."],
+	Stats.LONG_ACC: ["%s posted the best long-range score in the class at the combine.", "%s posted the worst long-range score in the class at the combine."],
+	Stats.MEDIUM_ACC: ["%s topped the whole class on the mid-range qualification course.", "%s finished dead last in the class on the mid-range course."],
+	Stats.SHORT_ACC: ["%s posted the best shoot-house score in the class.", "%s posted the worst shoot-house score in the class."],
+	Stats.GROUPING: ["%s shot the tightest groups of anyone in the class.", "%s shot the widest groups of anyone in the class."],
+	Stats.SWAY: ["Nobody in the class shot steadier on the move than %s.", "%s had the shakiest moving-fire score in the class."],
+	Stats.RELOAD: ["%s posted the fastest reload times in the class.", "%s posted the slowest reload times in the class."],
+	Stats.SPEED: ["%s ran the fastest 40 in the class.", "%s ran the slowest 40 in the class."],
+	Stats.AGILITY: ["%s posted the best cone-drill time in the class.", "%s posted the worst cone-drill time in the class."],
+	Stats.STRENGTH: ["%s led the class in the sled push.", "%s finished last in the class in the sled push."],
+	Stats.ENDURANCE: ["%s finished the 20km ruck march first in the class.", "%s finished the 20km ruck march last in the class."],
+	Stats.AWARENESS: ["%s graded out as the most aware prospect in the class in sim exercises.", "%s graded out as the least aware prospect in the class in sim exercises."],
+	Stats.COMPOSURE: ["%s posted the best live-fire stress test score in the class.", "%s posted the worst live-fire stress test score in the class."],
+	Stats.TEAMWORK: ["The class voted %s its best teammate.", "%s got the lowest teammate grades in the class."],
+	Stats.ANCHOR: ["%s held the hill longer than anyone in the class in the objective scrimmage.", "%s was pushed off the point faster than anyone in the class."],
+	Stats.BREACH: ["%s led the class in successful point pushes at the showcase.", "%s had the fewest successful point pushes in the class."],
+	Stats.OBJ_IQ: ["%s posted the highest objective-IQ grade in the class.", "%s posted the lowest objective-IQ grade in the class."],
+	Stats.TOUGHNESS: ["Trainers rate %s the quickest healer in the class.", "Trainers rate %s the slowest healer in the class."],
+	Stats.INJURY: ["%s has the cleanest medicals in the class.", "%s has the most red flags on his medicals in the class."],
+}
+## Measured strengths/weaknesses (no ranking): stat -> [great (>= GREAT), poor (<= POOR)].
+const REPORT_LINES := {
+	Stats.LONG_ACC: ["%s was ringing steel past 400m at his workout.", "%s couldn't find the target past 300m at his workout."],
+	Stats.MEDIUM_ACC: ["%s shot a near-perfect mid-range qualification course.", "%s had trouble at mid range, scattering shots across the lane."],
+	Stats.SHORT_ACC: ["%s cleared the close-quarters shoot house without a miss.", "%s was missing point-blank targets in the shoot house."],
 	Stats.GROUPING: ["%s's shot groups at the range were \"the size of a coin.\"", "%s's shot groups were all over the paper."],
 	Stats.SWAY: ["%s hit every plate on the run-and-gun course without slowing down.", "%s's muzzle was wandering all over on the moving-fire course."],
-	Stats.RELOAD: ["%s posted the fastest reload times at the combine.", "%s fumbled magazine changes in the timed drills."],
-	Stats.SPEED: ["%s ran the fastest 40 in the class.", "%s posted one of the slowest sprint times in the class."],
+	Stats.RELOAD: ["%s's magazine changes were lightning-quick in the timed drills.", "%s fumbled magazine changes in the timed drills."],
+	Stats.SPEED: ["%s posted a blazing 40 time.", "%s looked slow in sprint testing."],
 	Stats.AGILITY: ["%s was a blur through the cone drill.", "%s looked stiff in the agility drills."],
-	Stats.STRENGTH: ["%s led the class in the sled push.", "%s was near the bottom of the class in strength testing."],
-	Stats.ENDURANCE: ["%s finished the 20km ruck march first, by ten minutes.", "%s couldn't finish the 20km ruck march."],
+	Stats.STRENGTH: ["%s put up big numbers in the sled push.", "%s struggled in strength testing."],
+	Stats.ENDURANCE: ["%s finished the 20km ruck march well ahead of the pace.", "%s couldn't finish the 20km ruck march."],
 	Stats.AWARENESS: ["Instructors rave about %s's battlefield awareness in sim exercises.", "%s was ambushed \"almost every round\" in sim exercises."],
 	Stats.COMPOSURE: ["%s stayed ice-cold through the live-fire stress test.", "%s froze up during the live-fire stress test."],
-	Stats.TEAMWORK: ["Squadmates voted %s the best teammate at the showcase.", "Reports say %s clashed with his squad at the showcase."],
+	Stats.TEAMWORK: ["Squadmates at the showcase rave about %s as a teammate.", "Reports say %s clashed with his squad at the showcase."],
 	Stats.ANCHOR: ["%s held the hill alone for a full minute in the objective scrimmage.", "%s got pushed off the point every time in the objective scrimmage."],
-	Stats.BREACH: ["%s led every successful push onto the point at the showcase.", "%s hesitated on every point push at the showcase."],
+	Stats.BREACH: ["%s led successful pushes onto the point at the showcase.", "%s hesitated on every point push at the showcase."],
 	Stats.OBJ_IQ: ["Coaches say %s \"always knows where the point is.\"", "%s kept chasing kills while the point sat empty."],
 	Stats.TOUGHNESS: ["%s played through a broken hand at his final amateur event.", "%s left the combine early with a minor knock."],
 	Stats.INJURY: ["Medicals came back spotless for %s.", "Teams have flagged %s's medicals."],
+}
+## Rumors: [great lines, poor lines], formatted with [name, STAT_NOUNS[stat]].
+const RUMOR_LINES := [
+	["One scout claims %s's %s is \"elite.\"", "Word is %s tested off the charts in %s at a private workout.", "%s reportedly wowed one team's staff with his %s."],
+	["One scout claims %s's %s \"won't hold up\" at the pro level.", "Word is teams have concerns about %s's %s.", "%s reportedly struggled with his %s at a private workout."],
+]
+const STAT_NOUNS := {
+	Stats.LONG_ACC: "long-range shooting", Stats.MEDIUM_ACC: "mid-range shooting", Stats.SHORT_ACC: "close-quarters shooting",
+	Stats.GROUPING: "shot grouping", Stats.SWAY: "aim on the move", Stats.RELOAD: "reload speed", Stats.SPEED: "speed",
+	Stats.AGILITY: "agility", Stats.STRENGTH: "strength", Stats.ENDURANCE: "endurance", Stats.AWARENESS: "awareness",
+	Stats.COMPOSURE: "composure", Stats.TEAMWORK: "teamwork", Stats.ANCHOR: "ability to hold a point",
+	Stats.BREACH: "point pushing", Stats.OBJ_IQ: "objective IQ", Stats.TOUGHNESS: "recovery from knocks", Stats.INJURY: "medicals",
 }
 ## Phenoms: every non-injury stat at least this (they play any position well).
 const PHENOM_STAT_MIN := 54
@@ -113,7 +153,8 @@ const PHENOM_UNDERRATE := 3.0
 var year: int
 var prospects: Array[Prospect] = []
 ## Prospect news, oldest first: {year, week, prospect, kind (&"rising"/&"falling"/&"hint"),
-## stat (hint stories), text, truthful}.
+## stat, great and claim (&"rank"/&"report"/&"rumor") for hint stories, text, truthful, rumor}.
+## Facts are always true; rumors (stock buzz and rumor-worded stat stories) are coin flips.
 var news: Array = []
 var _news_rng := RandomNumberGenerator.new()
 var scout_points := 0
@@ -238,10 +279,12 @@ func _make_story(week: int, used: Dictionary) -> Dictionary:
 	var avail: Array = available().filter(func(p): return not used.has(p))
 	if avail.is_empty():
 		return {}
-	var truthful := rng.randf() >= NEWS_MISLEAD_CHANCE
-	var story := {"year": year, "week": week, "truthful": truthful, "stat": &""}
+	var story := {"year": year, "week": week, "truthful": true, "rumor": false, "stat": &""}
 	if rng.randf() < 0.5:
-		# Stock story: truthful ones go to prospects the consensus has wrong, in the right direction.
+		# Stock buzz is rumor: true ones go to prospects the consensus has wrong, in the right direction.
+		var truthful := rng.randf() < NEWS_RUMOR_TRUE
+		story["rumor"] = true
+		story["truthful"] = truthful
 		var gap := func(p: Prospect) -> float: return true_value(p) - p.consensus
 		var p: Prospect = avail[rng.randi_range(0, avail.size() - 1)]
 		var under: Array = avail.filter(func(x): return gap.call(x) > 1.0)
@@ -263,26 +306,93 @@ func _make_story(week: int, used: Dictionary) -> Dictionary:
 		story["text"] = lines[rng.randi_range(0, lines.size() - 1)] % p.soldier.full_name()
 		p.consensus += NEWS_STOCK_SHIFT if rising else -NEWS_STOCK_SHIFT
 		return story
-	# Stat story about an extreme stat (or, if misleading, an ordinary one dressed up).
-	var cands: Array = []
-	for p in avail:
-		for st in STAT_LINES:
-			var v: int = p.soldier.stats[st]
-			var extreme := v >= NEWS_GREAT or v <= NEWS_POOR
-			if extreme == truthful:
-				cands.append([p, st, v >= NEWS_GREAT if truthful else rng.randf() < 0.5])
-	if cands.is_empty():
+	var pick: Array = _rumor_pick(avail, rng) if rng.randf() < NEWS_RUMOR_SHARE else _fact_pick(avail, rng)
+	if pick.is_empty():
 		return {}
-	var pick: Array = cands[rng.randi_range(0, cands.size() - 1)]
 	var pr: Prospect = pick[0]
+	var st: StringName = pick[1]
 	var great: bool = pick[2]
+	var kind: String = pick[3]
 	story["prospect"] = pr
-	story["stat"] = pick[1]
+	story["stat"] = st
 	story["kind"] = &"hint"
 	story["great"] = great
-	story["text"] = STAT_LINES[pick[1]][0 if great else 1] % pr.soldier.full_name()
+	story["claim"] = kind
+	match kind:
+		"rank":
+			story["text"] = STAT_LINES[st][0 if great else 1] % pr.soldier.full_name()
+		"report":
+			story["text"] = REPORT_LINES[st][0 if great else 1] % pr.soldier.full_name()
+		_:
+			var lines: Array = RUMOR_LINES[0 if great else 1]
+			story["text"] = lines[rng.randi_range(0, lines.size() - 1)] % [pr.soldier.full_name(), STAT_NOUNS[st]]
+			story["rumor"] = true
+			story["truthful"] = pick[4]
 	pr.consensus += NEWS_HINT_SHIFT if great else -NEWS_HINT_SHIFT
 	return story
+
+
+## The class leader (or last place) in `st`, by at least one point; null if tied.
+func class_extreme(st: StringName, best: bool) -> Prospect:
+	var top: Prospect = null
+	var runner := -1000
+	for p in prospects:
+		var v: int = p.soldier.stats[st] if best else -p.soldier.stats[st]
+		if top == null:
+			top = p
+			continue
+		var tv: int = top.soldier.stats[st] if best else -top.soldier.stats[st]
+		if v > tv:
+			runner = tv
+			top = p
+		elif v > runner:
+			runner = v
+	if top == null:
+		return null
+	var topv: int = top.soldier.stats[st] if best else -top.soldier.stats[st]
+	return top if topv > runner else null
+
+
+## A fact: [prospect, stat, great, "rank"|"report"]. Rankings go only to the real class
+## leader/last place (and only when that's newsworthy); reports to any extreme stat.
+func _fact_pick(avail: Array, rng: RandomNumberGenerator) -> Array:
+	var ranks: Array = []
+	for st in STAT_LINES:
+		for best in [true, false]:
+			var p := class_extreme(st, best)
+			if p == null or not avail.has(p):
+				continue
+			var v: int = p.soldier.stats[st]
+			if (best and v >= NEWS_GREAT) or (not best and v <= NEWS_POOR):
+				ranks.append([p, st, best, "rank"])
+	var reports: Array = []
+	for p in avail:
+		for st in REPORT_LINES:
+			var v: int = p.soldier.stats[st]
+			if v >= NEWS_GREAT or v <= NEWS_POOR:
+				reports.append([p, st, v >= NEWS_GREAT, "report"])
+	if not ranks.is_empty() and (reports.is_empty() or rng.randf() < 0.4):
+		return ranks[rng.randi_range(0, ranks.size() - 1)]
+	if reports.is_empty():
+		return []
+	return reports[rng.randi_range(0, reports.size() - 1)]
+
+
+## A rumor: [prospect, stat, great, "rumor", truthful]. True ones are about a real extreme stat;
+## false ones dress up an ordinary stat as a strength or a weakness.
+func _rumor_pick(avail: Array, rng: RandomNumberGenerator) -> Array:
+	var truthful := rng.randf() < NEWS_RUMOR_TRUE
+	var cands: Array = []
+	for p in avail:
+		for st in STAT_NOUNS:
+			var v: int = p.soldier.stats[st]
+			if truthful and (v >= NEWS_GREAT or v <= NEWS_POOR):
+				cands.append([p, st, v >= NEWS_GREAT, "rumor", true])
+			elif not truthful and v >= NEWS_POOR + NEWS_ORDINARY_MARGIN and v <= NEWS_GREAT - NEWS_ORDINARY_MARGIN:
+				cands.append([p, st, rng.randf() < 0.5, "rumor", false])
+	if cands.is_empty():
+		return []
+	return cands[rng.randi_range(0, cands.size() - 1)]
 
 
 func news_for(p: Prospect) -> Array:
@@ -373,10 +483,10 @@ func _narrow(p: Prospect, g: StringName) -> void:
 
 # --- draft day ---------------------------------------------------------------------
 
-## `teams_in_order` is round-1 order (first pick first); later rounds snake.
+## `teams_in_order` is round-1 order (first pick first); every round repeats it.
 func set_order(teams_in_order: Array) -> void:
 	order = []
-	for t in snake(teams_in_order):
+	for t in full_order(teams_in_order):
 		order.append(t)
 	original = order.duplicate()
 	next_pick = 0
@@ -503,7 +613,7 @@ func ai_pick() -> Prospect:
 	return best
 
 
-## Projected picks from `pick_order` (every pick, snake included) starting at the next pick:
+## Projected picks from `pick_order` (every pick, all rounds) starting at the next pick:
 ## each team takes the best consensus prospect left, nudged by need. Doesn't change the draft.
 ## Returns [{pick (1-based), team, prospect}].
 func mock(pick_order: Array) -> Array:
@@ -527,14 +637,12 @@ func mock(pick_order: Array) -> Array:
 	return out
 
 
-## Full pick order (all rounds, snake) from a round-1 order.
-static func snake(teams_in_order: Array) -> Array:
+## Full pick order (all rounds) from a round-1 order: like football, the worst team picks
+## first in every round.
+static func full_order(teams_in_order: Array) -> Array:
 	var out: Array = []
 	for r in ROUNDS:
-		var round_teams := teams_in_order.duplicate()
-		if r % 2 == 1:
-			round_teams.reverse()
-		out.append_array(round_teams)
+		out.append_array(teams_in_order)
 	return out
 
 

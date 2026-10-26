@@ -212,12 +212,15 @@ static func _ai_value(s: Soldier, weak_role: int) -> float:
 
 
 ## Resolves every pending offer. Best soldiers choose first. Returns this round's signings.
-func resolve(season: Season, rng: RandomNumberGenerator, when: String) -> Array:
+## With `only`, just the soldiers that team bid on decide (between all their offers).
+func resolve(season: Season, rng: RandomNumberGenerator, when: String, only: Team = null) -> Array:
 	var signed: Array = []
 	var pool: Array = season.league.free_agents.duplicate()
 	pool.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
 	for s: Soldier in pool:
 		var mine := offers_for(s)
+		if only != null and not mine.any(func(o): return o["team"] == only):
+			continue
 		var best: Dictionary = {}
 		var best_score := -1.0
 		for o in mine:

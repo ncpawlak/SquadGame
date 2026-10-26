@@ -44,6 +44,8 @@ func _init() -> void:
 		"test_resign_negotiation",
 		"test_starter_promises",
 		"test_trades",
+		"test_roster_rules",
+		"test_ai_weekly_training",
 	]
 	var only := OS.get_environment("ONLY")
 	if only != "":
@@ -439,12 +441,13 @@ func test_start_next_season() -> void:
 	for t in s.league.teams:
 		var n: int = t.roster.size()
 		if t.user_controlled:
-			check(n >= Season.ROSTER_MIN and n <= Team.ROSTER_SIZE, "user roster within min..limit (%d)" % n)
+			check((n == Team.ROSTER_SIZE) == (s.user_roster_error() == ""), "Week 1 needs exactly %d (has %d)" % [Team.ROSTER_SIZE, n])
 		else:
 			check(n == Team.ROSTER_SIZE, "AI roster cut/filled to limit (%d)" % n)
 	check(kept + retired >= signed_ids.size() - Draft.ROUNDS, "players under contract mostly kept (%d + %d retired of %d)" % [kept, retired, signed_ids.size()])
 	var first := s.sim_week()
 	check(first.size() == 2 and first[0].is_played(), "new season playable")
+	check(s.league.teams[0].roster.size() == Team.ROSTER_SIZE, "headless sims fill the user to %d for Week 1" % Team.ROSTER_SIZE)
 
 
 func test_season_review_and_aging() -> void:
@@ -580,11 +583,10 @@ func test_draft_order_and_picks() -> void:
 	var per_round := Season.TEAM_COUNT
 	check(d.order.size() == per_round * Draft.ROUNDS, "pick count")
 	check(d.order[per_round - 1] == s.champion, "champion picks last in round 1")
-	check(d.order[per_round] == s.champion, "snake: champion first in round 2")
+	check(d.original[per_round * 2 - 1] == s.champion, "no snake: champion last in round 2 too")
 	for i in per_round:
 		for r in Draft.ROUNDS:
-			var want: Team = d.order[i] if r % 2 == 0 else d.order[per_round - 1 - i]
-			check(d.order[r * per_round + i] == want, "snake round %d pick %d" % [r + 1, i])
+			check(d.original[r * per_round + i] == d.original[i], "round %d pick %d repeats round 1" % [r + 1, i])
 	var user := s.user_team()
 	var made := d.sim_to_user()
 	check(d.on_the_clock() == user, "stopped at user pick")
@@ -696,7 +698,9 @@ func test_retirement_and_offseason_flow() -> void:
 	s.start_next_season()
 	check(s.year == y + 1 and s.phase == Season.PHASE_REGULAR, "season rolled over")
 	for t in s.league.teams:
-		check(t.roster.size() >= Season.ROSTER_MIN and t.roster.size() <= Team.ROSTER_SIZE, "%s roster size %d" % [t.abbrev, t.roster.size()])
+		if t.user_controlled:
+			continue
+		check(t.roster.size() == Team.ROSTER_SIZE, "%s roster size %d" % [t.abbrev, t.roster.size()])
 		check(t.lineup.size() == 5, "%s lineup" % t.abbrev)
 		for so in t.roster:
 			check(so.contract != null and so.contract.years >= 1, "contracts live for the new season")
@@ -855,10 +859,37 @@ func test_prospect_news() -> void:
 				check(not str(st["text"]).contains(tier), "stories never name a tier")
 		if st["truthful"]:
 			truthful += 1
+		check(st["truthful"] or st["rumor"], "only rumors can be false")
 		if st["kind"] == &"hint" and st["truthful"]:
 			var v: int = st["prospect"].soldier.stats[st["stat"]]
 			check(v >= Draft.NEWS_GREAT if st["great"] else v <= Draft.NEWS_POOR, "true stat story is right (%d)" % v)
-	check(truthful >= n * 0.5, "most stories are true (%d/%d)" % [truthful, n])
+		if st["kind"] == &"hint" and st["claim"] == "rank":
+			check(d.class_extreme(st["stat"], st["great"]) == st["prospect"], "class-ranking story is about the real class leader")
+	check(truthful >= n * 0.4, "plenty of stories are true (%d/%d)" % [truthful, n])
+	# Over many classes: rankings are literally true, facts never lie, rumors are coin flips.
+	var rumors := 0
+	var rumors_true := 0
+	var ranks_seen := 0
+	for i in 8:
+		var dc := Draft.generate(9100 + i, 2026, 1)
+		for w in 14:
+			for st in dc.weekly_news(w + 1):
+				if st["rumor"]:
+					rumors += 1
+					rumors_true += 1 if st["truthful"] else 0
+					if st["kind"] == &"hint":
+						check(str(st["text"]).contains("reportedly") or str(st["text"]).contains("Word is") or str(st["text"]).contains("One scout"), "stat rumors are worded as rumors")
+				else:
+					check(st["truthful"], "facts are always true")
+				if st["kind"] == &"hint" and st["claim"] == "rank":
+					ranks_seen += 1
+					var p: Prospect = st["prospect"]
+					var v: int = p.soldier.stats[st["stat"]]
+					for o in dc.prospects:
+						if o != p:
+							check(v > o.soldier.stats[st["stat"]] if st["great"] else v < o.soldier.stats[st["stat"]], "ranking story beats the whole class")
+	check(ranks_seen > 0, "class-ranking stories appear (%d)" % ranks_seen)
+	check(rumors >= 20 and rumors_true >= rumors * 0.3 and rumors_true <= rumors * 0.7, "rumors are true about half the time (%d/%d)" % [rumors_true, rumors])
 	# Over many seasons every kind shows up and truthful stock stories move toward the truth.
 	var toward := 0
 	var stock := 0
@@ -1314,3 +1345,114 @@ func test_trades() -> void:
 			seen[id] = true
 	for t: Team in s2.league.teams:
 		check(t.roster.size() >= Trades.MIN_ROSTER and t.roster.size() <= Team.ROSTER_SIZE, "rosters stay legal (%s %d)" % [t.abbrev, t.roster.size()])
+
+
+func test_roster_rules() -> void:
+	var s := Season.new_franchise(321)
+	var tr := s.trades
+	var user := s.user_team()
+	var ais: Array = s.league.teams.filter(func(t: Team): return t != user)
+	var ai: Team = ais[0]
+	check(Trades.min_roster(s) == Trades.MIN_ROSTER, "in-season trade floor is %d" % Trades.MIN_ROSTER)
+	check(user.roster.size() == Team.ROSTER_SIZE and s.user_roster_error() == "", "a full roster can play Week 1")
+	# Picks for a player with a full roster: allowed (no maximum); the user must cut before playing.
+	var target: Soldier = ai.roster.filter(func(x: Soldier): return Trades.tradeable(x))[0]
+	var pick := Trades.pick_asset(s.draft.year, 2, user)
+	check(tr.validate(s, user, [pick], ai, [Trades.player_asset(target)]) == "", "pick for a player with %d on the roster is legal" % Team.ROSTER_SIZE)
+	tr.execute(s, user, [pick], ai, [Trades.player_asset(target)])
+	check(user.roster.size() == Team.ROSTER_SIZE + 1 and user.roster.has(target), "user can go over the limit by trade")
+	check(s.user_roster_error() != "", "over the limit: can't play until he cuts")
+	s.release_player(user, user.least_valuable())
+	check(s.user_roster_error() == "", "cut back to %d: can play" % Team.ROSTER_SIZE)
+	# Week 1 needs exactly 12; later weeks ROSTER_MIN..12.
+	s.release_player(user, user.least_valuable())
+	check(s.user_roster_error().contains("exactly"), "Week 1 with 11 is blocked")
+	s.week = 2
+	check(s.user_roster_error() == "", "Week 2 with 11 is fine")
+	while user.roster.size() >= Season.ROSTER_MIN:
+		s.release_player(user, user.least_valuable())
+	check(s.user_roster_error() != "", "below %d can't play" % Season.ROSTER_MIN)
+	var mine: Soldier = user.roster.filter(func(x: Soldier): return Trades.tradeable(x))[0]
+	check(tr.validate(s, user, [Trades.player_asset(mine)], ai, [Trades.pick_asset(s.draft.year, 1, ai)]) != "", "in-season trade can't drop a team under %d" % Trades.MIN_ROSTER)
+	s.week = 1
+	# Headless safety net: an illegal user roster is filled before the week is played.
+	s.sim_week()
+	check(user.roster.size() == Team.ROSTER_SIZE, "sim fills an illegal user roster (%d)" % user.roster.size())
+
+	# AI teams restructure right after a trade puts them over: shop surplus for picks, else cut.
+	var s2 := Season.new_franchise(654)
+	var u2 := s2.user_team()
+	var a2: Team = s2.league.teams.filter(func(t: Team): return t != u2)[1]
+	var cuts_before := s2.league.free_agents.size()
+	var give: Soldier = u2.roster.filter(func(x: Soldier): return Trades.tradeable(x))[0]
+	var p2 := Trades.pick_asset(s2.draft.year, 2, a2)
+	check(s2.trades.validate(s2, u2, [Trades.player_asset(give)], a2, [p2]) == "", "player for a pick to a full AI roster is legal")
+	s2.trades.execute(s2, u2, [Trades.player_asset(give)], a2, [p2])
+	check(a2.roster.size() == Team.ROSTER_SIZE, "AI restructured back to %d (%d)" % [Team.ROSTER_SIZE, a2.roster.size()])
+	check(s2.trades.moves.size() >= 1, "AI roster move logged")
+	var mv: Dictionary = s2.trades.moves.back()
+	check(mv["team"] == a2 and not a2.roster.has(mv["soldier"]), "the moved player left the AI roster")
+	if mv["kind"] == &"cut":
+		check(s2.league.free_agents.size() == cuts_before + 1, "cut player hits free agency")
+	else:
+		check(mv["to"] != u2 and mv["to"].roster.has(mv["soldier"]), "surplus dumped to an AI team with room")
+	for t in s2.league.teams:
+		check(t.roster.size() <= Team.ROSTER_SIZE or t.user_controlled, "%s within the limit" % t.abbrev)
+	check(a2.lineup.size() == 5, "restructured AI has a lineup")
+	# Keep value: a starter is worth keeping over the team's least valuable player.
+	var worst := a2.least_valuable()
+	for so in a2.starters():
+		check(a2.keep_value(so) >= a2.keep_value(worst), "starters out-value the first cut")
+	# Dead money makes a long, pricey deal harder to cut.
+	var probe: Soldier = a2.bench()[0]
+	var kv0 := a2.keep_value(probe)
+	var c0: Contract = probe.contract
+	probe.contract = Contract.make(Contracts.MAX_SALARY / 2, 4, s2.year)
+	var dead_kv := a2.keep_value(probe)
+	probe.contract = Contract.make(Contracts.MIN_SALARY, 1, s2.year)
+	check(dead_kv > a2.keep_value(probe) - 3.5, "dead money weighs on cuts (%.1f vs %.1f)" % [dead_kv, a2.keep_value(probe)])
+	probe.contract = c0
+	check(is_equal_approx(a2.keep_value(probe), kv0), "keep value is stable")
+
+	# Offseason: trades allowed regardless of count; floor of 5; AI over the limit restructures.
+	var s3 := Season.new_franchise(987)
+	s3.sim_to_end_of_season()
+	s3.advance_offseason()
+	check(s3.offseason_stage == Season.OFF_DRAFT and s3.trades.window_open(s3), "trade window open at the draft")
+	check(Trades.min_roster(s3) == Trades.MIN_ROSTER_OFFSEASON, "offseason trade floor is %d" % Trades.MIN_ROSTER_OFFSEASON)
+	var u3 := s3.user_team()
+	var a3: Team = s3.league.teams.filter(func(t: Team): return t != u3)[0]
+	var t3: Soldier = a3.roster.filter(func(x: Soldier): return Trades.tradeable(x))[0]
+	var mypicks := s3.trades.picks_of(s3, u3)
+	check(s3.trades.validate(s3, u3, [mypicks[0]], a3, [Trades.player_asset(t3)]) == "", "offseason: picks for a player with a full roster")
+	while u3.roster.size() > Trades.MIN_ROSTER_OFFSEASON + 1:
+		s3.release_player(u3, u3.least_valuable())
+	var two: Array = u3.roster.filter(func(x: Soldier): return Trades.tradeable(x)).slice(0, 2).map(func(x): return Trades.player_asset(x))
+	if two.size() == 2:
+		check(s3.trades.validate(s3, u3, two, a3, [Trades.pick_asset(s3.draft.year, 1, a3)]) != "", "offseason floor of %d" % Trades.MIN_ROSTER_OFFSEASON)
+		check(s3.trades.validate(s3, u3, [two[0]], a3, [Trades.pick_asset(s3.draft.year, 1, a3)]) == "", "down to %d is fine in the offseason" % Trades.MIN_ROSTER_OFFSEASON)
+	s3.start_next_season()
+	for t in s3.league.teams:
+		if not t.user_controlled:
+			check(t.roster.size() == Team.ROSTER_SIZE, "%s at %d for the new season" % [t.abbrev, t.roster.size()])
+	check(u3.roster.size() < Team.ROSTER_SIZE and s3.user_roster_error().contains("exactly"), "user isn't auto-filled: he must sign to %d" % Team.ROSTER_SIZE)
+
+
+func test_ai_weekly_training() -> void:
+	var s := Season.new_franchise(246)
+	var before := {}
+	for t in s.league.teams:
+		var total := 0
+		for so in t.roster:
+			total += _xp_total(so)
+		before[t] = total
+	s.prepare_week()
+	for t in s.league.teams:
+		if t.user_controlled:
+			continue
+		var total := 0
+		for so in t.roster:
+			total += _xp_total(so)
+			if not so.is_injured():
+				check(so.intensity == Training.ai_intensity(so, t.starters().has(so)), "%s trains on auto intensity" % so.short_name())
+		check(total > before[t], "%s trained this week (+%d XP)" % [t.abbrev, total - before[t]])

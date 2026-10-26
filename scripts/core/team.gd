@@ -113,21 +113,57 @@ func release(soldier: Soldier) -> void:
 		fill_injured()
 
 
-## AI cut-down: releases the lowest-value soldiers (current OVR plus some upside) until at
-## `limit` (default ROSTER_SIZE). Returns the released soldiers.
+## How much a front office wants to keep `s` (higher = keep), in OVR-like points: current OVR,
+## upside for young players, an age penalty from 30, depth at his best role (starters are kept,
+## third-string and deeper are surplus), the dead money cutting him would leave and how good a
+## deal his contract is for the years he has left.
+func keep_value(s: Soldier) -> float:
+	var v := float(s.best_ovr())
+	v += float(s.potential_ovr() - s.best_ovr()) * clampf((28.0 - s.age) / 8.0, 0.0, 1.0) * 0.6
+	if s.age >= 30:
+		v -= float(s.age - 29) * 0.8
+	var role := Scheme.best_role(s.stats)
+	var slots := 0
+	for slot_id in scheme.slot_ids():
+		if scheme.role_for_slot(slot_id) == role:
+			slots += 1
+	var ahead := 0
+	for o in roster:
+		if o != s and Scheme.best_role(o.stats) == role and o.ovr_at_role(role) > s.ovr_at_role(role):
+			ahead += 1
+	if ahead < slots:
+		v += 4.0
+	elif ahead >= slots + 2:
+		v -= 2.0 * float(ahead - slots - 1)
+	if s.contract != null and s.contract.years > 0:
+		v += minf(6.0, float(Contracts.dead_money_if_released(s)) / 1500.0)
+		var surplus := float(Contracts.market_value(s) - s.contract.salary) * mini(s.contract.years, 3)
+		v += clampf(surplus / 1000.0, -3.0, 3.0)
+	return v
+
+
+## The soldier a front office would let go first (lowest keep_value).
+func least_valuable() -> Soldier:
+	var worst: Soldier = null
+	var worst_v := INF
+	for s in roster:
+		var v := keep_value(s)
+		if v < worst_v:
+			worst_v = v
+			worst = s
+	return worst
+
+
+## AI cut-down: releases the lowest keep_value soldiers until at `limit` (default ROSTER_SIZE).
+## Returns the released soldiers (the caller books dead money and sends them to free agency).
 func cut_to_limit(limit := ROSTER_SIZE) -> Array[Soldier]:
 	var cut: Array[Soldier] = []
 	while roster.size() > limit:
-		var worst: Soldier = null
-		var worst_v := INF
-		for s in roster:
-			var v := float(s.best_ovr()) + 0.5 * float(s.potential_ovr() - s.best_ovr())
-			if v < worst_v:
-				worst_v = v
-				worst = s
-		roster.erase(worst)
+		var worst := least_valuable()
+		release(worst)
 		cut.append(worst)
-	auto_lineup()
+	if roster.size() >= scheme.slot_ids().size():
+		auto_lineup()
 	return cut
 
 

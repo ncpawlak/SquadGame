@@ -2405,7 +2405,7 @@ func draft_room() -> Control:
 	var v := _vbox(12)
 	if not d.is_started():
 		v.add_child(UiKit.label("The %d draft is held after the Final." % d.year, 22, Color.WHITE))
-		var rules := UiKit.label("%d rounds, snake order: teams that missed the playoffs pick first, the champion picks last. Rookies sign cheap %d-%d year deals. Use your weekly scout points until then." % [
+		var rules := UiKit.label("%d rounds, same order every round: teams that missed the playoffs pick first, the champion picks last. Rookies sign cheap %d-%d year deals. Use your weekly scout points until then." % [
 			Draft.ROUNDS, Contracts.ROOKIE_YEARS[1], Contracts.ROOKIE_YEARS[0]], 15, UiKit.MUTED)
 		rules.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(rules)
@@ -3361,9 +3361,13 @@ func contracts() -> Control:
 		p.add_child(box)
 		summary.add_child(p)
 	v.add_child(summary)
+	var roster_err := s.user_roster_error()
 	if user.is_over_roster_limit():
-		v.add_child(UiKit.label("Over the roster limit: release %d player%s before the season starts." % [
-			user.roster.size() - Team.ROSTER_SIZE, "" if user.roster.size() - Team.ROSTER_SIZE == 1 else "s"], 16, UiKit.BAD))
+		var extra := user.roster.size() - Team.ROSTER_SIZE
+		var by := "Week 1" if s.phase == Season.PHASE_OFFSEASON or s.preseason_camp or (s.phase == Season.PHASE_REGULAR and s.week == 1) else "your next match"
+		v.add_child(UiKit.label("Over the roster limit: release or trade %d player%s before %s." % [extra, "" if extra == 1 else "s", by], 16, UiKit.BAD))
+	elif roster_err != "":
+		v.add_child(UiKit.label(roster_err, 16, UiKit.ACCENT))
 	v.add_child(_section("CONTRACTS  -  click a player to re-sign or release him (releasing leaves %d%% of his remaining salary as dead money)" % roundi(Contracts.DEAD_MONEY_SHARE * 100)))
 	var list := _sorted(user.roster, &"contracts", user)
 	var table := _vbox(4)
@@ -3944,8 +3948,11 @@ func _trade_after_text(t: Team, out_assets: Array, in_assets: Array) -> String:
 		sal -= a["soldier"].contract.salary
 	var space := Contracts.cap_space(t, s.cap_year()) - sal
 	var roster := t.roster.size() + players_in.size() - players_out.size()
-	return "[color=#8b97ab]%s AFTER[/color]  cap space [color=%s]%s[/color]  -  roster [color=white]%d[/color]/%d" % [
-		t.abbrev, "#22c55e" if space >= 0 else "#ef4444", Contracts.money(space), roster, Team.ROSTER_SIZE]
+	var note := ""
+	if roster > Team.ROSTER_SIZE:
+		note = "  [color=#ef4444](%s)[/color]" % ("must cut %d before the next match" % (roster - Team.ROSTER_SIZE) if t.user_controlled else "will shop or cut %d" % (roster - Team.ROSTER_SIZE))
+	return "[color=#8b97ab]%s AFTER[/color]  cap space [color=%s]%s[/color]  -  roster [color=%s]%d[/color]/%d%s" % [
+		t.abbrev, "#22c55e" if space >= 0 else "#ef4444", Contracts.money(space), "#ef4444" if roster > Team.ROSTER_SIZE else "white", roster, Team.ROSTER_SIZE, note]
 
 
 func _interest_bar(it: float) -> Control:
@@ -4211,6 +4218,14 @@ func trade_log() -> Control:
 		var p := UiKit.panel(UiKit.PANEL, 8)
 		p.add_child(UiKit.rich(trade_headline(hist[i]), 16))
 		v.add_child(p)
+	var cuts: Array = s.trades.moves.filter(func(m): return m["kind"] == &"cut")
+	if not cuts.is_empty():
+		v.add_child(_section("ROSTER CUTS  -  AI teams over the limit shop their surplus for picks, then release whoever nobody wants"))
+		for i in range(cuts.size() - 1, -1, -1):
+			var m: Dictionary = cuts[i]
+			var so: Soldier = m["soldier"]
+			v.add_child(UiKit.rich("[color=#ef4444]CUT[/color]  [color=#8b97ab]%d %s[/color]   [color=white]%s[/color] released %s (%d OVR, age %d)." % [
+				m["year"], m["when"], UiKit.esc(m["team"].name), UiKit.esc(so.display_name()), so.best_ovr(), so.age], 15))
 	return v
 
 
