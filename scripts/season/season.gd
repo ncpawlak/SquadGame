@@ -69,6 +69,10 @@ var last_signings: Array = []
 var retirements: Array = []
 ## Every re-signing: {soldier, team, salary, years, year}.
 var resign_log: Array = []
+## Your re-signing talks this offseason: soldier id -> Negotiation.
+var negotiations: Dictionary = {}
+## Resolved starter promises: {soldier, team, year, games, started, kept, request}.
+var promise_log: Array = []
 ## Expiring soldiers who left their team when free agency opened: {soldier, team, year}.
 var departures: Array = []
 ## This offseason's training camp (null until the first offseason).
@@ -364,11 +368,15 @@ func sim_week() -> Array:
 			inj["year"] = year
 			last_injuries.append(inj)
 			injury_log.append(inj)
+	_track_promises(played)
 	for t in league.teams:
 		Progression.auto_spend_team(t, _rng)
 	Morale.update_week(league, played)
 	var news_week := week
 	_advance()
+	if phase == PHASE_OFFSEASON:
+		_resolve_promises()
+		negotiations.clear()
 	_stamp_log()
 	last_prospect_news = []
 	if phase != PHASE_OFFSEASON:
@@ -376,6 +384,47 @@ func sim_week() -> Array:
 		draft.scout_points += Draft.POINTS_PER_WEEK
 		fa.ai_offers(self, _rng, true)
 	return played
+
+
+## Counts this week's matches toward starter promises. Weeks a soldier sat out injured don't count.
+func _track_promises(played: Array) -> void:
+	for m in played:
+		if not m.is_played():
+			continue
+		for t: Team in [m.home, m.away]:
+			for so in t.roster:
+				if so.promise.is_empty() or so.promise["team"] != t.abbrev or int(so.promise["year"]) != year:
+					continue
+				var started: bool = m.result.box.has(so.id)
+				if not started and so.is_injured():
+					continue
+				so.promise["games"] += 1
+				if started:
+					so.promise["started"] += 1
+
+
+## End of season: every promise for this year is judged. Kept builds trust; broken costs trust and
+## morale, and players who need to start or take it personally ask for a trade.
+func _resolve_promises() -> void:
+	for t in league.teams:
+		for so in t.roster:
+			if so.promise.is_empty() or int(so.promise["year"]) != year:
+				continue
+			var games := int(so.promise["games"])
+			var started := int(so.promise["started"])
+			var kept := games == 0 or float(started) / games >= Soldier.PROMISE_SHARE
+			var d := so.get_dna()
+			var request := false
+			if kept:
+				so.add_trust(12.0)
+				so.add_morale(5.0)
+			else:
+				so.add_trust(-25.0)
+				so.add_morale(-10.0)
+				request = d.playing_time >= 60 or d.temperament <= 35
+				so.trade_request = so.trade_request or request
+			promise_log.append({"soldier": so, "team": t, "year": year, "games": games, "started": started, "kept": kept, "request": request})
+			so.promise = {}
 
 
 ## AI teams pick intensities and rest tired/injured starters; every team (including the user's)
@@ -411,6 +460,7 @@ func start_next_season() -> void:
 			league.add_free_agent(s, year)
 		fa.fill_roster(self, t, ROSTER_MIN if t.user_controlled else Team.ROSTER_SIZE, "Preseason")
 	fa.offers.clear()
+	negotiations.clear()
 	var arng := RandomNumberGenerator.new()
 	arng.seed = _mix([league.league_seed, year, 0xA6E])
 	Soldier.log_year = year + 1
@@ -518,20 +568,34 @@ func offseason_xp(base_xp: float) -> Dictionary:
 	return reports
 
 
-## Re-signs one of `team`'s expiring soldiers at his asking price. Returns "" or the reason it failed.
-func resign_player(team: Team, s: Soldier, years: int) -> String:
+## Talks with one of `team`'s expiring soldiers (started on first use, kept for the offseason).
+## null when he can't be re-signed right now.
+func negotiation(team: Team, s: Soldier) -> Negotiation:
+	if negotiations.has(s.id):
+		return negotiations[s.id]
+	if not can_resign() or s.contract == null or not s.contract.is_expiring() or not team.roster.has(s):
+		return null
+	var n := Negotiation.start(self, team, s)
+	negotiations[s.id] = n
+	return n
+
+
+## Re-signs one of `team`'s expiring soldiers at his current demand. Returns "" or the reason it failed.
+func resign_player(team: Team, s: Soldier, years: int, promise := false) -> String:
 	if not can_resign():
 		return "Re-signing is open from the end of the season until free agency."
-	if s.contract == null or not s.contract.is_expiring() or not team.roster.has(s):
+	var n := negotiation(team, s)
+	if n == null:
 		return "%s isn't an expiring player on your roster." % s.full_name()
-	if years < 1 or years > Contracts.MAX_YEARS:
-		return "Deals run 1-%d years." % Contracts.MAX_YEARS
-	var salary := Contracts.resign_asking(s, years)
-	if not Contracts.fits(team, cap_year(), salary):
-		return "Not enough cap space: he wants %s and you have %s." % [Contracts.money(salary), Contracts.money(Contracts.cap_space(team, cap_year()))]
-	s.contract = Contract.make(salary, years, year)
-	s.morale = maxf(s.morale, 82.0)
-	resign_log.append({"soldier": s, "team": team, "salary": salary, "years": years, "year": year})
+	if n.state == Negotiation.WALKED:
+		return "%s broke off talks. He's headed to free agency." % s.full_name()
+	if n.state == Negotiation.SIGNED:
+		return "%s already re-signed." % s.full_name()
+	var salary := n.demand(years, promise)
+	var err := n.offer_error(salary, years, promise)
+	if err != "":
+		return "%s He wants %s." % [err, Contracts.money(salary)] if err.begins_with("Not enough") else err
+	n.accept(years, promise)
 	return ""
 
 

@@ -151,6 +151,31 @@ func _init() -> void:
 	_check(hub.go_back(), "back pops page")
 	_check(not hub.go_back(), "back at tab root does nothing")
 
+	# Re-sign negotiation room: make a case, put an offer in, then walk away from the page.
+	var talker: Soldier = hub.season.user_team().roster[1]
+	talker.contract.years = 0
+	hub.open_resign()
+	await process_frame
+	_check(_find_button(hub, "Negotiate") != null, "re-sign page has Negotiate")
+	hub.pages.open_negotiation(talker)
+	await process_frame
+	var talks: Negotiation = hub.season.negotiations.get(talker.id)
+	_check(talks != null and talks.is_open(), "negotiation started")
+	var said := talks.talk.size()
+	if not talks.arguments().is_empty():
+		_check(_press(hub, talks.arguments()[0]["title"]), "argument button")
+		await process_frame
+	_check(_press(hub, "Make Offer"), "make offer button")
+	await process_frame
+	_check(talks.talk.size() > said, "the table logs the exchange")
+	if talks.is_open():
+		_check(_press(hub, "Accept "), "accept button")
+		await process_frame
+		_check(talks.state == Negotiation.SIGNED or talks.offer_error(talks.demand(2), 2) != "", "accepting his number signs him")
+	hub.page_stack.clear()
+	hub.refresh()
+	await process_frame
+
 	hub.advance()  # offseason: re-sign window -> draft
 	await process_frame
 	_check(hub.season.phase == Season.PHASE_OFFSEASON, "can't skip the draft")
@@ -258,7 +283,7 @@ func _visit_pages(hub, phase: String) -> void:
 		"resign": p.resign, "retirements": p.retirements, "offer": p.offer,
 		"other_roster": func(): return p.team_roster(hub.season.league.teams[1]),
 		"signings": func(): return p.signings("Test", hub.season.fa.history.slice(-5)),
-		"training_camp": p.training_camp, "league_stats": p.league_stats,
+		"training_camp": p.training_camp, "league_stats": p.league_stats, "negotiate": p.negotiate,
 	}
 	for tab in p.PLAYER_TABS.size():
 		var ti: int = tab

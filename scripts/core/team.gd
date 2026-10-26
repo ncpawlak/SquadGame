@@ -104,6 +104,8 @@ func is_over_roster_limit() -> bool:
 
 ## Removes a soldier from the roster (and lineup, refilling the hole from the bench).
 func release(soldier: Soldier) -> void:
+	soldier.former_team = abbrev
+	soldier.promise = {}
 	var slot := slot_of(soldier)
 	roster.erase(soldier)
 	if slot != &"":

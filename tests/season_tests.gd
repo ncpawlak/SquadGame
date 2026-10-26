@@ -39,7 +39,14 @@ func _init() -> void:
 		"test_preseason_camp",
 		"test_watched_match_flow",
 		"test_progression_history_and_potw",
+		"test_dna_profiles",
+		"test_fa_dna_weights",
+		"test_resign_negotiation",
+		"test_starter_promises",
 	]
+	var only := OS.get_environment("ONLY")
+	if only != "":
+		tests = tests.filter(func(x): return only.split(",").has(x))
 	for t in tests:
 		_current = t
 		var before := _failures
@@ -679,7 +686,9 @@ func test_retirement_and_offseason_flow() -> void:
 	var expiring := Contracts.expiring(user)
 	if not expiring.is_empty():
 		var keep: Soldier = expiring[0]
-		check(s.resign_player(user, keep, 2) == "" or Contracts.resign_asking(keep, 2) > Contracts.cap_space(user, s.cap_year()), "re-sign")
+		var ask := s.negotiation(user, keep).demand(2)
+		check(s.resign_player(user, keep, 2) == "" or ask > Contracts.cap_space(user, s.cap_year()), "re-sign")
+		check(keep.contract.salary == ask or ask > Contracts.cap_space(user, s.cap_year()), "re-signed at his demand")
 	if not s.league.free_agents.is_empty():
 		check(s.fa.offer_error(s, user, s.league.free_agents[0], Contracts.MIN_SALARY, 1) != "", "can't bid before free agency")
 	var y := s.year
@@ -1042,3 +1051,161 @@ func test_progression_history_and_potw() -> void:
 	check(is_equal_approx(float(potw["impact"]), best), "potw has the top impact")
 	check(potw["soldier"] is Soldier and potw["team"] is Team, "potw soldier and team")
 	check(SeasonReview.player_of_week(s, s.total_weeks()).is_empty(), "no potw for unplayed weeks")
+
+
+func test_dna_profiles() -> void:
+	var a := Dna.generate(1234, 24)
+	var b := Dna.generate(1234, 24)
+	for k in Dna.MOTIVATIONS + [&"temperament", &"savvy"]:
+		check(a.value(k) == b.value(k), "DNA deterministic: %s" % k)
+		check(a.value(k) >= 1 and a.value(k) <= 99, "DNA in range: %s" % k)
+	var s := Season.new_franchise(71)
+	var so: Soldier = s.user_team().roster[0]
+	check(so.get_dna() == so.get_dna(), "DNA cached on the soldier")
+	var spread := {}
+	for t in s.league.teams:
+		for x in t.roster:
+			spread[x.get_dna().ranked()[0]] = true
+	check(spread.size() >= 4, "headline motivations vary across the league (%d)" % spread.size())
+	so.trust = 95.0
+	so.add_trust(20.0)
+	check(so.trust == 100.0, "trust capped at 100")
+
+
+func test_fa_dna_weights() -> void:
+	var s := Season.new_franchise(72)
+	var teams := s.league.teams.duplicate()
+	teams.sort_custom(func(x: Team, y: Team): return x.team_ovr() > y.team_ovr())
+	var strong: Team = teams[0]
+	var weak: Team = teams[-1]
+	var fa: Soldier = s.league.free_agents[0]
+	var d := fa.get_dna()
+	d.money = 20
+	d.winning = 95
+	d.playing_time = 20
+	d.loyalty = 20
+	d.security = 20
+	var yrs := Contracts.preferred_years(fa)
+	var sal := Contracts.asking(fa, yrs)
+	check(FreeAgency.score(strong, fa, sal, yrs) > FreeAgency.score(weak, fa, sal, yrs), "a winner prefers the stronger team at equal money")
+	var w := FreeAgency.weights(fa)
+	check(absf(w[0] + w[1] + w[2] - 1.0) < 0.001 and w[1] > 0.25, "weights normalised, winning weighted up")
+	d.playing_time = 95
+	check(FreeAgency.score(weak, fa, sal, yrs, true) > FreeAgency.score(weak, fa, sal, yrs), "a starter promise raises interest")
+	# Loyalty: a trusting former player leans home.
+	fa.former_team = weak.abbrev
+	d.loyalty = 95
+	fa.trust = 90.0
+	var other: Team = teams[1] if teams[1] != weak else teams[2]
+	var home_bonus := FreeAgency.score(weak, fa, sal, yrs) - FreeAgency.score(other, fa, sal, yrs)
+	fa.former_team = ""
+	var no_bonus := FreeAgency.score(weak, fa, sal, yrs) - FreeAgency.score(other, fa, sal, yrs)
+	check(home_bonus > no_bonus, "loyal player leans toward his old team")
+
+
+## A user-team soldier made expiring at the end of the season, with fresh talks.
+func _expiring_talks(seed_val: int) -> Array:
+	var s := Season.new_franchise(seed_val)
+	s.sim_to_end_of_season()
+	var user := s.user_team()
+	var so: Soldier = user.roster[1]
+	so.contract.years = 0
+	so.trust = Soldier.TRUST_NEUTRAL
+	return [s, user, so, s.negotiation(user, so)]
+
+
+func test_resign_negotiation() -> void:
+	var r := _expiring_talks(81)
+	var s: Season = r[0]
+	var user: Team = r[1]
+	var so: Soldier = r[2]
+	var n: Negotiation = r[3]
+	check(n != null and n.is_open(), "talks open in the re-sign window")
+	check(s.negotiation(user, so) == n, "same talks returned")
+	check(n.demand(2) > n.floor_salary(2), "demand above floor")
+	check(not n.talk.is_empty(), "he opens with something to say")
+	# Arguments never push him under his floor.
+	for a in n.arguments():
+		n.use_argument(a["id"])
+		if not n.is_open():
+			break
+	check(n.demand(2) >= n.floor_salary(2), "arguments stop at his floor")
+	if n.is_open():
+		var want := n.demand(2)
+		var res := n.make_offer(want, 2)
+		check(res["result"] == "signed" and so.contract.salary == want and so.contract.years == 2, "offer at demand signs")
+		check(s.resign_log.any(func(e): return e["soldier"] == so), "re-sign logged")
+	# A backfiring argument: bad fit raises his price and costs trust.
+	r = _expiring_talks(82)
+	n = r[3]
+	so = r[2]
+	n.arguments().append({"id": &"test", "title": "Test", "pitch": "You're replaceable.", "evidence": 1.0, "evidence_text": "", "fit": 0.05, "tone": "hard", "used": false})
+	var before := n.demand(2)
+	var trust := so.trust
+	var bf := n.use_argument(&"test")
+	check(bf["result"] == "backfired" and n.demand(2) > before and so.trust < trust, "bad-fit argument backfires")
+	# A promise is worth money to a playing-time guy.
+	so.get_dna().playing_time = 90
+	check(n.demand(2, true) < n.demand(2) or n.demand(2) <= n.floor_salary(2), "promise lowers his demand")
+	# Lowballing until he walks.
+	r = _expiring_talks(83)
+	s = r[0]
+	user = r[1]
+	so = r[2]
+	n = r[3]
+	trust = so.trust
+	var guard := 0
+	while n.is_open() and guard < 20:
+		n.make_offer(Contracts.MIN_SALARY, 2)
+		guard += 1
+	check(n.state == Negotiation.WALKED, "repeated lowballs end talks")
+	check(so.trust < trust, "walking out costs trust")
+	check(s.resign_player(user, so, 2) != "", "can't re-sign after he walks")
+	var guard2 := 0
+	while s.can_resign() and guard2 < 10:
+		s.advance_offseason()
+		guard2 += 1
+	var late: Soldier = user.roster[0]
+	late.contract.years = 0
+	check(not s.can_resign() and s.negotiation(user, late) == null, "no new talks once the window closes")
+
+
+func test_starter_promises() -> void:
+	var s := Season.new_franchise(91)
+	var user := s.user_team()
+	var starter: Soldier = user.starters()[0]
+	var bench: Soldier = null
+	for so in user.roster:
+		if user.slot_of(so) == &"":
+			bench = so
+	check(bench != null, "user team has a bench player")
+	for so in [starter, bench]:
+		so.promise = {"year": s.year, "team": user.abbrev, "games": 0, "started": 0}
+		so.trust = Soldier.TRUST_NEUTRAL
+	bench.get_dna().playing_time = 90
+	var slot := user.slot_of(starter)
+	var guard := 0
+	while s.phase != Season.PHASE_OFFSEASON and guard < 40:
+		starter.injury_weeks = 0
+		bench.injury_weeks = 0
+		if user.slot_of(starter) == &"":
+			user.assign(slot, starter)
+		if user.slot_of(bench) != &"":
+			user.assign(user.slot_of(bench), user.roster.filter(func(x): return x != bench and user.slot_of(x) == &"")[0])
+		s.sim_week()
+		guard += 1
+	var kept := s.promise_log.filter(func(p): return p["soldier"] == starter)
+	var broke := s.promise_log.filter(func(p): return p["soldier"] == bench)
+	check(kept.size() == 1 and broke.size() == 1, "both promises judged once")
+	if kept.size() == 1 and broke.size() == 1:
+		check(kept[0]["games"] > 0, "games counted")
+		check(kept[0]["kept"] or starter.is_injured(), "starter's promise kept")
+		check(not broke[0]["kept"] and broke[0]["request"], "bench player's promise broken, trade requested")
+	check(starter.trust > Soldier.TRUST_NEUTRAL or starter.is_injured(), "kept promise builds trust")
+	check(bench.trust < Soldier.TRUST_NEUTRAL and bench.trade_request, "broken promise costs trust")
+	check(starter.promise.is_empty() and bench.promise.is_empty(), "promises cleared")
+	# His next negotiation opens sour.
+	if user.roster.has(bench):
+		bench.contract.years = 0
+		var n := s.negotiation(user, bench)
+		check(n != null and n.patience < Negotiation.MAX_PATIENCE, "broken promise sours the next talks")

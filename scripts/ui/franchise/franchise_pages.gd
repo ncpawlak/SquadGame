@@ -1244,11 +1244,43 @@ func _player_dna(s: Soldier, team: Team) -> Control:
 	facts.add_child(_fact_box("DRAFTED", str(s.draft_year) if s.draft_year > 0 else "Original roster"))
 	facts.add_child(_fact_box("MORALE", "[color=%s]%s[/color]" % [UiKit.hex(morale_color(s.morale)), Soldier.morale_label(s.morale)]))
 	v.add_child(facts)
-	v.add_child(_section("PLAYER DNA  -  coming soon"))
-	var tip := UiKit.label("DNA will describe who a soldier is off the field: contract motivations (money, winning, playing time, loyalty), personality traits that move morale, and a chance to rename callsigns. The callsign is picked from his best stat group.", 15, UiKit.MUTED)
+	v.add_child(_dna_panel(s, team))
+	return v
+
+
+## Motivations (strongest first), personality and relationship with his club.
+func _dna_panel(s: Soldier, team: Team) -> Control:
+	var d := s.get_dna()
+	var v := _vbox(8)
+	v.add_child(_section("WHAT DRIVES HIM  -  %s" % d.headline().to_upper()))
+	for m in d.ranked():
+		v.add_child(_meter(String(Dna.LABELS[m]).to_upper(), d.value(m), 99, UiKit.ACCENT if d.value(m) >= 60 else UiKit.ACCENT.darkened(0.45), "%d  -  %s" % [d.value(m), Dna.BLURBS[m]], 130))
+	v.add_child(_section("PERSONALITY"))
+	v.add_child(_meter("TEMPERAMENT", d.temperament, 99, UiKit.INFO, "%d  -  %s (low = takes hard bargaining and broken promises personally)" % [d.temperament, d.temperament_label()], 130))
+	v.add_child(_meter("SAVVY", d.savvy, 99, UiKit.INFO, "%d  -  %s (high = sees through weak arguments, holds a higher floor)" % [d.savvy, d.savvy_label()], 130))
+	v.add_child(_section("RELATIONSHIP"))
+	v.add_child(_meter("TRUST", s.trust, 100, _dna_color(s.trust), "%d  -  %s%s" % [roundi(s.trust), Soldier.trust_label(s.trust),
+		(" with " + team.name) if team != null else ""], 130))
+	if not s.promise.is_empty():
+		var g := int(s.promise["games"])
+		v.add_child(UiKit.rich("[color=%s]STARTER PROMISE[/color]  -  %d season, with %s: started %d of %d games (needs %d%%)" % [UiKit.hex(UiKit.ACCENT),
+			int(s.promise["year"]), s.promise["team"], int(s.promise["started"]), g, roundi(Soldier.PROMISE_SHARE * 100)], 16))
+	if s.trade_request:
+		v.add_child(UiKit.rich("[color=%s]TRADE REQUESTED[/color]  -  he wants out after a broken promise." % UiKit.hex(UiKit.BAD), 16))
+	var tip := UiKit.label("DNA shapes contract talks and free agency: what he weighs when picking a team, which arguments land in a negotiation, and how he reacts to hardball. Trust rises with kept promises and fair talks, and carries over between seasons.", 14, UiKit.MUTED)
 	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(tip)
 	return v
+
+
+func _dna_color(v: float) -> Color:
+	if v >= 70:
+		return UiKit.GOOD
+	if v >= 45:
+		return Color("#84cc16")
+	if v >= 30:
+		return UiKit.ACCENT
+	return UiKit.BAD
 
 
 ## Every rating / potential change, newest first, grouped by season, with the reason.
@@ -1304,10 +1336,10 @@ func _progress_entry(e: Dictionary) -> Control:
 
 
 ## A labelled bar: "LABEL  [=====-----]  detail".
-func _meter(label: String, value: float, max_value: float, color: Color, detail: String) -> Control:
+func _meter(label: String, value: float, max_value: float, color: Color, detail: String, label_w := 76) -> Control:
 	var h := _row(10)
 	var l := UiKit.label(label, 15, UiKit.MUTED)
-	l.custom_minimum_size.x = 76
+	l.custom_minimum_size.x = label_w
 	h.add_child(l)
 	var bar := ProgressBar.new()
 	bar.max_value = max_value
@@ -1883,6 +1915,14 @@ func news() -> Control:
 		for n in recent:
 			v.add_child(_story_panel(n, true))
 		v.add_child(_section("RESULTS"))
+	var rel := _relations_news()
+	if not rel.is_empty():
+		v.add_child(_section("PLAYER RELATIONS"))
+		for h in rel:
+			var rp := UiKit.panel(UiKit.PANEL, 8)
+			rp.add_child(UiKit.rich(h, 17))
+			v.add_child(rp)
+		v.add_child(_section("RESULTS"))
 	if items.is_empty():
 		v.add_child(UiKit.label("No news yet. Play some matches.", 18, UiKit.MUTED))
 	for h in items:
@@ -1890,6 +1930,28 @@ func news() -> Control:
 		p.add_child(UiKit.rich(h, 17))
 		v.add_child(p)
 	return v
+
+
+## Starter promises judged and talks that broke down, newest season first (BBCode).
+func _relations_news() -> Array[String]:
+	var s := _season()
+	var out: Array[String] = []
+	for i in range(s.promise_log.size() - 1, -1, -1):
+		var p: Dictionary = s.promise_log[i]
+		if int(p["year"]) < s.year - 1:
+			break
+		var so: Soldier = p["soldier"]
+		var t: Team = p["team"]
+		if p["kept"]:
+			out.append("[color=#22c55e]PROMISE KEPT[/color]  -  %s (%s) started %d of %d games, as promised. His trust in the club grows." % [UiKit.esc(so.display_name()), t.abbrev, p["started"], p["games"]])
+		else:
+			out.append("[color=#ef4444]PROMISE BROKEN[/color]  -  %s (%s) was promised a starting job but started only %d of %d games.%s" % [UiKit.esc(so.display_name()), t.abbrev,
+				p["started"], p["games"], " [color=#f59e0b]He has requested a trade.[/color]" if p["request"] else ""])
+	for id in s.negotiations:
+		var n: Negotiation = s.negotiations[id]
+		if n.state == Negotiation.WALKED:
+			out.append("[color=#ef4444]TALKS COLLAPSE[/color]  -  %s walked away from %s's table and will test free agency." % [UiKit.esc(n.soldier.display_name()), UiKit.esc(n.team.name)])
+	return out
 
 
 ## Most recent first. Generated from match results.
@@ -3056,6 +3118,7 @@ Payroll includes dead money from released players.", 14, UiKit.MUTED)
 var _offer_soldier: Soldier
 var _offer_salary := 0
 var _offer_years := 1
+var _offer_promise := false
 
 
 func open_offer(s: Soldier) -> void:
@@ -3064,6 +3127,7 @@ func open_offer(s: Soldier) -> void:
 	_offer_soldier = s
 	_offer_years = mine.get("years", Contracts.preferred_years(s))
 	_offer_salary = mine.get("salary", Contracts.asking(s, _offer_years))
+	_offer_promise = mine.get("promise", false)
 	hub.open("Offer: " + s.full_name(), offer)
 
 
@@ -3126,17 +3190,30 @@ func offer() -> Control:
 	yr_row.add_child(UiKit.label("asking at %d yr%s: %s (longer or shorter than he wants costs more)" % [
 		_offer_years, "" if _offer_years == 1 else "s", Contracts.money(Contracts.asking(s, _offer_years))], 14, UiKit.MUTED))
 	v.add_child(yr_row)
-	var it: Array = FreeAgency.interest(user, s, _offer_salary, _offer_years)
+	var pr_row := _row(12)
+	var pr_l := UiKit.label("PROMISE", 15, UiKit.MUTED)
+	pr_l.custom_minimum_size.x = 90
+	pr_row.add_child(pr_l)
+	pr_row.add_child(_promise_toggle(_offer_promise, func():
+		_offer_promise = not _offer_promise
+		rebuild.call()))
+	pr_row.add_child(UiKit.label("Guarantee he starts %d%% of games next season. Break it and he loses trust (and may ask for a trade)." % roundi(Soldier.PROMISE_SHARE * 100), 14, UiKit.MUTED))
+	v.add_child(pr_row)
+	var w: Array = FreeAgency.weights(s)
+	v.add_child(UiKit.rich("HE WEIGHS   money [color=white]%d%%[/color]   -   winning [color=white]%d%%[/color]   -   playing time [color=white]%d%%[/color]   -   [color=%s]%s[/color]%s" % [
+		roundi(w[0] * 100), roundi(w[1] * 100), roundi(w[2] * 100), UiKit.hex(UiKit.INFO), s.get_dna().headline(),
+		("   -   former %s player" % s.former_team) if s.former_team != "" else ""], 15))
+	var it: Array = FreeAgency.interest(user, s, _offer_salary, _offer_years, _offer_promise)
 	var role_text := "would START for you" if FreeAgency.would_start(user, s) else "would be a backup for you"
 	v.add_child(UiKit.rich("INTEREST   [font_size=24][color=%s]%s[/color][/font_size]   -   he %s   -   your team OVR %d   -   total value %s" % [
 		UiKit.hex(it[1]), it[0], role_text, user.team_ovr(), Contracts.money(_offer_salary * _offer_years)], 16))
-	var err := season.fa.offer_error(season, user, s, _offer_salary, _offer_years)
+	var err := season.fa.offer_error(season, user, s, _offer_salary, _offer_years, _offer_promise)
 	if err != "":
 		v.add_child(UiKit.label(err, 15, UiKit.BAD))
 	var actions := _row()
 	var mine := season.fa.offer_of(user, s)
 	var submit := UiKit.button("Update Offer" if not mine.is_empty() else "Submit Offer", func():
-		var e := season.fa.make_offer(season, user, s, _offer_salary, _offer_years)
+		var e := season.fa.make_offer(season, user, s, _offer_salary, _offer_years, _offer_promise)
 		if e != "":
 			hub.app.toast(e)
 		else:
@@ -3153,9 +3230,10 @@ func offer() -> Control:
 	actions.add_child(UiKit.button("Full Ratings", func(): open_player(s), 16))
 	v.add_child(actions)
 	if not mine.is_empty():
-		v.add_child(UiKit.label("Pending: %s x %d yr%s." % [Contracts.money(mine["salary"]), mine["years"], "" if mine["years"] == 1 else "s"], 15, UiKit.INFO))
+		v.add_child(UiKit.label("Pending: %s x %d yr%s%s." % [Contracts.money(mine["salary"]), mine["years"], "" if mine["years"] == 1 else "s",
+			" + starter promise" if mine.get("promise", false) else ""], 15, UiKit.INFO))
 	v.add_child(_offer_board(s))
-	var tip := UiKit.label("Players sign the best offer that clears their bar. Money matters most (up to 30% over asking helps), then team quality and whether they'd start. Unsigned players lower their asking price over time. Negotiation (counter-offers, bonuses) is coming later.", 14, UiKit.MUTED)
+	var tip := UiKit.label("Players sign the best offer that clears their bar. What counts depends on his DNA: money (up to 30% over asking helps), team quality, and whether he'd start (a starter promise covers that). Loyal players lean toward their old team if they trust it; security-minded ones like longer deals. Unsigned players lower their asking price over time.", 14, UiKit.MUTED)
 	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(tip)
 	return v
@@ -3169,7 +3247,7 @@ var _confirm_release: Soldier
 func _offer_board(s: Soldier) -> Control:
 	var bids: Array = []
 	for o in _season().fa.offers_for(s):
-		bids.append([o, FreeAgency.score(o["team"], s, o["salary"], o["years"]) / FreeAgency.ACCEPT_SCORE])
+		bids.append([o, FreeAgency.score(o["team"], s, o["salary"], o["years"], o.get("promise", false)) / FreeAgency.ACCEPT_SCORE])
 	bids.sort_custom(func(a, b): return a[1] > b[1])
 	var v := _vbox(8)
 	v.name = "OfferBoard"
@@ -3182,12 +3260,12 @@ func _offer_board(s: Soldier) -> Control:
 	for b in bids:
 		var o: Dictionary = b[0]
 		var team: Team = o["team"]
-		var it: Array = FreeAgency.interest(team, s, o["salary"], o["years"])
+		var it: Array = FreeAgency.interest(team, s, o["salary"], o["years"], o.get("promise", false))
 		var row := _row(12)
 		var chip := UiKit.team_chip(team, 15)
 		chip.custom_minimum_size.x = 230
 		row.add_child(chip)
-		var terms := UiKit.label("%s x %d yr%s" % [Contracts.money(o["salary"]), o["years"], "" if o["years"] == 1 else "s"], 15, Color.WHITE if team.user_controlled else UiKit.TEXT)
+		var terms := UiKit.label("%s x %d yr%s%s" % [Contracts.money(o["salary"]), o["years"], "" if o["years"] == 1 else "s", " +P" if o.get("promise", false) else ""], 15, Color.WHITE if team.user_controlled else UiKit.TEXT)
 		terms.custom_minimum_size.x = 130
 		row.add_child(terms)
 		var bar := ProgressBar.new()
@@ -3340,7 +3418,7 @@ func resign() -> Control:
 		return v
 	v.add_child(UiKit.rich("[font_size=22][color=white]%s[/color][/font_size]   cap space for %d: [color=white]%s[/color]" % [
 		"RE-SIGN WINDOW OPEN" if s.can_resign() else "RE-SIGN WINDOW CLOSED", s.cap_year(), Contracts.money(Contracts.cap_space(user, s.cap_year()))], 16))
-	var help := UiKit.label("Expiring players give you a %d%% hometown discount. Anyone you don't re-sign before free agency opens joins the free-agent pool." % roundi((1.0 - Contracts.RESIGN_DISCOUNT) * 100), 14, UiKit.MUTED)
+	var help := UiKit.label("Each expiring player names his price (a hometown discount, moved by his DNA and trust in you). Sign at his ask, or Negotiate to make offers and argue your case with data. Push too hard and he walks into free agency. Anyone unsigned when free agency opens joins the pool.", 14, UiKit.MUTED)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(help)
 	if expiring.is_empty():
@@ -3348,13 +3426,23 @@ func resign() -> Control:
 	var refresh := func(): hub.replace("Re-sign Players", resign)
 	for so in expiring:
 		var ref: Soldier = so
+		var n := s.negotiation(user, so)
 		var yrs: int = _resign_years.get(so.id, Contracts.preferred_years(so))
 		var row := _row(10)
-		var info := UiKit.button("%s   -   age %d   -   OVR %d   -   POT %s   -   %s" % [so.full_name(), so.age, so.best_ovr(), so.potential_letter(),
-			Scheme.ROLE_NAMES[Scheme.best_role(so.stats)]], func(): open_player(ref), 15)
+		row.add_child(Portrait.new(so, 44, user.color, user))
+		var info := UiKit.button("%s   -   age %d   -   OVR %d   -   POT %s   -   %s" % [so.display_name(), so.age, so.best_ovr(), so.potential_letter(),
+			Scheme.ROLE_NAMES[Scheme.best_role(so.stats)]], func(): open_player(ref, 4), 15)
 		info.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		info.custom_minimum_size.x = 520
+		info.custom_minimum_size.x = 470
 		row.add_child(info)
+		var dna := UiKit.label(so.get_dna().headline(), 14, UiKit.INFO)
+		dna.custom_minimum_size.x = 210
+		row.add_child(dna)
+		if n == null or not n.is_open():
+			var walked := n != null and n.state == Negotiation.WALKED
+			row.add_child(UiKit.label("Talks broken off - headed to free agency" if walked else "Window closed", 16, UiKit.BAD if walked else UiKit.MUTED))
+			v.add_child(row)
+			continue
 		row.add_child(UiKit.button("-", func():
 			_resign_years[ref.id] = maxi(1, yrs - 1)
 			refresh.call(), 15))
@@ -3365,15 +3453,18 @@ func resign() -> Control:
 		row.add_child(UiKit.button("+", func():
 			_resign_years[ref.id] = mini(Contracts.MAX_YEARS, yrs + 1)
 			refresh.call(), 15))
-		var ask := UiKit.label("%s / yr" % Contracts.money(Contracts.resign_asking(so, yrs)), 18, Color.WHITE)
-		ask.custom_minimum_size.x = 130
+		var ask := UiKit.label("%s / yr" % Contracts.money(n.demand(yrs)), 18, Color.WHITE)
+		ask.custom_minimum_size.x = 120
 		row.add_child(ask)
-		var b := UiKit.button("Re-sign", func():
+		var b := UiKit.button("Sign at Ask", func():
 			var err := s.resign_player(user, ref, yrs)
 			hub.app.toast(err if err != "" else "%s re-signed: %s x %d." % [ref.full_name(), Contracts.money(ref.contract.salary), yrs])
 			refresh.call(), 15)
 		b.disabled = not s.can_resign()
 		row.add_child(b)
+		var nb := UiKit.button("Negotiate", func(): open_negotiation(ref, yrs), 15)
+		nb.disabled = not s.can_resign()
+		row.add_child(nb)
 		v.add_child(row)
 	var done: Array = s.resign_log.filter(func(r): return r["year"] == s.year)
 	if not done.is_empty():
@@ -3381,10 +3472,179 @@ func resign() -> Control:
 		var rows: Array = []
 		var targets: Array = []
 		for r in done:
-			rows.append([r["team"].abbrev, r["soldier"].full_name(), r["soldier"].age, r["soldier"].best_ovr(), "%s x %d" % [Contracts.money(r["salary"]), r["years"]]])
+			rows.append([r["team"].abbrev, r["soldier"].full_name(), r["soldier"].age, r["soldier"].best_ovr(),
+				"%s x %d%s" % [Contracts.money(r["salary"]), r["years"], "  +promise" if r.get("promise", false) else ""]])
 			targets.append(r["soldier"])
-		v.add_child(_soldier_table(["TEAM", "SOLDIER", "AGE", "OVR", "DEAL"], rows, [70, 220, 50, 50, 160], targets))
+		v.add_child(_soldier_table(["TEAM", "SOLDIER", "AGE", "OVR", "DEAL"], rows, [70, 220, 50, 50, 200], targets))
 	return v
+
+
+## Negotiation room state.
+var _neg_soldier: Soldier
+var _neg_salary := 0
+var _neg_years := 1
+var _neg_promise := false
+
+
+func open_negotiation(s: Soldier, years := 0) -> void:
+	var season := _season()
+	var n := season.negotiation(season.user_team(), s)
+	if n == null:
+		hub.app.toast("You can't negotiate with %s right now." % s.full_name())
+		return
+	_neg_soldier = s
+	_neg_years = years if years > 0 else Contracts.preferred_years(s)
+	_neg_promise = false
+	_neg_salary = n.floor_salary(_neg_years) + (n.demand(_neg_years) - n.floor_salary(_neg_years)) / 2
+	_neg_salary = Contracts._round_salary(_neg_salary)
+	hub.open("Negotiate: " + s.full_name(), negotiate)
+
+
+func negotiate() -> Control:
+	var season := _season()
+	var user := season.user_team()
+	var s := _neg_soldier
+	var v := _vbox(12)
+	var n: Negotiation = season.negotiations.get(s.id) if s != null else null
+	if n == null:
+		v.add_child(UiKit.label("No talks in progress.", 18, UiKit.MUTED))
+		return v
+	var rebuild := func(): hub.replace("Negotiate: " + s.full_name(), negotiate)
+	var d := s.get_dna()
+	var want := n.demand(_neg_years, _neg_promise)
+	# --- header
+	var top := _row(16)
+	top.add_child(Portrait.new(s, 88, user.color, user))
+	var head := _vbox(4)
+	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(UiKit.rich("[font_size=26][color=white]%s[/color][/font_size]   age %d  -  %s  -  OVR [color=%s]%d[/color]  -  POT [color=%s]%s[/color]" % [
+		UiKit.esc(s.display_name()), s.age, Scheme.ROLE_NAMES[Scheme.best_role(s.stats)], UiKit.hex(UiKit.ovr_color(s.best_ovr())), s.best_ovr(),
+		UiKit.hex(potential_color(s.potential)), s.potential_letter()], 16))
+	head.add_child(UiKit.rich("[color=%s]%s[/color]   -   %s   -   %s" % [UiKit.hex(UiKit.INFO), d.headline(), d.temperament_label(), d.savvy_label()], 15))
+	head.add_child(UiKit.rich("Market value [color=white]%s[/color]   -   your cap space for %d: [color=white]%s[/color]   -   current deal %s" % [
+		Contracts.money(Contracts.market_value(s)), season.cap_year(), Contracts.money(Contracts.cap_space(user, season.cap_year())),
+		Contracts.money(s.contract.salary) if s.contract != null else "-"], 15))
+	top.add_child(head)
+	v.add_child(top)
+	var state_col := UiKit.GOOD if n.state == Negotiation.SIGNED else (UiKit.BAD if n.state == Negotiation.WALKED else Color.WHITE)
+	var state_text: String = {Negotiation.OPEN: "HE WANTS  %s / yr  for %d yr%s" % [Contracts.money(want), _neg_years, "" if _neg_years == 1 else "s"],
+		Negotiation.SIGNED: "SIGNED  -  %s x %d" % [Contracts.money(s.contract.salary), s.contract.years],
+		Negotiation.WALKED: "TALKS BROKEN OFF  -  he's headed to free agency"}[n.state]
+	v.add_child(UiKit.label(state_text, 26, state_col))
+	var meters := _row(30)
+	meters.add_child(_meter("PATIENCE", maxf(0.0, n.patience), Negotiation.MAX_PATIENCE, _dna_color(n.patience), "%d" % maxi(0, roundi(n.patience))))
+	meters.add_child(_meter("TRUST", s.trust, 100, _dna_color(s.trust), "%d - %s" % [roundi(s.trust), Soldier.trust_label(s.trust)]))
+	meters.add_child(_meter("LEVERAGE", n.leverage(), 1.2, UiKit.INFO, {0.8: "He's a cornerstone", 1.0: "Even", 1.2: "He's a backup"}.get(n.leverage(), "")))
+	v.add_child(meters)
+	var body := _row(24)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	v.add_child(body)
+	# --- left: offer + arguments
+	var left := _vbox(10)
+	left.custom_minimum_size.x = 640
+	body.add_child(left)
+	if n.is_open():
+		left.add_child(_section("YOUR OFFER  -  every offer or argument costs patience"))
+		var step := maxi(50, roundi(want * 0.03 / 50.0) * 50)
+		var sal_row := _row(10)
+		sal_row.add_child(UiKit.button("  -  ", func():
+			_neg_salary = maxi(Contracts.MIN_SALARY, _neg_salary - step)
+			rebuild.call(), 18))
+		var sv := UiKit.label(Contracts.money(_neg_salary) + " / yr", 24, Color.WHITE)
+		sv.custom_minimum_size.x = 170
+		sv.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		sal_row.add_child(sv)
+		sal_row.add_child(UiKit.button("  +  ", func():
+			_neg_salary = mini(Contracts.MAX_SALARY, _neg_salary + step)
+			rebuild.call(), 18))
+		var share := float(_neg_salary) / maxf(1.0, want)
+		sal_row.add_child(UiKit.label("%d%% of his number%s" % [roundi(share * 100), "  -  lowball!" if share < Negotiation.LOWBALL_SHARE else ""], 14,
+			UiKit.BAD if share < Negotiation.LOWBALL_SHARE else UiKit.MUTED))
+		left.add_child(sal_row)
+		var yr_row := _row(10)
+		yr_row.add_child(UiKit.button("  -  ", func():
+			_neg_years = maxi(1, _neg_years - 1)
+			rebuild.call(), 18))
+		var yv := UiKit.label("%d yr%s" % [_neg_years, "" if _neg_years == 1 else "s"], 24, Color.WHITE)
+		yv.custom_minimum_size.x = 170
+		yv.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		yr_row.add_child(yv)
+		yr_row.add_child(UiKit.button("  +  ", func():
+			_neg_years = mini(Contracts.MAX_YEARS, _neg_years + 1)
+			rebuild.call(), 18))
+		yr_row.add_child(UiKit.label("he prefers %d" % Contracts.preferred_years(s), 14, UiKit.MUTED))
+		left.add_child(yr_row)
+		var pr := _row(10)
+		pr.add_child(_promise_toggle(_neg_promise, func():
+			_neg_promise = not _neg_promise
+			rebuild.call()))
+		pr.add_child(UiKit.label("worth about %d%% off to him" % roundi(n.promise_cut() * 100), 14, UiKit.MUTED))
+		left.add_child(pr)
+		var err := n.offer_error(_neg_salary, _neg_years, _neg_promise)
+		if err != "":
+			left.add_child(UiKit.label(err, 15, UiKit.BAD))
+		var acts := _row(10)
+		var mk := UiKit.button("Make Offer", func():
+			var r := n.make_offer(_neg_salary, _neg_years, _neg_promise)
+			hub.app.toast(r["text"])
+			rebuild.call(), 18)
+		mk.disabled = err != ""
+		acts.add_child(mk)
+		var ac := UiKit.button("Accept %s" % Contracts.money(want), func():
+			var r := n.accept(_neg_years, _neg_promise)
+			hub.app.toast(r["text"])
+			rebuild.call(), 16)
+		ac.disabled = n.offer_error(want, _neg_years, _neg_promise) != ""
+		acts.add_child(ac)
+		left.add_child(acts)
+		left.add_child(_section("MAKE YOUR CASE  -  strength = evidence x fit with his DNA x your leverage"))
+		var args := n.arguments()
+		if args.is_empty():
+			left.add_child(UiKit.label("The numbers don't give you anything to argue with.", 15, UiKit.MUTED))
+		for a in args:
+			var arg: Dictionary = a
+			var fl: Array = Negotiation.fit_label(arg["fit"])
+			var el: Array = Negotiation.evidence_label(arg["evidence"])
+			var r := _row(10)
+			var ab := UiKit.button(arg["title"], func():
+				var res := n.use_argument(arg["id"])
+				hub.app.toast(res["text"])
+				rebuild.call(), 15)
+			ab.custom_minimum_size.x = 200
+			ab.disabled = arg["used"]
+			r.add_child(ab)
+			var txt := UiKit.rich("[color=%s]%s evidence[/color]  -  [color=%s]%s[/color]%s\n[color=#8b97ab]%s[/color]" % [UiKit.hex(el[1]), el[0], UiKit.hex(fl[1]), fl[0],
+				"  -  [color=#f59e0b]hardball[/color]" if arg["tone"] == "hard" else "",
+				UiKit.esc(arg["evidence_text"]) + ("   (used: %s)" % n.used[arg["id"]] if arg["used"] else "")], 14)
+			txt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			r.add_child(txt)
+			left.add_child(r)
+	else:
+		left.add_child(UiKit.button("Back to Re-sign Players", func(): hub.replace("Re-sign Players", resign), 16))
+	# --- right: conversation
+	var right := _vbox(6)
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_child(right)
+	right.add_child(_section("THE TABLE"))
+	var log_box := _vbox(6)
+	for i in range(n.talk.size() - 1, -1, -1):
+		var e: Dictionary = n.talk[i]
+		var who: String = e["who"]
+		var p := UiKit.panel(UiKit.PANEL_HI if who == "you" else UiKit.PANEL, 8)
+		var name_col: Color = {"you": UiKit.INFO, "him": UiKit.ACCENT, "note": UiKit.MUTED}[who]
+		var speaker: String = {"you": "YOU", "him": s.callsign.to_upper() if s.callsign != "" else s.last_name.to_upper(), "note": "NOTE"}[who]
+		var rt := UiKit.rich("[color=%s]%s[/color]  %s" % [UiKit.hex(name_col), speaker, UiKit.esc(e["text"])], 15)
+		p.add_child(rt)
+		log_box.add_child(p)
+	right.add_child(log_box)
+	return v
+
+
+func _promise_toggle(on: bool, cb: Callable) -> Button:
+	var b := UiKit.button("[x] Starter promise" if on else "[  ] Starter promise", cb, 15)
+	if on:
+		UiKit.style_button(b, UiKit.ACCENT.darkened(0.45), Color.WHITE, 6)
+	return b
 
 
 var retire_scope_team := true

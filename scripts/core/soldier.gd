@@ -58,6 +58,22 @@ var callsign: String = ""
 ## Procedural portrait appearance (see Look); rolled at creation.
 var look: Look = null
 
+# Off-field
+## Contract personality (see Dna); rolled lazily from the id.
+var dna: Dna = null
+## 0-100 trust in his current club's front office (50 = neutral). Moved by negotiations and
+## kept/broken promises; resets when he joins a new club.
+var trust: float = TRUST_NEUTRAL
+## Active starter promise: {year, team (abbrev), games, started}; {} = none.
+var promise: Dictionary = {}
+## Set when a broken promise makes him want out (trades act on it later).
+var trade_request := false
+## Abbrev of the last club that released him (free-agent loyalty).
+var former_team := ""
+const TRUST_NEUTRAL := 50.0
+## Share of his team's matches a promised starter must start (missed weeks injured don't count).
+const PROMISE_SHARE := 0.75
+
 # Morale
 ## 0-100 (75 = neutral). Below 75 each 5-point step drops a random stat by 1-3; above 85 each
 ## 5-point step boosts one. Driven by playing time, results and contract fairness.
@@ -95,6 +111,28 @@ func get_look() -> Look:
 	if look == null:
 		look = Look.generate(id, age, Scheme.best_role(stats))
 	return look
+
+
+func get_dna() -> Dna:
+	if dna == null:
+		dna = Dna.generate(id, age)
+	return dna
+
+
+func add_trust(amount: float) -> void:
+	trust = clampf(trust + amount, 0.0, 100.0)
+
+
+static func trust_label(t: float) -> String:
+	if t >= 80:
+		return "Devoted"
+	if t >= 62:
+		return "Trusting"
+	if t >= 40:
+		return "Neutral"
+	if t >= 20:
+		return "Wary"
+	return "Distrustful"
 
 
 func full_name() -> String:

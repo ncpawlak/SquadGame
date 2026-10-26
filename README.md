@@ -91,7 +91,25 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   $750K always fits. Contracts tick down after the Final. Releasing a player leaves 50% of his remaining money on
   the cap as dead money, split over his remaining years. Personnel → Contracts & Payroll shows cap space, every
   contract and future commitments. Trades (later) will have to fit under the cap.
-- **Offseason** (advance button walks the stages): **Re-sign** (choose years for expiring players; AI teams re-sign
+- **Player DNA** (`scripts/core/dna.gd`, player page → DNA tab, fully visible): five motivations - Money,
+  Winning, Playing Time, Loyalty, Security - plus Temperament (thick- vs thin-skinned) and Savvy (negotiating
+  skill), 1-99. Rolled once per soldier (young players lean money/playing time, veterans winning/security) with one
+  clear headline motivation. **Trust** (0-100, starts 50) is his relationship with his club: kept promises and fair
+  talks build it, hardball, broken promises and walk-outs cost it; it carries across seasons and resets when he
+  changes teams.
+- **Re-sign negotiation** (`scripts/season/negotiation.gd`, Home → Re-sign Players): each expiring player names
+  his price (the hometown-discount ask moved by his money/loyalty DNA, trust, star status and richer teammates) and
+  has a hidden floor (higher for savvy players). **Sign at Ask**, or **Negotiate**: every offer or argument costs
+  patience; run out and he walks to free agency. Offers under 85% of his number insult him. Arguments are built
+  from data - production at his role, injuries, age 30+, comparable contracts, being a contender, a tight cap,
+  competition at his spot, years with the club - and land by evidence × fit with his DNA × your leverage (lower
+  for your best players), with diminishing returns. Weak evidence gets rebutted by savvy players; a bad fit
+  (e.g. threatening a playing-time guy with his backup) backfires and raises his price. You can also offer a
+  **starter promise** (worth up to ~9% off to a player who wants to start).
+- **Starter promises** (re-signs and free-agent offers): he must start 75% of next season's games (weeks out
+  injured don't count). Kept → trust +12; broken → trust −25, morale −10, and players who need to start or are
+  thin-skinned **request a trade**. His next negotiation opens sour. Results show under News → Player Relations.
+- **Offseason** (advance button walks the stages): **Re-sign** (Sign at Ask or Negotiate; AI teams re-sign
   their keepers) → **Draft** → **Free agency** (3 days) → **Training camp** → next season. Rosters max out at 12 (5 starters + 7 backups).
   In the offseason your roster can run over (draft picks, extra signings), but you can't advance to Week 1 until
   you release down to 12; Home shows a red "Roster Cuts Required" banner while you're over. In-season the limit is hard.
@@ -106,9 +124,10 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
 - **Offseason XP**: every offseason step is an XP week (100 base XP, scaled by age and potential), and camp week gives 250.
 - **Free agency** (`scripts/season/free_agency.gd`, League → Free Agents): unsigned soldiers with all ratings
   visible. A big **Available to spend** readout on top shows cap − current salaries (incl. dead money) − pending offers. Bidding: make offers (salary and years) during FA days or in-season. Each round every free agent scores
-  his offers (70% money vs. asking, 15% team quality, 15% playing time) and signs the best one that clears his
-  bar. The offer page lists every team's current offer with a bar for his interest in each (the tick marks his bar). Unsigned players lower their asking price over time. AI teams bid too. Contract negotiation (counter-offers,
-  bonuses) is planned.
+  his offers and signs the best one that clears his bar. The weights come from his DNA (money ~55-85% vs.
+  asking, team quality and playing time the rest), plus a starter promise (a backup treats it as nearly a starting
+  job), a loyalty pull toward his former club (scaled by trust) and a security bonus for his preferred length. The
+  offer page shows what he weighs and has a starter-promise toggle. It lists every team's current offer with a bar for his interest in each (the tick marks his bar). Unsigned players lower their asking price over time. AI teams bid too.
 - **Retirement** (`scripts/season/retirement.gd`): soldiers retire from age 35 (always by 39), more likely as
   they decline. Free agents unsigned for a season retire if they're weak or 33+, which keeps the pool churning.
   Home/League → Retirements lists them by year, toggling between your team and the league.
@@ -134,7 +153,7 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
   column (click a header; click again to flip). Free Agents, Progression and Contracts use the same sortable tables.
 - **Player page** (Madden style) with tabs: **Overview** (action rail, morale/health/energy/XP rings, morale
   factors, OVR at each position and every attribute), **Ratings** (spend skill points), **Contract** (details,
-  re-sign, release with a confirm step), **Stats** (a Season / Career toggle: Season lists every match this year - opponent, W/L score and the full line - with the season total; Career is the season-by-season lines and career total), **DNA** (placeholder) and
+  re-sign, release with a confirm step), **Stats** (a Season / Career toggle: Season lists every match this year - opponent, W/L score and the full line - with the season total; Career is the season-by-season lines and career total), **DNA** (motivations, personality, trust, promise status, trade request) and
   **Progression**: every rating change with when and why, newest first by season - level-ups (skill points), training
   camp drills, age decline and end-of-season potential re-grades - with +/- per stat and OVR before → after.
   League Leaders, League/Team Stats, box scores, the matchup screen and Free Agents all open it.
@@ -183,7 +202,7 @@ The old debug UI is still available from the title screen or Settings → Debug 
 ```powershell
 godot --headless --path . --import                              # first run: builds class cache
 godot --headless --path . --script res://tests/run_tests.gd     # sim/progression tests (~20 min; TEST_ONLY=<name part> for a subset)
-godot --headless --path . --script res://tests/season_tests.gd  # season loop tests (~2 min)
+godot --headless --path . --script res://tests/season_tests.gd  # season loop tests (slow; ONLY=test_a,test_b runs a subset)
 godot --headless --path . --script res://tests/ui_smoke.gd      # debug UI smoke test
 godot --headless --path . --script res://tests/franchise_smoke.gd  # franchise menus through a full season
 ```
@@ -272,7 +291,7 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
 
 - Seasons and schedules
 - Scouting and the end-of-season draft (done; next: draft-day trades)
-- Contracts, hard cap, free agency, retirement (done; next: contract negotiation with counter-offers and bonuses)
+- Contracts, hard cap, free agency, retirement, DNA, re-sign negotiation and starter promises (done)
 - In-season trades (must fit under the cap)
 - Best-of-3 match modes (done; next: more modes and per-mode schemes)
 - Visual combat
