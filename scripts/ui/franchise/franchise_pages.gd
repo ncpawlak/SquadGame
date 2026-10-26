@@ -1493,15 +1493,23 @@ func lineup() -> Control:
 	var side := _vbox(12)
 	side.custom_minimum_size.x = 280
 	var p := UiKit.panel(UiKit.PANEL_HI, 10)
+	# Fixed size so hovering schemes never shifts the list below it.
+	p.custom_minimum_size = Vector2(280, 190)
+	p.clip_contents = true
 	var pb := _vbox(4)
 	var shead := UiKit.label("SCHEME", 12, UiKit.MUTED)
 	pb.add_child(shead)
 	var sname := UiKit.label(team.scheme.display_name.to_upper(), 30, Color.WHITE)
+	sname.clip_text = true
+	sname.custom_minimum_size.x = 1
 	pb.add_child(sname)
 	var sshape := UiKit.label(team.scheme.shape_text(), 14, UiKit.MUTED)
 	pb.add_child(sshape)
 	var sblurb := UiKit.label(team.scheme.blurb(), 13, UiKit.MUTED)
 	sblurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sblurb.custom_minimum_size = Vector2(1, 66)
+	sblurb.max_lines_visible = 3
+	sblurb.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	pb.add_child(sblurb)
 	p.add_child(pb)
 	side.add_child(p)
