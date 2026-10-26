@@ -30,6 +30,7 @@ var _ring: Color
 var _skin: Color
 var _hair: Color
 var _clip: PackedVector2Array
+var _logo: Texture2D
 var _face: PackedVector2Array
 
 
@@ -40,6 +41,9 @@ func _init(s: Soldier, diameter := 48, ring := UiKit.LINE, team: Team = null) ->
 	_p = team.color.darkened(0.12) if team != null else NEUTRAL_PRIMARY
 	_s = team.color2 if team != null else NEUTRAL_SECONDARY
 	_skin = Look.SKIN[look.skin]
+	# Logo of the team he actually plays for (not a team just previewing him, e.g. a free agent).
+	if team != null and team.roster.has(s):
+		_logo = UiKit.logo_tex(team.abbrev)
 	_hair = look.hair_at(s.age)
 	_clip = _ell(CLIP_CENTER, Vector2(CLIP_RADIUS, CLIP_RADIUS), 48)
 	_face = _ell(Vector2.ZERO, Vector2(0.82, 1.0))
@@ -53,6 +57,9 @@ func _draw() -> void:
 	var r := d / 2.0
 	var c := Vector2(size.x / 2.0, size.y / 2.0)
 	draw_circle(c, r, _p.darkened(0.78).lerp(Color("#111827"), 0.35))
+	if _logo != null and d >= 40.0:
+		var ls := d * 0.86
+		draw_texture_rect(_logo, Rect2(c - Vector2(ls, ls) / 2.0, Vector2(ls, ls)), false, Color(1, 1, 1, 0.22))
 	draw_set_transform(c + Vector2(0, HEAD_Y * r), 0.0, Vector2.ONE * (UNIT * r))
 	_draw_body()
 	_draw_head_base()

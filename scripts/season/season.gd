@@ -540,6 +540,7 @@ func _prepare_lineups() -> void:
 		if t.user_controlled:
 			t.fill_injured()
 		else:
+			t.pick_scheme()
 			t.auto_lineup(true)
 			Training.ai_set_intensities(t)
 
@@ -634,7 +635,7 @@ func start_next_season() -> void:
 			so.morale = lerpf(so.morale, Soldier.MORALE_NEUTRAL, 0.5)
 		if t.user_controlled:
 			t.fill_injured()
-		else:
+		elif not t.pick_scheme():
 			t.auto_lineup()
 	_begin_season()
 

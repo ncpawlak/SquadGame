@@ -55,6 +55,8 @@ func _init() -> void:
 		"test_region_and_auto_scout",
 		"test_league_news",
 		"test_match_form_upsets",
+		"test_schemes",
+		"test_keep_value_protects_prospects",
 	]
 	# Legacy tests run on a generated 5-team single-division league (fast); the expansion
 	# tests switch to the fixed 20-team league themselves.
@@ -1700,3 +1702,57 @@ func test_match_form_upsets() -> void:
 		if r.winner() != strong:
 			upsets += 1
 	check(upsets >= 1 and upsets < games, "close teams split results (%d/%d upsets)" % [upsets, games])
+
+
+func test_schemes() -> void:
+	ArenaMap.ensure_built()
+	check(Scheme.all().size() == 6, "six schemes")
+	for sch in Scheme.all():
+		check(sch.slot_ids().size() == 5, "%s has 5 slots" % sch.id)
+		for sid in sch.slot_ids():
+			check(not ArenaMap.blocked(sch.spawn_of(sid)), "%s %s spawn is clear" % [sch.id, sid])
+			if sch.role_for_slot(sid) != Scheme.Role.FLEX:
+				check(not ArenaMap.blocked(sch.hold_of(sid)) and not ArenaMap.blocked(sch.hold_of(sid, true)), "%s %s hold is clear" % [sch.id, sid])
+		# Matchup edges are small and zero-sum.
+		for other in Scheme.all():
+			var e := sch.edge_vs(other)
+			check(absf(e) <= 0.03, "edge %s vs %s is small" % [sch.id, other.id])
+			check(is_equal_approx(e, -other.edge_vs(sch)), "edge %s vs %s is zero-sum" % [sch.id, other.id])
+	check(Scheme.by_id(&"wall").count_role(Scheme.Role.FRONTMAN) == 3, "wall has 3 frontmen")
+	check(Scheme.by_id(&"spread").count_role(Scheme.Role.FLEX) == 4, "spread has 4 flexes")
+	check(Scheme.by_id(&"pack").count_role(Scheme.Role.CENTER) == 2, "pack has 2 centers")
+	var lg := League.generate(11, 2)
+	var a: Team = lg.teams[0]
+	var b: Team = lg.teams[1]
+	for sch in Scheme.all():
+		var preview := a.lineup_for(sch)
+		check(preview.size() == 5 and a.scheme.id == &"power_front", "previewing %s leaves the team alone" % sch.id)
+		a.set_scheme(sch)
+		check(a.starters().size() == 5, "%s fills 5 starters" % sch.id)
+		var r := MatchEngine.simulate(a, b, 99)
+		check(r.winner_index == 0 or r.winner_index == 1, "%s match finishes" % sch.id)
+		a.set_scheme(Scheme.power_front())
+	# AI picks a scheme; the user's team is never switched.
+	a.user_controlled = true
+	check(not a.pick_scheme(), "user scheme untouched")
+	b.pick_scheme()
+	check(b.scheme.slot_ids().size() == 5 and b.starters().size() == 5, "AI scheme pick keeps a full lineup")
+	# Saved schemes round-trip.
+	var s := Season.new_franchise(5, 0)
+	s.league.teams[2].set_scheme(Scheme.by_id(&"pack"))
+	var back := SaveSystem.from_text(SaveSystem.to_text(s))
+	check(back.league.teams[2].scheme.id == &"pack" and back.league.teams[2].scheme.spawn_of(&"CT2") == Vector2(-44, 4), "scheme survives save/load")
+
+
+func test_keep_value_protects_prospects() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	var t := Team.new()
+	t.roster = PlayerGenerator.generate_roster(rng, 1, 72.0)
+	var kid := PlayerGenerator.generate(rng, 100, Scheme.Role.FLEX, 68.0, 20)
+	kid.potential = Soldier.POTENTIAL_A
+	var vet := PlayerGenerator.generate(rng, 101, Scheme.Role.FLEX, 68.0, 29)
+	vet.potential = 2
+	t.roster.append(kid)
+	t.roster.append(vet)
+	check(t.keep_value(kid) > t.keep_value(vet), "young A-potential is kept over a late-20s C")

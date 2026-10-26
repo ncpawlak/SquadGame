@@ -182,7 +182,10 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   his offers and signs the best one that clears his bar. The weights come from his DNA (money ~55-85% vs.
   asking, team quality and playing time the rest), plus a starter promise (a backup treats it as nearly a starting
   job), a loyalty pull toward his former club (scaled by trust) and a security bonus for his preferred length. The
-  offer page shows what he weighs and has a starter-promise toggle. It lists every team's current offer with a bar for his interest in each (the tick marks his bar). Unsigned players lower their asking price over time. AI teams bid too.
+  offer page shows what he weighs and has a starter-promise toggle. It lists every team's current offer with a bar for his interest in each (the tick marks his bar). Unsigned players lower their asking price over time. AI teams bid too: every team with
+  cap room chases free agents who would upgrade its weakest starter or depth (so top free agents draw several offers).
+  A full AI roster releases its least valuable player to make room. "Keep value" weighs OVR, age, potential and
+  salary, so a late-20s C-potential depth player is cut long before a young A/B prospect.
 - **Retirement** (`scripts/season/retirement.gd`): soldiers retire from age 35 (always by 39), more likely as
   they decline. Free agents unsigned for a season retire if they're weak or 33+, which keeps the pool churning.
   Home/League → Retirements lists them by year, toggling between your team and the league.
@@ -230,9 +233,10 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   sortable by any column; click a row for the player card.
 - **Player of the Week**: the single best match performance (impact score) across the week, shown on the week
   results page, a Home news tile and League News.
-- **Lineup**: the Swing drawn as a formation (2 Frontmen up front, the Center behind them, the Flexes far out on each
-  side). Cards show face, OVR and POT. Click a slot, then a bench card (or another slot), to swap. "Generate Best
-  Lineup" picks the best five.
+- **Lineup**: the current scheme drawn as a formation. Cards show face, OVR and POT. Click a slot, then a bench card
+  (or another slot), to swap. "Generate Best Lineup" picks the best five. **Change Scheme** lists all six schemes with
+  each one's fit for your roster; hover one to preview its formation (auto-filled with your best players), click to
+  use it. The match preview shows each side's scheme and the matchup edge.
 - **Contracts & Payroll**: a sortable table (salary, years left, remaining, dead money if cut, OVR, morale...).
   Click a row to open that player's Contract tab, where you can release him.
 - **Free agent offers** list your players at the free agent's best position with an OVR +/- column.
@@ -296,10 +300,15 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
     soldiers read a quiet fight sooner and flank faster). Composure: accuracy under fire. Teamwork: crossfire bonus.
   - Anchor / Breach / Objective IQ: King of the Hill (below). Injury: injury chance. **Toughness**: only how long
     an injury lasts.
-- **Scheme "Swing":**
-  - Frontman ×2, Center, Left Flex, Right Flex.
-  - Each role has its own OVR weights (`scripts/core/scheme.gd`).
-  - Role also drives in-sim behaviour: frontmen push the middle, the center anchors back, flexes flank the edges.
+- **Schemes** (`scripts/core/scheme.gd`): six formations of the same three roles.
+  - **Swing**: 2 Frontmen, Center, Left Flex, Right Flex. **Wide-Left / Wide-Right**: 2 Frontmen, Center, both
+    Flexes on one side. **Wall**: 3 Frontmen, a Mid Flex behind, Center at the back. **Spread**: 4 Flexes (2 per
+    side) around a Center. **Pack**: 2 Frontmen, a Mid Flex, 2 Centers.
+  - Each role has its own OVR weights; role drives in-sim behaviour (frontmen push the middle, centers anchor back,
+    flexes flank the edges; a Mid Flex picks a side each life).
+  - Matchups are small rock-paper-scissors edges (about ±2-3% accuracy, capped at ±4%), plus a King of the Hill
+    nudge (Wall +2%, Spread −2%). Ratings still decide most matches.
+  - AI teams pick the scheme that best fits their roster (with a small per-team style lean) each week.
 - **Rosters:** 12 soldiers each (5 starters + 7 bench). The franchise league has 20 teams (the debug sim generates its own small league).
 - **Match:**
   - **Best of 3 games**, always in this order (a 2-0 sweep skips game 3), 0.5s ticks. Same lineup all match;

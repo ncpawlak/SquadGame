@@ -88,6 +88,8 @@ const VISION_EVERY := 2
 ## Within this distance of a held point, the push slows down unless the soldier can Breach.
 const BREACH_ZONE := 8.0
 ## Chance (at respawn) that a soldier plays the point, before Objective IQ.
+## Metres a second flex on the same side trails the first along the flank route.
+const FLANK_LANE_TRAIL := 4.0
 const POINT_ROLE_BASE := {Scheme.Role.FRONTMAN: 0.65, Scheme.Role.CENTER: 0.3, Scheme.Role.FLEX: 0.4}
 
 const RANGE_BASE_HIT := {&"short": 0.30, &"medium": 0.20, &"long": 0.11}
@@ -109,6 +111,10 @@ class Combatant:
 	var reload_ticks := 0
 	var fatigue := 0.0
 	var flank_progress := 0.0
+	## Flank side this life and lane (1 = trails the other flex on the same side).
+	var flank_right := false
+	var flank_lane := 0
+	var scheme: Scheme
 	var target: Combatant = null
 	## victim soldier id -> damage dealt this life (for assists)
 	var damage_to: Dictionary = {}
@@ -189,6 +195,8 @@ var _need_game := true
 var _need_round := false
 var _holder := -1
 var _clutch_candidate: Combatant = null
+## Per squad accuracy edge from the scheme matchup: [tdm/sudden death, koth].
+var _scheme_edge: Array = [[0.0, 0.0], [0.0, 0.0]]
 
 
 static func simulate(team_a: Team, team_b: Team, seed_value: int) -> MatchResult:
@@ -255,6 +263,10 @@ func start(team_a: Team, team_b: Team, seed_value: int) -> void:
 	team_form = [_roll_form(TEAM_FORM_SD), _roll_form(TEAM_FORM_SD)]
 	squads = [_build_squad(team_a, 0), _build_squad(team_b, 1)]
 	_everyone = squads[0] + squads[1]
+	_scheme_edge = [
+		[team_a.scheme.edge_vs(team_b.scheme), team_a.scheme.edge_vs(team_b.scheme, true)],
+		[team_b.scheme.edge_vs(team_a.scheme), team_b.scheme.edge_vs(team_a.scheme, true)],
+	]
 	_result.events.append("=== %s vs %s (seed %d) ===" % [team_a.name, team_b.name, seed_value])
 	_result.events.append("%s OVR %d | %s OVR %d" % [team_a.abbrev, team_a.team_ovr(), team_b.abbrev, team_b.team_ovr()])
 	for i in 2:
@@ -306,10 +318,13 @@ func _build_squad(team: Team, index: int) -> Array:
 		c.team = index
 		c.slot_id = slot_id
 		c.role = team.scheme.role_for_slot(slot_id)
+		c.scheme = team.scheme
+		c.flank_lane = team.scheme.flank_lane(slot_id)
+		_pick_flank_side(c)
 		c.condition = 1.0 - Conditioning.penalty(s.fatigue)
 		c.form = team_form[index] + _roll_form(PLAYER_FORM_SD)
 		c.setup()
-		c.pos = ArenaMap.spawn_point(index, slot_id)
+		c.pos = ArenaMap.world(index, team.scheme.spawn_of(slot_id))
 		c.prev_pos = c.pos
 		squad.append(c)
 		_result.box[s.id] = {
@@ -389,6 +404,14 @@ func _begin_round() -> void:
 	_emit({"t": "round_start", "round": _round_number})
 
 
+## Flexes on a side keep it; a middle flex picks a flank each life.
+func _pick_flank_side(c: Combatant) -> void:
+	if c.role != Scheme.Role.FLEX:
+		return
+	var side := c.scheme.flank_side(c.slot_id)
+	c.flank_right = side > 0 if side != 0 else _rng.randf() < 0.5
+
+
 func _reset_life(c: Combatant) -> void:
 	c.hp = 100.0
 	c.alive = true
@@ -398,7 +421,8 @@ func _reset_life(c: Combatant) -> void:
 	c.target = null
 	c.endangered_by = null
 	c.damage_to.clear()
-	c.pos = ArenaMap.spawn_point(c.team, c.slot_id)
+	_pick_flank_side(c)
+	c.pos = ArenaMap.world(c.team, c.scheme.spawn_of(c.slot_id))
 	c.prev_pos = c.pos
 	c.pinned_tick = -100
 	c.visible.clear()
@@ -620,10 +644,12 @@ func _goal(c: Combatant, enemies: Array) -> Vector2:
 		return c.cover_spot
 	var hold: Vector2
 	if c.role == Scheme.Role.FLEX:
-		hold = ArenaMap.world(c.team, ArenaMap.flank_point(c.flank_progress, c.slot_id == &"RFX"))
+		var fp := ArenaMap.flank_point(c.flank_progress, c.flank_right)
+		if c.flank_lane > 0:
+			fp.x -= FLANK_LANE_TRAIL
+		hold = ArenaMap.world(c.team, fp)
 	else:
-		var table: Dictionary = ArenaMap.OVERWATCH if _mode == MODE_KOTH else ArenaMap.HOLD
-		hold = ArenaMap.world(c.team, table.get(c.slot_id, table[&"CTR"]))
+		hold = ArenaMap.world(c.team, c.scheme.hold_of(c.slot_id, _mode == MODE_KOTH))
 	if not c.visible.is_empty():
 		if not c.hunting:
 			return hold
@@ -786,6 +812,7 @@ func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band:
 	if c.flanked():
 		p *= 1.2
 	p *= 1.0 - c.fatigue * 0.4
+	p *= 1.0 + _scheme_edge[c.team][1 if _mode == MODE_KOTH else 0]
 	# Sway: aim steadiness when firing on the move, tired or at long range (neutral at 60).
 	var unsteady := c.fatigue * 0.3
 	if c.pos.distance_squared_to(c.prev_pos) > 0.01:

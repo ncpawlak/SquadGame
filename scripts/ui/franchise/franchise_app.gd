@@ -20,6 +20,7 @@ func _ready() -> void:
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
 	randomize()
+	UiKit.install_symbol_font()
 	_free_space_key()
 	show_title()
 

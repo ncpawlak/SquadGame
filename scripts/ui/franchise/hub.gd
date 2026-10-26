@@ -674,7 +674,7 @@ func _home_sections() -> Array:
 			SMALL, Color("#22c55e"), open_weekly_training),
 		UiKit.tile("Progress Players", ("[color=#38bdf8]%d player%s[/color] can level up" % [sp, "" if sp == 1 else "s"]) if sp > 0 else "No one can level up yet",
 			SMALL, UiKit.INFO, func(): open("Player Progression", pages.progression)),
-		UiKit.tile("Adjust Lineup", "Swing  -  Team OVR %d%s" % [team.team_ovr(),
+		UiKit.tile("Adjust Lineup", "%s  -  Team OVR %d%s" % [team.scheme.display_name, team.team_ovr(),
 			("\n[color=#ef4444]%d injured[/color]" % hurt.size()) if not hurt.is_empty() else ""], SMALL, Color("#f97316"), func(): open("Lineup", pages.lineup)),
 		UiKit.tile("Roster", "%d players%s" % [team.roster.size(),
 			("  -  [color=#f97316]%d unhappy[/color]" % unhappy.size()) if not unhappy.is_empty() else "  -  morale good"], SMALL, team.color, func(): open("Roster", pages.roster)),
@@ -1141,7 +1141,7 @@ func _team_sections() -> Array:
 	return [
 		["SQUAD", [
 			UiKit.tile("Roster", "View every soldier, ratings and levels.", TILE, team.color, func(): open("Roster", pages.roster)),
-			UiKit.tile("Lineup", "Set your Swing starters:\n2 Frontmen, Center, 2 Flex.", TILE, Color("#f97316"), func(): open("Lineup", pages.lineup)),
+			UiKit.tile("Lineup", "Pick a scheme and set your %s starters:\n%s." % [team.scheme.display_name, team.scheme.shape_text()], TILE, Color("#f97316"), func(): open("Lineup", pages.lineup)),
 			UiKit.tile("Player Progression", "Spend skill points on stat groups.", TILE, UiKit.INFO, func(): open("Player Progression", pages.progression)),
 			UiKit.tile("Training", "Set each soldier's training intensity and watch fatigue.", TILE, Color("#22c55e"), func(): open("Training", pages.training)),
 			UiKit.tile("Injuries", "Injury report for your team and the league.", TILE, UiKit.BAD, func(): open("Injuries", pages.injuries)),

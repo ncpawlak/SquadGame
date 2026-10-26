@@ -62,18 +62,183 @@ var display_name: String
 var slots: Array[Dictionary] = []
 
 
+## Every slot id used by any scheme and its role (slot ids mean the same thing in every scheme).
+const SLOT_ROLES := {
+	&"FM1": Role.FRONTMAN, &"FM2": Role.FRONTMAN, &"FM3": Role.FRONTMAN,
+	&"CTR": Role.CENTER, &"CT2": Role.CENTER,
+	&"LFX": Role.FLEX, &"LF2": Role.FLEX, &"RFX": Role.FLEX, &"RF2": Role.FLEX, &"MFX": Role.FLEX,
+}
+const SLOT_LABELS := {
+	&"FM1": "Frontman", &"FM2": "Frontman", &"FM3": "Frontman", &"CTR": "Center", &"CT2": "Center",
+	&"LFX": "Left Flex", &"LF2": "Left Flex", &"RFX": "Right Flex", &"RF2": "Right Flex", &"MFX": "Mid Flex",
+}
+
+const IDS: Array[StringName] = [&"power_front", &"wide_left", &"wide_right", &"wall", &"spread", &"pack"]
+const NAMES := {
+	&"power_front": "Swing", &"wide_left": "Wide-Left", &"wide_right": "Wide-Right",
+	&"wall": "Wall", &"spread": "Spread", &"pack": "Pack",
+}
+const BLURBS := {
+	&"power_front": "Balanced: 2 frontmen, a center, a flex on each side. No strengths, no weaknesses.",
+	&"wide_left": "Overloads the left flank. Strong vs Wall; weak vs Spread and Pack.",
+	&"wide_right": "Overloads the right flank. Strong vs Wall; weak vs Spread and Pack.",
+	&"wall": "3 frontmen push the middle. Strong vs Pack and on the hill; weak vs Wide and Spread.",
+	&"spread": "4 flexes stretch both flanks. Strong vs Wall and Wide; weak vs Pack and on the hill.",
+	&"pack": "Tight mid-range core with 2 centers. Strong vs Spread and Wide; weak vs Wall.",
+}
+
+## Small scheme-vs-scheme accuracy edge (ratings still decide matches). Missing pairs are neutral.
+const MATCHUPS := {
+	&"wide_left": {&"wall": 0.025, &"spread": -0.025, &"pack": -0.02},
+	&"wide_right": {&"wall": 0.025, &"spread": -0.025, &"pack": -0.02},
+	&"wall": {&"wide_left": -0.025, &"wide_right": -0.025, &"spread": -0.025, &"pack": 0.025},
+	&"spread": {&"wide_left": 0.025, &"wide_right": 0.025, &"wall": 0.025, &"pack": -0.02},
+	&"pack": {&"wide_left": 0.02, &"wide_right": 0.02, &"spread": 0.02, &"wall": -0.025},
+}
+## Extra edge on King of the Hill.
+const KOTH_EDGE := {&"wall": 0.02, &"spread": -0.02}
+
+## Team-0 frame layout per scheme and slot (team 1 is the point reflection):
+## spawn, hold (deathmatch spot), watch (KOTH overwatch) for frontmen/centers;
+## flank side (-1 left, +1 right, 0 picks a side each life) and lane (1 trails the lane-0 flex) for flexes;
+## ui = formation-card position on the lineup page.
+const LAYOUTS := {
+	&"power_front": {
+		&"FM1": {"spawn": Vector2(-40, -4), "hold": Vector2(-6, -9), "watch": Vector2(-10, -9), "ui": Vector2(300, 10)},
+		&"FM2": {"spawn": Vector2(-40, 4), "hold": Vector2(-6, 9), "watch": Vector2(-10, 9), "ui": Vector2(560, 10)},
+		&"CTR": {"spawn": Vector2(-44, 0), "hold": Vector2(-25, 0), "watch": Vector2(-21, 0), "ui": Vector2(430, 250)},
+		&"LFX": {"spawn": Vector2(-41, -19), "flank": -1, "ui": Vector2(20, 120)},
+		&"RFX": {"spawn": Vector2(-41, 19), "flank": 1, "ui": Vector2(840, 120)},
+	},
+	&"wide_left": {
+		&"FM1": {"spawn": Vector2(-40, -4), "hold": Vector2(-6, -9), "watch": Vector2(-10, -9), "ui": Vector2(470, 10)},
+		&"FM2": {"spawn": Vector2(-40, 4), "hold": Vector2(-6, 9), "watch": Vector2(-10, 9), "ui": Vector2(730, 10)},
+		&"CTR": {"spawn": Vector2(-44, 0), "hold": Vector2(-25, 0), "watch": Vector2(-21, 0), "ui": Vector2(600, 250)},
+		&"LFX": {"spawn": Vector2(-41, -19), "flank": -1, "ui": Vector2(20, 60)},
+		&"LF2": {"spawn": Vector2(-44, -13), "flank": -1, "lane": 1, "ui": Vector2(200, 230)},
+	},
+	&"wide_right": {
+		&"FM1": {"spawn": Vector2(-40, -4), "hold": Vector2(-6, -9), "watch": Vector2(-10, -9), "ui": Vector2(130, 10)},
+		&"FM2": {"spawn": Vector2(-40, 4), "hold": Vector2(-6, 9), "watch": Vector2(-10, 9), "ui": Vector2(390, 10)},
+		&"CTR": {"spawn": Vector2(-44, 0), "hold": Vector2(-25, 0), "watch": Vector2(-21, 0), "ui": Vector2(260, 250)},
+		&"RFX": {"spawn": Vector2(-41, 19), "flank": 1, "ui": Vector2(840, 60)},
+		&"RF2": {"spawn": Vector2(-44, 13), "flank": 1, "lane": 1, "ui": Vector2(660, 230)},
+	},
+	&"wall": {
+		&"FM1": {"spawn": Vector2(-40, -5), "hold": Vector2(-6, -9), "watch": Vector2(-10, -9), "ui": Vector2(170, 0)},
+		&"FM2": {"spawn": Vector2(-39, 0), "hold": Vector2(-8, 0), "watch": Vector2(-11, 0), "ui": Vector2(430, 0)},
+		&"FM3": {"spawn": Vector2(-40, 5), "hold": Vector2(-6, 9), "watch": Vector2(-10, 9), "ui": Vector2(690, 0)},
+		&"MFX": {"spawn": Vector2(-42, 0), "flank": 0, "ui": Vector2(430, 228)},
+		&"CTR": {"spawn": Vector2(-45, 0), "hold": Vector2(-25, 0), "watch": Vector2(-21, 0), "ui": Vector2(430, 456)},
+	},
+	&"spread": {
+		&"LFX": {"spawn": Vector2(-41, -19), "flank": -1, "ui": Vector2(20, 40)},
+		&"LF2": {"spawn": Vector2(-44, -13), "flank": -1, "lane": 1, "ui": Vector2(190, 230)},
+		&"CTR": {"spawn": Vector2(-44, 0), "hold": Vector2(-25, 0), "watch": Vector2(-21, 0), "ui": Vector2(430, 120)},
+		&"RF2": {"spawn": Vector2(-44, 13), "flank": 1, "lane": 1, "ui": Vector2(670, 230)},
+		&"RFX": {"spawn": Vector2(-41, 19), "flank": 1, "ui": Vector2(840, 40)},
+	},
+	&"pack": {
+		&"FM1": {"spawn": Vector2(-38, -4), "hold": Vector2(-6, -9), "watch": Vector2(-10, -9), "ui": Vector2(300, 0)},
+		&"FM2": {"spawn": Vector2(-38, 4), "hold": Vector2(-6, 9), "watch": Vector2(-10, 9), "ui": Vector2(560, 0)},
+		&"MFX": {"spawn": Vector2(-41, 0), "flank": 0, "ui": Vector2(430, 228)},
+		&"CTR": {"spawn": Vector2(-44, -4), "hold": Vector2(-25, -5), "watch": Vector2(-21, -5), "ui": Vector2(300, 456)},
+		&"CT2": {"spawn": Vector2(-44, 4), "hold": Vector2(-25, 5), "watch": Vector2(-21, 5), "ui": Vector2(560, 456)},
+	},
+}
+## Slot order per scheme (also the order the lineup search fills them).
+const ORDER := {
+	&"power_front": [&"FM1", &"FM2", &"CTR", &"LFX", &"RFX"],
+	&"wide_left": [&"FM1", &"FM2", &"CTR", &"LFX", &"LF2"],
+	&"wide_right": [&"FM1", &"FM2", &"CTR", &"RFX", &"RF2"],
+	&"wall": [&"FM1", &"FM2", &"FM3", &"CTR", &"MFX"],
+	&"spread": [&"CTR", &"LFX", &"LF2", &"RFX", &"RF2"],
+	&"pack": [&"FM1", &"FM2", &"CTR", &"CT2", &"MFX"],
+}
+
+
 static func power_front() -> Scheme:
+	return by_id(&"power_front")
+
+
+static func by_id(scheme_id: StringName) -> Scheme:
+	if not ORDER.has(scheme_id):
+		scheme_id = &"power_front"
 	var s := Scheme.new()
-	s.id = &"power_front"
-	s.display_name = "Swing"
-	s.slots = [
-		{"id": &"FM1", "label": "Frontman", "role": Role.FRONTMAN},
-		{"id": &"FM2", "label": "Frontman", "role": Role.FRONTMAN},
-		{"id": &"CTR", "label": "Center", "role": Role.CENTER},
-		{"id": &"LFX", "label": "Left Flex", "role": Role.FLEX},
-		{"id": &"RFX", "label": "Right Flex", "role": Role.FLEX},
-	]
+	s.id = scheme_id
+	s.display_name = NAMES[scheme_id]
+	for sid in ORDER[scheme_id]:
+		s.slots.append({"id": sid, "label": SLOT_LABELS[sid], "role": SLOT_ROLES[sid]})
 	return s
+
+
+static func all() -> Array[Scheme]:
+	var out: Array[Scheme] = []
+	for sid in IDS:
+		out.append(by_id(sid))
+	return out
+
+
+func blurb() -> String:
+	return BLURBS.get(id, "")
+
+
+## Accuracy edge this scheme has over `other` (a few percent at most).
+func edge_vs(other: Scheme, koth := false) -> float:
+	var e: float = (MATCHUPS.get(id, {}) as Dictionary).get(other.id if other else &"", 0.0)
+	if koth:
+		e += KOTH_EDGE.get(id, 0.0)
+	return clampf(e, -0.04, 0.04)
+
+
+func _layout(slot_id: StringName) -> Dictionary:
+	var by_slot: Dictionary = LAYOUTS.get(id, LAYOUTS[&"power_front"])
+	return by_slot.get(slot_id, {})
+
+
+func spawn_of(slot_id: StringName) -> Vector2:
+	return _layout(slot_id).get("spawn", Vector2(-42, 0))
+
+
+## Deathmatch hold spot (or KOTH overwatch with `koth`) for frontmen and centers.
+func hold_of(slot_id: StringName, koth := false) -> Vector2:
+	var l := _layout(slot_id)
+	return l.get("watch" if koth else "hold", Vector2(-21, 0) if koth else Vector2(-25, 0))
+
+
+## -1 left, +1 right, 0 = picks a side each life.
+func flank_side(slot_id: StringName) -> int:
+	return int(_layout(slot_id).get("flank", 0))
+
+
+func flank_lane(slot_id: StringName) -> int:
+	return int(_layout(slot_id).get("lane", 0))
+
+
+func ui_pos(slot_id: StringName) -> Vector2:
+	return _layout(slot_id).get("ui", Vector2.ZERO)
+
+
+func count_role(role: Role) -> int:
+	var n := 0
+	for slot in slots:
+		if slot["role"] == role:
+			n += 1
+	return n
+
+
+## e.g. "2 Frontmen · Center · 2 Flex"
+func shape_text() -> String:
+	var parts: Array[String] = []
+	for r in [Role.FRONTMAN, Role.CENTER, Role.FLEX]:
+		var n := count_role(r)
+		if n == 0:
+			continue
+		if n == 1:
+			parts.append(ROLE_NAMES[r])
+		else:
+			parts.append("%d %s" % [n, {Role.FRONTMAN: "Frontmen", Role.CENTER: "Centers", Role.FLEX: "Flex"}[r]])
+	return " · ".join(parts)
 
 
 func slot_ids() -> Array[StringName]:
@@ -87,15 +252,14 @@ func role_for_slot(slot_id: StringName) -> Role:
 	for slot in slots:
 		if slot["id"] == slot_id:
 			return slot["role"]
-	push_error("Unknown slot %s" % slot_id)
-	return Role.FRONTMAN
+	return SLOT_ROLES.get(slot_id, Role.FRONTMAN)
 
 
 func label_for_slot(slot_id: StringName) -> String:
 	for slot in slots:
 		if slot["id"] == slot_id:
 			return slot["label"]
-	return String(slot_id)
+	return SLOT_LABELS.get(slot_id, String(slot_id))
 
 
 ## OVR of a stat block at a role: weighted average of the role's stats.

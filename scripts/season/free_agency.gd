@@ -76,7 +76,7 @@ func offer_error(season: Season, team: Team, s: Soldier, salary: int, years: int
 	for o in offers_by(team):
 		if o["soldier"] != s:
 			pending += 1
-	if roster_capped(season, team) and team.roster.size() + pending >= Team.ROSTER_SIZE:
+	if team.user_controlled and roster_capped(season, team) and team.roster.size() + pending >= Team.ROSTER_SIZE:
 		return "No roster space: %d on the roster + %d pending offers (max %d)." % [team.roster.size(), pending, Team.ROSTER_SIZE]
 	if not Contracts.fits(team, season.cap_year(), salary, committed(team, s)):
 		return "Not enough cap space (%s left after pending offers)." % Contracts.money(Contracts.cap_space(team, season.cap_year()) - committed(team, s))
@@ -98,10 +98,16 @@ func promises_made(season: Season, team: Team, except: Soldier = null) -> int:
 	return n
 
 
-## The user may carry more than ROSTER_SIZE soldiers during the offseason (he must cut down
-## before Week 1); AI teams and everyone in-season are held to the limit.
-static func roster_capped(season: Season, team: Team) -> bool:
-	return not (team.user_controlled and season.phase == Season.PHASE_OFFSEASON)
+## Every team may carry more than ROSTER_SIZE soldiers during the offseason (cut down before
+## Week 1); in-season everyone is held to the limit.
+static func roster_capped(season: Season, _team: Team = null) -> bool:
+	return season.phase != Season.PHASE_OFFSEASON
+
+
+## A full roster stops the user signing in-season; an AI team releases its least valuable
+## player instead (sign_player).
+static func blocks_signing(season: Season, team: Team) -> bool:
+	return team.user_controlled and roster_capped(season, team) and team.roster.size() >= Team.ROSTER_SIZE
 
 
 ## Places or replaces `team`'s offer. Returns the error text ("" on success).
@@ -171,8 +177,18 @@ static func interest(team: Team, s: Soldier, salary: int, years: int, promise :=
 	return ["LOW", Color("#ef4444")]
 
 
-## AI teams bid for open roster spots: the best free agent at their weakest role they can
-## afford, at roughly his asking price for his preferred length.
+## AI front offices. Open roster spots are filled with the best fit they can afford, and a team
+## also chases a free agent who clearly beats its least valuable player (Team.keep_value: OVR,
+## upside, age, depth, contract), so good free agents draw several bids. In the offseason AI
+## rosters may run over the limit (they cut down before Week 1); in-season a signing releases
+## the team's least valuable player. Contenders pay a premium for stars, and every rival bid
+## already on a player pushes the next one up.
+const AI_UPGRADE_MARGIN := 3.0
+const AI_UPGRADE_BIDS := 2
+const AI_UPGRADE_BIDS_IN_SEASON := 1
+const AI_OFFSEASON_MAX := Team.ROSTER_SIZE + 3
+
+
 func ai_offers(season: Season, rng: RandomNumberGenerator, in_season := false) -> void:
 	var pool := season.league.free_agents
 	if pool.is_empty():
@@ -182,25 +198,40 @@ func ai_offers(season: Season, rng: RandomNumberGenerator, in_season := false) -
 			continue
 		if in_season and rng.randf() > 0.5:
 			continue
-		var open := Team.ROSTER_SIZE - team.roster.size() - offers_by(team).size()
-		if open <= 0:
+		var mine := offers_by(team)
+		var open := maxi(0, Team.ROSTER_SIZE - team.roster.size() - mine.size())
+		var budget := maxi(0, Team.ROSTER_SIZE - team.roster.size()) + (AI_UPGRADE_BIDS_IN_SEASON if in_season else AI_UPGRADE_BIDS) - mine.size()
+		if not roster_capped(season, team):
+			budget = mini(budget, AI_OFFSEASON_MAX - team.roster.size() - mine.size())
+		if budget <= 0:
 			continue
-		var weak := Draft.weakest_role(team)
+		var worst := team.least_valuable()
+		var bar := (team.keep_value(worst) if worst != null else -INF) + AI_UPGRADE_MARGIN
+		var kv := {}
+		for s: Soldier in pool:
+			kv[s] = team.keep_value(s)
 		var ranked: Array = pool.duplicate()
-		ranked.sort_custom(func(a: Soldier, b: Soldier): return _ai_value(a, weak) > _ai_value(b, weak))
+		ranked.sort_custom(func(a: Soldier, b: Soldier): return kv[a] > kv[b])
+		var contender := team.team_ovr() >= 78
 		for s: Soldier in ranked:
-			if open <= 0:
+			if budget <= 0:
+				break
+			if open <= 0 and kv[s] < bar:
 				break
 			if not offer_of(team, s).is_empty():
 				continue
 			var years := Contracts.preferred_years(s)
 			var ask := Contracts.asking(s, years)
-			var salary := clampi(roundi(ask * rng.randf_range(0.95, 1.1) / 10.0) * 10, Contracts.MIN_SALARY, Contracts.MAX_SALARY)
+			var mult := rng.randf_range(0.95, 1.08) + 0.04 * offers_for(s).size()
+			if contender and s.best_ovr() >= 80:
+				mult += 0.05
+			var salary := clampi(roundi(ask * mult / 10.0) * 10, Contracts.MIN_SALARY, Contracts.MAX_SALARY)
 			if not Contracts.fits(team, season.cap_year(), salary, committed(team)):
 				salary = ask
 				if not Contracts.fits(team, season.cap_year(), salary, committed(team)):
 					continue
 			if make_offer(season, team, s, salary, years) == "":
+				budget -= 1
 				open -= 1
 
 
@@ -227,7 +258,7 @@ func resolve(season: Season, rng: RandomNumberGenerator, when: String, only: Tea
 		var best_score := -1.0
 		for o in mine:
 			var team: Team = o["team"]
-			if roster_capped(season, team) and team.roster.size() >= Team.ROSTER_SIZE:
+			if blocks_signing(season, team):
 				continue
 			if not Contracts.fits(team, season.cap_year(), o["salary"]):
 				continue
@@ -240,7 +271,7 @@ func resolve(season: Season, rng: RandomNumberGenerator, when: String, only: Tea
 		else:
 			s.ask_mult = maxf(ASK_FLOOR, s.ask_mult * (ASK_DROP_WITH_OFFERS if not mine.is_empty() else ASK_DROP_NO_OFFERS))
 	# Offers that couldn't be honoured (roster filled up) are dropped; the rest stay pending.
-	offers = offers.filter(func(o): return season.league.free_agents.has(o["soldier"]) and (not roster_capped(season, o["team"]) or o["team"].roster.size() < Team.ROSTER_SIZE))
+	offers = offers.filter(func(o): return season.league.free_agents.has(o["soldier"]) and not blocks_signing(season, o["team"]))
 	return signed
 
 
@@ -252,7 +283,7 @@ func decide_now(season: Season, team: Team, s: Soldier) -> Dictionary:
 	var best_score := -1.0
 	for o in offers_for(s):
 		var t: Team = o["team"]
-		if roster_capped(season, t) and t.roster.size() >= Team.ROSTER_SIZE:
+		if blocks_signing(season, t):
 			continue
 		if not Contracts.fits(t, season.cap_year(), o["salary"]):
 			continue
@@ -277,6 +308,11 @@ func sign_player(season: Season, team: Team, s: Soldier, salary: int, years: int
 	s.trade_request = false
 	s.promise = {"year": season.cap_year(), "team": team.abbrev, "games": 0, "started": 0} if promise else {}
 	offers = offers.filter(func(o): return o["soldier"] != s)
+	if not team.user_controlled and roster_capped(season, team) and team.roster.size() >= Team.ROSTER_SIZE:
+		var cut := team.least_valuable()
+		if cut != null:
+			season.release_player(team, cut)
+			season.trades.moves.append({"year": season.year, "when": season.trades._when(season), "team": team, "soldier": cut, "kind": &"cut", "to": null})
 	s.contract = Contract.make(salary, years, season.year)
 	s.ask_mult = 1.0
 	s.intensity = Soldier.INTENSITY_NORMAL

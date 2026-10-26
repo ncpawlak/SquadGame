@@ -72,7 +72,69 @@ func assign(slot_id: StringName, soldier: Soldier) -> void:
 ## are skipped unless there aren't enough healthy ones. With `consider_fatigue`, OVR is scaled
 ## by match fatigue penalty so tired starters can be rested.
 func auto_lineup(consider_fatigue := false) -> void:
+	var best := _best_pick(scheme, consider_fatigue)
 	var slot_ids := scheme.slot_ids()
+	var pool: Array = best["pool"]
+	lineup.clear()
+	for i in slot_ids.size():
+		lineup[slot_ids[i]] = pool[best["pick"][i]]
+
+
+## Best lineup this roster could field in `sch` (slot_id -> Soldier), without changing the team.
+func lineup_for(sch: Scheme) -> Dictionary:
+	var best := _best_pick(sch, false)
+	var pool: Array = best["pool"]
+	var out := {}
+	var ids := sch.slot_ids()
+	for i in ids.size():
+		out[ids[i]] = pool[best["pick"][i]]
+	return out
+
+
+## Average positional OVR of the best healthy lineup in `sch`.
+func scheme_fit(sch: Scheme) -> float:
+	return float(_best_pick(sch, false)["score"]) / sch.slot_ids().size()
+
+
+## The scheme that gets the most out of this roster. Near-ties go to the coaching staff's taste
+## (a small fixed per-team preference) and then to the current scheme.
+func best_scheme() -> Scheme:
+	var best: Scheme = scheme
+	var best_fit := -INF
+	for sch in Scheme.all():
+		var f := scheme_fit(sch) + style_bias(sch.id) + (0.25 if sch.id == scheme.id else 0.0)
+		if f > best_fit:
+			best_fit = f
+			best = sch
+	return best
+
+
+## 0..1 OVR points of fixed preference for a scheme, different for every team.
+func style_bias(scheme_id: StringName) -> float:
+	return float(hash(abbrev + String(scheme_id)) % 1000) / 1000.0
+
+
+func set_scheme(sch: Scheme) -> void:
+	scheme = sch
+	if roster.size() >= sch.slot_ids().size():
+		auto_lineup()
+	else:
+		lineup.clear()
+
+
+## AI front offices: switch to the best-fitting scheme. Returns true if it changed.
+func pick_scheme() -> bool:
+	if user_controlled or roster.size() < scheme.slot_ids().size():
+		return false
+	var sch := best_scheme()
+	if sch.id == scheme.id:
+		return false
+	set_scheme(sch)
+	return true
+
+
+func _best_pick(sch: Scheme, consider_fatigue: bool) -> Dictionary:
+	var slot_ids := sch.slot_ids()
 	var pool: Array[Soldier] = []
 	for s in roster:
 		if not s.is_injured():
@@ -84,8 +146,8 @@ func auto_lineup(consider_fatigue := false) -> void:
 	var vals: Array = []
 	var same_as_prev: Array[bool] = []
 	for d in slot_ids.size():
-		var role := scheme.role_for_slot(slot_ids[d])
-		same_as_prev.append(d > 0 and scheme.role_for_slot(slot_ids[d - 1]) == role)
+		var role := sch.role_for_slot(slot_ids[d])
+		same_as_prev.append(d > 0 and sch.role_for_slot(slot_ids[d - 1]) == role)
 		var row := PackedFloat64Array()
 		for s in pool:
 			var value := float(s.ovr_at_role(role))
@@ -104,9 +166,8 @@ func auto_lineup(consider_fatigue := false) -> void:
 		bound[d] = bound[d + 1] + top
 	best["bound"] = bound
 	_search(vals, same_as_prev, pool.size(), 0, [], 0, 0.0, best)
-	lineup.clear()
-	for i in slot_ids.size():
-		lineup[slot_ids[i]] = pool[best["pick"][i]]
+	best["pool"] = pool
+	return best
 
 
 ## Replaces injured starters with the best healthy bench soldier for that slot.
@@ -151,8 +212,14 @@ func release(soldier: Soldier) -> void:
 func keep_value(s: Soldier) -> float:
 	var v := float(s.best_ovr())
 	v += float(s.potential_ovr() - s.best_ovr()) * clampf((28.0 - s.age) / 8.0, 0.0, 1.0) * 0.6
+	if s.age <= 25:
+		# Grade on top of the raw gap: front offices never let a young A/B prospect walk.
+		var grade := 11.0 if s.potential >= Soldier.POTENTIAL_A else (4.0 if s.potential == Soldier.POTENTIAL_A - 1 else 0.0)
+		v += grade * clampf((26.0 - s.age) / 5.0, 0.0, 1.0)
 	if s.age >= 30:
 		v -= float(s.age - 29) * 0.8
+	if s.age >= 33:
+		v -= float(s.age - 32) * 1.2
 	var role := Scheme.best_role(s.stats)
 	var slots := 0
 	for slot_id in scheme.slot_ids():

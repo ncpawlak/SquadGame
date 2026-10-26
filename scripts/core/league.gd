@@ -83,7 +83,8 @@ static func load_fixed(seed_value: int, path := DATA_PATH) -> League:
 			s.fa_since = int(d.get("fa_since", 0))
 	league.next_soldier_id = max_id + 1
 	for t in league.teams:
-		t.auto_lineup()
+		if not t.pick_scheme():
+			t.auto_lineup()
 	league.ensure_callsigns()
 	return league
 

@@ -237,6 +237,18 @@ static func hex(c: Color) -> String:
 static var _logos := {}
 
 
+## The built-in UI font has no geometric symbols (series pips, sort arrows, stars) and web
+## builds have no system fallback, so DejaVu Sans is chained in as a glyph fallback.
+static func install_symbol_font() -> void:
+	var sym: Font = load("res://assets/fonts/DejaVuSans.ttf")
+	var base := ThemeDB.fallback_font
+	if sym == null or base == null or base.fallbacks.has(sym):
+		return
+	var fb := base.fallbacks.duplicate()
+	fb.append(sym)
+	base.fallbacks = fb
+
+
 ## Team logo texture (assets/logos/<ABBR>.png), or null when the team has none.
 static func logo_tex(abbrev: String) -> Texture2D:
 	if not _logos.has(abbrev):

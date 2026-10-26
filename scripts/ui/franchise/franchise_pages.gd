@@ -296,7 +296,7 @@ func _matchup_side(t: Team, tag: String) -> Control:
 		nv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		nv.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		nv.add_child(UiKit.label(so.tag(), 20, Color.WHITE))
-		nv.add_child(UiKit.label("%s  -  %s" % [sid, so.full_name()], 14, UiKit.MUTED))
+		nv.add_child(UiKit.label("%s  -  %s" % [t.scheme.label_for_slot(sid), so.full_name()], 14, UiKit.MUTED))
 		r.add_child(nv)
 		var ovr: int = t.ovr_in_slot(so, sid)
 		var o := UiKit.label(str(ovr), 26, UiKit.ovr_color(ovr))
@@ -340,6 +340,14 @@ func preview(m: ScheduledMatch) -> Control:
 		col.add_child(UiKit.team_logo(t, 96))
 		col.add_child(UiKit.label(t.name, 26, Color.WHITE))
 		col.add_child(UiKit.label("Record %s   -   OVR %d" % [s.record_text(t), t.team_ovr()], 16, UiKit.MUTED))
+		var opp: Team = m.home if t == m.away else m.away
+		var edge: float = t.scheme.edge_vs(opp.scheme)
+		var sl := UiKit.label("Scheme: %s%s" % [t.scheme.display_name,
+			("   (%s vs %s)" % ["edge" if edge > 0 else "disadvantage", opp.scheme.display_name]) if edge != 0.0 else ""],
+			16, UiKit.GOOD if edge > 0 else (UiKit.BAD if edge < 0 else UiKit.MUTED))
+		sl.tooltip_text = t.scheme.blurb()
+		sl.mouse_filter = Control.MOUSE_FILTER_PASS
+		col.add_child(sl)
 		var rows: Array = []
 		var colors := {}
 		for sid in t.scheme.slot_ids():
@@ -941,6 +949,11 @@ func _player_header(s: Soldier, team: Team) -> Control:
 	var yrs_in := maxi(1, _season().year - s.draft_year + 1) if s.draft_year > 0 else 0
 	mid.add_child(UiKit.label("%s   ·   AGE %d   ·   %s%s" % [Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), s.age, where.to_upper(),
 		("   ·   YEAR %d" % yrs_in) if yrs_in > 0 else ""], 15, UiKit.MUTED))
+	if s.home_state != "":
+		var home := "FROM %s  (%s REGION)" % [LeagueData.state_name(s.home_state).to_upper(), LeagueData.region_of(s.home_state).to_upper()]
+		if team != null and team.home_state == s.home_state:
+			home += "   ·   HOMETOWN TEAM"
+		mid.add_child(UiKit.label(home, 14, UiKit.MUTED))
 	if s.trade_request and team != null and s.retired_year == 0:
 		mid.add_child(UiKit.label("⚑ TRADE REQUESTED", 15, UiKit.ACCENT))
 	var awards := _awards_of(s)
@@ -1458,16 +1471,13 @@ func _stat_row(s: Soldier, st: StringName, counts: bool) -> Control:
 	return cell
 
 
-## Lineup: the Swing drawn as a formation (front = top). Frontmen up front, the Center behind
-## and between them, the Flexes swung far out on each side. Click a slot then a bench card (or
-## another slot) to swap; or pick a bench card first, then a slot.
-const LINEUP_POS := {
-	&"FM1": Vector2(300, 10), &"FM2": Vector2(560, 10), &"CTR": Vector2(430, 250),
-	&"LFX": Vector2(20, 120), &"RFX": Vector2(840, 120),
-}
+## Lineup: the scheme drawn as a formation (front = top, card spots from Scheme.LAYOUTS).
+## Click a slot then a bench card (or another slot) to swap; or pick a bench card first, then a slot.
+## The scheme list previews each formation (with its best lineup) on hover and applies it on click.
 const CARD := Vector2(170, 214)
 var _lineup_slot: StringName = &""
 var _lineup_bench: Soldier
+var _scheme_open := false
 
 
 func lineup() -> Control:
@@ -1477,32 +1487,59 @@ func lineup() -> Control:
 	var field := Panel.new()
 	var fsb := UiKit.flat(Color("#0d1a14"), 14, 1, UiKit.LINE)
 	field.add_theme_stylebox_override("panel", fsb)
-	field.custom_minimum_size = Vector2(1030, 480)
-	# Simple field markings: halfway line and the trio's lane.
-	var mid := ColorRect.new()
-	mid.color = Color(1, 1, 1, 0.06)
-	mid.position = Vector2(0, 236)
-	mid.size = Vector2(1030, 2)
-	mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	field.add_child(mid)
-	var front := UiKit.label("ENEMY SIDE  ▲", 12, Color(1, 1, 1, 0.25))
-	front.position = Vector2(910, 12)
-	field.add_child(front)
-	for sid in team.scheme.slot_ids():
-		var card := _lineup_card(team, team.lineup.get(sid), sid, refresh)
-		card.position = LINEUP_POS.get(sid, Vector2.ZERO)
-		field.add_child(card)
+	field.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	h.add_child(field)
 
 	var side := _vbox(12)
 	side.custom_minimum_size.x = 280
 	var p := UiKit.panel(UiKit.PANEL_HI, 10)
 	var pb := _vbox(4)
-	pb.add_child(UiKit.label("SCHEME", 12, UiKit.MUTED))
-	pb.add_child(UiKit.label(team.scheme.display_name.to_upper(), 30, Color.WHITE))
-	pb.add_child(UiKit.label("2 Frontmen · Center · 2 Flex", 14, UiKit.MUTED))
+	var shead := UiKit.label("SCHEME", 12, UiKit.MUTED)
+	pb.add_child(shead)
+	var sname := UiKit.label(team.scheme.display_name.to_upper(), 30, Color.WHITE)
+	pb.add_child(sname)
+	var sshape := UiKit.label(team.scheme.shape_text(), 14, UiKit.MUTED)
+	pb.add_child(sshape)
+	var sblurb := UiKit.label(team.scheme.blurb(), 13, UiKit.MUTED)
+	sblurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	pb.add_child(sblurb)
 	p.add_child(pb)
 	side.add_child(p)
+	var show := func(sch: Scheme, preview: bool):
+		_fill_lineup_field(field, team, sch, team.lineup if not preview else team.lineup_for(sch), preview, refresh)
+		sname.text = sch.display_name.to_upper()
+		sname.add_theme_color_override("font_color", UiKit.ACCENT if preview else Color.WHITE)
+		shead.text = "PREVIEW  -  CLICK TO USE" if preview else "SCHEME"
+		shead.add_theme_color_override("font_color", UiKit.ACCENT if preview else UiKit.MUTED)
+		sshape.text = sch.shape_text()
+		sblurb.text = sch.blurb()
+	show.call(team.scheme, false)
+	side.add_child(UiKit.button(("Change Scheme  ▲" if _scheme_open else "Change Scheme  ▼"), func():
+		_scheme_open = not _scheme_open
+		refresh.call(), 15))
+	if _scheme_open:
+		var list := _vbox(4)
+		for sch in Scheme.all():
+			var fit := team.scheme_fit(sch)
+			var cur := sch.id == team.scheme.id
+			var row := UiKit.button("%s%s   ·   fit %.1f" % [sch.display_name, "  (current)" if cur else "", fit], func():
+				if sch.id != team.scheme.id:
+					team.set_scheme(sch)
+					_lineup_slot = &""
+					_lineup_bench = null
+					hub.app.toast("Scheme set to %s; best lineup filled in." % sch.display_name)
+				_scheme_open = false
+				refresh.call(), 14)
+			row.tooltip_text = sch.blurb()
+			row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			if cur:
+				UiKit.style_button(row, UiKit.ACCENT.darkened(0.55), UiKit.ACCENT, 8)
+			row.mouse_entered.connect(func(): show.call(sch, sch.id != team.scheme.id))
+			row.mouse_exited.connect(func():
+				if is_instance_valid(field):
+					show.call(team.scheme, false))
+			list.add_child(row)
+		side.add_child(list)
 	var o := UiKit.panel(UiKit.PANEL_HI, 10)
 	var ob := _vbox(4)
 	ob.add_child(UiKit.label("TEAM OVR", 12, UiKit.MUTED))
@@ -1547,6 +1584,34 @@ func lineup() -> Control:
 		bench.add_child(UiKit.label("No bench players.", 15, UiKit.MUTED))
 	v.add_child(bench)
 	return v
+
+
+## Lays the formation for `sch` out on the field: `assigned` is slot_id -> Soldier. Preview cards
+## (a scheme hovered in the list) are display-only.
+func _fill_lineup_field(field: Panel, team: Team, sch: Scheme, assigned: Dictionary, preview: bool, refresh: Callable) -> void:
+	for ch in field.get_children():
+		field.remove_child(ch)
+		ch.queue_free()
+	var height := 0.0
+	for sid in sch.slot_ids():
+		height = maxf(height, sch.ui_pos(sid).y + CARD.y + 12.0)
+	field.custom_minimum_size = Vector2(1030, maxf(480.0, height))
+	var mid := ColorRect.new()
+	mid.color = Color(1, 1, 1, 0.06)
+	mid.position = Vector2(0, field.custom_minimum_size.y / 2.0 - 4.0)
+	mid.size = Vector2(1030, 2)
+	mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	field.add_child(mid)
+	var front := UiKit.label("ENEMY SIDE  ▲", 12, Color(1, 1, 1, 0.25))
+	front.position = Vector2(910, 12)
+	field.add_child(front)
+	for sid in sch.slot_ids():
+		var card := _lineup_card(team, assigned.get(sid), sid, refresh)
+		card.position = sch.ui_pos(sid)
+		if preview:
+			card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			card.modulate = Color(1, 1, 1, 0.85)
+		field.add_child(card)
 
 
 ## Player card: portrait, callsign, name, OVR (at the slot, or best position on the bench), POT.
@@ -2681,6 +2746,7 @@ const USER_PICK_SECONDS := 120.0
 const CPU_PICK_SECONDS := 5.0
 var _clock_pick := -1
 var _clock_left := 0.0
+var _draft_paused := false
 
 
 static func clock_text(seconds: float) -> String:
@@ -2703,6 +2769,8 @@ func _draft_clock(d: Draft, refresh: Callable) -> Control:
 	timer.timeout.connect(func():
 		if _clock_pick != d.next_pick or d.is_complete():
 			timer.stop()
+			return
+		if _draft_paused:
 			return
 		_clock_left -= timer.wait_time
 		lbl.text = clock_text(_clock_left)
@@ -2756,7 +2824,15 @@ func draft_room() -> Control:
 		head_rt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		head_rt.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		head_row.add_child(head_rt)
+		var pause_btn := UiKit.button("Resume Draft" if _draft_paused else "Pause Draft", func():
+			_draft_paused = not _draft_paused
+			hub.app.toast("Draft paused - the clock is stopped." if _draft_paused else "Draft resumed.")
+			refresh.call())
+		pause_btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		head_row.add_child(pause_btn)
 		v.add_child(head_row)
+		if _draft_paused:
+			v.add_child(UiKit.label("PAUSED  -  the clock is stopped and no team will pick until you resume.", 15, UiKit.ACCENT))
 		var actions := _row()
 		if t.user_controlled:
 			actions.add_child(UiKit.button("Auto-pick for me", func():

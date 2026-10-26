@@ -30,23 +30,9 @@ const _CRATES_Q := [
 	[Vector2(0, -9), Vector2(4, 2)],
 ]
 
-## Team-0 frame. Spawn formation is the Swing: two frontmen up, the center behind them,
-## flexes far out on each side.
-const SPAWN := {
-	&"FM1": Vector2(-40, -4), &"FM2": Vector2(-40, 4), &"CTR": Vector2(-44, 0),
-	&"LFX": Vector2(-41, -19), &"RFX": Vector2(-41, 19),
-}
-## Where each slot settles in a deathmatch: frontmen just in front of the mid walls, the center
-## watching the middle lane, flexes running the outside lanes (start -> end of the flank).
-const HOLD := {
-	&"FM1": Vector2(-6, -9), &"FM2": Vector2(-6, 9), &"CTR": Vector2(-25, 0),
-}
+## Spawn, hold and overwatch spots per slot live in Scheme.LAYOUTS (team-0 frame).
 ## Left flex's flank route (right flex mirrors it on y), walked as flank progress builds.
 const FLANK := [Vector2(-32, -26.5), Vector2(-12, -26.5), Vector2(10, -18.5)]
-## KOTH overwatch for soldiers not playing the point.
-const OVERWATCH := {
-	&"FM1": Vector2(-10, -9), &"FM2": Vector2(-10, 9), &"CTR": Vector2(-21, 0),
-}
 
 
 ## Team-frame point `t` (0..1) along the flank route; `right` mirrors it to the other side.
@@ -100,10 +86,6 @@ static func _mirror_all(quadrant: Array) -> Array[Rect2]:
 ## Team frame -> world (team 1 is the point reflection).
 static func world(team: int, p: Vector2) -> Vector2:
 	return p if team == 0 else -p
-
-
-static func spawn_point(team: int, slot: StringName) -> Vector2:
-	return world(team, SPAWN.get(slot, Vector2(-42, 0)))
 
 
 static func in_bounds(p: Vector2, r := SOLDIER_RADIUS) -> bool:
