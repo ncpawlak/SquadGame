@@ -2759,7 +2759,7 @@ func drill_pick(group: StringName) -> Control:
 		if why == "":
 			row.append("Available")
 		else:
-			row.append("Injured" if so.is_injured() else "Unavailable")
+			row.append("Injured" if so.is_injured() else ("Capped" if why.contains("capped") else "Unavailable"))
 			c[row.size() - 1] = UiKit.BAD
 		rows.append(row)
 		colors[i] = c

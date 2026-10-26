@@ -46,6 +46,7 @@ func _init() -> void:
 		"test_trades",
 		"test_roster_rules",
 		"test_ai_weekly_training",
+		"test_camp_respects_caps",
 	]
 	var only := OS.get_environment("ONLY")
 	if only != "":
@@ -948,8 +949,8 @@ func test_training_camp_and_offseason_xp() -> void:
 	check(_xp_total(probe) - x0 == (2 + Season.FA_DAYS) * step, "every FA day is an xp week")
 	check(rookie == null or rookie.xp > 0 or rookie.level > 1, "draftees earn xp too")
 	# Drills.
-	var a: Soldier = user.starters()[0]
-	var b: Soldier = user.starters()[1]
+	var a: Soldier = user.roster.filter(func(x: Soldier): return x.group_headroom(Stats.PHYSICALITY) >= 2 and not x.is_injured())[0]
+	var b: Soldier = user.roster.filter(func(x: Soldier): return x != a and not x.is_injured())[0]
 	var before := a.stats.duplicate()
 	var res := s.run_drill(Stats.PHYSICALITY, a)
 	check(not res.is_empty(), "drill runs")
@@ -963,8 +964,8 @@ func test_training_camp_and_offseason_xp() -> void:
 			total += g
 		else:
 			check(g == 0, "drill only touches its group (%s)" % st)
-	check(total == res["points"], "all points land (%d of %d)" % [total, res["points"]])
-	check(a.group_caps[Stats.PHYSICALITY] >= a.group_rating(Stats.PHYSICALITY), "cap raised if needed")
+	check(total == res["points"] and res["points"] <= res["rolled"], "landed points add up (%d of %d)" % [total, res["points"]])
+	check(a.group_rating(Stats.PHYSICALITY) <= a.group_cap(Stats.PHYSICALITY), "drill never passes the cap")
 	check(s.camp_check(Stats.ACCURACY, a) != "", "one drill per player")
 	check(s.camp_check(Stats.PHYSICALITY, b) != "", "one player per drill")
 	var inj_before: int = b.stats[Stats.INJURY] + b.stats[Stats.TOUGHNESS]
@@ -1013,7 +1014,7 @@ func test_preseason_camp() -> void:
 	check(s.preseason_camp and s.camp_open() and s.week == 1 and s.year == 2026, "opens in camp before Week 1")
 	check(s.camp.year + 1 == 2026, "camp is labelled for the coming season")
 	check(s.draft.scout_points == 0 and not s.draft.can_scout(s.draft.prospects[0]), "no scouting during camp")
-	var a: Soldier = s.user_team().starters()[0]
+	var a: Soldier = s.user_team().roster.filter(func(x: Soldier): return x.group_headroom(Stats.ACCURACY) > 0 and not x.is_injured())[0]
 	check(not s.run_drill(Stats.ACCURACY, a).is_empty(), "drill runs in preseason")
 	check(s.camp_check(Stats.HANDLING, a) != "", "one drill per player")
 	var probe: Soldier = s.user_team().roster[1]
@@ -1035,7 +1036,7 @@ func test_preseason_camp() -> void:
 func test_progression_history_and_potw() -> void:
 	var s := Season.new_franchise(618, 0, 2026, true)
 	var user := s.user_team()
-	var a: Soldier = user.starters()[0]
+	var a: Soldier = user.roster.filter(func(x: Soldier): return x.group_headroom(Stats.ACCURACY) >= 2 and not x.is_injured())[0]
 	var gains := s.run_drill(Stats.ACCURACY, a)
 	check(not gains.is_empty(), "drill ran")
 	var e: Dictionary = a.history[-1]
@@ -1456,3 +1457,22 @@ func test_ai_weekly_training() -> void:
 			if not so.is_injured():
 				check(so.intensity == Training.ai_intensity(so, t.starters().has(so)), "%s trains on auto intensity" % so.short_name())
 		check(total > before[t], "%s trained this week (+%d XP)" % [t.abbrev, total - before[t]])
+
+
+func test_camp_respects_caps() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 77
+	for i in 30:
+		var c := Camp.make(2026)
+		var t := Team.new()
+		var so := PlayerGenerator.generate(rng, i + 1, Scheme.Role.FLEX, 60.0, 23)
+		so.potential = Soldier.POTENTIAL_A
+		t.roster.append(so)
+		var r0 := so.group_rating(Stats.PHYSICALITY)
+		so.group_caps[Stats.PHYSICALITY] = r0
+		check(c.check(t, Stats.PHYSICALITY, so).contains("capped"), "capped group can't be drilled")
+		check(c.run(t, Stats.PHYSICALITY, so, rng).is_empty() and so.group_rating(Stats.PHYSICALITY) == r0, "capped group unchanged")
+		so.group_caps[Stats.PHYSICALITY] = r0 + 1
+		var res := c.run(t, Stats.PHYSICALITY, so, rng)
+		check(not res.is_empty() and so.group_rating(Stats.PHYSICALITY) <= r0 + 1, "drill stops at the cap (%d > %d)" % [so.group_rating(Stats.PHYSICALITY), r0 + 1])
+		check(so.group_caps[Stats.PHYSICALITY] == r0 + 1, "cap isn't raised")

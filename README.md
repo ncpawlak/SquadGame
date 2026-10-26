@@ -135,7 +135,8 @@ Title → New Franchise → pick one of 5 teams → franchise hub (Madden/CFB-st
 - **Training camp** (`scripts/season/camp.gd`, Home → Training Camp): one drill per rating group (Marksmanship Range,
   Weapons Lab, Combine Gauntlet, War Room, Hill Assault, Iron Conditioning). Pick a drill, pick a soldier, see his ratings boost.
   One soldier per drill and one drill per soldier. The point pool depends on potential (A 9-13, B 7-10, C 5-8, D 3-6,
-  F 2-4), spread at random over the group's stats (max +4 each). AI teams run theirs when camp closes; advancing with
+  F 2-4), spread at random over the group's stats (max +4 each). Drills respect group caps: a capped group
+  shows "Capped" and can't be drilled, and points stop landing once the group reaches its cap. AI teams run theirs when camp closes; advancing with
   unused drills asks you to confirm first.
   A new franchise opens in a **preseason training camp** before Week 1 (same drills; "Start 2026 Season" closes it). The home hero shows the camp, not Week 1. Drill pick tables sort by any column and hide soldiers who already attended a drill.
   Hovering a row shows the soldier in the pane above; clicking opens an "are you sure" popup with his portrait, age,

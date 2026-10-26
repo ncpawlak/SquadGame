@@ -3,9 +3,9 @@ extends RefCounted
 ## Offseason training camp (after free agency, before Week 1): one drill per rating group.
 ## Each team sends one soldier to each drill and a soldier can attend only one drill per camp.
 ## A drill hands the soldier a pool of points (rolled from his potential) that is spread at
-## random over the group's stats (max MAX_STAT_GAIN per stat, 99 max). Drills ignore the
-## group caps (a cap is raised if the drill pushes the group past it), and the Durability
-## drill is the only way to raise Injury/Toughness.
+## random over the group's stats (max MAX_STAT_GAIN per stat, 99 max). Drills respect the
+## group caps: a capped group can't be drilled and points stop landing at the cap. The
+## Durability drill (no cap) is the only way to raise Injury/Toughness.
 
 const DRILLS := {
 	Stats.ACCURACY: {"name": "Marksmanship Range", "blurb": "Live-fire lanes at every distance."},
@@ -72,6 +72,8 @@ func check(team: Team, group: StringName, s: Soldier) -> String:
 		return "%s already attended %s." % [s.full_name(), drill_name(attended[s.id])]
 	if s.is_injured():
 		return "%s is injured." % s.full_name()
+	if s.group_caps.has(group) and s.group_headroom(group) <= 0:
+		return "%s is capped at %d %s." % [s.full_name(), s.group_cap(group), Stats.GROUP_LABELS[group]]
 	return ""
 
 
@@ -80,7 +82,10 @@ func run(team: Team, group: StringName, s: Soldier, rng: RandomNumberGenerator) 
 	if check(team, group, s) != "":
 		return {}
 	var pool: Array = pool_range(s.potential)
-	var points := rng.randi_range(pool[0], pool[1])
+	var rolled := rng.randi_range(pool[0], pool[1])
+	var points := 0
+	var capped := s.group_caps.has(group)
+	var cap := s.group_cap(group)
 	var members: Array = Stats.group_stats(group)
 	var before := {}
 	var gains := {}
@@ -88,21 +93,24 @@ func run(team: Team, group: StringName, s: Soldier, rng: RandomNumberGenerator) 
 		before[st] = s.stats[st]
 		gains[st] = 0
 	var ovr_before := s.best_ovr()
-	for i in points:
+	var blocked := {}
+	for i in rolled:
 		var open: Array = []
 		for st in members:
-			if gains[st] < MAX_STAT_GAIN and s.stats[st] + gains[st] < Stats.MAX_RATING:
+			if not blocked.has(st) and gains[st] < MAX_STAT_GAIN and s.stats[st] < Stats.MAX_RATING:
 				open.append(st)
 		if open.is_empty():
 			break
 		var pick: StringName = open[rng.randi_range(0, open.size() - 1)]
+		s.stats[pick] += 1
+		if capped and s.group_rating(group) > cap:
+			s.stats[pick] -= 1
+			blocked[pick] = true
+			continue
 		gains[pick] += 1
-	for st in members:
-		s.stats[st] += gains[st]
+		points += 1
 	s.log_progress("Training camp: %s" % drill_name(group), gains, ovr_before)
-	if s.group_caps.has(group):
-		s.group_caps[group] = maxi(int(s.group_caps[group]), s.group_rating(group))
-	var res := {"soldier": s, "group": group, "gains": gains, "before": before, "points": points,
+	var res := {"soldier": s, "group": group, "gains": gains, "before": before, "points": points, "rolled": rolled,
 		"ovr_before": ovr_before, "ovr_after": s.best_ovr()}
 	if not results.has(team):
 		results[team] = {}
