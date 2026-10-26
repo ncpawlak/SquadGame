@@ -53,19 +53,19 @@ const TIER_NAMES := {
 	Stats.OBJECTIVE: ["Point Shy", "Wanderer", "Contester", "Point Man", "King of the Hill"],
 	Stats.DURABILITY: ["Glass", "Fragile", "Durable", "Sturdy", "Iron Man"],
 }
-const PROSPECT_QUALITY := 66.0
+const PROSPECT_QUALITY := 58.0
 const PROSPECT_QUALITY_SD := 6.0
 ## Blue-chippers per class [min, max], their OVR at the listed position [min, max] and minimum
 ## potential. They are day-one starters.
 const BLUE_CHIPS := [3, 6]
-const BLUE_CHIP_OVR := [76, 79]
+const BLUE_CHIP_OVR := [68, 72]
 const BLUE_CHIP_MIN_POTENTIAL := 3
 ## Chance a class has a generational talent (one per class at most), and his OVR [min, max].
 const GENERATIONAL_CHANCE := 0.18
-const GENERATIONAL_OVR := [80, 82]
+const GENERATIONAL_OVR := [74, 77]
 ## Specialists per class [min, max] and the range of their elite group's stats.
 const SPECIALISTS := [8, 12]
-const SPECIALIST_STAT := [84, 95]
+const SPECIALIST_STAT := [78, 90]
 ## Prospect news: stories per week (weights for 0, 1, 2) and how far a rising/falling story moves
 ## the consensus. Facts (drill results, class rankings, measured strengths/weaknesses) are always
 ## true; rumors ("reportedly", "one scout claims", "word is") and stock buzz are true

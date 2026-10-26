@@ -136,7 +136,7 @@ static func score(team: Team, s: Soldier, salary: int, years: int, promise := fa
 	var d := s.get_dna()
 	var w := weights(s)
 	var money := minf(1.3, float(salary) / float(maxi(1, Contracts.asking(s, years))))
-	var team_q := clampf((team.team_ovr() - 72.0) / 25.0, 0.0, 1.0)
+	var team_q := clampf((team.team_ovr() - 64.0) / 25.0, 0.0, 1.0)
 	var starts := would_start(team, s)
 	var role := 1.0 if starts else 0.3
 	if promise:
@@ -242,6 +242,31 @@ func resolve(season: Season, rng: RandomNumberGenerator, when: String, only: Tea
 	# Offers that couldn't be honoured (roster filled up) are dropped; the rest stay pending.
 	offers = offers.filter(func(o): return season.league.free_agents.has(o["soldier"]) and (not roster_capped(season, o["team"]) or o["team"].roster.size() < Team.ROSTER_SIZE))
 	return signed
+
+
+## In-season decision on the spot (no waiting a week): `s` weighs every current offer right
+## now. Returns {signed: entry or {}, text: String} from `team`'s point of view. His asking
+## price doesn't drop, so re-offering can't be used to wear him down.
+func decide_now(season: Season, team: Team, s: Soldier) -> Dictionary:
+	var best: Dictionary = {}
+	var best_score := -1.0
+	for o in offers_for(s):
+		var t: Team = o["team"]
+		if roster_capped(season, t) and t.roster.size() >= Team.ROSTER_SIZE:
+			continue
+		if not Contracts.fits(t, season.cap_year(), o["salary"]):
+			continue
+		var sc := score(t, s, o["salary"], o["years"], o.get("promise", false))
+		if sc > best_score or (sc == best_score and t == team):
+			best_score = sc
+			best = o
+	if best.is_empty() or best_score < ACCEPT_SCORE:
+		return {"signed": {}, "text": "%s turned it down - not enough to sign. Raise the money, years or add a starter promise." % s.full_name()}
+	var winner: Team = best["team"]
+	var entry := sign_player(season, winner, s, best["salary"], best["years"], season.week_label(season.week), best.get("promise", false))
+	if winner == team:
+		return {"signed": entry, "text": "%s signed with you: %s x %d." % [s.full_name(), Contracts.money(best["salary"]), best["years"]]}
+	return {"signed": entry, "text": "%s chose %s's offer instead." % [s.full_name(), winner.name]}
 
 
 ## Signs a free agent outright (accepted offer, or a team filling its roster).

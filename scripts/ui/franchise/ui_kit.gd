@@ -188,13 +188,13 @@ static func _cells(cells: Array, col_widths: Array, color: Color, size: int) -> 
 
 
 static func ovr_color(v: int) -> Color:
-	if v >= 85:
+	if v >= 82:
 		return Color("#22c55e")
-	if v >= 75:
+	if v >= 72:
 		return Color("#84cc16")
-	if v >= 65:
+	if v >= 62:
 		return Color("#eab308")
-	if v >= 55:
+	if v >= 52:
 		return Color("#f97316")
 	return Color("#ef4444")
 

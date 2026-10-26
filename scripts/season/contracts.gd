@@ -13,11 +13,11 @@ extends RefCounted
 ##   doesn't want (see preferred_years); free agents drop their price the longer they go unsigned.
 
 const SALARY_CAP := 150000
-const SALARY_FLOOR := 30000
+const SALARY_FLOOR := 20000
 const MIN_SALARY := 750
 const MAX_SALARY := 20000
 ## Market salary by OVR (interpolated): [ovr, $K].
-const MARKET_CURVE := [[60, 750], [70, 1000], [75, 2000], [80, 4000], [85, 6500], [90, 9000], [95, 14000], [99, 20000]]
+const MARKET_CURVE := [[52, 750], [62, 1000], [67, 2000], [72, 4000], [77, 6500], [82, 9000], [87, 14000], [92, 20000]]
 const MAX_YEARS := 5
 const DEAD_MONEY_SHARE := 0.5
 const YEARS_PREMIUM := 0.06

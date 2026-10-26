@@ -29,15 +29,16 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   East (NYE, DET, BOS, IND, BKN), South (CHA, ATL, MIA, NSH, ORL), Central (ARL, CHI, STL, LOU, LRK) and West
   (LAS, SEA, SDV, REN, DEN) - each with its city, colours, home state, backstory and a **hand-authored 12-man
   roster** (names, ratings, ages, potential, DNA, home states and contracts are fixed; the same in every new
-  franchise). Team OVRs start from 93 (New York Empire) down to 70 (Little Rock Riverhawks). Every team has the same
+  franchise). Team OVRs start from 85 (New York Empire) down to 65 (Little Rock Riverhawks), league average ~75: most players sit between 60 and 85 and only a handful are 90+. Each team carries 2-4 A/B potential players (better teams more); most are C or lower. Every team has the same
   cap, so payrolls (and cap space) differ. `tools/build_league.gd` regenerates `league.json` from the table in
   `league_data.gd` with one fixed seed (only needed if the table changes).
   **Rating shape**: every player has a role-driven profile - one signature group above the rest, his role's core
   groups at his level and one or two clear holes - so nobody is 90+ in every group and 99s are rare. Players
-  21 and under start mostly in the low 60s to mid 70s (a couple of story prodigies excepted); ratings climb
+  21 and under start around 60-66 (a couple of story prodigies excepted); ratings climb
   toward a 26-30 prime, which is where most of the league's best players sit.
 - **Header**: **Sim To** (next to Advance, in season) sims ahead to the next week, the trade deadline, the end of
-  the regular season or the end of the season, stopping early if your roster needs fixing.
+  the regular season or the end of the season, stopping early if your roster needs fixing. A progress overlay
+  shows each week as it sims.
 - **Home tiles**: full-height division standings, a **League Leaders** tile with the leader in kills, assists,
   captures, K/D and hit% (rate stats need half the games of the most-played player), and the playoff picture.
 - **Team select**: a big pane on top shows the hovered/focused team - logo in its colours, division, OVR and
@@ -93,8 +94,8 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   Most classes hide one unlabelled **phenom** (sometimes none or two). A phenom lists one position but grades
   well in every group, so he can play anywhere. AI teams don't know who they are, and the league consensus
   underrates them.
-  Every class also has **standouts**: 3-6 unlabelled **blue chips** (day-one contributors at 76-79 OVR, B/A potential),
-  sometimes (about 1 class in 5) a **generational** talent (80-82 OVR, A potential), and 8-12 **specialists** (one
+  Every class also has **standouts**: 3-6 unlabelled **blue chips** (day-one contributors at 68-72 OVR, B/A potential),
+  sometimes (about 1 class in 5) a **generational** talent (74-77 OVR, A potential), and 8-12 **specialists** (one
   stat in the 84-95 range). Scouting is how you find them.
 - **Prospect news**: 0-2 stories a week during the season (Scouting page, League News → Prospect Watch, Home tiles):
   stock rising, stock falling, and stat notes ("claimed #1 in the country for long range target practice").
@@ -118,7 +119,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   stay under Personnel → Draft.
 - **Contracts & payroll** (`scripts/core/contract.gd`, `scripts/season/contracts.gd`): every soldier has a salary
   and years left. Hard cap of $150M per team per season, the same for everyone (Madden-style); minimum salary
-  $750K always fits. **Salary floor** $30M: a team whose payroll ends a season below it pays the shortfall as a
+  $750K always fits. **Salary floor** $20M: a team whose payroll ends a season below it pays the shortfall as a
   penalty (charged to its cap, reported in News); League → Teams flags teams below the floor. Contracts tick down after the Final. Releasing a player leaves 50% of his remaining money on
   the cap as dead money, split over his remaining years. Personnel → Contracts & Payroll shows cap space, every
   contract and future commitments. Trades have to fit under the cap too.
@@ -173,7 +174,8 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   OVR, potential and point pool.
 - **Offseason XP**: every offseason step is an XP week (100 base XP, scaled by age and potential), and camp week gives 250.
 - **Free agency** (`scripts/season/free_agency.gd`, League → Free Agents): unsigned soldiers with all ratings
-  visible. A big **Available to spend** readout on top shows cap − current salaries (incl. dead money) − pending offers. Bidding: make offers (salary and years) during FA days or in-season. Each round every free agent scores
+  visible. A big **Available to spend** readout on top shows cap − current salaries (incl. dead money) − pending offers. Bidding: make offers (salary and years) during FA days or in-season. In-season (training camp included) a free agent answers your offer on the spot, weighing every current
+  offer: he signs with you, picks another team, or turns you down so you can raise it. In the offseason each round every free agent scores
   his offers and signs the best one that clears his bar. The weights come from his DNA (money ~55-85% vs.
   asking, team quality and playing time the rest), plus a starter promise (a backup treats it as nearly a starting
   job), a loyalty pull toward his former club (scaled by trust) and a security bonus for his preferred length. The
@@ -333,7 +335,9 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
     groups get it is random.
   - **End-of-season re-grade**: MVP +1 (50% chance of +2); a position award, All-League or Rookie of the Year +1;
     performance well above/below the rating rank (impact-per-game percentile vs OVR percentile, ±0.3) ±1;
-    age 30–32 50% chance of −1, 33+ −1 (award winners exempt). Max ±2 a year. Each step up adds 2–6 to a
+    only players 25 and under (or graded D/F) can earn +1 from performance; age 30–32 50% chance of −1, 33+ −1,
+    A/B players 27+ 35% chance of −1; a 5+ week injury 50% chance of −1; 22+ and under 4 games played 45%
+    chance of −1 (award winners exempt). Max ±2 a year. Each step up adds 2–6 to a
     random group's cap; each step down removes 2–6 (never below the current rating).
   - **Aging** (scripts/sim/aging.gd): everyone ages a year each offseason. Past a group's peak age
     (Physicality 28, Injury 29, Accuracy 30, Handling 31, Objective 31, Mentality 33) its stats drop each year, ~1 per stat

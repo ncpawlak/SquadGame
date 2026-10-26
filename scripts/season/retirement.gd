@@ -22,9 +22,9 @@ static func chance(s: Soldier) -> float:
 		return 1.0
 	var c: float = AGE_CHANCE.get(s.age, 0.0)
 	var ovr := s.best_ovr()
-	if ovr >= 78:
+	if ovr >= 72:
 		c *= 0.6
-	elif ovr <= 60:
+	elif ovr <= 54:
 		c *= 1.4
 	return minf(c, 1.0)
 

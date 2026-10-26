@@ -25,6 +25,8 @@ var _scroll: ScrollContainer
 var _root: VBoxContainer
 ## Live match viewer overlay while watching the user's match (hub root hidden meanwhile).
 var viewer: MatchViewer = null
+## True while Sim To is running (input to advance is ignored).
+var simming := false
 
 
 func _ready() -> void:
@@ -72,7 +74,7 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if viewer:
+	if viewer or simming:
 		return
 	var advance_key: bool = event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_SPACE
 	var advance_pad: bool = event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_Y
@@ -295,6 +297,37 @@ func sim_to_targets() -> Array:
 
 ## Sims week after week (the user's matches included) until `target`. Stops early when the
 ## user's roster isn't legal to play.
+## Full-screen "Simming..." overlay with a progress bar (meta: bar, label). Blocks input.
+func _progress_overlay() -> Control:
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.7)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.add_child(center)
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", UiKit.flat(UiKit.PANEL, 10))
+	center.add_child(panel)
+	var m := MarginContainer.new()
+	for side in ["left", "right", "top", "bottom"]:
+		m.add_theme_constant_override("margin_" + side, 28)
+	panel.add_child(m)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 14)
+	m.add_child(v)
+	var label := UiKit.label("Simming...", 22, Color.WHITE)
+	v.add_child(label)
+	var bar := ProgressBar.new()
+	bar.custom_minimum_size = Vector2(520, 28)
+	bar.show_percentage = true
+	v.add_child(bar)
+	dim.set_meta("bar", bar)
+	dim.set_meta("label", label)
+	add_child(dim)
+	return dim
+
+
 func sim_to(target: StringName) -> void:
 	if target == &"week":
 		sim_week()
@@ -306,13 +339,36 @@ func sim_to(target: StringName) -> void:
 			&"regular":
 				return season.phase == Season.PHASE_REGULAR
 		return season.phase != Season.PHASE_OFFSEASON
+	var end_week := season.total_weeks()
+	match target:
+		&"deadline":
+			end_week = Trades.DEADLINE_WEEK - 1
+		&"regular":
+			end_week = season.regular_weeks
+	var start_week := season.week
+	var overlay := _progress_overlay()
+	var bar: ProgressBar = overlay.get_meta("bar")
+	var label: Label = overlay.get_meta("label")
+	bar.max_value = maxi(1, end_week - start_week + 1)
 	var weeks := 0
+	simming = true
+	var blocked := false
 	while keep_going.call():
 		if _roster_blocked():
-			_build_header()
-			return
+			blocked = true
+			break
+		label.text = "Simming %s...  (%d of %d)" % [season.week_label(season.week), weeks + 1, int(bar.max_value)]
+		bar.value = weeks
+		# Two frames so the overlay actually draws before the (blocking) week runs.
+		await get_tree().process_frame
+		await get_tree().process_frame
 		season.sim_week()
 		weeks += 1
+	simming = false
+	overlay.queue_free()
+	if blocked:
+		_build_header()
+		return
 	_autosave()
 	page_stack.clear()
 	tab_index = 0

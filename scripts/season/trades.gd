@@ -223,7 +223,7 @@ func mode(season: Season, team: Team) -> StringName:
 
 ## Convex worth of an effective rating: one star is worth more than two average players.
 static func curve(ovr: float) -> float:
-	return pow(maxf(ovr - 45.0, 0.0) / 10.0, 2.2) * 10.0
+	return pow(maxf(ovr - 37.0, 0.0) / 10.0, 2.2) * 10.0
 
 
 ## What `s` is worth to `team` (receiving him, or giving him up when `giving`).
@@ -268,7 +268,7 @@ func on_block(season: Season, team: Team, s: Soldier) -> bool:
 		return true
 	if team.user_controlled:
 		return block.has(s.id)
-	return mode(season, team) == REBUILDING and s.age >= 30 and s.best_ovr() >= 65
+	return mode(season, team) == REBUILDING and s.age >= 30 and s.best_ovr() >= 58
 
 
 ## How `team` sees a deal: value received (depth-weighted) / value given. >= ACCEPT_MARGIN accepts.
@@ -670,7 +670,7 @@ func offer_to_user(season: Season, rng: RandomNumberGenerator) -> bool:
 	var user := season.user_team()
 	var targets := _user_block(season)
 	if targets.is_empty():
-		targets = user.roster.filter(func(s: Soldier): return tradeable(s) and s.best_ovr() >= 60)
+		targets = user.roster.filter(func(s: Soldier): return tradeable(s) and s.best_ovr() >= 53)
 	if targets.is_empty():
 		return false
 	var ais: Array = season.league.teams.filter(func(t: Team): return not t.user_controlled and patience_of(t) > 0)
@@ -709,7 +709,7 @@ func ai_to_ai(season: Season, rng: RandomNumberGenerator) -> bool:
 	for seller: Team in ais:
 		var shop: Array = seller.roster.filter(func(s: Soldier): return tradeable(s) and on_block(season, seller, s) and not _fresh(season, s))
 		if shop.is_empty():
-			var bench: Array = seller.bench().filter(func(s: Soldier): return tradeable(s) and s.best_ovr() >= 58 and not _fresh(season, s))
+			var bench: Array = seller.bench().filter(func(s: Soldier): return tradeable(s) and s.best_ovr() >= 51 and not _fresh(season, s))
 			if bench.is_empty():
 				continue
 			shop = [bench[rng.randi() % bench.size()]]

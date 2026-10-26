@@ -3553,9 +3553,16 @@ func offer() -> Control:
 		var e := season.fa.make_offer(season, user, s, _offer_salary, _offer_years, _offer_promise)
 		if e != "":
 			hub.app.toast(e)
+		elif season.phase != Season.PHASE_OFFSEASON:
+			# In-season (training camp included) he answers right away.
+			var r := season.fa.decide_now(season, user, s)
+			hub.app.toast(r["text"])
+			if not r["signed"].is_empty():
+				hub._autosave()
+				hub.go_back()
+				return
 		else:
-			hub.app.toast("Offer sent to %s: %s x %d. He answers %s." % [s.full_name(), Contracts.money(_offer_salary), _offer_years,
-				"at the start of next week" if season.phase != Season.PHASE_OFFSEASON else "when you advance"])
+			hub.app.toast("Offer sent to %s: %s x %d. He answers when you advance." % [s.full_name(), Contracts.money(_offer_salary), _offer_years])
 		rebuild.call(), 18)
 	submit.disabled = err != ""
 	actions.add_child(submit)

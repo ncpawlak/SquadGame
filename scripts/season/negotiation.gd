@@ -361,7 +361,7 @@ func _build_arguments() -> Array:
 					"evidence": clampf((gap - 0.1) / 0.4, 0.15, 1.0) * sample,
 					"evidence_text": "Impact/match ranks %s percentile among %ss; his OVR ranks %s (%d matches)." % [
 						_ord(roundi(imp_pct * 100)), Scheme.ROLE_NAMES[my_role], _ord(roundi(ovr_pct * 100)), mine["matches"]],
-					"fit": 0.6 + 0.6 * d.n(&"savvy") - 0.9 * (1.0 - temper_n) * (1.0 if s.best_ovr() >= 75 else 0.5)})
+					"fit": 0.6 + 0.6 * d.n(&"savvy") - 0.9 * (1.0 - temper_n) * (1.0 if s.best_ovr() >= 68 else 0.5)})
 
 	# Injury time this season.
 	var weeks := 0

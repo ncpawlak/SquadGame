@@ -2,13 +2,15 @@ class_name SeasonReview
 extends RefCounted
 ## End-of-season review: league awards (MVP, best Frontman/Center/Flex, Rookie of the Year,
 ## All-League team) and the yearly potential re-grade. Awards and outplaying your rating raise a
-## soldier's potential grade; underperforming and age lower it. Grade changes also move the
+## soldier's potential grade; underperforming, age, riding the bench and major injuries lower it. Grade changes also move the
 ## hidden group caps (up: more room to grow, down: less).
 
 const MIN_MATCHES := 4
 ## Performance percentile minus rating percentile needed to move a grade.
 const PERFORMANCE_GAP := 0.3
 const MAX_GRADE_CHANGE := 2
+## Injury length (weeks) that can cost a potential grade.
+const MAJOR_INJURY_WEEKS := 5
 const ALL_LEAGUE_ROLES := [Scheme.Role.FRONTMAN, Scheme.Role.FRONTMAN, Scheme.Role.CENTER, Scheme.Role.FLEX, Scheme.Role.FLEX]
 
 var year: int
@@ -133,7 +135,8 @@ static func run(season: Season, rng: RandomNumberGenerator) -> SeasonReview:
 			var so: Soldier = rows[i]["soldier"]
 			var perf_pct := 1.0 - float(i) / (n - 1)
 			var ovr_pct := 1.0 - float(by_ovr.find(rows[i])) / (n - 1)
-			if perf_pct - ovr_pct > PERFORMANCE_GAP:
+			# Only young players earn a better grade from play alone; B/A stays rare.
+			if perf_pct - ovr_pct > PERFORMANCE_GAP and (so.age <= 25 or so.potential < 2):
 				_bump(bumps, so, 1, "Outplayed his rating")
 			elif ovr_pct - perf_pct > PERFORMANCE_GAP:
 				_bump(bumps, so, -1, "Underperformed")
@@ -147,6 +150,25 @@ static func run(season: Season, rng: RandomNumberGenerator) -> SeasonReview:
 				_bump(bumps, so, -1, "Age")
 			elif so.age >= 30 and rng.randf() < 0.5:
 				_bump(bumps, so, -1, "Age")
+			elif so.age >= 27 and so.potential >= 3 and rng.randf() < 0.35:
+				_bump(bumps, so, -1, "Nearing his peak")
+
+	# Development stalls: riding the bench (a year or two usually costs a grade) and big injuries.
+	var played := {}
+	for r in rows:
+		played[r["soldier"]] = int(r["matches"])
+	var big_injury := {}
+	for inj in season.injury_log:
+		if int(inj["weeks"]) >= MAJOR_INJURY_WEEKS:
+			big_injury[inj["soldier"]] = true
+	for t in season.league.teams:
+		for so in t.roster:
+			if so.potential < 2 or so == mvp["soldier"] or honored.has(so):
+				continue
+			if big_injury.has(so) and rng.randf() < 0.5:
+				_bump(bumps, so, -1, "Major injury")
+			elif so.age >= 22 and int(played.get(so, 0)) < season.regular_weeks / 3 and rng.randf() < 0.45:
+				_bump(bumps, so, -1, "Didn't play")
 
 	for so: Soldier in bumps:
 		var delta := clampi(int(bumps[so]["delta"]), -MAX_GRADE_CHANGE, MAX_GRADE_CHANGE)

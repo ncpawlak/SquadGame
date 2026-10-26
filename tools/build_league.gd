@@ -46,16 +46,16 @@ const STYLE := {
 ## Story players: [team, slot, first, last, callsign, age, ovr, potential, salary $K (0 = market),
 ## years, draft_year, dna overrides].
 const STORIES := [
-	["DET", 1, "Marcus", "Hale", "Anvil", 35, 93, 0, 13500, 1, 0, {"winning": 97, "loyalty": 94, "temperament": 85}],
-	["BKN", 2, "Jalen", "Brooks", "Prodigy", 20, 83, 4, 4800, 3, 2025, {"playing_time": 80}],
-	["ORL", 0, "Mateo", "Rivera", "Spark", 20, 78, 4, 4200, 3, 2025, {"money": 70}],
-	["NYE", 0, "Andre", "Mercer", "Kingpin", 28, 96, 2, 20000, 4, 0, {"money": 92}],
-	["NYE", 1, "Viktor", "Thorne", "Czar", 27, 95, 2, 19500, 3, 0, {"money": 85}],
-	["LAS", 2, "Dante", "Cruz", "Hollywood", 26, 95, 3, 20000, 4, 0, {"money": 90, "temperament": 22}],
-	["BOS", 1, "Silas", "Brennan", "Professor", 33, 92, 1, 12500, 2, 0, {"winning": 92}],
-	["SEA", 1, "Kenji", "Ueda", "Oracle", 23, 88, 4, 8000, 4, 0, {}],
-	["ORL", 5, "Bryce", "Kendall", "Payday", 31, 75, 1, 12500, 3, 0, {"money": 95}],
-	["ORL", 6, "Grant", "Holloway", "Ledger", 32, 73, 0, 11000, 2, 0, {"money": 90, "security": 85}],
+	["DET", 1, "Marcus", "Hale", "Anvil", 35, 87, 0, 13500, 1, 0, {"winning": 97, "loyalty": 94, "temperament": 85}],
+	["BKN", 2, "Jalen", "Brooks", "Prodigy", 20, 76, 4, 4800, 3, 2025, {"playing_time": 80}],
+	["ORL", 0, "Mateo", "Rivera", "Spark", 20, 71, 4, 4200, 3, 2025, {"money": 70}],
+	["NYE", 0, "Andre", "Mercer", "Kingpin", 28, 92, 2, 20000, 4, 0, {"money": 92}],
+	["NYE", 1, "Viktor", "Thorne", "Czar", 27, 89, 2, 19500, 3, 0, {"money": 85}],
+	["LAS", 2, "Dante", "Cruz", "Hollywood", 26, 91, 3, 20000, 4, 0, {"money": 90, "temperament": 22}],
+	["BOS", 1, "Silas", "Brennan", "Professor", 33, 86, 1, 12500, 2, 0, {"winning": 92}],
+	["SEA", 1, "Kenji", "Ueda", "Oracle", 23, 82, 4, 8000, 4, 0, {}],
+	["ORL", 5, "Bryce", "Kendall", "Payday", 31, 67, 1, 12500, 3, 0, {"money": 95}],
+	["ORL", 6, "Grant", "Holloway", "Ledger", 32, 65, 0, 11000, 2, 0, {"money": 90, "security": 85}],
 ]
 
 var rng := RandomNumberGenerator.new()
@@ -75,7 +75,7 @@ func _init() -> void:
 	for i in 30:
 		var roles := [Scheme.Role.FRONTMAN, Scheme.Role.CENTER, Scheme.Role.FLEX]
 		var age := rng.randi_range(22, 34)
-		var s := _make(roles[i % 3], rng.randi_range(64, 77), age, {})
+		var s := _make(roles[i % 3], rng.randi_range(56, 70), age, {})
 		s.home_state = LeagueData.random_state(rng)
 		league.free_agents.append(s)
 	league.ensure_callsigns()
@@ -145,14 +145,14 @@ func _build_roster(t: Team, row: Array) -> void:
 	var style: Dictionary = STYLE[t.abbrev]
 	var target: int = row[7]
 	var targets: Array = []
-	var top_cap := 95.0 if target >= 85 else 94.0
+	var top_cap := 88.0 if target >= 80 else 86.0
 	var story_slots := {}
 	for st in STORIES:
 		if st[0] == t.abbrev:
 			story_slots[st[1]] = st
 	for i in SLOTS.size():
 		var off: float = SLOTS[i][1] * float(style["spread"])
-		targets.append(clampf(target + off + rng.randfn(0.0, 1.0), 55.0, top_cap))
+		targets.append(clampf(target + off + rng.randfn(0.0, 1.0), 50.0, top_cap))
 	for i in story_slots:
 		targets[i] = float(story_slots[i][6])
 	# Ages first: young players land in the lowest slots and are held to the age curve, so a
@@ -161,7 +161,7 @@ func _build_roster(t: Team, row: Array) -> void:
 	var free: Array = []
 	for i in SLOTS.size():
 		if not story_slots.has(i):
-			ages[i] = clampi(roundi(float(style["age"]) + rng.randfn(0.0, 3.0) - (1.5 if i >= 8 else 0.0)), 23 if target >= 88 else 19, 36)
+			ages[i] = clampi(roundi(float(style["age"]) + rng.randfn(0.0, 3.0) - (1.5 if i >= 8 else 0.0)), 23 if target >= 82 else 19, 36)
 			free.append(i)
 	var by_age: Array = free.map(func(i): return ages[i])
 	by_age.sort()
@@ -195,7 +195,7 @@ func _build_roster(t: Team, row: Array) -> void:
 			break
 		var fix := (target - mean) * SLOTS.size() / adj.size()
 		for i in adj:
-			targets[i] = clampf(targets[i] + fix, 55.0, top_cap)
+			targets[i] = clampf(targets[i] + fix, 50.0, top_cap)
 	for i in SLOTS.size():
 		var role: Scheme.Role = SLOTS[i][0]
 		var s: Soldier
@@ -222,6 +222,7 @@ func _build_roster(t: Team, row: Array) -> void:
 			s.home_state = t.home_state if r < 0.25 else (LeagueData.random_state(rng, t.division) if r < 0.55 else LeagueData.random_state(rng))
 			_contract(s, float(style["pay"]))
 		t.roster.append(s)
+	_set_potentials(t, target, story_slots)
 	# Keep everyone under the cap (the big spenders sit just below it).
 	var total := 0
 	for s in t.roster:
@@ -234,12 +235,40 @@ func _build_roster(t: Team, row: Array) -> void:
 	t.auto_lineup()
 
 
-## Highest OVR a non-story player of this age starts at: low 60s-mid 70s through 21, then
+## Most players grade C or lower: each team carries 2-4 A/B talents (better teams more),
+## favouring the youngest and best. Story players keep their authored grades.
+func _set_potentials(t: Team, target: int, story_slots: Dictionary) -> void:
+	var want := clampi(2 + roundi((target - 65) / 10.0), 2, 4)
+	var stories: Array = story_slots.keys().map(func(i): return t.roster[i])
+	var have := t.roster.filter(func(s: Soldier): return s.potential >= 3).size()
+	var pool: Array = t.roster.filter(func(s: Soldier): return not stories.has(s))
+	var value := func(s: Soldier) -> float: return s.best_ovr() * 0.3 - s.age * 1.5 + s.potential
+	pool.sort_custom(func(a: Soldier, b: Soldier): return value.call(a) > value.call(b))
+	# Too many: demote the least promising A/B players.
+	for k in range(pool.size() - 1, -1, -1):
+		if have <= want:
+			break
+		var s: Soldier = pool[k]
+		if s.potential >= 3:
+			s.potential = 3 - 1 - (1 if rng.randf() < 0.3 else 0)
+			PlayerGenerator.roll_caps(s, rng)
+			have -= 1
+	# Too few: promote the most promising.
+	for s: Soldier in pool:
+		if have >= want:
+			break
+		if s.potential < 3:
+			s.potential = 3 if rng.randf() < 0.75 else Soldier.POTENTIAL_A
+			PlayerGenerator.roll_caps(s, rng)
+			have += 1
+
+
+## Highest OVR a non-story player of this age starts at: around 60-66 through 21, then
 ## climbing into the prime (26-30), with a little noise.
 func _age_cap(age: int) -> float:
 	var base := 99.0
 	if age <= 25:
-		base = [66.0, 66.0, 70.0, 74.0, 80.0, 85.0, 90.0, 94.0][clampi(age - 18, 0, 7)]
+		base = [60.0, 60.0, 63.0, 66.0, 71.0, 76.0, 81.0, 85.0][clampi(age - 18, 0, 7)]
 	return base + rng.randfn(0.0, 2.5)
 
 

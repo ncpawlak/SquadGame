@@ -78,9 +78,9 @@ static func generate(rng: RandomNumberGenerator, id: int, role: Scheme.Role, qua
 
 ## Chance weights for F, D, C, B, A by age band: young players skew high.
 const POTENTIAL_WEIGHTS := [
-	[22, [5, 15, 35, 30, 15]],
-	[26, [10, 25, 35, 22, 8]],
-	[30, [25, 35, 30, 8, 2]],
+	[22, [15, 32, 40, 10, 3]],
+	[26, [18, 32, 37, 10, 3]],
+	[30, [30, 36, 28, 5, 1]],
 	[99, [50, 35, 13, 2, 0]],
 ]
 ## Cap headroom multiplier per potential grade (F..A).
@@ -103,7 +103,7 @@ static func roll_potential(rng: RandomNumberGenerator, age: int) -> int:
 
 
 ## Highest cap allowed outside a soldier's top ELITE_GROUPS groups: everyone keeps a hole or two.
-const NON_ELITE_CAP := 89
+const NON_ELITE_CAP := 84
 const ELITE_GROUPS := 2
 
 
