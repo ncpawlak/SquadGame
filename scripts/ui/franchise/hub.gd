@@ -756,58 +756,49 @@ func _todo_tiles(team: Team) -> Array:
 	return keyed.map(func(k): return k[2])
 
 
-## Top of Home: to-do grid on the left, Advance on the right; next match and Last Result below.
+## Top of Home: this week's to-dos stacked on the left; the current week (match pane or status)
+## on the right, with Advance and Last Result under it.
 func _home_top() -> Control:
 	var team := season.user_team()
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 14)
 	var top := HBoxContainer.new()
 	top.add_theme_constant_override("separation", 14)
 	var left := VBoxContainer.new()
-	left.add_theme_constant_override("separation", 8)
+	left.name = "TodoColumn"
+	left.add_theme_constant_override("separation", 10)
 	left.add_child(UiKit.label("THIS WEEK", 15, UiKit.MUTED))
-	var grid := GridContainer.new()
-	grid.name = "TodoGrid"
-	grid.columns = 3
-	grid.add_theme_constant_override("h_separation", 14)
-	grid.add_theme_constant_override("v_separation", 14)
-	var todos := _todo_tiles(team)
-	for t in todos:
-		grid.add_child(t)
-	left.add_child(grid)
+	for t in _todo_tiles(team):
+		left.add_child(t)
 	top.add_child(left)
-	var right := VBoxContainer.new()
-	right.add_theme_constant_override("separation", 8)
-	right.add_child(UiKit.label("NEXT", 15, UiKit.MUTED))
-	var rows := maxi(1, ceili(todos.size() / 3.0))
-	var adv := UiKit.tile(_advance_text().replace("  >>", ""), _advance_blurb(), Vector2(300, rows * SMALL.y + (rows - 1) * 14), UiKit.ACCENT, advance)
-	adv.name = "AdvanceTile"
-	right.add_child(adv)
-	top.add_child(right)
-	v.add_child(top)
 
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 14)
+	var right := VBoxContainer.new()
+	right.add_theme_constant_override("separation", 14)
+	right.add_child(UiKit.label(_phase_text(), 15, UiKit.MUTED))
 	var m := season.next_match_for(team) if season.phase != Season.PHASE_OFFSEASON and not season.preseason_camp else null
 	if m != null and m.week == season.week:
-		h.add_child(_match_pane(m, team))
+		right.add_child(_match_pane(m, team))
 	else:
 		var t := _next_match_tile(team)
 		t.custom_minimum_size = Vector2(900, 330)
-		h.add_child(t)
+		right.add_child(t)
+	var under := HBoxContainer.new()
+	under.add_theme_constant_override("separation", 14)
+	var adv := UiKit.tile(_advance_text().replace("  >>", ""), _advance_blurb(), Vector2(443, 158), UiKit.ACCENT, advance)
+	adv.name = "AdvanceTile"
+	under.add_child(adv)
 	var last := _last_played(team)
 	if last:
 		var won := last.winner() == team
 		var body := "[font_size=28][color=%s]%s[/color] %s[/font_size]  %s %s\n%s" % [
 			UiKit.hex(UiKit.GOOD if won else UiKit.BAD), "W" if won else "L", _score_for(last, team),
 			"vs" if last.home == team else "@", UiKit.logo_bb(last.opponent_of(team), 26) + UiKit.esc(last.opponent_of(team).abbrev), season.week_label(last.week)]
-		h.add_child(UiKit.tile("Last Result", body, Vector2(300, 330), UiKit.INFO,
+		under.add_child(UiKit.tile("Last Result", body, Vector2(443, 158), UiKit.INFO,
 			func(): open("Match Recap", func(): return pages.recap(last))))
 	else:
-		h.add_child(UiKit.tile("Last Result", "No matches played yet.", Vector2(300, 330), UiKit.INFO,
+		under.add_child(UiKit.tile("Last Result", "No matches played yet.", Vector2(443, 158), UiKit.INFO,
 			func(): app.toast("Play a match first.")))
-	v.add_child(h)
-	return v
+	right.add_child(under)
+	top.add_child(right)
+	return top
 
 
 ## Rosters can run over the limit (trades, draft picks, extra signings) or short (trades,
