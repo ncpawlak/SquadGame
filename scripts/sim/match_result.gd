@@ -52,8 +52,11 @@ func tdm_points() -> Array[int]:
 
 
 ## "50-38", "2:00-1:12", "4-2" for one game.
-static func game_score_text(game: Dictionary) -> String:
+## Team 0 first; `flip` lists team 1 first.
+static func game_score_text(game: Dictionary, flip := false) -> String:
 	var s: Array = game["score"]
+	if flip:
+		s = [s[1], s[0]]
 	if game["mode"] == MatchEngine.MODE_KOTH:
 		return "%s-%s" % [MatchEngine._fmt_secs(s[0]), MatchEngine._fmt_secs(s[1])]
 	return "%d-%d" % [s[0], s[1]]

@@ -115,14 +115,15 @@ func select_tab(i: int) -> void:
 	_show_current()
 
 
-func open(title: String, build: Callable) -> void:
-	page_stack.append({"title": title, "build": build})
+## `no_back`: the page has its own exit (e.g. Continue), so the header hides "< Back".
+func open(title: String, build: Callable, no_back := false) -> void:
+	page_stack.append({"title": title, "build": build, "no_back": no_back})
 	_show_current()
 
 
 ## Replace the top page (e.g. paging between weeks or refreshing after an action) without
 ## growing the back stack. Keeps the scroll position and the focused item.
-func replace(title: String, build: Callable) -> void:
+func replace(title: String, build: Callable, no_back := false) -> void:
 	var focus_index := -1
 	var scroll_pos := 0
 	if _scroll and is_instance_valid(_scroll):
@@ -130,7 +131,7 @@ func replace(title: String, build: Callable) -> void:
 		focus_index = app.focusables(_content).find(get_viewport().gui_get_focus_owner())
 	if not page_stack.is_empty():
 		page_stack.pop_back()
-	page_stack.append({"title": title, "build": build})
+	page_stack.append({"title": title, "build": build, "no_back": no_back})
 	_show_current(focus_index, scroll_pos)
 
 
@@ -458,9 +459,10 @@ func _page_frame(title: String, body: Control) -> Control:
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 16)
 	v.add_child(head)
-	var back := UiKit.button("< Back", go_back)
-	back.set_meta(&"skip_autofocus", true)
-	head.add_child(back)
+	if not page_stack[-1].get("no_back", false):
+		var back := UiKit.button("< Back", go_back)
+		back.set_meta(&"skip_autofocus", true)
+		head.add_child(back)
 	var crumbs := "%s  /  " % TABS[tab_index].to_upper()
 	for i in page_stack.size() - 1:
 		crumbs += "%s  /  " % page_stack[i]["title"]
@@ -647,7 +649,7 @@ func _tab_view(i: int) -> Control:
 ## Done this week -> the results; otherwise the intensity screen (Confirm & Train).
 func open_weekly_training() -> void:
 	if season.user_trained():
-		open("Training Results", pages.training_results)
+		open("Training Results", pages.training_results, true)
 	else:
 		open("Training", pages.training)
 
@@ -740,10 +742,19 @@ func _todo_tiles(team: Team) -> Array:
 	return keyed.map(func(k): return k[2])
 
 
-## Top of Home: this week's to-dos stacked on the left; the current week (match pane or status)
-## on the right, with Advance and Last Result under it.
+## Week shown on Home: 0 = the current week, else a week browsed with the arrows on the week label.
+var home_week := 0
+var _home_anchor := ""
+
+
+## Top of Home: this week's to-dos stacked on the left; on the right the week browser (arrows,
+## advance button) over the shown week (match pane, final score or status).
 func _home_top() -> Control:
 	var team := season.user_team()
+	var anchor := "%d|%d|%s|%s|%s" % [season.year, season.week, season.phase, season.offseason_stage, season.preseason_camp]
+	if anchor != _home_anchor:
+		_home_anchor = anchor
+		home_week = 0
 	var top := HBoxContainer.new()
 	top.add_theme_constant_override("separation", 14)
 	var left := VBoxContainer.new()
@@ -755,34 +766,164 @@ func _home_top() -> Control:
 	top.add_child(left)
 
 	var right := VBoxContainer.new()
-	right.add_theme_constant_override("separation", 14)
-	right.add_child(UiKit.label(_phase_text(), 15, UiKit.MUTED))
-	var m := season.next_match_for(team) if season.phase != Season.PHASE_OFFSEASON and not season.preseason_camp else null
-	if m != null and m.week == season.week:
-		right.add_child(_match_pane(m, team))
-	else:
-		var t := _next_match_tile(team)
-		t.custom_minimum_size = Vector2(900, 330)
-		right.add_child(t)
-	var under := HBoxContainer.new()
-	under.add_theme_constant_override("separation", 14)
-	var adv := UiKit.tile(_advance_text().replace("  >>", ""), _advance_blurb(), Vector2(443, 158), UiKit.ACCENT, advance)
-	adv.name = "AdvanceTile"
-	under.add_child(adv)
-	var last := _last_played(team)
-	if last:
-		var won := last.winner() == team
-		var body := "[font_size=28][color=%s]%s[/color] %s[/font_size]  %s %s\n%s" % [
-			UiKit.hex(UiKit.GOOD if won else UiKit.BAD), "W" if won else "L", _score_for(last, team),
-			"vs" if last.home == team else "@", UiKit.logo_bb(last.opponent_of(team), 26) + UiKit.esc(last.opponent_of(team).abbrev), season.week_label(last.week)]
-		under.add_child(UiKit.tile("Last Result", body, Vector2(443, 158), UiKit.INFO,
-			func(): open("Match Recap", func(): return pages.recap(last))))
-	else:
-		under.add_child(UiKit.tile("Last Result", "No matches played yet.", Vector2(443, 158), UiKit.INFO,
-			func(): app.toast("Play a match first.")))
-	right.add_child(under)
+	right.add_theme_constant_override("separation", 10)
+	var view := _home_week_view(team)
+	right.add_child(_week_nav(view.get_meta(&"has_play", false)))
+	right.add_child(view)
 	top.add_child(right)
 	return top
+
+
+## The week Home shows when not browsing: the current week in season, 0 in preseason camp
+## (Week 1 is next) and one past the final in the offseason.
+func _now_week() -> int:
+	if season.preseason_camp:
+		return 0
+	if season.phase == Season.PHASE_OFFSEASON:
+		return season.total_weeks() + 1
+	return season.week
+
+
+func _shown_week() -> int:
+	return home_week if home_week != 0 else _now_week()
+
+
+func browse_week(dir: int) -> void:
+	var w := clampi(_shown_week() + dir, 1, season.total_weeks())
+	home_week = 0 if w == _now_week() else w
+	select_tab(0)
+
+
+## "< WEEK 3 of 12 >" plus, unless the match pane carries it, the advance button.
+func _week_nav(pane_has_play: bool) -> Control:
+	var row := HBoxContainer.new()
+	row.name = "WeekNav"
+	row.add_theme_constant_override("separation", 10)
+	var w := _shown_week()
+	var prev := UiKit.button("  <  ", func(): browse_week(-1), 18)
+	prev.name = "WeekPrev"
+	prev.disabled = w <= 1
+	prev.tooltip_text = "Previous week"
+	row.add_child(prev)
+	var text := _phase_text()
+	if home_week != 0:
+		text = ("WEEK %d of %d" % [w, season.regular_weeks]) if w <= season.regular_weeks else "PLAYOFFS - %s" % season.week_label(w).to_upper()
+	var lbl := UiKit.label(text, 17, Color.WHITE if home_week == 0 else UiKit.INFO)
+	lbl.custom_minimum_size.x = 300
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lbl.size_flags_vertical = Control.SIZE_FILL
+	row.add_child(lbl)
+	var next := UiKit.button("  >  ", func(): browse_week(1), 18)
+	next.name = "WeekNext"
+	next.disabled = w >= season.total_weeks()
+	next.tooltip_text = "Next week"
+	row.add_child(next)
+	if home_week != 0:
+		row.add_child(UiKit.button("Back to %s" % ("this week" if _now_week() >= 1 and _now_week() <= season.total_weeks() else "today"), func():
+			home_week = 0
+			select_tab(0), 14))
+	var gap := Control.new()
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(gap)
+	if not pane_has_play:
+		row.add_child(_play_button())
+	return row
+
+
+## The accent advance button ("PLAY WEEK 3 >>", "START 2027 SEASON >>", ...).
+func _play_button() -> Button:
+	var b := UiKit.button(_advance_text(), advance, 17)
+	b.name = "PlayButton"
+	UiKit.style_button(b, UiKit.ACCENT.darkened(0.45), UiKit.ACCENT, 8)
+	b.add_theme_color_override("font_color", Color.WHITE)
+	b.custom_minimum_size = Vector2(240, 42)
+	b.tooltip_text = _advance_blurb().replace("[color=white]", "").replace("[color=#f59e0b]", "").replace("[color=#ef4444]", "").replace("[/color]", "")
+	return b
+
+
+## The shown week's pane (900 x 330). Meta has_play: the pane carries the advance button.
+func _home_week_view(team: Team) -> Control:
+	var view: Control
+	if home_week == 0:
+		var m := season.next_match_for(team) if season.phase != Season.PHASE_OFFSEASON and not season.preseason_camp else null
+		if m != null and m.week == season.week:
+			view = _match_pane(m, team)
+			view.set_meta(&"has_play", true)
+		else:
+			view = _next_match_tile(team)
+			view.custom_minimum_size = Vector2(900, 330)
+		return view
+	var w := home_week
+	var mine: ScheduledMatch = null
+	for x in season.matches_for_week(w):
+		if x.involves(team):
+			mine = x
+	if mine != null and mine.is_played():
+		return _result_pane(mine, team)
+	if mine != null:
+		return _match_pane(mine, team)
+	var body := ""
+	if w <= season.regular_weeks:
+		body = "[font_size=30][color=white]BYE WEEK[/color][/font_size]\nNo match in %s. The squad trains." % season.week_label(w)
+	elif season.matches_for_week(w).is_empty():
+		body = "[font_size=30][color=white]TO BE DECIDED[/color][/font_size]\n%s matchups are set by earlier playoff results." % season.week_label(w)
+	else:
+		body = "[font_size=30][color=white]NO MATCH[/color][/font_size]\n%s goes on without you." % season.week_label(w)
+	var t := UiKit.tile(season.week_label(w), body, Vector2(900, 330), UiKit.MUTED, func(): open("Scores & Schedule", func(): return pages.scores(w)))
+	return t
+
+
+## A played week on Home: final score, game-by-game results, MVP and a Box Score button.
+func _result_pane(m: ScheduledMatch, team: Team) -> Control:
+	var opp := m.opponent_of(team)
+	var won := m.winner() == team
+	var pane := PanelContainer.new()
+	var sb := UiKit.flat(UiKit.PANEL, 14, 1, UiKit.LINE)
+	sb.content_margin_left = 24
+	sb.content_margin_right = 24
+	sb.content_margin_top = 16
+	sb.content_margin_bottom = 16
+	pane.add_theme_stylebox_override("panel", sb)
+	pane.custom_minimum_size = Vector2(900, 330)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	pane.add_child(v)
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 12)
+	var wk := UiKit.label("%s   ·   FINAL   ·   %s" % [season.week_label(m.week).to_upper(), ("HOME vs " if m.home == team else "AWAY @ ") + opp.name.to_upper()], 14, UiKit.MUTED)
+	wk.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(wk)
+	var box := UiKit.button("Box Score", func(): open("Match Recap", func(): return pages.recap(m)), 14)
+	box.name = "BoxScoreButton"
+	top.add_child(box)
+	v.add_child(top)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 20)
+	row.add_child(_team_block(team, false))
+	var mid := VBoxContainer.new()
+	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mid.add_theme_constant_override("separation", 4)
+	var res := UiKit.label("VICTORY" if won else "DEFEAT", 22, UiKit.GOOD if won else UiKit.BAD)
+	res.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mid.add_child(res)
+	var sc := UiKit.label("%d  -  %d" % [m.games_for(team), m.games_for(opp)], 54, Color.WHITE)
+	sc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mid.add_child(sc)
+	for g in m.result.games:
+		var gw: Team = m.result.teams[g["winner"]]
+		var gl := UiKit.rich("[center][color=#8b97ab]GAME %d  %s[/color]   [color=white]%s %s %s[/color]   [color=%s]%s[/color][/center]" % [
+			g["number"], MatchEngine.MODE_SHORT[g["mode"]], team.abbrev, MatchResult.game_score_text(g, m.result.teams[0] != team), opp.abbrev,
+			UiKit.hex(UiKit.GOOD if gw == team else UiKit.BAD), gw.abbrev], 15)
+		mid.add_child(gl)
+	row.add_child(mid)
+	row.add_child(_team_block(opp, true))
+	v.add_child(row)
+	var mvp := pages._soldier(m.result.mvp_id)
+	if mvp != null:
+		var mt := pages._team_of(mvp)
+		v.add_child(UiKit.rich("[color=#8b97ab]MVP[/color]   [color=#f59e0b]%s[/color]%s" % [UiKit.esc(mvp.display_name()), ("  (%s)" % mt.abbrev) if mt else ""], 15))
+	return pane
 
 
 ## Rosters can run over the limit (trades, draft picks, extra signings) or short (trades,
@@ -829,6 +970,8 @@ func _match_pane(m: ScheduledMatch, team: Team) -> Control:
 	wk.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(wk)
 	top.add_child(UiKit.button("Match Preview", func(): open("Match Preview", func(): return pages.preview(m)), 14))
+	if m.week == season.week and not m.is_played() and season.phase != Season.PHASE_OFFSEASON and not season.preseason_camp:
+		top.add_child(_play_button())
 	v.add_child(top)
 
 	var row := HBoxContainer.new()
@@ -1554,18 +1697,6 @@ func _advance_blurb() -> String:
 	if err != "":
 		return "[color=#ef4444]%s[/color]" % err
 	return "Train, play every match this week and award XP.\n\n[color=white]Space / Y[/color]"
-
-
-func _last_played(team: Team) -> ScheduledMatch:
-	var last: ScheduledMatch = null
-	for m in season.matches_for(team):
-		if m.is_played():
-			last = m
-	return last
-
-
-func _score_for(m: ScheduledMatch, team: Team) -> String:
-	return "%d-%d" % [m.games_for(team), m.games_for(m.opponent_of(team))]
 
 
 ## The user's division (or the whole league when there are no divisions).

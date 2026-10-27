@@ -44,7 +44,10 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   shows each week as it sims.
 - **Home layout**: **This Week** to-dos on the left (Roster Cuts / Spots Open, Trade Offers, Re-sign whenever the
   re-sign window is open, Draft Room, Free Agency, Training Camp, Weekly Training, Upgrade Players (only when someone
-  can level up), Scout (in season), Adjust Lineup); the current week on the right (match pane, Advance, Last Result).
+  can level up), Scout (in season), Adjust Lineup); the current week on the right. **<** / **>** arrows on the
+  "WEEK n of 12" bar browse back and forward through the season and playoffs: past weeks show the final score, each
+  game and the MVP with a Box Score button; future weeks show the matchup preview. **PLAY WEEK X** sits in the match
+  pane's top bar next to Match Preview.
   Urgent to-dos come first in orange with a "!"; finished ones are greyed out with a check.
 - **Home news box**: a fixed-height scrolling feed under everything, filtered by All / Around the League (results,
   Player of the Week, wire stories, trades, signings, injuries, player stories, retirements) / Prospect News /
@@ -222,9 +225,15 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   per game (min 4 games). During the season the page shows the MVP race. It also lists potential changes and
   this year's aging declines.
 - **Home**: a big pane for this week's match (both teams' OVR and record, starter averages per group plus morale and
-  energy as head-to-head bars, and two impact players per side), the Advance and Last Result tiles, a row of this
-  week's actions (Weekly Training, Progress Players, Adjust Lineup, Roster, Scout, Free Agents, Contracts), then
-  League News tiles (results with MVPs, awards, signings, injuries, retirements).
+  energy as head-to-head bars, and two impact players per side), with the This Week to-dos and news box described
+  above.
+- **Week results / box score**: the final score and each game on top, then away and home panes side by side with
+  all five players' K/D/A, damage, hit%, headshots and hill time (click a player for their card) and a Play-by-Play
+  button that opens the full event log. Around the League below lists every match on one line, then FA signings.
+  Training Results ends with a Continue button back to Home.
+- **Your team stands out**: your team and players get a gold-bordered row in standings, league leaders, league and
+  team stats, mock draft, draft order, awards and rankings. The Trade Center shows the partner's full name in a
+  fixed-size box.
 - **Portraits** are procedurally generated per soldier (`Look` + `Portrait`): skin tone; headgear (boonie hat,
   infantry helmet, helmet with goggles, beanie, beanie with headset, forward/backward ball cap or hair); eyewear
   (clear/tinted goggles, sunglasses, night vision on helmets, or brown/black/blue eyes); face (normal, balaclava,

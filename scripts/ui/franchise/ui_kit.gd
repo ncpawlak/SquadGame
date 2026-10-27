@@ -13,6 +13,8 @@ const MUTED := Color("#8b97ab")
 const GOOD := Color("#22c55e")
 const BAD := Color("#ef4444")
 const INFO := Color("#38bdf8")
+## Row background for the user's own team / players in league-wide tables (tables also give it an accent border).
+const MINE := Color("#3d2c08")
 
 
 static func flat(color: Color, radius := 8, border := 0, border_color := Color.TRANSPARENT) -> StyleBoxFlat:
@@ -153,8 +155,11 @@ static func table(headers: Array, rows: Array, col_widths: Array, highlight_rows
 		var bg: Color = highlight_rows.get(i, PANEL if i % 2 == 0 else PANEL.lightened(0.035))
 		var b := Button.new()
 		style_button(b, bg, ACCENT, 4)
+		var mine := bg == MINE
+		if mine:
+			b.add_theme_stylebox_override("normal", flat(MINE, 4, 2, ACCENT.darkened(0.15)))
 		b.custom_minimum_size = Vector2(width, 36)
-		var hb := _cells(rows[i], col_widths, TEXT, 16)
+		var hb := _cells(rows[i], col_widths, Color.WHITE if mine else TEXT, 16)
 		hb.set_anchors_preset(Control.PRESET_FULL_RECT)
 		hb.offset_left = 14
 		hb.offset_right = -14
