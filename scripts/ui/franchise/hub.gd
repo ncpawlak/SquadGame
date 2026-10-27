@@ -712,6 +712,10 @@ func _tab_view(i: int) -> Control:
 		v.add_child(_team_top())
 		v.add_child(_team_cards())
 		v.add_child(_soon_strip())
+	elif i == 2:
+		v.add_child(_league_top())
+		v.add_child(_league_cards())
+		v.add_child(_league_strip())
 	var sections: Array = [_home_sections, _team_sections, _league_sections, _personnel_sections, _settings_sections][i].call()
 	var n := 0
 	for sec in sections:
@@ -1880,36 +1884,337 @@ func _soon_strip() -> Control:
 	return h
 
 
+## The League tab is a custom layout (see _tab_view): the Standings / Scores / Leaders / Playoffs
+## pane, live cards, a link strip. No tile sections.
 func _league_sections() -> Array:
-	return [
-		["SEASON", [
-			UiKit.tile("Standings", _mini_standings(), TALL, Color("#a855f7"), open_standings),
-			UiKit.tile("Schedule", "Full league schedule by week.", TILE, Color("#6366f1"),
-				func(): open("Scores & Schedule", func(): return pages.scores(clampi(season.week, 1, season.total_weeks())))),
-			UiKit.tile("Scores", "Results from around the league.", TILE, UiKit.INFO,
-				func(): open("Scores & Schedule", func(): return pages.scores(_last_week_with_results()))),
-			UiKit.tile("Playoff Picture", _playoff_blurb(), TALL, Color("#f43f5e"), func(): open("Playoff Picture", pages.playoffs)),
-		]],
-		["STATS", [
-			UiKit.tile("League Leaders", _leader_blurb(), TALL, Color("#eab308"), func(): open("League Leaders", pages.leaders)),
-			UiKit.tile("League Stats", "Every soldier's season stats, sortable by any column.", TILE, Color("#0ea5e9"), func(): open("League Stats", pages.league_stats)),
-			UiKit.tile("Team Stats", "Every team's season totals: K/D, damage, accuracy, hill time.", TILE, Color("#10b981"), func(): open("League Team Stats", pages.league_team_stats)),
-			UiKit.tile("Team Rankings", "Every team by OVR and record.", TILE, Color("#22c55e"), func(): open("Team Rankings", pages.team_rankings)),
-			UiKit.tile("League News", _headline(), TILE, Color("#14b8a6"), func(): open("League News", pages.news)),
-		]],
-		["HISTORY", [
-			UiKit.tile("Records & History", "Past champions and records.", TILE, UiKit.MUTED,
-				func(): coming_soon("Records & History", ["Past champions by year", "Single-season and career records", "Hall of Fame"]), "SOON"),
-			UiKit.tile("Awards", _awards_blurb(), TILE, Color("#f59e0b"), func(): open("Awards & Development", pages.awards)),
-			UiKit.tile("Retirements", "Soldiers who hung up their boots, by season.\n[color=white]%d[/color] all-time" % season.retirements.size(),
-				TILE, Color("#94a3b8"), open_retirements),
-		]],
-		["PLAYERS", [
-			UiKit.tile("Teams", "Every team's roster, payroll and cap space.", TILE, Color("#6366f1"), func(): open("Teams", pages.teams)),
-			UiKit.tile("Free Agents", "%d unsigned soldiers. Full ratings, no scouting needed.%s" % [season.league.free_agents.size(),
-				"" if season.free_agency_open() else "\n[color=#8b97ab]Bidding reopens after the draft.[/color]"], TILE, Color("#14b8a6"), open_free_agents),
-		]],
+	return []
+
+
+const LEAGUE_VIEWS := ["Standings", "Scores", "League Leaders", "Playoff Picture"]
+const LEAGUE_PANE_H := 660
+var league_view := 0
+var league_week := 0  # Scores view week; 0 = the latest week with results
+var _league_box: VBoxContainer
+
+
+func _league_top() -> Control:
+	_league_box = VBoxContainer.new()
+	_league_box.name = "LeaguePane"
+	_league_box.add_theme_constant_override("separation", 8)
+	_fill_league_box()
+	return _league_box
+
+
+func _flip_league_view(dir: int) -> void:
+	league_view = wrapi(league_view + dir, 0, LEAGUE_VIEWS.size())
+	_fill_league_box()
+
+
+func _fill_league_box() -> void:
+	for c in _league_box.get_children():
+		_league_box.remove_child(c)
+		c.queue_free()
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	var title := UiKit.heading(LEAGUE_VIEWS[league_view], 22)
+	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	for d in [["<", -1, "LeaguePrev"], [">", 1, "LeagueNext"]]:
+		var dir: int = d[1]
+		var b := UiKit.button(d[0], func(): _flip_league_view(dir), 18)
+		UiKit.style_skewed(b)
+		b.name = d[2]
+		b.custom_minimum_size = Vector2(52, 38)
+		head.add_child(b)
+		if dir < 0:
+			head.add_child(title)
+	var other := UiKit.label("%s  >" % LEAGUE_VIEWS[wrapi(league_view + 1, 0, LEAGUE_VIEWS.size())].to_upper(), 13, UiKit.MUTED)
+	other.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(other)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(spacer)
+	var info := UiKit.rich("[right]%s[/right]" % _league_pane_info(), 15)
+	info.autowrap_mode = TextServer.AUTOWRAP_OFF
+	info.custom_minimum_size.x = 640
+	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(info)
+	_league_box.add_child(head)
+	var frame := PanelContainer.new()
+	var sb := UiKit.flat(Color(UiKit.PANEL, 0.85), 4, 1, Color(1, 1, 1, 0.08))
+	sb.border_width_top = 3
+	sb.border_color = UiKit.ACCENT
+	sb.set_content_margin_all(16)
+	frame.add_theme_stylebox_override("panel", sb)
+	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_league_box.add_child(frame)
+	var sc := ScrollContainer.new()
+	sc.name = "LeaguePaneScroll"
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.custom_minimum_size.y = LEAGUE_PANE_H
+	sc.follow_focus = true
+	frame.add_child(sc)
+	var body: Control
+	match league_view:
+		0: body = _league_standings()
+		1: body = _league_scores()
+		2: body = pages.leaders()
+		_: body = _league_playoffs()
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(body)
+	UiKit.fade_in(body, 0.0, 0.2)
+
+
+func _league_pane_info() -> String:
+	var dot := "   [color=#8b97ab]·[/color]   "
+	var team := season.user_team()
+	var field := season.playoff_field() if season.phase == Season.PHASE_REGULAR else []
+	var seed := field.find(team)
+	var where := ("[color=#22c55e]SEED %d[/color]" % (seed + 1)) if seed >= 0 else ("[color=#ef4444]OUTSIDE[/color]" if season.phase == Season.PHASE_REGULAR else "-")
+	return "[color=#8b97ab]%s[/color]%s[color=#8b97ab]YOU[/color] %s  %s%s[color=#8b97ab]PLAYOFF SPOTS[/color] %d" % [
+		season.week_label(clampi(season.week, 1, season.total_weeks())).to_upper(), dot, season.record_text(team), where, dot, season.playoff_teams]
+
+
+## Standings: four division cards in a 2x2 grid (or one whole-league table).
+func _league_standings() -> Control:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 14)
+	var field := season.playoff_field()
+	var seeds := {}
+	for i in field.size():
+		seeds[field[i]] = i + 1
+	var n_div := season.divisions().size() if season.has_divisions() else 0
+	var nav := HBoxContainer.new()
+	nav.add_theme_constant_override("separation", 12)
+	if n_div > 0:
+		for o in [["div", "Divisions"], ["league", "Whole league"]]:
+			var val: String = o[0]
+			var b := pages._seg(o[1], pages.standings_view == val, func():
+				pages.standings_view = val
+				_fill_league_box(), 15)
+			b.custom_minimum_size.x = 150
+			nav.add_child(b)
+	var key := UiKit.rich("[color=%s]■[/color] [color=#8b97ab]division leader[/color]    [color=%s]■[/color] [color=#8b97ab]wild card[/color]    [color=#8b97ab]%d make the playoffs  ·  seeds if the season ended today[/color]" % [
+		UiKit.hex(UiKit.ACCENT), UiKit.hex(UiKit.INFO), season.playoff_teams], 14)
+	key.autowrap_mode = TextServer.AUTOWRAP_OFF
+	key.fit_content = true
+	key.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	key.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	nav.add_child(key)
+	v.add_child(nav)
+	if n_div == 0 or pages.standings_view == "league":
+		v.add_child(pages._standings_table(season.standings(), seeds, false))
+		return v
+	var grid := GridContainer.new()
+	grid.name = "DivisionGrid"
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 18)
+	grid.add_theme_constant_override("v_separation", 18)
+	for d in season.divisions():
+		grid.add_child(_division_card(d, seeds, n_div))
+	v.add_child(grid)
+	return v
+
+
+func _division_card(div: String, seeds: Dictionary, n_div: int) -> Control:
+	var card := PanelContainer.new()
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sb := UiKit.flat(Color(0, 0, 0, 0.28), 4, 1, Color(1, 1, 1, 0.06))
+	sb.set_content_margin_all(12)
+	card.add_theme_stylebox_override("panel", sb)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 4)
+	card.add_child(col)
+	var cols := [["W-L", 70], ["GW-GL", 80], ["DIFF", 60], ["STRK", 60], ["SEED", 70]]
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	var dl := UiKit.display(div.to_upper() + " DIVISION", 19, Color.WHITE, true)
+	dl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(dl)
+	for c in cols:
+		var l := UiKit.label(c[0], 12, UiKit.MUTED)
+		l.custom_minimum_size.x = c[1]
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		l.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+		head.add_child(l)
+	col.add_child(head)
+	var rows: Array = season.division_standings(div)
+	for i in rows.size():
+		var r: StandingRow = rows[i]
+		var t := r.team
+		var seed := int(seeds.get(t, 0))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		var bar := ColorRect.new()
+		bar.color = t.color
+		bar.custom_minimum_size = Vector2(4, 0)
+		row.add_child(bar)
+		var rk := UiKit.label(str(i + 1), 15, UiKit.MUTED)
+		rk.custom_minimum_size.x = 18
+		rk.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		rk.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		row.add_child(rk)
+		var logo := UiKit.team_logo(t, 30)
+		logo.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(logo)
+		var nm := UiKit.label(t.name, 17, Color.WHITE if seed > 0 else UiKit.TEXT)
+		nm.clip_text = true
+		nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		nm.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		row.add_child(nm)
+		var gd := r.game_diff()
+		var seed_col := UiKit.ACCENT if seed > 0 and seed <= n_div else (UiKit.INFO if seed > 0 else UiKit.MUTED)
+		var vals := [["%d-%d" % [r.wins, r.losses], Color.WHITE], ["%d-%d" % [r.games_won, r.games_lost], UiKit.TEXT],
+			["%+d" % gd, UiKit.GOOD if gd > 0 else (UiKit.BAD if gd < 0 else UiKit.MUTED)],
+			[r.streak, UiKit.GOOD if r.streak.begins_with("W") else (UiKit.BAD if r.streak.begins_with("L") else UiKit.MUTED)],
+			[("%d %s" % [seed, "DIV" if seed <= n_div else "WC"]) if seed > 0 else "-", seed_col]]
+		for k in vals.size():
+			var l := UiKit.label(vals[k][0], 16, vals[k][1])
+			l.custom_minimum_size.x = cols[k][1]
+			l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			row.add_child(l)
+		var b := pages._click_wrap(row, func(): open(t.name, func(): return pages.team_roster(t)), 42)
+		b.name = "Div_%s_%d" % [div, i]
+		if t.user_controlled:
+			b.add_theme_stylebox_override("normal", UiKit.flat(UiKit.MINE, 6, 2, UiKit.ACCENT.darkened(0.15)))
+		col.add_child(b)
+	return card
+
+
+## Scores: one week of results (or fixtures) with week arrows.
+func _league_scores() -> Control:
+	var w := league_week if league_week > 0 else _last_week_with_results()
+	w = clampi(w, 1, season.total_weeks())
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	var nav := HBoxContainer.new()
+	nav.add_theme_constant_override("separation", 12)
+	for d in [["< Prev week", -1], ["Next week >", 1]]:
+		var dir: int = d[1]
+		var b := UiKit.button(d[0], func():
+			league_week = clampi(w + dir, 1, season.total_weeks())
+			_fill_league_box(), 15)
+		UiKit.style_skewed(b)
+		b.disabled = (w <= 1) if dir < 0 else (w >= season.total_weeks())
+		nav.add_child(b)
+		if dir < 0:
+			var lbl := UiKit.display(season.week_label(w).to_upper(), 22, Color.WHITE, true)
+			lbl.custom_minimum_size.x = 240
+			lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			nav.add_child(lbl)
+	v.add_child(nav)
+	var matches: Array = season.matches_for_week(w)
+	if matches.is_empty():
+		v.add_child(UiKit.label("Matchups not set yet - decided by earlier playoff results.", 16, UiKit.MUTED))
+	for m in matches:
+		v.add_child(pages._score_line(m))
+	var byes: Array = season.bye_teams(w)
+	if not byes.is_empty():
+		v.add_child(UiKit.label("BYE: %s" % ", ".join(PackedStringArray(byes.map(func(t: Team): return t.name))), 15, UiKit.MUTED))
+	return v
+
+
+func _league_playoffs() -> Control:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	if season.phase == Season.PHASE_REGULAR:
+		v.add_child(UiKit.label("If the season ended today. The better seed is at home; the bracket is fixed (no reseeding).", 15, UiKit.MUTED))
+	v.add_child(pages.bracket_view(false))
+	var more := UiKit.button("Full playoff picture", func(): open("Playoff Picture", pages.playoffs), 14)
+	UiKit.style_skewed(more)
+	more.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	v.add_child(more)
+	return v
+
+
+## Under the pane: live cards for the other League screens.
+func _league_cards() -> Control:
+	var team := season.user_team()
+	var row := HBoxContainer.new()
+	row.name = "LeagueCards"
+	row.add_theme_constant_override("separation", 14)
+	var cards: Array = []
+
+	var teams: Array = season.league.teams.duplicate()
+	teams.sort_custom(func(a: Team, b: Team): return a.team_ovr() > b.team_ovr())
+	var top: Team = teams[0]
+	cards.append(_stat_card("Team Rankings", "#%d" % (teams.find(team) + 1), "YOUR OVR RANK",
+		"You: OVR %d\nTop: %s (%d)" % [team.team_ovr(), top.abbrev, top.team_ovr()], Color("#22c55e"),
+		func(): open("Team Rankings", pages.team_rankings)))
+
+	var totals := pages.season_totals()
+	if totals.is_empty():
+		cards.append(_stat_card("League Stats", "-", "KILLS LEADER", "No games played yet", Color("#0ea5e9"), func(): open("League Stats", pages.league_stats)))
+	else:
+		var best: Dictionary = totals[0]
+		for t in totals:
+			if int(t["kills"]) > int(best["kills"]):
+				best = t
+		cards.append(_stat_card("League Stats", str(best["kills"]), "KILLS LEADER", "[color=white]%s[/color]\n%s  ·  %d games" % [
+			UiKit.esc(best["soldier"].short_name()), best["team"].abbrev, best["matches"]], Color("#0ea5e9"), func(): open("League Stats", pages.league_stats)))
+
+	var heads := pages.headlines(1)
+	cards.append(_stat_card("League News", str(season.news.items.size()), "STORIES", _headline(), Color("#14b8a6"),
+		func(): open("League News", pages.news), "NEW" if not heads.is_empty() and season.phase == Season.PHASE_REGULAR and season.week > 1 else ""))
+
+	if season.review != null and not season.review.awards.is_empty():
+		var mvp: Dictionary = season.review.awards[0]
+		cards.append(_stat_card("Awards", mvp["team"].abbrev, "%d MVP" % season.review.year, "[color=white]%s[/color]" % UiKit.esc(mvp["soldier"].full_name()),
+			Color("#f59e0b"), func(): open("Awards & Development", pages.awards)))
+	else:
+		var fav := {}
+		for t in totals:
+			if int(t["matches"]) < SeasonReview.MIN_MATCHES:
+				continue
+			if fav.is_empty() or float(t["impact"]) / int(t["matches"]) > float(fav["impact"]) / int(fav["matches"]):
+				fav = t
+		if fav.is_empty():
+			cards.append(_stat_card("Awards", "-", "MVP RACE", "Needs %d games played" % SeasonReview.MIN_MATCHES, Color("#f59e0b"), func(): open("Awards & Development", pages.awards)))
+		else:
+			cards.append(_stat_card("Awards", fav["team"].abbrev, "MVP FAVOURITE", "[color=white]%s[/color]\n%d match MVPs  ·  %d games" % [
+				UiKit.esc(fav["soldier"].short_name()), fav["mvps"], fav["matches"]], Color("#f59e0b"), func(): open("Awards & Development", pages.awards)))
+
+	var fas: Array = season.league.free_agents
+	var bfa: Soldier = null
+	for s in fas:
+		if bfa == null or s.best_ovr() > bfa.best_ovr():
+			bfa = s
+	var open_fa := season.free_agency_open()
+	cards.append(_stat_card("Free Agents", str(fas.size()), "AVAILABLE", ("Best: [color=white]%s[/color] (%d)\n" % [UiKit.esc(bfa.short_name()), bfa.best_ovr()] if bfa else "")
+		+ ("Bidding open" if open_fa else "Bidding reopens after the draft"), Color("#14b8a6"), open_free_agents, "BIDDING" if open_fa else ""))
+
+	var n := 0
+	for c in cards:
+		row.add_child(c)
+		UiKit.fade_in(c, 0.04 * n, 0.25)
+		n += 1
+	return row
+
+
+## The remaining League screens as a thin link strip.
+func _league_strip() -> Control:
+	var h := HBoxContainer.new()
+	h.name = "LeagueStrip"
+	h.add_theme_constant_override("separation", 10)
+	var l := UiKit.display("MORE", 15, UiKit.MUTED)
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(l)
+	var links := [
+		["Schedule", func(): open("Scores & Schedule", func(): return pages.scores(clampi(season.week, 1, season.total_weeks())))],
+		["Team Stats", func(): open("League Team Stats", pages.league_team_stats)],
+		["Teams", func(): open("Teams", pages.teams)],
+		["Retirements (%d)" % season.retirements.size(), open_retirements],
 	]
+	for d in links:
+		var b := UiKit.button(d[0], d[1], 14)
+		UiKit.style_skewed(b, Color(UiKit.PANEL, 0.6))
+		h.add_child(b)
+	var soon := UiKit.button("Records & History  ·  SOON", func(): coming_soon("Records & History", ["Past champions by year", "Single-season and career records", "Hall of Fame"]), 14)
+	UiKit.style_skewed(soon, Color(UiKit.PANEL, 0.6))
+	soon.modulate = Color(1, 1, 1, 0.6)
+	h.add_child(soon)
+	return h
 
 
 func _trade_tiles() -> Array:
