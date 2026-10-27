@@ -2000,16 +2000,7 @@ func playoffs() -> Control:
 		var field := s.playoff_field()
 		v.add_child(_section("IF THE SEASON ENDED TODAY  -  %s" % (
 			"%d division winners (seeds 1-%d) + %d wild cards" % [n_div, n_div, s.playoff_teams - n_div] if n_div > 0 else "top %d" % s.playoff_teams)))
-		var order := Season.bracket_order(field.size())
-		for k in order.size() / 2:
-			var p := UiKit.panel(UiKit.PANEL, 10)
-			var parts: Array[String] = []
-			for sd in [order[2 * k], order[2 * k + 1]]:
-				var t: Team = field[sd - 1]
-				parts.append("[color=white](%d) %s  %s[/color]%s" % [sd, UiKit.esc(t.name), s.record_text(t),
-					(" [color=%s]%s[/color]" % [UiKit.hex(UiKit.ACCENT), s.division_of(t).to_upper() + " LEADER"]) if sd <= n_div else ""])
-			p.add_child(UiKit.rich("%s   %s   vs   %s" % [s.week_label(first_week).to_upper(), parts[0], parts[1]], 17))
-			v.add_child(p)
+		v.add_child(bracket_view(false))
 		var out: Array[String] = []
 		for r in s.standings():
 			if not field.has(r.team) and out.size() < 6:
@@ -2021,44 +2012,134 @@ func playoffs() -> Control:
 		v.add_child(UiKit.label(", ".join(stages) + ". The better seed is at home; the bracket is fixed (no reseeding).", 14, UiKit.MUTED))
 		return v
 	v.add_child(_section("%d PLAYOFF BRACKET" % s.year))
-	var bracket := _row(24)
-	for r in s.playoff_rounds():
-		var w := first_week + r
-		var col := _vbox(16)
-		col.alignment = BoxContainer.ALIGNMENT_CENTER
-		col.add_child(_section(s.week_label(w).to_upper()))
-		var ms: Array = s.matches_for_week(w)
-		for m in ms:
-			col.add_child(_bracket_card(m))
-		for i in range(ms.size(), maxi(1, s.playoff_teams >> (r + 1))):
-			var ph := UiKit.panel(UiKit.PANEL, 10)
-			ph.custom_minimum_size = Vector2(330, 120)
-			ph.add_child(UiKit.label("TBD", 18, UiKit.MUTED))
-			col.add_child(ph)
-		bracket.add_child(col)
-	v.add_child(bracket)
-	if s.champion:
-		v.add_child(UiKit.rich("[font_size=34][color=#f59e0b]CHAMPIONS: %s[/color][/font_size]" % UiKit.esc(s.champion.name), 18))
+	v.add_child(bracket_view(false))
 	return v
 
 
-## A bracket slot: seeds, names and series score (better seed on top).
-func _bracket_card(m: ScheduledMatch) -> Button:
+## The bracket with logos: projected from today's standings in the regular season, the real
+## series once the playoffs start. compact = the Home pane version.
+func bracket_view(compact: bool) -> Control:
 	var s := _season()
-	var body := ""
-	for t in [m.home, m.away]:
-		var won: bool = m.is_played() and m.winner() == t
-		body += "%s[color=%s](%d) %s[/color]   [color=%s]%s[/color]\n" % [UiKit.logo_bb(t, 30),
-			"white" if (won or not m.is_played()) else "#8b97ab", int(s.playoff_seeds.get(t, 0)), UiKit.esc(t.name), UiKit.hex(UiKit.ACCENT),
-			str(m.games_for(t)) if m.is_played() else s.record_text(t)]
-	body += ("[font_size=13]%s[/font_size]" % _games_brief(m.result)) if m.is_played() else "Upcoming"
-	var accent := m.home.color if not m.is_played() else m.winner().color
-	return UiKit.tile(s.week_label(m.week), body, Vector2(340, 140), accent,
-		func():
+	var first_week := s.regular_weeks + 1
+	var projected := s.phase == Season.PHASE_REGULAR
+	var seeds: Dictionary = s.playoff_seeds
+	var field: Array = []
+	if projected:
+		field = s.playoff_field()
+		seeds = {}
+		for i in field.size():
+			seeds[field[i]] = i + 1
+	var row := _row(16 if compact else 28)
+	for r in s.playoff_rounds():
+		var w := first_week + r
+		var col := _vbox(6)
+		col.add_child(UiKit.label(s.week_label(w).to_upper(), 13, UiKit.MUTED))
+		var inner := _vbox(10 if compact else 16)
+		inner.alignment = BoxContainer.ALIGNMENT_CENTER
+		inner.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		col.add_child(inner)
+		var n_slots := maxi(1, s.playoff_teams >> (r + 1))
+		var made := 0
+		if projected and r == 0:
+			var order := Season.bracket_order(s.playoff_teams)
+			for k in order.size() / 2:
+				var a: Team = field[order[2 * k] - 1] if order[2 * k] <= field.size() else null
+				var b: Team = field[order[2 * k + 1] - 1] if order[2 * k + 1] <= field.size() else null
+				inner.add_child(_bracket_slot(a, b, null, seeds, compact))
+				made += 1
+		elif not projected:
+			for m: ScheduledMatch in s.matches_for_week(w):
+				inner.add_child(_bracket_slot(m.home, m.away, m, seeds, compact))
+				made += 1
+		for i in range(made, n_slots):
+			inner.add_child(_bracket_slot(null, null, null, seeds, compact))
+		row.add_child(col)
+	# Champion column.
+	var champ := _vbox(6)
+	champ.add_child(UiKit.label("CHAMPION", 13, UiKit.MUTED))
+	var cin := _vbox(6)
+	cin.alignment = BoxContainer.ALIGNMENT_CENTER
+	cin.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	champ.add_child(cin)
+	var cp := UiKit.panel(UiKit.PANEL_HI, 10)
+	cp.add_theme_stylebox_override("panel", UiKit.flat(UiKit.PANEL_HI, 10, 2, UiKit.ACCENT if s.champion else UiKit.LINE))
+	cp.custom_minimum_size = Vector2(170, 150) if compact else Vector2(220, 200)
+	var cv := _vbox(6)
+	cv.alignment = BoxContainer.ALIGNMENT_CENTER
+	cp.add_child(cv)
+	if s.champion:
+		var lg := UiKit.team_logo(s.champion, 72 if compact else 110)
+		lg.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		cv.add_child(lg)
+		var cl := UiKit.label(s.champion.name, 15 if compact else 18, UiKit.ACCENT)
+		cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		cl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		cv.add_child(cl)
+	else:
+		var q := UiKit.label("?", 48 if compact else 64, UiKit.MUTED)
+		q.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		cv.add_child(q)
+		var tl := UiKit.label(s.week_label(s.total_weeks()), 14, UiKit.MUTED)
+		tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		cv.add_child(tl)
+	cin.add_child(cp)
+	row.add_child(champ)
+	return row
+
+
+## One bracket slot: both teams with logo, seed and series score (or record). A real series
+## opens its preview/recap; a projected matchup is display only.
+func _bracket_slot(a: Team, b: Team, m: ScheduledMatch, seeds: Dictionary, compact: bool) -> Control:
+	var s := _season()
+	var size := Vector2(250, 84) if compact else Vector2(330, 116)
+	var logo_px := 28 if compact else 40
+	var accent := UiKit.LINE
+	if m != null:
+		accent = m.winner().color if m.is_played() else m.home.color
+	var box: Control
+	if m != null:
+		var btn := Button.new()
+		UiKit.style_button(btn, UiKit.PANEL, accent, 10)
+		btn.pressed.connect(func():
 			if m.is_played():
 				hub.open("Match Recap", func(): return recap(m))
 			else:
 				hub.open("Match Preview", func(): return preview(m)))
+		box = btn
+	else:
+		box = UiKit.panel(UiKit.PANEL, 10)
+		box.add_theme_stylebox_override("panel", UiKit.flat(UiKit.PANEL, 10, 1, UiKit.LINE))
+	box.custom_minimum_size = size
+	var v := _vbox(4)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if m != null:
+		v.set_anchors_preset(Control.PRESET_FULL_RECT)
+		v.offset_left = 12
+		v.offset_right = -12
+		v.offset_top = 8
+		v.offset_bottom = -8
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_child(v)
+	for t: Team in [a, b]:
+		var h := _row(8)
+		h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		v.add_child(h)
+		if t == null:
+			h.add_child(UiKit.label("TBD", 15, UiKit.MUTED))
+			continue
+		var lost := m != null and m.is_played() and m.winner() != t
+		h.add_child(UiKit.team_logo(t, logo_px))
+		var mine := t == s.user_team()
+		var nm := UiKit.label("(%d) %s" % [int(seeds.get(t, 0)), t.abbrev if compact else t.name], 15 if compact else 17,
+			UiKit.ACCENT if mine else (UiKit.MUTED if lost else Color.WHITE))
+		nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		nm.clip_text = true
+		h.add_child(nm)
+		var score := str(m.games_for(t)) if m != null and m.is_played() else s.record_text(t)
+		h.add_child(UiKit.label(score, 15 if compact else 17, UiKit.MUTED if lost else UiKit.ACCENT))
+		if lost:
+			h.modulate.a = 0.55
+	return box
 
 
 ## Per-team season totals (regular season and playoffs): team -> {gp, w, l, kills, deaths, ...}.
