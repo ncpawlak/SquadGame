@@ -253,7 +253,8 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 	sb.set_content_margin_all(2)
 	pane.add_theme_stylebox_override("panel", sb)
 	pane.clip_contents = true
-	pane.add_child(UiKit.backdrop(UiKit.banner_of(t), UiKit.PANEL.darkened(0.25), true, UiKit.accent_of(t)))
+	# Dark on the left (behind the logo), team colour fading in toward the right.
+	pane.add_child(UiKit.backdrop(UiKit.PANEL.darkened(0.35), UiKit.PANEL.lerp(UiKit.banner_of(t), 0.55), true, UiKit.accent_of(t)))
 	var pm := MarginContainer.new()
 	pm.add_theme_constant_override("margin_left", 22)
 	pm.add_theme_constant_override("margin_right", 22)
@@ -264,9 +265,15 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 	hb.add_theme_constant_override("separation", 24)
 	pm.add_child(hb)
 
-	var logo := UiKit.team_logo(t, 190)
-	logo.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	hb.add_child(logo)
+	var disc := PanelContainer.new()
+	var dsb := UiKit.flat(Color(0.02, 0.03, 0.06, 0.85), 110, 3, UiKit.accent_of(t))
+	dsb.set_content_margin_all(18)
+	dsb.shadow_color = Color(UiKit.accent_of(t), 0.25)
+	dsb.shadow_size = 14
+	disc.add_theme_stylebox_override("panel", dsb)
+	disc.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	disc.add_child(UiKit.team_logo(t, 168))
+	hb.add_child(disc)
 
 	# Identity column: name, OVR and expectations.
 	var id_col := VBoxContainer.new()
