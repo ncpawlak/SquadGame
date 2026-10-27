@@ -508,6 +508,25 @@ static func logo_bb(team: Team, size := 22) -> String:
 
 
 ## Square team logo; falls back to the coloured chip when the team has no logo.
+## The team logo on a dark disc ringed in the team accent, `size` px across, so it reads on any
+## background (team-colour banners included).
+static func logo_disc(team: Team, size := 120, glow := true) -> Control:
+	var p := PanelContainer.new()
+	var acc := accent_of(team)
+	var sb := flat(Color(0.02, 0.03, 0.06, 0.85), size, maxi(2, size / 50), acc)
+	var logo := int(size * 0.76)
+	sb.set_content_margin_all((size - logo) / 2.0)
+	if glow:
+		sb.shadow_color = Color(acc, 0.25)
+		sb.shadow_size = maxi(4, size / 12)
+	p.add_theme_stylebox_override("panel", sb)
+	p.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	p.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(team_logo(team, logo))
+	return p
+
+
 static func team_logo(team: Team, size := 48) -> Control:
 	var tex := logo_tex(team.abbrev)
 	if tex == null:

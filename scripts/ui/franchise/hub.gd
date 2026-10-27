@@ -566,7 +566,7 @@ func _build_header() -> void:
 	hb.add_theme_constant_override("separation", 20)
 	mc.add_child(hb)
 
-	hb.add_child(UiKit.team_logo(team, 84))
+	hb.add_child(UiKit.logo_disc(team, 86))
 
 	var info := VBoxContainer.new()
 	info.add_theme_constant_override("separation", 0)
@@ -1134,7 +1134,7 @@ func _team_block(t: Team, right: bool) -> Control:
 	ov.add_child(cap)
 	if right:
 		logo_row.add_child(ov)
-	logo_row.add_child(UiKit.team_logo(t, 128))
+	logo_row.add_child(UiKit.logo_disc(t, 132))
 	if not right:
 		logo_row.add_child(ov)
 	v.add_child(logo_row)
@@ -1817,8 +1817,7 @@ func _status_body(team: Team) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 40)
 	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var logo := UiKit.team_logo(info["team"], 200)
-	logo.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var logo := UiKit.logo_disc(info["team"], 210)
 	row.add_child(logo)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 6)

@@ -265,15 +265,7 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 	hb.add_theme_constant_override("separation", 24)
 	pm.add_child(hb)
 
-	var disc := PanelContainer.new()
-	var dsb := UiKit.flat(Color(0.02, 0.03, 0.06, 0.85), 110, 3, UiKit.accent_of(t))
-	dsb.set_content_margin_all(18)
-	dsb.shadow_color = Color(UiKit.accent_of(t), 0.25)
-	dsb.shadow_size = 14
-	disc.add_theme_stylebox_override("panel", dsb)
-	disc.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	disc.add_child(UiKit.team_logo(t, 168))
-	hb.add_child(disc)
+	hb.add_child(UiKit.logo_disc(t, 210))
 
 	# Identity column: name, OVR and expectations.
 	var id_col := VBoxContainer.new()
