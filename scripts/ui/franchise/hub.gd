@@ -1635,7 +1635,7 @@ func _team_sections() -> Array:
 
 
 const TEAM_VIEWS := ["Roster", "Lineup"]
-const TEAM_PANE_H := 520
+const TEAM_PANE_H := 970  # fits a full 12-man roster and the lineup + bench without inner scrolling
 var team_view := 0  # 0 roster, 1 lineup
 var _team_box: VBoxContainer
 
