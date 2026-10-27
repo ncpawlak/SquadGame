@@ -57,7 +57,10 @@ var playoff_seeds := {}
 ## Salary-floor penalties charged at the end of the most recent season: [{team, amount}].
 var last_floor_penalties: Array = []
 var news := LeagueNews.new()
-var year: int = 2026
+var year: int = 2026:
+	set(v):
+		year = v
+		Team.year_now = v
 var week: int = 1
 var phase: StringName = PHASE_REGULAR
 var champion: Team = null
@@ -82,6 +85,8 @@ var offseason_stage: StringName = &""
 var fa_day := 0
 ## Free-agent offers and signing history.
 var fa := FreeAgency.new()
+## League-wide teammate chemistry (DNA module).
+var relationships := Relationships.new()
 var trades := Trades.new()
 ## Signings from the most recent resolution (free-agency day or week).
 var last_signings: Array = []
@@ -136,6 +141,9 @@ static func new_franchise(seed_value: int, user_team_index := 0, start_year := 2
 	mrng.seed = _mix([seed_value, start_year, 0x307A1E])
 	for so in s.league.all_soldiers():
 		so.morale = mrng.randf_range(68.0, 84.0)
+	var rrng := RandomNumberGenerator.new()
+	rrng.seed = _mix([seed_value, start_year, 0xC4E3])
+	s.relationships.seed_league(s.league, rrng)
 	s._begin_season()
 	if s.has_divisions():
 		s._apply_opening_pick_trades()
@@ -150,6 +158,8 @@ static func new_franchise(seed_value: int, user_team_index := 0, start_year := 2
 
 ## Points new progression-history entries (Soldier.log_progress) at the current week / stage.
 func _stamp_log() -> void:
+	Relationships.active = relationships
+	Relationships.league_now = league
 	Soldier.log_year = year
 	if preseason_camp:
 		Soldier.log_when = "Preseason camp"
@@ -435,9 +445,18 @@ func train_user_team() -> Dictionary:
 	return user_training_report
 
 
+## Team's keep-value statics (draft-bonus year, picks per round) follow whichever season acts.
+func sync_team_statics() -> void:
+	Team.year_now = year
+	Team.league_size = league.teams.size()
+	Relationships.active = relationships
+	Relationships.league_now = league
+
+
 func sim_week() -> Array:
 	if phase == PHASE_OFFSEASON:
 		return []
+	sync_team_statics()
 	prepare_week()
 	_stamp_log()
 	_week_prepared = false
@@ -469,6 +488,7 @@ func sim_week() -> Array:
 	for t in league.teams:
 		Progression.auto_spend_team(t, _rng)
 	Morale.update_week(league, played)
+	relationships.week(league, played)
 	var news_week := week
 	_advance()
 	news.week_stories(self, played, news_week)
@@ -536,6 +556,7 @@ func _resolve_promises() -> void:
 ## AI teams pick intensities and rest tired/injured starters; every team (including the user's)
 ## gets injured starters swapped out so a match is never played by an injured soldier.
 func _prepare_lineups() -> void:
+	sync_team_statics()
 	for t in league.teams:
 		if t.user_controlled:
 			t.fill_injured()
@@ -610,6 +631,7 @@ func start_next_season() -> void:
 	if phase != PHASE_OFFSEASON:
 		push_warning("start_next_season() is only valid in the offseason.")
 		return
+	sync_team_statics()
 	_stamp_log()
 	while offseason_stage != OFF_DONE:
 		advance_offseason()
@@ -628,6 +650,12 @@ func start_next_season() -> void:
 	Soldier.log_year = year + 1
 	Soldier.log_when = "Preseason"
 	aging_report = Aging.age_league(league, arng)
+	var active_ids := {}
+	for so in league.all_soldiers():
+		active_ids[so.id] = true
+	for so in league.free_agents:
+		active_ids[so.id] = true
+	relationships.prune(active_ids)
 	year += 1
 	for t in league.teams:
 		Conditioning.reset(t)
@@ -690,6 +718,7 @@ func can_resign() -> bool:
 func advance_offseason() -> Array:
 	if phase != PHASE_OFFSEASON:
 		return []
+	sync_team_statics()
 	var signed: Array = []
 	match offseason_stage:
 		OFF_RESIGN:
@@ -712,11 +741,13 @@ func advance_offseason() -> Array:
 					camp.ai_run(t, _rng)
 			offseason_xp(CAMP_WEEK_XP)
 			offseason_stage = OFF_DONE
+			relationships.offseason_week(league)
 			_trade_tick()
 			return []
 		_:
 			return []
 	offseason_xp(OFFSEASON_WEEK_XP)
+	relationships.offseason_week(league)
 	_trade_tick()
 	return signed
 
@@ -810,9 +841,9 @@ func _open_free_agency() -> void:
 	for t in league.teams:
 		if t.user_controlled:
 			continue
-		# AI teams keep a spot open to bid on free agents (filled in preseason if they miss):
-		# surplus players are shopped for picks first, then cut.
-		trades.restructure(self, t, Team.ROSTER_SIZE - 1)
+		# Offseason rosters may run to OFFSEASON_MAX (final cut-down to ROSTER_SIZE comes at the
+		# end of camp, in start_next_season); only extreme surpluses are shopped or cut now.
+		trades.restructure(self, t, Team.OFFSEASON_MAX)
 	fa.ai_offers(self, _rng)
 
 
@@ -859,6 +890,7 @@ func mock_pick_order() -> Array:
 func finish_draft() -> void:
 	if phase != PHASE_OFFSEASON:
 		return
+	sync_team_statics()
 	if not draft.is_started():
 		draft.set_order(draft_order())
 		trades.apply_owners(self)

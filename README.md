@@ -39,11 +39,24 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   groups at his level and one or two clear holes - so nobody is 90+ in every group and 99s are rare. Players
   21 and under start around 60-66 (a couple of story prodigies excepted); ratings climb
   toward a 26-30 prime, which is where most of the league's best players sit.
-- **Header**: **Sim To** (next to Advance, in season) sims ahead to the next week, the trade deadline, the end of
+- **Look**: sports-broadcast style themed in your team's colours (`UiKit.set_team`) - Barlow / Barlow Condensed
+  fonts (`assets/fonts/`, OFL), slanted accent buttons and tabs, a team-colour header banner with a score-bug
+  (year + phase), a gradient backdrop with your logo watermarked, and short fade/slide transitions between pages.
+  The title screen uses the default gold. Matchup, recap and player-card headers use the teams' colour banners.
+- **Header**: team banner only (the Play button moved to Home). **Sim To** (next to Play in the week card) sims ahead to the next week, the trade deadline, the end of
   the regular season or the end of the season, stopping early if your roster needs fixing. A progress overlay
   shows each week as it sims.
-- **Home tiles**: full-height division standings, a **League Leaders** tile with the leader in kills, assists,
-  captures, K/D and hit% (rate stats need half the games of the most-played player), and the playoff picture.
+- **Home layout**: **This Week** to-dos on the left (Roster Cuts / Spots Open, Trade Offers, Re-sign whenever the
+  re-sign window is open, Draft Room, Free Agency, Training Camp, Weekly Training, Upgrade Players (only when someone
+  can level up), Scout (in season), Adjust Lineup); the current week on the right. **<** / **>** arrows on the
+  "WEEK n of 12" bar browse back and forward through the season and playoffs: past weeks show the final score, each
+  game and the MVP with a Box Score button; future weeks show the matchup preview (two-tone team banner, logos, team OVRs
+  and stat-comparison bars). **SIM TO ▾** and **PLAY WEEK X** sit in the week card's top bar next to Match Preview.
+  Urgent to-dos come first in orange with a "!"; finished ones are greyed out with a check.
+- **Home news box**: a fixed-height scrolling feed under everything, filtered by All / Around the League (results,
+  Player of the Week, wire stories, trades, signings, injuries, player stories, retirements) / Prospect News /
+  Upcoming Matches (your next 3 plus this week's slate). After the trade deadline, < > arrows flip it to the
+  **Playoff Picture**: a logo bracket (projected seeds in-season, live series in the playoffs) with a champion slot.
 - **Team select**: a big pane on top shows the hovered/focused team - logo in its colours, division, OVR and
   preseason rank, cap space, average age, expectation, backstory (a fixed 5-line box), starters' average group
   ratings and its top 3 players in the team's uniform - over 4 division rows of 5 team tiles (name and a big OVR).
@@ -55,7 +68,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   Then the end-of-season review (awards and potential changes), the offseason (re-sign → draft → free agency → training camp),
   and aging → next season (rosters, ratings and contracts carry over).
 - **Standings** (League → Standings): Divisions / Whole league toggle with W-L, division record and a SEED column
-  (DIV / WC) for the current playoff picture. League → Playoffs shows the projected bracket in-season and the live
+  (DIV / WC) for the current playoff picture. League → Playoffs shows the projected logo bracket in-season and the live
   bracket in the playoffs. Ties: match W/L, then head-to-head, then game differential (games won − lost across the best-of-3
   matches), then TDM point differential.
 - **Match day**: Play Week opens a matchup screen (both starting fives, OVRs; click a soldier for his player card) with **Watch** and **Sim**.
@@ -71,15 +84,15 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   and injuries update. AI teams train every week on Auto (rest the exhausted, ease veterans, push fresh young players) and auto-spend skill points. Home → **Weekly Training** opens the
   intensity screen; **Confirm & Train** runs this week's training right away and shows the results (XP gained, the
   new XP bar, level-ups and SP). Once per week; if you skip it, your team trains at its set intensities when the
-  week is played. Spend SP on the player page (or **Auto-progress all** on the Progression page). The Home "Progress Players"
-  tile counts only soldiers who can afford an upgrade right now ("x players can level up"). Injured starters are
+  week is played. Spend SP on the player page (or **Auto-progress all** on the Progression page). The Home "Upgrade Players"
+  to-do appears only when soldiers can afford an upgrade right now ("x players can level up"). Injured starters are
   auto-replaced by the best healthy bench soldier.
 - **Scouting** (`scripts/season/draft.gd`, `prospect.gd`): each season has a class of 110 recruits (age 19–22)
   from every state. You only see name, age, listed position and home state. You get 20 scout points a week (unspent points carry over); scouting opens in Week 1, not during training camp.
   Each point spent on a prospect scouts **2 stat groups**, each shown as a range of named grades, e.g. Accuracy
   "Steady Aim - Marksman". The first look at a group shows 3 grades, a second narrows it to 2 (every group gets a
   first look before any gets a second). After 6 points every group is down to 2 grades; from then on each point
-  pins **1 group** to its exact grade. Max 8 points per prospect; numbers and potential are never shown.
+  pins **1 group** to its exact grade. Max 10 points per prospect; numbers and potential are never shown.
   Grades (worst → best) per group:
   - Accuracy: Spray & Pray, Inconsistent, Steady Aim, Marksman, Sharpshooter
   - Handling: Butterfingers, Clunky, Capable, Smooth Operator, Gunslinger
@@ -90,17 +103,19 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
 
   Grade thresholds: below 58, 58-67, 68-76, 77-85, 86+.
   **Area scouts** give every prospect a free, coarse **SCOUT** grade (A, B+, B, C+, C, D, F; noisy, from his
-  true quality - hover it for the explanation) - a cheap first sort of the big class. Once a season you can send a **region scout** trip (East, South,
+  true quality, shown with a "?" like "B+?" - hover it for the explanation). Scouting him to all 10 points drops the "?"
+  and reveals his **true grade** (his real class percentile, no noise) - a cheap first sort of the big class. Once a season you can send a **region scout** trip (East, South,
   Central, West): every available prospect from that region gets 4 free points. **Auto-scout** spends your points
   for you: "Up to 3" gives everyone a first look, "Up to 6" deepens those already at 3 - favorites first, then
-  the big board. Star a prospect to make him a **favorite**; the list filters by region and favorites.
+  the big board. Star a prospect (row star or the ☆ Favorite button on his card) to make him a **favorite**; Scouting
+  filters by region and favorites, and the Draft Room and Mock Draft have a ★ Favorites filter too.
   Most classes hide one unlabelled **phenom** (sometimes none or two). A phenom lists one position but grades
   well in every group, so he can play anywhere. AI teams don't know who they are, and the league consensus
   underrates them.
   Every class also has **standouts**: 3-6 unlabelled **blue chips** (day-one contributors at 68-72 OVR, B/A potential),
   sometimes (about 1 class in 5) a **generational** talent (74-77 OVR, A potential), and 8-12 **specialists** (one
   stat in the 84-95 range). Scouting is how you find them.
-- **Prospect news**: 0-2 stories a week during the season (Scouting page, League News → Prospect Watch, Home tiles):
+- **Prospect news**: 0-2 stories a week during the season (Scouting page, League News → Prospect Watch, Home news box):
   stock rising, stock falling, and stat notes ("claimed #1 in the country for long range target practice").
   Stories nudge the consensus board, and none says outright who is a blue chip. **Facts** are always true:
   class rankings ("finished the ruck march first") go only to the real class leader (or last place) in that
@@ -151,7 +166,9 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   in the offseason from the draft on (including during the live draft); closed for the rest of the season and the
   playoffs. Trades can push a roster past 12 (you must cut before your next match; AI teams restructure right away:
   shop their least valuable surplus to teams with room for a pick, else cut, weighing OVR, potential, age, years
-  left, dead money and depth at his role). A trade can't drop a team below 8 in-season or 5 in the offseason, and
+  left, dead money and depth at his role). AI teams value incoming players by **need**: a would-be starter is worth
+  full value, a top backup 85%, and a player buried behind better, higher-potential players at his role far less
+  (young A/B prospects are discounted less); AI offers only target players who'd start or be the top backup. A trade can't drop a team below 8 in-season or 5 in the offseason, and
   teams can't go over the cap by taking on salary; contracts and picks
   just move (no salary retention). Each AI team is a **Contender**, **Balanced** or **Rebuilding** (team OVR plus
   record): contenders pay for starters who fit their weakest role, rebuilders pay for youth, picks and cheap
@@ -164,8 +181,12 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
 - **Offseason** (advance button walks the stages): **Re-sign** (Sign at Ask or Negotiate; AI teams re-sign
   their keepers) → **Draft** → **Free agency** (3 days) → **Training camp** → next season. Rosters max out at 12 (5 starters + 7 backups).
   In the offseason your roster can be any size (trades, draft picks, extra signings), but **Week 1 needs exactly 12**:
-  release down or sign up to it (red "Roster Cuts Required" / amber "Roster Spots Open" banner on Home). After Week 1
-  you can play with 8-12; going over 12 by trade blocks your next match until you cut. AI teams always fill to 12.
+  release down or sign up to it (an urgent "Roster Cuts" / "Roster Spots Open" to-do on Home). After Week 1
+  you can play with 8-12; going over 12 by trade blocks your next match until you cut. AI teams carry up to 15 through
+  the draft and free agency and cut to 12 when camp ends, by a **keep score**: current OVR, upside (potential gap x
+  grade, weighted toward youth), age decline, depth at his role (starters and the top backup are safe; players buried
+  behind better prospects drop), a bonus for recent draft picks (round 1 > 2 > 3, fading after two years) and contract
+  (dead money, surplus value). So a young A-potential is kept over a late-20s C, and fresh picks aren't cut into free agency.
 - **Training camp** (`scripts/season/camp.gd`, Home → Training Camp): one drill per rating group (Marksmanship Range,
   Weapons Lab, Combine Gauntlet, War Room, Hill Assault, Iron Conditioning). Pick a drill, pick a soldier, see his ratings boost.
   One soldier per drill and one drill per soldier. The point pool depends on potential (A 9-13, B 7-10, C 5-8, D 3-6,
@@ -192,7 +213,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
 - **Other teams**: League → Teams lists every club's division, record, OVR, payroll and cap space; click one for its roster.
   League → **Team Stats** compares all 20 teams (record, games and point differential, kills, deaths, K/D, hit%,
   HS%, wipes, hill time, captures, payroll), sortable by any column.
-- **League Wire** (`scripts/season/league_news.gd`, News page, Home tiles): condition-based stories around the
+- **League Wire** (`scripts/season/league_news.gd`, News page, Home news box): condition-based stories around the
   league, written from the real state of the league so they keep coming in future seasons with new players -
   a veteran star on a contender in his final contract year (or 35+) wants **one more ring** (and how it ended),
   hometown heroes, contract-year breakouts, rookie starters, busts, trade requests, **rivalry** results
@@ -208,9 +229,15 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   per game (min 4 games). During the season the page shows the MVP race. It also lists potential changes and
   this year's aging declines.
 - **Home**: a big pane for this week's match (both teams' OVR and record, starter averages per group plus morale and
-  energy as head-to-head bars, and two impact players per side), the Advance and Last Result tiles, a row of this
-  week's actions (Weekly Training, Progress Players, Adjust Lineup, Roster, Scout, Free Agents, Contracts), then
-  League News tiles (results with MVPs, awards, signings, injuries, retirements).
+  energy as head-to-head bars, and two impact players per side), with the This Week to-dos and news box described
+  above.
+- **Week results / box score**: the final score and each game on top, then away and home panes side by side with
+  all five players' K/D/A, damage, hit%, headshots and hill time (click a player for their card) and a Play-by-Play
+  button that opens the full event log. Around the League below lists every match on one line, then FA signings.
+  Training Results ends with a Continue button back to Home.
+- **Your team stands out**: your team and players get a gold-bordered row in standings, league leaders, league and
+  team stats, mock draft, draft order, awards and rankings. The Trade Center shows the partner's full name in a
+  fixed-size box.
 - **Portraits** are procedurally generated per soldier (`Look` + `Portrait`): skin tone; headgear (boonie hat,
   infantry helmet, helmet with goggles, beanie, beanie with headset, forward/backward ball cap or hair); eyewear
   (clear/tinted goggles, sunglasses, night vision on helmets, or brown/black/blue eyes); face (normal, balaclava,
@@ -224,7 +251,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   column (click a header; click again to flip). Free Agents, Progression and Contracts use the same sortable tables.
 - **Player page** (Madden style) with tabs: **Overview** (action rail, morale/health/energy/XP rings, morale
   factors, OVR at each position and every attribute), **Ratings** (spend skill points), **Contract** (details,
-  re-sign, release with a confirm step), **Stats** (a Season / Career toggle: Season lists every match this year - opponent, W/L score and the full line - with the season total; Career is the season-by-season lines and career total), **DNA** (motivations, personality, trust, promise status, trade request) and
+  re-sign, release with a confirm step), **Stats** (a Season / Career toggle: Season lists every match this year - opponent, W/L score and the full line - with the season total; Career is the season-by-season lines and career total), **DNA** (motivations, personality, trust, promise status, trade request, chemistry bonds) and
   **Progression**: every rating change with when and why, newest first by season - level-ups (skill points), training
   camp drills, age decline and end-of-season potential re-grades - with +/- per stat and OVR before → after.
   League Leaders, League/Team Stats, box scores, the matchup screen and Free Agents all open it.
@@ -232,7 +259,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   name, team, position, GP, K, D, A, K/D, saves, damage, headshots, HS%, hit%, wipes, hill time, captures, MVPs),
   sortable by any column; click a row for the player card.
 - **Player of the Week**: the single best match performance (impact score) across the week, shown on the week
-  results page, a Home news tile and League News.
+  results page, the Home news box and League News.
 - **Lineup**: the current scheme drawn as a formation. Cards show face, OVR and POT. Click a slot, then a bench card
   (or another slot), to swap. "Generate Best Lineup" picks the best five. **Change Scheme** lists all six schemes with
   each one's fit for your roster; hover one to preview its formation (auto-filled with your best players), click to
@@ -244,6 +271,14 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   by 1-3; every 5 points from 85 up raises one. OVR shows the effect, e.g. "69 (-4)". Each week: wins/losses (+/-2),
   starting (+2) or sitting healthy (-1.5), match MVP (+3), pay (under 75% of market value -1), then a 20% drift
   back toward 75.
+- **Chemistry** (`scripts/core/relationships.gd`, a DNA module): every pair of soldiers who have shared a roster has a
+  bond score (0-100) kept league-wide, so it survives trades, releases and re-signings. Starting a match together +1.5,
+  formation neighbours (`Scheme.ADJACENT`, e.g. Wide-Left's two left flexes) +3 more, same roster +0.3 a week; pairs
+  apart lose 1 a week (offseason too). New leagues seed current teammates with history (more for veterans). Levels:
+  Familiar 20, Trusted 50, Inseparable 80. When both are in the lineup each linked teammate adds +1/+2/+3 to the
+  soldier's Mentality ratings (Awareness, Composure, Teamwork), max +4, shown in the (±n) with morale. The DNA tab
+  lists every bond (club logo, level, progress, games together, rising/fading); the lineup page draws lines between
+  bonded starters (blue Familiar, green Trusted, gold Inseparable).
 - **Saves**: a soldier saves a teammate when he eliminates an attacker who has the teammate nearly dead. Tracked in
   box scores, season lines and League Leaders.
 - **Callsigns** (`scripts/core/callsigns.gd`): every soldier gets a unique callsign that fits his best group

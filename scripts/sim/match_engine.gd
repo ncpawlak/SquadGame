@@ -141,14 +141,15 @@ class Combatant:
 	var waypoint := Vector2.ZERO
 	var waypoint_goal := Vector2.INF
 	var repath_tick := 0
-	## Match ratings (morale and pre-match fatigue applied) and role behaviour, fixed for the match.
+	## Match ratings (morale, chemistry and pre-match fatigue applied) and role behaviour, fixed for the match.
 	var _stats: Dictionary = {}
 	var _behaviour: Dictionary = {}
 	var _flanked_behaviour: Dictionary = {}
 
 	func setup() -> void:
+		var eff := soldier.effective_stats()
 		for s in Stats.ALL:
-			var v := float(soldier.eff_stat(s))
+			var v := float(eff[s])
 			if condition < 1.0 and FATIGUE_STATS.has(s):
 				v *= condition
 			_stats[s] = clampf(v + form, 1.0, 110.0)

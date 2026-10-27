@@ -44,6 +44,7 @@ func _init() -> void:
 		"test_resign_negotiation",
 		"test_starter_promises",
 		"test_trades",
+		"test_trade_need_factor",
 		"test_roster_rules",
 		"test_ai_weekly_training",
 		"test_camp_respects_caps",
@@ -57,6 +58,7 @@ func _init() -> void:
 		"test_match_form_upsets",
 		"test_schemes",
 		"test_keep_value_protects_prospects",
+		"test_relationships",
 	]
 	# Legacy tests run on a generated 5-team single-division league (fast); the expansion
 	# tests switch to the fixed 20-team league themselves.
@@ -547,9 +549,10 @@ func test_draft_class_and_points() -> void:
 
 func test_scouting_windows() -> void:
 	var d := Draft.generate(77, 2026, 1)
-	d.scout_points = 1000
+	d.scout_points = 2000
 	for p in d.prospects:
 		var used := 0
+		check(p.scout_grade() == p.area_grade + "?", "grade has a ? before full scouting")
 		while d.can_scout(p):
 			var broad_left := false
 			for g in Stats.GROUP_ORDER:
@@ -574,7 +577,10 @@ func test_scouting_windows() -> void:
 				exact += 1
 		check(exact == Draft.MAX_POINTS_PER_PROSPECT - 6, "each later point pins one group exactly")
 		check(d.scout(p).is_empty(), "can't scout past max")
-	check(d.scout_points == 1000 - Draft.CLASS_SIZE * Draft.MAX_POINTS_PER_PROSPECT, "points spent")
+		check(p.grade_confirmed() and p.scout_grade() == p.true_grade, "full scouting reveals the true grade")
+	var tops := d.prospects.filter(func(q: Prospect): return q.true_grade == "A")
+	check(not tops.is_empty() and tops.size() <= ceili(Draft.CLASS_SIZE * 0.05), "true A = top 5%% of the class (%d)" % tops.size())
+	check(d.scout_points == 2000 - Draft.CLASS_SIZE * Draft.MAX_POINTS_PER_PROSPECT, "points spent")
 	# Narrowing stays inside the previous window.
 	var d2 := Draft.generate(78, 2026, 1)
 	d2.scout_points = 1000
@@ -622,10 +628,13 @@ func test_draft_order_and_picks() -> void:
 	check(s.offseason_stage == Season.OFF_FREE_AGENCY, "free agency opened after the draft")
 	for t in s.league.teams:
 		if not t.user_controlled:
-			check(t.roster.size() <= Team.ROSTER_SIZE, "%s cut to limit" % t.abbrev)
+			check(t.roster.size() <= Team.OFFSEASON_MAX, "%s at or under the offseason max" % t.abbrev)
 		check(t.lineup.size() == 5, "lineup valid after cuts")
 		for so in t.roster:
 			check(so.contract != null and not so.contract.is_expiring(), "%s has a live contract" % so.full_name())
+	for pr in d.picks():
+		if pr.pick_number <= per_round * 2:
+			check(not s.league.free_agents.has(pr.soldier), "early pick %s (#%d) not cut into free agency" % [pr.soldier.full_name(), pr.pick_number])
 	check(made.size() == d.order.find(user), "AI picks before user")
 
 
@@ -795,6 +804,75 @@ func test_morale_effects() -> void:
 	for t in s.league.teams:
 		for x in t.roster:
 			check(x.morale >= 0.0 and x.morale <= 100.0, "morale in range after weeks")
+
+
+func test_relationships() -> void:
+	var s := Season.new_franchise(777)
+	var rel := s.relationships
+	check(not rel.pairs.is_empty(), "teammates seeded with some history")
+	var team_of := {}
+	for t in s.league.teams:
+		for x in t.roster:
+			team_of[x.id] = t
+	var cross := 0
+	for k in rel.pairs:
+		if team_of.get(k.x) != team_of.get(k.y):
+			cross += 1
+	check(cross == 0, "seeded bonds are only between teammates")
+	check(Relationships.level_for(19.9) == 0 and Relationships.level_for(20.0) == 1 and Relationships.level_for(50.0) == 2 and Relationships.level_for(80.0) == 3, "level thresholds")
+	# Clean slate so gains are measurable.
+	rel.pairs.clear()
+	var played := s.sim_week()
+	var m: ScheduledMatch = null
+	for x in played:
+		if x.is_played():
+			m = x
+			break
+	check(m != null, "a match was played")
+	var t: Team = m.home
+	var by_slot := {}
+	for so in t.roster:
+		if m.result.box.has(so.id):
+			by_slot[StringName(m.result.box[so.id]["slot"])] = so
+	var adj: Array = Scheme.ADJACENT[t.scheme.id]
+	var a: Soldier = by_slot.get(adj[0][0])
+	var b: Soldier = by_slot.get(adj[0][1])
+	check(a != null and b != null, "adjacent pair started")
+	var adj_pts := rel.points(a, b)
+	check(is_equal_approx(adj_pts, Relationships.MATCH_GAIN + Relationships.ADJACENT_GAIN + Relationships.TRAINING_GAIN), "adjacent starters gain match + neighbour + training (%.2f)" % adj_pts)
+	var bench := t.bench()
+	if bench.size() >= 2 and not m.result.box.has(bench[0].id) and not m.result.box.has(bench[1].id):
+		check(is_equal_approx(rel.points(bench[0], bench[1]), Relationships.TRAINING_GAIN), "bench pair gets training gain only")
+	check(int(rel.pairs[Relationships.key(a.id, b.id)]["m"]) == 1, "matches together counted")
+	# Boost: Mentality only, by level, capped; bench players get none.
+	var team := s.user_team()
+	var st := team.starters()
+	for x in team.roster:
+		x.morale = Soldier.MORALE_NEUTRAL
+	rel.pairs.clear()
+	check(st[0].chem_bonus() == 0, "no bonds, no bonus")
+	rel.pairs[Relationships.key(st[0].id, st[1].id)] = {"pts": 85.0, "m": 40, "d": 0.0}
+	check(st[0].chem_bonus() == 3 and st[1].chem_bonus() == 3, "Inseparable pair gives +3")
+	var mods := st[0].stat_mods()
+	check(int(mods.get(Stats.AWARENESS, 0)) == 3 and int(mods.get(Stats.COMPOSURE, 0)) == 3 and int(mods.get(Stats.TEAMWORK, 0)) == 3, "boost lands on Mentality")
+	check(not mods.has(Stats.SPEED), "nothing outside Mentality")
+	rel.pairs[Relationships.key(st[0].id, st[2].id)] = {"pts": 55.0, "m": 20, "d": 0.0}
+	check(st[0].chem_bonus() == Relationships.BONUS_CAP, "bonus capped at +%d" % Relationships.BONUS_CAP)
+	var b0: Soldier = team.bench()[0]
+	rel.pairs[Relationships.key(st[0].id, b0.id)] = {"pts": 90.0, "m": 0, "d": 0.0}
+	check(b0.chem_bonus() == 0, "bench player gets no bonus")
+	# Decay apart, and bonds survive a release.
+	var gone: Soldier = st[1]
+	s.release_player(team, gone)
+	var before := rel.points(st[0], gone)
+	s.sim_week()
+	check(is_equal_approx(rel.points(st[0], gone), before - Relationships.DECAY), "separated pair decays")
+	check(float(rel.pairs[Relationships.key(st[0].id, gone.id)]["d"]) < 0.0, "trend fading")
+	check(rel.partners_of(st[0])[0]["id"] == gone.id or rel.points(st[0], gone) > 0.0, "bond kept after release")
+	# Saved and loaded.
+	var loaded := SaveSystem.from_text(SaveSystem.to_text(s))
+	check(loaded.relationships.pairs.size() == rel.pairs.size(), "relationships saved")
+	check(is_equal_approx(loaded.relationships.points(st[0], gone), rel.points(st[0], gone)), "pair points saved")
 
 
 func test_callsigns_saves_and_season_lines() -> void:
@@ -1260,6 +1338,19 @@ func test_starter_promises() -> void:
 		bench.contract.years = 0
 		var n := s.negotiation(user, bench)
 		check(n != null and n.patience < Negotiation.MAX_PATIENCE, "broken promise sours the next talks")
+
+
+func test_trade_need_factor() -> void:
+	var s := Season.new_franchise(12)
+	var t: Team = s.league.teams.filter(func(x: Team): return not x.user_controlled)[0]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3
+	var stud := PlayerGenerator.generate(rng, 9001, Scheme.Role.FLEX, 95.0, 25)
+	var scrub := PlayerGenerator.generate(rng, 9002, Scheme.Role.FLEX, 50.0, 29)
+	scrub.potential = 0
+	check(is_equal_approx(s.trades.need_factor(s, t, stud), 1.0), "a would-be starter is fully valued")
+	check(s.trades.need_factor(s, t, scrub) < 0.85, "a buried, low-potential vet is discounted (%.2f)" % s.trades.need_factor(s, t, scrub))
+	check(s.trades.player_value(s, scrub, t, false) < s.trades.player_value(s, scrub, t, true), "receiving a buried player is worth less than giving him")
 
 
 func test_trades() -> void:
@@ -1753,6 +1844,7 @@ func test_keep_value_protects_prospects() -> void:
 	kid.potential = Soldier.POTENTIAL_A
 	var vet := PlayerGenerator.generate(rng, 101, Scheme.Role.FLEX, 68.0, 29)
 	vet.potential = 2
+	kid.stats = vet.stats.duplicate()
 	t.roster.append(kid)
 	t.roster.append(vet)
-	check(t.keep_value(kid) > t.keep_value(vet), "young A-potential is kept over a late-20s C")
+	check(t.keep_value(kid) > t.keep_value(vet), "young A-potential is kept over a late-20s C (%.1f vs %.1f; ovr %d/%d pot %d/%d role %d/%d)" % [t.keep_value(kid), t.keep_value(vet), kid.best_ovr(), vet.best_ovr(), kid.potential_ovr(), vet.potential_ovr(), Scheme.best_role(kid.stats), Scheme.best_role(vet.stats)])

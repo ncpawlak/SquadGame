@@ -24,6 +24,8 @@ var consensus := 0.0
 var projected_rank := 0
 ## Rough free "area scout" letter (A..F), class-relative and noisy.
 var area_grade := "C"
+## His real class-percentile letter (no noise); shown once he's scouted to the max.
+var true_grade := ""
 ## Starred by the user (favorites list, auto-scout goes first).
 var favorite := false
 var drafted_by: Team = null
@@ -45,6 +47,17 @@ func scoutable_groups() -> Array[StringName]:
 		if int(scouts.get(g, 0)) < Draft.WINDOW_WIDTHS.size():
 			out.append(g)
 	return out
+
+
+## The scout grade as shown: the area read with a "?" until he's scouted to the max, then the true grade.
+func scout_grade() -> String:
+	if points >= Draft.MAX_POINTS_PER_PROSPECT and true_grade != "":
+		return true_grade
+	return area_grade + "?"
+
+
+func grade_confirmed() -> bool:
+	return points >= Draft.MAX_POINTS_PER_PROSPECT and true_grade != ""
 
 
 func fully_scouted() -> bool:

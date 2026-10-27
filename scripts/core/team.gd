@@ -3,6 +3,19 @@ extends RefCounted
 ## A team: roster of soldiers plus a lineup slotting 5 of them into the scheme.
 
 const ROSTER_SIZE := 12
+## Offseason rosters may run this big (draft picks + free agents); cut down to ROSTER_SIZE before Week 1.
+const OFFSEASON_MAX := 15
+## Future weight by potential grade (F..A) in keep_value.
+const KEEP_GRADE_W := [0.3, 0.4, 0.55, 0.75, 0.9]
+## Flat bonus by grade (F..A) for young players on top of the raw gap (scaled by age weight).
+const KEEP_GRADE_FLAT := [0.0, 0.0, 0.0, 2.0, 4.0]
+## Draft-capital bonus by round (1..3) for a pick's draft offseason and first season; halved in his second.
+const KEEP_DRAFT_BONUS := [10.0, 5.0, 2.0]
+
+## Current league year (kept in sync by Season.year) for draft-capital ages in keep_value.
+static var year_now := 0
+## Teams in the league (picks per draft round) for keep_value's draft round.
+static var league_size := 20
 
 var id: int
 var name: String
@@ -205,17 +218,20 @@ func release(soldier: Soldier) -> void:
 		fill_injured()
 
 
-## How much a front office wants to keep `s` (higher = keep), in OVR-like points: current OVR,
-## upside for young players, an age penalty from 30, depth at his best role (starters are kept,
-## third-string and deeper are surplus), the dead money cutting him would leave and how good a
-## deal his contract is for the years he has left.
+## How much a front office wants to keep `s` (higher = keep), in OVR-like points:
+##   now      current OVR at his best role
+##   future   (projected - current) x age weight (1 at <=21, 0 by 28) x grade weight (A 0.9 .. F 0.3)
+##   depth    starter +5, top backup +3; deeper: -3 per player ahead who is better now and projects
+##            at least as high (halved for young A/B players, who are still developing)
+##   draft    this year's / last year's pick: R1 +10, R2 +5, R3 +2 (half a year later, then gone)
+##   contract cheap deal or big dead money if cut up to +5, overpaid down to -3
+##   age      falls from 30, faster from 33
 func keep_value(s: Soldier) -> float:
-	var v := float(s.best_ovr())
-	v += float(s.potential_ovr() - s.best_ovr()) * clampf((28.0 - s.age) / 8.0, 0.0, 1.0) * 0.6
-	if s.age <= 25:
-		# Grade on top of the raw gap: front offices never let a young A/B prospect walk.
-		var grade := 11.0 if s.potential >= Soldier.POTENTIAL_A else (4.0 if s.potential == Soldier.POTENTIAL_A - 1 else 0.0)
-		v += grade * clampf((26.0 - s.age) / 5.0, 0.0, 1.0)
+	var now := float(s.best_ovr())
+	var v := now
+	var age_w := clampf((28.0 - s.age) / 7.0, 0.0, 1.0)
+	var g := clampi(s.potential, 0, Soldier.POTENTIAL_A)
+	v += (maxf(0.0, float(s.potential_ovr()) - now) * float(KEEP_GRADE_W[g]) + float(KEEP_GRADE_FLAT[g])) * age_w
 	if s.age >= 30:
 		v -= float(s.age - 29) * 0.8
 	if s.age >= 33:
@@ -225,19 +241,45 @@ func keep_value(s: Soldier) -> float:
 	for slot_id in scheme.slot_ids():
 		if scheme.role_for_slot(slot_id) == role:
 			slots += 1
+	var mine := s.ovr_at_role(role)
 	var ahead := 0
+	var buried_by := 0
 	for o in roster:
-		if o != s and Scheme.best_role(o.stats) == role and o.ovr_at_role(role) > s.ovr_at_role(role):
-			ahead += 1
+		if o == s or Scheme.best_role(o.stats) != role or o.ovr_at_role(role) <= mine:
+			continue
+		ahead += 1
+		if o.potential_ovr() >= s.potential_ovr():
+			buried_by += 1
 	if ahead < slots:
-		v += 4.0
-	elif ahead >= slots + 2:
-		v -= 2.0 * float(ahead - slots - 1)
+		v += 5.0
+	elif ahead == slots:
+		v += 3.0
+	else:
+		var units := maxi(0, buried_by - slots + 1)
+		var pen := 3.0 * float(units)
+		if s.age <= 24 and s.potential >= Soldier.POTENTIAL_A - 1:
+			pen *= 0.5
+		v -= pen
+	v += draft_bonus(s)
 	if s.contract != null and s.contract.years > 0:
-		v += minf(6.0, float(Contracts.dead_money_if_released(s)) / 4200.0)
+		var c := minf(4.0, float(Contracts.dead_money_if_released(s)) / 4200.0)
 		var surplus := float(Contracts.market_value(s) - s.contract.salary) * mini(s.contract.years, 3)
-		v += clampf(surplus / 2800.0, -3.0, 3.0)
+		c += clampf(surplus / 2800.0, -3.0, 3.0)
+		v += clampf(c, -3.0, 5.0)
 	return v
+
+
+## Draft capital a front office protects: a pick from this draft (or last season's) by round,
+## halved the year after, gone after that.
+static func draft_bonus(s: Soldier) -> float:
+	if s.draft_year <= 0 or s.draft_pick <= 0 or year_now <= 0:
+		return 0.0
+	var elapsed := year_now - s.draft_year
+	if elapsed < 0 or elapsed > 2:
+		return 0.0
+	var rnd := clampi((s.draft_pick - 1) / maxi(1, league_size), 0, KEEP_DRAFT_BONUS.size() - 1)
+	var b: float = KEEP_DRAFT_BONUS[rnd]
+	return b * (0.5 if elapsed == 2 else 1.0)
 
 
 ## The soldier a front office would let go first (lowest keep_value).

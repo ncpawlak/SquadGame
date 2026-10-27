@@ -35,7 +35,7 @@ const AUTO_SCOUT_LEVELS := [3, 6]
 ## Area-scout grades by class percentile (best first) and the noise on their read (OVR points).
 const AREA_GRADES := [["A", 0.05], ["B+", 0.15], ["B", 0.30], ["C+", 0.50], ["C", 0.70], ["D", 0.88], ["F", 1.0]]
 const AREA_NOISE := 4.0
-const MAX_POINTS_PER_PROSPECT := 8
+const MAX_POINTS_PER_PROSPECT := 10
 ## Window width (in tiers) after the 1st, 2nd and 3rd scout of a group.
 const WINDOW_WIDTHS := [3, 2, 1]
 ## Groups scouted per point while any group is still wider than 2 tiers (then 1 per point).
@@ -228,11 +228,18 @@ func _grade_area(rng: RandomNumberGenerator) -> void:
 	var board := prospects.duplicate()
 	board.sort_custom(func(a: Prospect, b: Prospect): return reads[a] > reads[b])
 	for i in board.size():
-		var pct := float(i + 1) / board.size()
-		for g in AREA_GRADES:
-			if pct <= g[1]:
-				board[i].area_grade = g[0]
-				break
+		board[i].area_grade = _grade_for_pct(float(i + 1) / board.size())
+	var truth := prospects.duplicate()
+	truth.sort_custom(func(a: Prospect, b: Prospect): return true_value(a) > true_value(b))
+	for i in truth.size():
+		truth[i].true_grade = _grade_for_pct(float(i + 1) / truth.size())
+
+
+static func _grade_for_pct(pct: float) -> String:
+	for g in AREA_GRADES:
+		if pct <= g[1]:
+			return g[0]
+	return AREA_GRADES[-1][0]
 
 
 ## Recomputes every prospect's big-board rank from the consensus.
@@ -591,6 +598,15 @@ func is_started() -> bool:
 
 func is_complete() -> bool:
 	return is_started() and next_pick >= order.size()
+
+
+## Picks `team` still has to make.
+func picks_left_for(team: Team) -> int:
+	var n := 0
+	for i in range(next_pick, order.size()):
+		if order[i] == team:
+			n += 1
+	return n
 
 
 func on_the_clock() -> Team:

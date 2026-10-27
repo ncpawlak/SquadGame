@@ -156,6 +156,16 @@ const ORDER := {
 	&"pack": [&"FM1", &"FM2", &"CTR", &"CT2", &"MFX"],
 }
 
+## Formation neighbours per scheme: these pairs build chemistry faster (see Relationships).
+const ADJACENT := {
+	&"power_front": [[&"FM1", &"FM2"], [&"FM1", &"LFX"], [&"FM2", &"RFX"], [&"CTR", &"FM1"], [&"CTR", &"FM2"]],
+	&"wide_left": [[&"FM1", &"FM2"], [&"LFX", &"LF2"], [&"LF2", &"FM1"], [&"CTR", &"FM1"], [&"CTR", &"FM2"]],
+	&"wide_right": [[&"FM1", &"FM2"], [&"RFX", &"RF2"], [&"RF2", &"FM2"], [&"CTR", &"FM1"], [&"CTR", &"FM2"]],
+	&"wall": [[&"FM1", &"FM2"], [&"FM2", &"FM3"], [&"FM2", &"MFX"], [&"MFX", &"CTR"]],
+	&"spread": [[&"LFX", &"LF2"], [&"RFX", &"RF2"], [&"LF2", &"CTR"], [&"RF2", &"CTR"]],
+	&"pack": [[&"FM1", &"FM2"], [&"FM1", &"MFX"], [&"FM2", &"MFX"], [&"MFX", &"CTR"], [&"MFX", &"CT2"], [&"CTR", &"CT2"]],
+}
+
 
 static func power_front() -> Scheme:
 	return by_id(&"power_front")
