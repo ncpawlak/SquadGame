@@ -756,9 +756,9 @@ func _home_sections() -> Array:
 	return []
 
 
-## A to-do tile. Done: greyed out with a check. Urgent: orange with a "!" in the corner.
-func _todo(title: String, body: String, accent: Color, cb: Callable, done := false, urgent := false) -> Button:
-	var t := UiKit.tile(("\u2713  " if done else "") + title, body, SMALL, UiKit.MUTED.darkened(0.3) if done else (Color("#f97316") if urgent else accent), cb)
+## A to-do tile in the team trim colour. Done: greyed out with a check. Urgent: orange with a "!" in the corner.
+func _todo(title: String, body: String, _accent: Color, cb: Callable, done := false, urgent := false) -> Button:
+	var t := UiKit.tile(("\u2713  " if done else "") + title, body, SMALL, UiKit.MUTED.darkened(0.3) if done else (Color("#f97316") if urgent else UiKit.TRIM), cb)
 	t.set_meta("todo_done", done)
 	t.set_meta("todo_urgent", urgent)
 	if done:
