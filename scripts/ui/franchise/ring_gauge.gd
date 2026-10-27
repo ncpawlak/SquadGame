@@ -8,6 +8,8 @@ var _color: Color
 var _text: String
 var _thickness: float
 var logo: Texture2D
+## Filled disc behind the logo so it reads on any tile colour (transparent = none).
+var disc := Color.TRANSPARENT
 
 
 func _init(value: float, max_value: float, color: Color, text: String, diameter := 84, thickness := 0.0) -> void:
@@ -28,6 +30,8 @@ func _draw() -> void:
 	if _fraction > 0.0:
 		draw_arc(c, r, -PI / 2.0, -PI / 2.0 + TAU * _fraction, 64, _color, _thickness, true)
 	if logo != null:
+		if disc.a > 0.0:
+			draw_circle(c, r - _thickness / 2.0, disc, true, -1.0, true)
 		var inner := (r - _thickness / 2.0) * 2.0 * 0.86
 		draw_texture_rect(logo, Rect2(c - Vector2(inner, inner) / 2.0, Vector2(inner, inner)), false)
 		return

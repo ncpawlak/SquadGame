@@ -57,7 +57,9 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   Player of the Week, wire stories, trades, signings, injuries, player stories, retirements) / Prospect News /
   Upcoming Matches (your next 3 plus this week's slate). After the trade deadline, < > arrows flip it to the
   **Playoff Picture**: a logo bracket (projected seeds in-season, live series in the playoffs) with a champion slot.
-- **Team select**: a big pane on top shows the hovered/focused team - logo in its colours, division, OVR and
+- **Team select**: tiles rest in a muted team tint with a team-colour bottom stripe and light up in full colour on
+  hover; each logo sits on a dark disc inside a thin OVR ring, with an expectation tag (Title Favorite / Contender /
+  Playoff Team / Bubble / Rebuild). Divisions are vertical badges. A big pane on top shows the hovered/focused team - logo in its colours, division, OVR and
   preseason rank, cap space, average age, expectation, backstory (a fixed 5-line box), starters' average group
   ratings and its top 3 players in the team's uniform - over 4 division rows of 5 team tiles (name and a big OVR).
   Click to start.
