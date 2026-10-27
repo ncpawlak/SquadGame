@@ -548,9 +548,10 @@ func test_draft_class_and_points() -> void:
 
 func test_scouting_windows() -> void:
 	var d := Draft.generate(77, 2026, 1)
-	d.scout_points = 1000
+	d.scout_points = 2000
 	for p in d.prospects:
 		var used := 0
+		check(p.scout_grade() == p.area_grade + "?", "grade has a ? before full scouting")
 		while d.can_scout(p):
 			var broad_left := false
 			for g in Stats.GROUP_ORDER:
@@ -575,7 +576,10 @@ func test_scouting_windows() -> void:
 				exact += 1
 		check(exact == Draft.MAX_POINTS_PER_PROSPECT - 6, "each later point pins one group exactly")
 		check(d.scout(p).is_empty(), "can't scout past max")
-	check(d.scout_points == 1000 - Draft.CLASS_SIZE * Draft.MAX_POINTS_PER_PROSPECT, "points spent")
+		check(p.grade_confirmed() and p.scout_grade() == p.true_grade, "full scouting reveals the true grade")
+	var tops := d.prospects.filter(func(q: Prospect): return q.true_grade == "A")
+	check(not tops.is_empty() and tops.size() <= ceili(Draft.CLASS_SIZE * 0.05), "true A = top 5%% of the class (%d)" % tops.size())
+	check(d.scout_points == 2000 - Draft.CLASS_SIZE * Draft.MAX_POINTS_PER_PROSPECT, "points spent")
 	# Narrowing stays inside the previous window.
 	var d2 := Draft.generate(78, 2026, 1)
 	d2.scout_points = 1000

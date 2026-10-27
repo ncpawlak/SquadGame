@@ -2616,7 +2616,7 @@ func _prospect_value(p: Prospect, key: StringName) -> Variant:
 	match key:
 		&"name": return p.soldier.last_name + " " + p.soldier.first_name
 		&"proj": return p.projected_rank
-		&"area": return -_area_rank(p.area_grade)
+		&"area": return -_area_rank(p.scout_grade().trim_suffix("?"))
 	var w: Variant = p.reveals.get(key)
 	if w == null:
 		return -1.0
@@ -2710,9 +2710,11 @@ func _prospect_row(p: Prospect, action_text: String, action_enabled: bool, actio
 	hb.add_child(Portrait.new(p.soldier, PCOL_PORTRAIT))
 	hb.add_child(_two_lines(("★ " if p.favorite else "") + p.soldier.full_name(), Color.WHITE,
 		"age %d  -  %s  -  %s" % [p.soldier.age, Scheme.ROLE_NAMES[p.listed_role], p.soldier.home_state], PCOL_NAME))
-	var area := UiKit.label(p.area_grade, 22, AREA_COLORS.get(p.area_grade, UiKit.TEXT))
+	var gr := p.scout_grade().trim_suffix("?")
+	var area := UiKit.label(p.scout_grade(), 22, AREA_COLORS.get(gr, UiKit.TEXT))
 	area.custom_minimum_size.x = PCOL_AREA
-	area.tooltip_text = "Scout grade: your area scouts' quick read on where he ranks in this class\n(A = top 5%, F = bottom). A rough, noisy hint - scout him to see his real ratings."
+	area.tooltip_text = ("Confirmed grade: fully scouted, this is where he really ranks in the class\n(A = top 5%%, F = bottom)." if p.grade_confirmed() else
+		"Scout grade: your area scouts' quick read on where he ranks in this class\n(A = top 5%%, F = bottom). A noisy hint - scout him to %d points to confirm his true grade.") % ([] if p.grade_confirmed() else [Draft.MAX_POINTS_PER_PROSPECT])
 	area.mouse_filter = Control.MOUSE_FILTER_PASS
 	area.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	area.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -2764,7 +2766,7 @@ func scouting() -> Control:
 	var v := _vbox(10)
 	v.add_child(UiKit.rich("[font_size=22][color=white]%d DRAFT CLASS[/color][/font_size]     [color=#38bdf8]%d scout points[/color] available  (+%d per week, unspent points carry over)" % [
 		d.year, d.scout_points, Draft.POINTS_PER_WEEK], 16))
-	var help := UiKit.label("SCOUT is the grade from your area scouts: a quick read on where he ranks in the whole class (A = top 5%%, F = bottom of the class) - a noisy hint, not a guarantee. Each point scouts 2 random stat groups: the first look at a group shows a 3-grade range, a second narrows it to 2. Once every group is down to 2 grades, each point pins 1 group to its exact grade. Up to %d points per prospect. Projected rounds are the league consensus - potential stays hidden until draft day." % Draft.MAX_POINTS_PER_PROSPECT, 14, UiKit.MUTED)
+	var help := UiKit.label("SCOUT is the grade from your area scouts: a quick read on where he ranks in the whole class (A = top 5%%, F = bottom of the class) - a noisy hint, not a guarantee, marked with a '?'. Scout him to %d points and the '?' drops: that's his true grade. Each point scouts 2 random stat groups: the first look at a group shows a 3-grade range, a second narrows it to 2. Once every group is down to 2 grades, each point pins 1 group to its exact grade. Up to %d points per prospect. Projected rounds are the league consensus - potential stays hidden until draft day." % [Draft.MAX_POINTS_PER_PROSPECT, Draft.MAX_POINTS_PER_PROSPECT], 14, UiKit.MUTED)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(help)
 	if _season().preseason_camp:
@@ -2802,8 +2804,8 @@ func prospect(p: Prospect) -> Control:
 	var drafted := ""
 	if not p.is_available():
 		drafted = "   -   [color=#f59e0b]Drafted by %s, pick %d[/color]" % [UiKit.esc(p.drafted_by.name), p.pick_number]
-	v.add_child(UiKit.rich("[font_size=30][color=white]%s[/color][/font_size]   age %d  -  %s prospect%s\nProjected: [color=#f59e0b]%s[/color]   -   Scouted %d / %d   -   Potential: unknown   -   [color=#38bdf8]%d scout points[/color] available" % [
-		UiKit.esc(s.full_name()), s.age, Scheme.ROLE_NAMES[p.listed_role], drafted, Draft.projection_text(p.projected_rank), p.points,
+	v.add_child(UiKit.rich("[font_size=30][color=white]%s[/color][/font_size]   age %d  -  %s prospect%s\nProjected: [color=#f59e0b]%s[/color]   -   Scout grade [color=white]%s[/color]   -   Scouted %d / %d   -   Potential: unknown   -   [color=#38bdf8]%d scout points[/color] available" % [
+		UiKit.esc(s.full_name()), s.age, Scheme.ROLE_NAMES[p.listed_role], drafted, Draft.projection_text(p.projected_rank), p.scout_grade(), p.points,
 		Draft.MAX_POINTS_PER_PROSPECT, d.scout_points], 16))
 	var actions := _row()
 	var b := UiKit.button("Scout (1 point)", func():

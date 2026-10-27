@@ -85,7 +85,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   Each point spent on a prospect scouts **2 stat groups**, each shown as a range of named grades, e.g. Accuracy
   "Steady Aim - Marksman". The first look at a group shows 3 grades, a second narrows it to 2 (every group gets a
   first look before any gets a second). After 6 points every group is down to 2 grades; from then on each point
-  pins **1 group** to its exact grade. Max 8 points per prospect; numbers and potential are never shown.
+  pins **1 group** to its exact grade. Max 10 points per prospect; numbers and potential are never shown.
   Grades (worst → best) per group:
   - Accuracy: Spray & Pray, Inconsistent, Steady Aim, Marksman, Sharpshooter
   - Handling: Butterfingers, Clunky, Capable, Smooth Operator, Gunslinger
@@ -96,7 +96,8 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
 
   Grade thresholds: below 58, 58-67, 68-76, 77-85, 86+.
   **Area scouts** give every prospect a free, coarse **SCOUT** grade (A, B+, B, C+, C, D, F; noisy, from his
-  true quality - hover it for the explanation) - a cheap first sort of the big class. Once a season you can send a **region scout** trip (East, South,
+  true quality, shown with a "?" like "B+?" - hover it for the explanation). Scouting him to all 10 points drops the "?"
+  and reveals his **true grade** (his real class percentile, no noise) - a cheap first sort of the big class. Once a season you can send a **region scout** trip (East, South,
   Central, West): every available prospect from that region gets 4 free points. **Auto-scout** spends your points
   for you: "Up to 3" gives everyone a first look, "Up to 6" deepens those already at 3 - favorites first, then
   the big board. Star a prospect (row star or the ☆ Favorite button on his card) to make him a **favorite**; Scouting
