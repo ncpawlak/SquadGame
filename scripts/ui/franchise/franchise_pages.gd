@@ -16,8 +16,21 @@ func _vbox(sep := 12) -> VBoxContainer:
 	return v
 
 
+## Section label: short titles ("EAST DIVISION") in the broadcast face, long notes as muted text.
 func _section(text: String) -> Label:
+	if text.length() <= 40 and not text.contains("  -  "):
+		return UiKit.display(text.to_upper(), 21, UiKit.TEXT)
 	return UiKit.label(text, 15, UiKit.MUTED)
+
+
+## Segmented toggle button: the active option is the slanted accent button.
+func _seg(text: String, active: bool, cb: Callable, size := 16) -> Button:
+	var b := UiKit.button(text, cb, size)
+	if active:
+		UiKit.style_primary(b)
+	else:
+		UiKit.style_skewed(b)
+	return b
 
 
 func _row(sep := 12) -> HBoxContainer:
@@ -44,7 +57,7 @@ func standings() -> Control:
 		var nav := _row()
 		for o in [["div", "Divisions"], ["league", "Whole league"]]:
 			var val: String = o[0]
-			var b := UiKit.button(("[ %s ]" % o[1]) if standings_view == val else o[1], func():
+			var b := _seg(o[1], standings_view == val, func():
 				standings_view = val
 				hub.replace("Standings", standings), 15)
 			b.custom_minimum_size.x = 150
@@ -295,11 +308,12 @@ func matchup(m: ScheduledMatch) -> Control:
 	v.add_child(h)
 	var btns := _row(20)
 	btns.alignment = BoxContainer.ALIGNMENT_CENTER
-	var watch := UiKit.button("WATCH", func(): hub.watch_match(m), 24)
+	var watch := UiKit.primary_button("WATCH", func(): hub.watch_match(m), 26)
 	watch.custom_minimum_size = Vector2(260, 64)
 	watch.tooltip_text = "Watch the match live on the tactical map."
 	btns.add_child(watch)
-	var sim := UiKit.button("SIM", hub.sim_week, 24)
+	var sim := UiKit.button("SIM", hub.sim_week, 26)
+	UiKit.style_skewed(sim)
 	sim.custom_minimum_size = Vector2(260, 64)
 	sim.tooltip_text = "Simulate the match instantly and go to the week's results."
 	btns.add_child(sim)
@@ -375,7 +389,7 @@ func preview(m: ScheduledMatch) -> Control:
 		var col := _vbox(6)
 		col.custom_minimum_size.x = 520
 		col.add_child(UiKit.team_logo(t, 96))
-		col.add_child(UiKit.label(t.name, 26, Color.WHITE))
+		col.add_child(UiKit.display(t.name.to_upper(), 30, Color.WHITE))
 		col.add_child(UiKit.label("Record %s   -   OVR %d" % [s.record_text(t), t.team_ovr()], 16, UiKit.MUTED))
 		var opp: Team = m.home if t == m.away else m.away
 		var edge: float = t.scheme.edge_vs(opp.scheme)
@@ -402,10 +416,10 @@ func preview(m: ScheduledMatch) -> Control:
 	cmp.custom_minimum_size.x = 1064
 	cmp.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	for row in hub.compare_rows(m.away, m.home):
-		cmp.add_child(hub.compare_bar(row, m.away.color, m.home.color))
+		cmp.add_child(hub.compare_bar(row, UiKit.accent_of(m.away), UiKit.accent_of(m.home)))
 	v.add_child(cmp)
 	if not m.is_played() and m.week == s.week and m.involves(s.user_team()):
-		var play := UiKit.button("Play %s  >>" % s.week_label(m.week), hub.advance, 20)
+		var play := UiKit.primary_button("Play %s  >>" % s.week_label(m.week), hub.advance, 22)
 		play.custom_minimum_size = Vector2(300, 56)
 		v.add_child(play)
 	return v
@@ -466,15 +480,33 @@ func match_summary(m: ScheduledMatch, persp: Team = null) -> Control:
 	else:
 		top_text = "[color=#8b97ab]%s[/color]" % top_text
 	v.add_child(UiKit.rich("[center][font_size=22]%s[/font_size][/center]" % top_text, 18))
+	var card := PanelContainer.new()
+	var csb := UiKit.flat(UiKit.PANEL, 2, 1, Color(1, 1, 1, 0.1))
+	csb.set_content_margin_all(0)
+	card.add_theme_stylebox_override("panel", csb)
+	card.custom_minimum_size.x = 1320
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	card.clip_contents = true
+	var bd := UiKit.backdrop(UiKit.banner_of(m.away), UiKit.banner_of(m.home), true, UiKit.ACCENT)
+	bd.two_tone = true
+	bd.mid = UiKit.PANEL.darkened(0.3)
+	card.add_child(bd)
 	var head := _row(26)
 	head.alignment = BoxContainer.ALIGNMENT_CENTER
 	head.add_child(_summary_side(m, m.away, "AWAY"))
-	var sc := UiKit.label("%d  -  %d" % [m.games_for(m.away), m.games_for(m.home)], 60, Color.WHITE)
+	var sc := UiKit.display("%d  -  %d" % [m.games_for(m.away), m.games_for(m.home)], 84, Color.WHITE, true)
 	sc.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	sc.size_flags_vertical = Control.SIZE_FILL
+	sc.custom_minimum_size.x = 260
+	sc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	head.add_child(sc)
 	head.add_child(_summary_side(m, m.home, "HOME"))
-	v.add_child(head)
+	var hm := MarginContainer.new()
+	hm.add_theme_constant_override("margin_top", 16)
+	hm.add_theme_constant_override("margin_bottom", 16)
+	hm.add_child(head)
+	card.add_child(hm)
+	v.add_child(card)
 
 	# Game-by-game strip (sudden death also lists its rounds).
 	var strip := _row(10)
@@ -514,10 +546,10 @@ func _summary_side(m: ScheduledMatch, t: Team, tag: String) -> Control:
 	logo.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	col.add_child(logo)
 	var won := m.winner() == t
-	var n := UiKit.label(t.name, 22, Color.WHITE if won else UiKit.MUTED)
+	var n := UiKit.display(t.name.to_upper(), 28, Color.WHITE if won else Color(1, 1, 1, 0.6))
 	n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(n)
-	var rec := UiKit.label("%s   -   %s" % [tag, _season().record_text(t)], 14, UiKit.MUTED)
+	var rec := UiKit.label("%s   ·   %s" % [tag, _season().record_text(t)], 15, Color(1, 1, 1, 0.7))
 	rec.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(rec)
 	return col
@@ -531,7 +563,9 @@ func _box_pane(m: ScheduledMatch, t: Team, tag: String) -> Control:
 	var ti := r.teams.find(t)
 	var won := m.winner() == t
 	var p := PanelContainer.new()
-	var sb := UiKit.flat(UiKit.MINE if t.user_controlled else UiKit.PANEL, 12, 2, (UiKit.ACCENT.darkened(0.15) if t.user_controlled else UiKit.LINE))
+	var sb := UiKit.flat(UiKit.MINE if t.user_controlled else UiKit.PANEL, 4, 2, (UiKit.ACCENT.darkened(0.15) if t.user_controlled else UiKit.LINE))
+	sb.border_width_top = 5
+	sb.border_color = UiKit.accent_of(t) if not t.user_controlled else UiKit.ACCENT
 	sb.content_margin_left = 14
 	sb.content_margin_right = 14
 	sb.content_margin_top = 12
@@ -544,7 +578,7 @@ func _box_pane(m: ScheduledMatch, t: Team, tag: String) -> Control:
 	head.add_child(UiKit.team_logo(t, 40))
 	var hv := _vbox(0)
 	hv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hv.add_child(UiKit.label(t.name, 19, Color.WHITE))
+	hv.add_child(UiKit.display(t.name.to_upper(), 22, Color.WHITE))
 	hv.add_child(UiKit.label("%s   -   %s" % [tag, "WIN" if won else "LOSS"], 13, UiKit.GOOD if won else UiKit.BAD))
 	head.add_child(hv)
 	var gw := UiKit.label(str(m.games_for(t)), 34, UiKit.GOOD if won else UiKit.MUTED)
@@ -1100,7 +1134,9 @@ func player(s: Soldier) -> Control:
 		var b := UiKit.button(PLAYER_TABS[i].to_upper(), func(): _player_refresh(s, idx), 15)
 		b.custom_minimum_size = Vector2(140, 40)
 		if i == _player_tab:
-			UiKit.style_button(b, UiKit.ACCENT.darkened(0.45), Color.WHITE, 6)
+			UiKit.style_primary(b)
+		else:
+			UiKit.style_skewed(b)
 		tabs.add_child(b)
 	v.add_child(tabs)
 	match _player_tab:
@@ -1116,14 +1152,18 @@ func player(s: Soldier) -> Control:
 func _player_header(s: Soldier, team: Team) -> Control:
 	var color := team.color if team != null else UiKit.MUTED
 	var pane := PanelContainer.new()
-	var sb := UiKit.flat(UiKit.PANEL, 12, 1, UiKit.LINE)
-	sb.border_width_left = 6
-	sb.border_color = color
-	sb.content_margin_left = 22
-	sb.content_margin_right = 22
-	sb.content_margin_top = 14
-	sb.content_margin_bottom = 14
+	var sb := UiKit.flat(UiKit.PANEL, 2, 1, Color(1, 1, 1, 0.1))
+	sb.set_content_margin_all(0)
 	pane.add_theme_stylebox_override("panel", sb)
+	pane.clip_contents = true
+	pane.add_child(UiKit.backdrop(UiKit.banner_of(team) if team != null else UiKit.PANEL_HI, UiKit.PANEL.darkened(0.2), true,
+		UiKit.accent_of(team) if team != null else UiKit.MUTED))
+	var pm := MarginContainer.new()
+	pm.add_theme_constant_override("margin_left", 22)
+	pm.add_theme_constant_override("margin_right", 22)
+	pm.add_theme_constant_override("margin_top", 14)
+	pm.add_theme_constant_override("margin_bottom", 16)
+	pane.add_child(pm)
 	var h := _row(24)
 	h.add_child(Portrait.new(s, 132, color, team))
 	var mid := _vbox(4)
@@ -1131,9 +1171,7 @@ func _player_header(s: Soldier, team: Team) -> Control:
 	mid.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	mid.add_child(UiKit.label(s.full_name().to_upper(), 18, UiKit.TEXT))
 	var big := ("\"%s\"" % s.callsign.to_upper()) if s.callsign != "" else s.last_name.to_upper()
-	var nm := UiKit.rich("[font_size=42][color=white]%s[/color][/font_size]" % UiKit.esc(big), 20)
-	nm.autowrap_mode = TextServer.AUTOWRAP_OFF
-	mid.add_child(nm)
+	mid.add_child(UiKit.display(big, 54, Color.WHITE, true))
 	var where := "Free agent"
 	if s.retired_year > 0:
 		where = "Retired %d" % s.retired_year
@@ -1161,15 +1199,15 @@ func _player_header(s: Soldier, team: Team) -> Control:
 	var ovr := team.ovr_in_slot(s, team.slot_of(s)) if team != null and team.slot_of(s) != &"" else s.best_ovr()
 	h.add_child(_big_badge("OVR", "[color=%s]%d[/color]%s" % [UiKit.hex(UiKit.ovr_color(ovr)), ovr, delta_bb(s.morale_ovr_delta(role), 18)]))
 	h.add_child(_big_badge("POT", "[color=%s]%s[/color]" % [UiKit.hex(potential_color(s.potential)), s.potential_letter()]))
-	pane.add_child(h)
+	pm.add_child(h)
 	return pane
 
 
 func _big_badge(title: String, value_bb: String) -> Control:
-	var p := UiKit.panel(UiKit.PANEL_HI, 10)
+	var p := UiKit.panel(Color(0, 0, 0, 0.45), 4)
 	p.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var box := _vbox(0)
-	var t := UiKit.label(title, 13, UiKit.MUTED)
+	var t := UiKit.display(title, 15, Color(1, 1, 1, 0.65))
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(t)
 	var r := UiKit.rich("[center][font_size=40]%s[/font_size][/center]" % value_bb, 18)
@@ -1430,7 +1468,7 @@ func _player_stats(s: Soldier) -> Control:
 			_player_refresh(s), 15)
 		b.custom_minimum_size = Vector2(130, 36)
 		if on == _stats_season:
-			UiKit.style_button(b, UiKit.ACCENT.darkened(0.45), Color.WHITE, 6)
+			UiKit.style_primary(b)
 		toggle.add_child(b)
 	v.add_child(toggle)
 	v.add_child(_player_game_log(s) if _stats_season else _player_career(s))
@@ -2826,7 +2864,7 @@ func _filter_row(title: String, rebuild: Callable) -> HBoxContainer:
 	var options := [[-1, "All"], [Scheme.Role.FRONTMAN, "Frontman"], [Scheme.Role.CENTER, "Center"], [Scheme.Role.FLEX, "Flex"]]
 	for o in options:
 		var val: int = o[0]
-		var b := UiKit.button(("[ %s ]" % o[1]) if role_filter == val else o[1], func():
+		var b := _seg(o[1], role_filter == val, func():
 			role_filter = val
 			hub.replace(title, rebuild), 15)
 		b.custom_minimum_size.x = 110
@@ -2898,7 +2936,7 @@ func _scout_tools(d: Draft) -> Control:
 	for region in [""] + LeagueData.DIVISIONS:
 		var reg: String = region
 		var name := "All" if reg == "" else reg
-		var b := UiKit.button(("[ %s ]" % name) if region_filter == reg else name, func():
+		var b := _seg(name, region_filter == reg, func():
 			region_filter = reg
 			hub.replace("Scouting", scouting), 15)
 		r3.add_child(b)
@@ -3915,7 +3953,7 @@ func free_agents() -> Control:
 			fa_role_filter = role
 			hub.replace("Free Agents", free_agents), 14)
 		if role == fa_role_filter:
-			UiKit.style_button(b, UiKit.ACCENT.darkened(0.45), Color.WHITE, 6)
+			UiKit.style_primary(b)
 		filters.add_child(b)
 	v.add_child(filters)
 	var list: Array = s.league.free_agents.filter(func(x: Soldier): return fa_role_filter < 0 or Scheme.best_role(x.stats) == fa_role_filter)
@@ -4502,7 +4540,7 @@ func negotiate() -> Control:
 func _promise_toggle(on: bool, cb: Callable) -> Button:
 	var b := UiKit.button("[x] Starter promise" if on else "[  ] Starter promise", cb, 15)
 	if on:
-		UiKit.style_button(b, UiKit.ACCENT.darkened(0.45), Color.WHITE, 6)
+		UiKit.style_primary(b)
 	return b
 
 
@@ -4520,7 +4558,7 @@ func retirements() -> Control:
 			retire_scope_team = mine
 			hub.replace("Retirements", retirements), 15)
 		if mine == retire_scope_team:
-			UiKit.style_button(b, UiKit.ACCENT.darkened(0.45), Color.WHITE, 6)
+			UiKit.style_primary(b)
 		toggle.add_child(b)
 	v.add_child(toggle)
 	var help := UiKit.label("Soldiers retire from age %d (always by %d). Free agents who go a full season unsigned retire if they're below %d OVR or %d+." % [

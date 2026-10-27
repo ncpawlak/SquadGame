@@ -20,7 +20,8 @@ func _ready() -> void:
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
 	randomize()
-	UiKit.install_symbol_font()
+	UiKit.install_fonts()
+	theme = UiKit.theme()
 	_free_space_key()
 	show_title()
 
@@ -46,15 +47,30 @@ func _set_screen(c: Control) -> void:
 
 
 func show_title() -> void:
+	UiKit.reset_team()
+	theme = UiKit.theme()
+	var wrap := Control.new()
+	var g := UiKit.gradient_rect(Color("#1a2640").darkened(0.3), UiKit.BG)
+	g.set_anchors_preset(Control.PRESET_FULL_RECT)
+	wrap.add_child(g)
 	var root := CenterContainer.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	wrap.add_child(root)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 14)
-	col.custom_minimum_size.x = 420
+	col.custom_minimum_size.x = 440
 	root.add_child(col)
-	var title := UiKit.label("SQUAD LEAGUE", 64, Color.WHITE)
+	var title := UiKit.display("SQUAD LEAGUE", 96, Color.WHITE, true)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(title)
-	var sub := UiKit.label("FRANCHISE", 22, UiKit.ACCENT)
+	var bar := Panel.new()
+	var bsb := UiKit.flat(UiKit.ACCENT, 1)
+	bsb.skew = Vector2(UiKit.SKEW * 2.0, 0)
+	bar.add_theme_stylebox_override("panel", bsb)
+	bar.custom_minimum_size = Vector2(220, 5)
+	bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	col.add_child(bar)
+	var sub := UiKit.display("FRANCHISE", 28, UiKit.ACCENT)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(sub)
 	col.add_child(_spacer(24))
@@ -70,7 +86,11 @@ func show_title() -> void:
 	var hint := UiKit.label("Arrows / WASD / D-pad to move  -  Enter / A to select", 14, UiKit.MUTED)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(hint)
-	_set_screen(root)
+	var i := 0
+	for c in col.get_children():
+		UiKit.fade_in(c, 0.04 * i, 0.3)
+		i += 1
+	_set_screen(wrap)
 
 
 func show_team_select() -> void:
@@ -421,8 +441,9 @@ static func focusables(n: Node, out: Array[Control] = []) -> Array[Control]:
 # --- helpers ------------------------------------------------------------------
 
 func _menu_button(text: String, cb: Callable) -> Button:
-	var b := UiKit.button(text, cb, 22)
-	b.custom_minimum_size = Vector2(420, 58)
+	var b := UiKit.button(text, cb, 24)
+	UiKit.style_skewed(b)
+	b.custom_minimum_size = Vector2(440, 58)
 	return b
 
 

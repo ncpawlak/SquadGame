@@ -39,15 +39,19 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   groups at his level and one or two clear holes - so nobody is 90+ in every group and 99s are rare. Players
   21 and under start around 60-66 (a couple of story prodigies excepted); ratings climb
   toward a 26-30 prime, which is where most of the league's best players sit.
-- **Header**: **Sim To** (next to Advance, in season) sims ahead to the next week, the trade deadline, the end of
+- **Look**: sports-broadcast style themed in your team's colours (`UiKit.set_team`) - Barlow / Barlow Condensed
+  fonts (`assets/fonts/`, OFL), slanted accent buttons and tabs, a team-colour header banner with a score-bug
+  (year + phase), a gradient backdrop with your logo watermarked, and short fade/slide transitions between pages.
+  The title screen uses the default gold. Matchup, recap and player-card headers use the teams' colour banners.
+- **Header**: team banner only (the Play button moved to Home). **Sim To** (next to Play in the week card) sims ahead to the next week, the trade deadline, the end of
   the regular season or the end of the season, stopping early if your roster needs fixing. A progress overlay
   shows each week as it sims.
 - **Home layout**: **This Week** to-dos on the left (Roster Cuts / Spots Open, Trade Offers, Re-sign whenever the
   re-sign window is open, Draft Room, Free Agency, Training Camp, Weekly Training, Upgrade Players (only when someone
   can level up), Scout (in season), Adjust Lineup); the current week on the right. **<** / **>** arrows on the
   "WEEK n of 12" bar browse back and forward through the season and playoffs: past weeks show the final score, each
-  game and the MVP with a Box Score button; future weeks show the matchup preview. **PLAY WEEK X** sits in the match
-  pane's top bar next to Match Preview.
+  game and the MVP with a Box Score button; future weeks show the matchup preview (two-tone team banner, logos, team OVRs
+  and stat-comparison bars). **SIM TO ▾** and **PLAY WEEK X** sit in the week card's top bar next to Match Preview.
   Urgent to-dos come first in orange with a "!"; finished ones are greyed out with a check.
 - **Home news box**: a fixed-height scrolling feed under everything, filtered by All / Around the League (results,
   Player of the Week, wire stories, trades, signings, injuries, player stories, retirements) / Prospect News /
