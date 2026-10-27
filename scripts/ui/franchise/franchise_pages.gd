@@ -1069,12 +1069,12 @@ func _player_overview(s: Soldier, team: Team) -> Control:
 		ovrs.add_child(p)
 	body.add_child(ovrs)
 
-	body.add_child(_section("CORE ATTRIBUTES  -  (±n) = today's morale effect"))
+	body.add_child(_section("CORE ATTRIBUTES  -  (±n) = today's morale + chemistry effect"))
 	var grid := GridContainer.new()
 	grid.columns = 7
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 10)
-	var mods := s.morale_mods()
+	var mods := s.stat_mods()
 	for st in Stats.ALL:
 		grid.add_child(_attr_tile(st, int(s.stats[st]), int(mods.get(st, 0))))
 	body.add_child(grid)
@@ -1327,7 +1327,107 @@ func _player_dna(s: Soldier, team: Team) -> Control:
 	facts.add_child(_fact_box("MORALE", "[color=%s]%s[/color]" % [UiKit.hex(morale_color(s.morale)), Soldier.morale_label(s.morale)]))
 	v.add_child(facts)
 	v.add_child(_dna_panel(s, team))
+	v.add_child(_chemistry_box(s, team))
 	return v
+
+
+## Every teammate bond he has (any club, past or present), strongest first, in a fixed-height list.
+func _chemistry_box(s: Soldier, team: Team) -> Control:
+	var v := _vbox(8)
+	var rel := _season().relationships
+	var chem := s.chem_bonus()
+	v.add_child(_section("CHEMISTRY  -  %s" % (("+%d MENTALITY IN TODAY'S LINEUP" % chem) if chem > 0 else "NO LINEUP BONUS RIGHT NOW")))
+	var tip := UiKit.label("Bonds grow from starting together (faster for formation neighbours) and training on the same roster, and fade apart. In the lineup, each Familiar / Trusted / Inseparable teammate adds +1 / +2 / +3 to Awareness, Composure and Teamwork (max +%d)." % Relationships.BONUS_CAP, 14, UiKit.MUTED)
+	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(tip)
+	var by_id := {}
+	for so in _season().league.all_soldiers():
+		by_id[so.id] = so
+	for so in _season().league.free_agents:
+		by_id[so.id] = so
+	var rows := _vbox(4)
+	var starters: Array = team.starters() if team != null else []
+	for p in rel.partners_of(s):
+		var o: Soldier = by_id.get(p["id"])
+		if o != null:
+			rows.add_child(_chemistry_row(s, o, p, starters))
+	if rows.get_child_count() == 0:
+		rows.add_child(UiKit.label("No bonds yet.", 15, UiKit.MUTED))
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(0, 340)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(rows)
+	v.add_child(scroll)
+	return v
+
+
+func _chemistry_row(s: Soldier, o: Soldier, p: Dictionary, starters: Array) -> Control:
+	var ot := _team_of(o)
+	var pts := float(p["pts"])
+	var lvl := Relationships.level_for(pts)
+	var pane := PanelContainer.new()
+	var sb := UiKit.flat(UiKit.PANEL_HI, 8)
+	sb.content_margin_left = 10
+	sb.content_margin_right = 10
+	sb.content_margin_top = 4
+	sb.content_margin_bottom = 4
+	pane.add_theme_stylebox_override("panel", sb)
+	var h := _row(12)
+	h.add_child(Portrait.new(o, 44, ot.color if ot != null else UiKit.MUTED, ot))
+	var nm := UiKit.button(o.tag(), func(): open_player(o, 4), 15)
+	nm.flat = true
+	nm.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	nm.custom_minimum_size = Vector2(150, 0)
+	nm.clip_text = true
+	nm.tooltip_text = o.full_name()
+	h.add_child(nm)
+	var club := Control.new()
+	club.custom_minimum_size = Vector2(44, 44)
+	if ot != null:
+		var lg := UiKit.team_logo(ot, 36)
+		lg.position = Vector2(4, 4)
+		club.add_child(lg)
+		club.tooltip_text = ot.name
+	else:
+		var fa := UiKit.label("FA", 14, UiKit.MUTED)
+		fa.position = Vector2(10, 12)
+		club.add_child(fa)
+		club.tooltip_text = "Free agent"
+	h.add_child(club)
+	var badge := UiKit.label(Relationships.LEVEL_NAMES[lvl].to_upper(), 13, Relationships.LEVEL_COLORS[lvl])
+	badge.custom_minimum_size.x = 110
+	h.add_child(badge)
+	var lo: float = Relationships.LEVEL_POINTS[lvl]
+	var hi: float = Relationships.LEVEL_POINTS[lvl + 1] if lvl + 1 < Relationships.LEVEL_POINTS.size() else Relationships.MAX_POINTS
+	var bar := ProgressBar.new()
+	bar.min_value = lo
+	bar.max_value = hi
+	bar.value = pts
+	bar.show_percentage = false
+	bar.custom_minimum_size = Vector2(160, 10)
+	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bar.add_theme_stylebox_override("background", UiKit.flat(UiKit.LINE, 4))
+	var fill := UiKit.flat(Relationships.LEVEL_COLORS[lvl], 4)
+	fill.content_margin_top = 0
+	fill.content_margin_bottom = 0
+	bar.add_theme_stylebox_override("fill", fill)
+	h.add_child(bar)
+	var nxt := ("%d / %d to %s" % [roundi(pts), roundi(hi), Relationships.LEVEL_NAMES[lvl + 1]]) if lvl + 1 < Relationships.LEVEL_NAMES.size() else ("%d / %d" % [roundi(pts), roundi(hi)])
+	var nl := UiKit.label(nxt, 13, UiKit.MUTED)
+	nl.custom_minimum_size.x = 170
+	h.add_child(nl)
+	var gp := UiKit.label("%d GP together" % int(p["m"]), 14, UiKit.TEXT)
+	gp.custom_minimum_size.x = 120
+	h.add_child(gp)
+	var d := float(p["d"])
+	var trend := UiKit.label("▲ Rising" if d > 0.01 else ("▼ Fading" if d < -0.01 else "■ Steady"), 14, UiKit.GOOD if d > 0.01 else (UiKit.BAD if d < -0.01 else UiKit.MUTED))
+	trend.custom_minimum_size.x = 90
+	h.add_child(trend)
+	if lvl > 0 and starters.has(s) and starters.has(o):
+		h.add_child(UiKit.label("+%d IN LINEUP" % Relationships.LEVEL_BONUS[lvl], 13, UiKit.GOOD))
+	pane.add_child(h)
+	return pane
 
 
 ## Motivations (strongest first), personality and relationship with his club.
@@ -1343,7 +1443,7 @@ func _dna_panel(s: Soldier, team: Team) -> Control:
 	v.add_child(_section("PERSONALITY"))
 	v.add_child(_meter("TEMPERAMENT", d.temperament, 99, UiKit.INFO, "%d  -  %s (low = takes hard bargaining and broken promises personally)" % [d.temperament, d.temperament_label()], 130))
 	v.add_child(_meter("SAVVY", d.savvy, 99, UiKit.INFO, "%d  -  %s (high = sees through weak arguments, holds a higher floor)" % [d.savvy, d.savvy_label()], 130))
-	v.add_child(_section("RELATIONSHIP"))
+	v.add_child(_section("CLUB TRUST"))
 	v.add_child(_meter("TRUST", s.trust, 100, _dna_color(s.trust), "%d  -  %s%s" % [roundi(s.trust), Soldier.trust_label(s.trust),
 		(" with " + team.name) if team != null else ""], 130))
 	if not s.promise.is_empty():
@@ -1470,7 +1570,7 @@ func _stat_row(s: Soldier, st: StringName, counts: bool) -> Control:
 	fill.content_margin_bottom = 0
 	bar.add_theme_stylebox_override("fill", fill)
 	cell.add_child(bar)
-	var val := UiKit.rich("[color=%s]%d[/color]%s" % [UiKit.hex(UiKit.ovr_color(s.stats[st])), s.stats[st], delta_bb(int(s.morale_mods().get(st, 0)), 13)], 16)
+	var val := UiKit.rich("[color=%s]%d[/color]%s" % [UiKit.hex(UiKit.ovr_color(s.stats[st])), s.stats[st], delta_bb(int(s.stat_mods().get(st, 0)), 13)], 16)
 	val.autowrap_mode = TextServer.AUTOWRAP_OFF
 	val.custom_minimum_size.x = 70
 	cell.add_child(val)
@@ -1581,7 +1681,7 @@ func lineup() -> Control:
 			_lineup_slot = &""
 			_lineup_bench = null
 			refresh.call(), 15))
-	var note := UiKit.label("Injured starters are swapped for the best healthy bench soldier when the week is played. (±n) = morale effect.", 13, UiKit.MUTED)
+	var note := UiKit.label("Injured starters are swapped for the best healthy bench soldier when the week is played. (±n) = morale + chemistry effect. Lines link bonded starters: blue Familiar, green Trusted, gold Inseparable.", 13, UiKit.MUTED)
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	side.add_child(note)
 	h.add_child(side)
@@ -1619,6 +1719,7 @@ func _fill_lineup_field(field: Panel, team: Team, sch: Scheme, assigned: Diction
 	var front := UiKit.label("ENEMY SIDE  ▲", 12, Color(1, 1, 1, 0.25))
 	front.position = Vector2(910, 12)
 	field.add_child(front)
+	_chemistry_lines(field, sch, assigned)
 	for sid in sch.slot_ids():
 		var card := _lineup_card(team, assigned.get(sid), sid, refresh)
 		card.position = sch.ui_pos(sid)
@@ -1626,6 +1727,31 @@ func _fill_lineup_field(field: Panel, team: Team, sch: Scheme, assigned: Diction
 			card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			card.modulate = Color(1, 1, 1, 0.85)
 		field.add_child(card)
+
+
+## Lines between bonded starters (Familiar and up), colored and thickened by level, under the cards.
+func _chemistry_lines(field: Panel, sch: Scheme, assigned: Dictionary) -> void:
+	var rel := _season().relationships
+	var ids := sch.slot_ids()
+	for i in ids.size():
+		for j in range(i + 1, ids.size()):
+			var a: Soldier = assigned.get(ids[i])
+			var b: Soldier = assigned.get(ids[j])
+			if a == null or b == null:
+				continue
+			var lvl := rel.level(a, b)
+			if lvl == 0:
+				continue
+			var line := Line2D.new()
+			line.add_point(sch.ui_pos(ids[i]) + CARD / 2.0)
+			line.add_point(sch.ui_pos(ids[j]) + CARD / 2.0)
+			line.width = 2.0 + 2.0 * lvl
+			line.default_color = Relationships.LEVEL_COLORS[lvl]
+			line.default_color.a = 0.75
+			line.antialiased = true
+			line.begin_cap_mode = Line2D.LINE_CAP_ROUND
+			line.end_cap_mode = Line2D.LINE_CAP_ROUND
+			field.add_child(line)
 
 
 ## Player card: portrait, callsign, name, OVR (at the slot, or best position on the bench), POT.

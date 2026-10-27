@@ -85,6 +85,8 @@ var offseason_stage: StringName = &""
 var fa_day := 0
 ## Free-agent offers and signing history.
 var fa := FreeAgency.new()
+## League-wide teammate chemistry (DNA module).
+var relationships := Relationships.new()
 var trades := Trades.new()
 ## Signings from the most recent resolution (free-agency day or week).
 var last_signings: Array = []
@@ -139,6 +141,9 @@ static func new_franchise(seed_value: int, user_team_index := 0, start_year := 2
 	mrng.seed = _mix([seed_value, start_year, 0x307A1E])
 	for so in s.league.all_soldiers():
 		so.morale = mrng.randf_range(68.0, 84.0)
+	var rrng := RandomNumberGenerator.new()
+	rrng.seed = _mix([seed_value, start_year, 0xC4E3])
+	s.relationships.seed_league(s.league, rrng)
 	s._begin_season()
 	if s.has_divisions():
 		s._apply_opening_pick_trades()
@@ -153,6 +158,8 @@ static func new_franchise(seed_value: int, user_team_index := 0, start_year := 2
 
 ## Points new progression-history entries (Soldier.log_progress) at the current week / stage.
 func _stamp_log() -> void:
+	Relationships.active = relationships
+	Relationships.league_now = league
 	Soldier.log_year = year
 	if preseason_camp:
 		Soldier.log_when = "Preseason camp"
@@ -442,6 +449,8 @@ func train_user_team() -> Dictionary:
 func sync_team_statics() -> void:
 	Team.year_now = year
 	Team.league_size = league.teams.size()
+	Relationships.active = relationships
+	Relationships.league_now = league
 
 
 func sim_week() -> Array:
@@ -479,6 +488,7 @@ func sim_week() -> Array:
 	for t in league.teams:
 		Progression.auto_spend_team(t, _rng)
 	Morale.update_week(league, played)
+	relationships.week(league, played)
 	var news_week := week
 	_advance()
 	news.week_stories(self, played, news_week)
@@ -640,6 +650,12 @@ func start_next_season() -> void:
 	Soldier.log_year = year + 1
 	Soldier.log_when = "Preseason"
 	aging_report = Aging.age_league(league, arng)
+	var active_ids := {}
+	for so in league.all_soldiers():
+		active_ids[so.id] = true
+	for so in league.free_agents:
+		active_ids[so.id] = true
+	relationships.prune(active_ids)
 	year += 1
 	for t in league.teams:
 		Conditioning.reset(t)
@@ -725,11 +741,13 @@ func advance_offseason() -> Array:
 					camp.ai_run(t, _rng)
 			offseason_xp(CAMP_WEEK_XP)
 			offseason_stage = OFF_DONE
+			relationships.offseason_week(league)
 			_trade_tick()
 			return []
 		_:
 			return []
 	offseason_xp(OFFSEASON_WEEK_XP)
+	relationships.offseason_week(league)
 	_trade_tick()
 	return signed
 

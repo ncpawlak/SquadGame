@@ -238,7 +238,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   column (click a header; click again to flip). Free Agents, Progression and Contracts use the same sortable tables.
 - **Player page** (Madden style) with tabs: **Overview** (action rail, morale/health/energy/XP rings, morale
   factors, OVR at each position and every attribute), **Ratings** (spend skill points), **Contract** (details,
-  re-sign, release with a confirm step), **Stats** (a Season / Career toggle: Season lists every match this year - opponent, W/L score and the full line - with the season total; Career is the season-by-season lines and career total), **DNA** (motivations, personality, trust, promise status, trade request) and
+  re-sign, release with a confirm step), **Stats** (a Season / Career toggle: Season lists every match this year - opponent, W/L score and the full line - with the season total; Career is the season-by-season lines and career total), **DNA** (motivations, personality, trust, promise status, trade request, chemistry bonds) and
   **Progression**: every rating change with when and why, newest first by season - level-ups (skill points), training
   camp drills, age decline and end-of-season potential re-grades - with +/- per stat and OVR before → after.
   League Leaders, League/Team Stats, box scores, the matchup screen and Free Agents all open it.
@@ -258,6 +258,14 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   by 1-3; every 5 points from 85 up raises one. OVR shows the effect, e.g. "69 (-4)". Each week: wins/losses (+/-2),
   starting (+2) or sitting healthy (-1.5), match MVP (+3), pay (under 75% of market value -1), then a 20% drift
   back toward 75.
+- **Chemistry** (`scripts/core/relationships.gd`, a DNA module): every pair of soldiers who have shared a roster has a
+  bond score (0-100) kept league-wide, so it survives trades, releases and re-signings. Starting a match together +1.5,
+  formation neighbours (`Scheme.ADJACENT`, e.g. Wide-Left's two left flexes) +3 more, same roster +0.3 a week; pairs
+  apart lose 1 a week (offseason too). New leagues seed current teammates with history (more for veterans). Levels:
+  Familiar 20, Trusted 50, Inseparable 80. When both are in the lineup each linked teammate adds +1/+2/+3 to the
+  soldier's Mentality ratings (Awareness, Composure, Teamwork), max +4, shown in the (±n) with morale. The DNA tab
+  lists every bond (club logo, level, progress, games together, rising/fading); the lineup page draws lines between
+  bonded starters (blue Familiar, green Trusted, gold Inseparable).
 - **Saves**: a soldier saves a teammate when he eliminates an attacker who has the teammate nearly dead. Tracked in
   box scores, season lines and League Leaders.
 - **Callsigns** (`scripts/core/callsigns.gd`): every soldier gets a unique callsign that fits his best group
