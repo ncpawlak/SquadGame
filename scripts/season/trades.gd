@@ -242,11 +242,44 @@ func player_value(season: Season, s: Soldier, team: Team, giving := false) -> fl
 		v += surplus / 420.0 * float({CONTENDER: 0.7, BALANCED: 1.0, REBUILDING: 1.3}[m])
 	if s.is_injured() and season.phase != Season.PHASE_OFFSEASON:
 		v *= maxf(0.5, 1.0 - 0.07 * s.injury_weeks * (1.3 if m == CONTENDER else 1.0))
-	if not giving and m == CONTENDER and not FreeAgency.would_start(team, s):
-		v *= 0.8
+	if not giving:
+		v *= need_factor(season, team, s)
 	if giving and on_block(season, team, s):
 		v *= 0.8
 	return maxf(v, 1.0)
+
+
+## How much `team` actually needs incoming `s` (0.2..1): a starter at his role counts fully, the
+## top backup a bit less; behind that, every player ahead who is better now and projects at least
+## as high cuts it hard (softer for young A/B prospects, more so for a rebuilder). A player who
+## would be the first cut on a full roster is worth almost nothing to them.
+func need_factor(season: Season, team: Team, s: Soldier) -> float:
+	var role := Scheme.best_role(s.stats)
+	var slots := team.scheme.count_role(role)
+	var mine := s.ovr_at_role(role)
+	var ahead := 0
+	var buried_by := 0
+	for o in team.roster:
+		if o == s or Scheme.best_role(o.stats) != role or o.ovr_at_role(role) <= mine:
+			continue
+		ahead += 1
+		if o.potential_ovr() >= s.potential_ovr():
+			buried_by += 1
+	var f := 1.0
+	if ahead == slots:
+		f = 0.85
+	elif ahead > slots:
+		var units := maxi(1, buried_by - slots + 1)
+		var step := 0.3
+		if s.age <= 24 and s.potential >= Soldier.POTENTIAL_A - 1:
+			step = 0.12 if mode(season, team) == REBUILDING else 0.18
+		f = maxf(0.25, 0.85 - step * float(units))
+	var full := team.roster.size() >= (Team.ROSTER_SIZE if season.phase != Season.PHASE_OFFSEASON else Team.OFFSEASON_MAX)
+	if full:
+		var worst := team.least_valuable()
+		if worst != null and team.keep_value(s) <= team.keep_value(worst):
+			f = minf(f, 0.2)
+	return f
 
 
 func pick_value(season: Season, a: Dictionary, team: Team) -> float:
@@ -676,7 +709,10 @@ func offer_to_user(season: Season, rng: RandomNumberGenerator) -> bool:
 	var ais: Array = season.league.teams.filter(func(t: Team): return not t.user_controlled and patience_of(t) > 0)
 	_shuffle(ais, rng)
 	for ai: Team in ais:
-		var ranked: Array = targets.duplicate()
+		# Only players who fill a real need: a starter or the top backup at his role.
+		var ranked: Array = targets.filter(func(p: Soldier): return need_factor(season, ai, p) >= 0.85)
+		if ranked.is_empty():
+			continue
 		ranked.sort_custom(func(p: Soldier, q: Soldier): return player_value(season, p, ai) > player_value(season, q, ai))
 		var target: Soldier = ranked[rng.randi() % mini(3, ranked.size())]
 		var want := [player_asset(target)]

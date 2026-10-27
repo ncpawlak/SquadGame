@@ -42,6 +42,10 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
 - **Header**: **Sim To** (next to Advance, in season) sims ahead to the next week, the trade deadline, the end of
   the regular season or the end of the season, stopping early if your roster needs fixing. A progress overlay
   shows each week as it sims.
+- **Home layout**: **This Week** to-dos on the left (Roster Cuts / Spots Open, Trade Offers, Re-sign, Draft Room,
+  Free Agency, Training Camp, Weekly Training, Progress Players, Adjust Lineup) and the big **Advance** tile on the
+  right. Urgent to-dos come first in orange with a "!"; finished ones are greyed out with a check. Below: the next
+  match pane and Last Result, then **Manage** (Roster, Scout, Free Agents, Contracts, offseason extras), news and league tiles.
 - **Home tiles**: full-height division standings, a **League Leaders** tile with the leader in kills, assists,
   captures, K/D and hit% (rate stats need half the games of the most-played player), and the playoff picture.
 - **Team select**: a big pane on top shows the hovered/focused team - logo in its colours, division, OVR and
@@ -93,7 +97,8 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   true quality - hover it for the explanation) - a cheap first sort of the big class. Once a season you can send a **region scout** trip (East, South,
   Central, West): every available prospect from that region gets 4 free points. **Auto-scout** spends your points
   for you: "Up to 3" gives everyone a first look, "Up to 6" deepens those already at 3 - favorites first, then
-  the big board. Star a prospect to make him a **favorite**; the list filters by region and favorites.
+  the big board. Star a prospect (row star or the ☆ Favorite button on his card) to make him a **favorite**; Scouting
+  filters by region and favorites, and the Draft Room and Mock Draft have a ★ Favorites filter too.
   Most classes hide one unlabelled **phenom** (sometimes none or two). A phenom lists one position but grades
   well in every group, so he can play anywhere. AI teams don't know who they are, and the league consensus
   underrates them.
@@ -151,7 +156,9 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   in the offseason from the draft on (including during the live draft); closed for the rest of the season and the
   playoffs. Trades can push a roster past 12 (you must cut before your next match; AI teams restructure right away:
   shop their least valuable surplus to teams with room for a pick, else cut, weighing OVR, potential, age, years
-  left, dead money and depth at his role). A trade can't drop a team below 8 in-season or 5 in the offseason, and
+  left, dead money and depth at his role). AI teams value incoming players by **need**: a would-be starter is worth
+  full value, a top backup 85%, and a player buried behind better, higher-potential players at his role far less
+  (young A/B prospects are discounted less); AI offers only target players who'd start or be the top backup. A trade can't drop a team below 8 in-season or 5 in the offseason, and
   teams can't go over the cap by taking on salary; contracts and picks
   just move (no salary retention). Each AI team is a **Contender**, **Balanced** or **Rebuilding** (team OVR plus
   record): contenders pay for starters who fit their weakest role, rebuilders pay for youth, picks and cheap
@@ -164,8 +171,12 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
 - **Offseason** (advance button walks the stages): **Re-sign** (Sign at Ask or Negotiate; AI teams re-sign
   their keepers) → **Draft** → **Free agency** (3 days) → **Training camp** → next season. Rosters max out at 12 (5 starters + 7 backups).
   In the offseason your roster can be any size (trades, draft picks, extra signings), but **Week 1 needs exactly 12**:
-  release down or sign up to it (red "Roster Cuts Required" / amber "Roster Spots Open" banner on Home). After Week 1
-  you can play with 8-12; going over 12 by trade blocks your next match until you cut. AI teams always fill to 12.
+  release down or sign up to it (an urgent "Roster Cuts" / "Roster Spots Open" to-do on Home). After Week 1
+  you can play with 8-12; going over 12 by trade blocks your next match until you cut. AI teams carry up to 15 through
+  the draft and free agency and cut to 12 when camp ends, by a **keep score**: current OVR, upside (potential gap x
+  grade, weighted toward youth), age decline, depth at his role (starters and the top backup are safe; players buried
+  behind better prospects drop), a bonus for recent draft picks (round 1 > 2 > 3, fading after two years) and contract
+  (dead money, surplus value). So a young A-potential is kept over a late-20s C, and fresh picks aren't cut into free agency.
 - **Training camp** (`scripts/season/camp.gd`, Home → Training Camp): one drill per rating group (Marksmanship Range,
   Weapons Lab, Combine Gauntlet, War Room, Hill Assault, Iron Conditioning). Pick a drill, pick a soldier, see his ratings boost.
   One soldier per drill and one drill per soldier. The point pool depends on potential (A 9-13, B 7-10, C 5-8, D 3-6,

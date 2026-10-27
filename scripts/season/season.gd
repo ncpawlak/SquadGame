@@ -57,7 +57,10 @@ var playoff_seeds := {}
 ## Salary-floor penalties charged at the end of the most recent season: [{team, amount}].
 var last_floor_penalties: Array = []
 var news := LeagueNews.new()
-var year: int = 2026
+var year: int = 2026:
+	set(v):
+		year = v
+		Team.year_now = v
 var week: int = 1
 var phase: StringName = PHASE_REGULAR
 var champion: Team = null
@@ -435,9 +438,16 @@ func train_user_team() -> Dictionary:
 	return user_training_report
 
 
+## Team's keep-value statics (draft-bonus year, picks per round) follow whichever season acts.
+func sync_team_statics() -> void:
+	Team.year_now = year
+	Team.league_size = league.teams.size()
+
+
 func sim_week() -> Array:
 	if phase == PHASE_OFFSEASON:
 		return []
+	sync_team_statics()
 	prepare_week()
 	_stamp_log()
 	_week_prepared = false
@@ -536,6 +546,7 @@ func _resolve_promises() -> void:
 ## AI teams pick intensities and rest tired/injured starters; every team (including the user's)
 ## gets injured starters swapped out so a match is never played by an injured soldier.
 func _prepare_lineups() -> void:
+	sync_team_statics()
 	for t in league.teams:
 		if t.user_controlled:
 			t.fill_injured()
@@ -610,6 +621,7 @@ func start_next_season() -> void:
 	if phase != PHASE_OFFSEASON:
 		push_warning("start_next_season() is only valid in the offseason.")
 		return
+	sync_team_statics()
 	_stamp_log()
 	while offseason_stage != OFF_DONE:
 		advance_offseason()
@@ -690,6 +702,7 @@ func can_resign() -> bool:
 func advance_offseason() -> Array:
 	if phase != PHASE_OFFSEASON:
 		return []
+	sync_team_statics()
 	var signed: Array = []
 	match offseason_stage:
 		OFF_RESIGN:
@@ -810,9 +823,9 @@ func _open_free_agency() -> void:
 	for t in league.teams:
 		if t.user_controlled:
 			continue
-		# AI teams keep a spot open to bid on free agents (filled in preseason if they miss):
-		# surplus players are shopped for picks first, then cut.
-		trades.restructure(self, t, Team.ROSTER_SIZE - 1)
+		# Offseason rosters may run to OFFSEASON_MAX (final cut-down to ROSTER_SIZE comes at the
+		# end of camp, in start_next_season); only extreme surpluses are shopped or cut now.
+		trades.restructure(self, t, Team.OFFSEASON_MAX)
 	fa.ai_offers(self, _rng)
 
 
@@ -859,6 +872,7 @@ func mock_pick_order() -> Array:
 func finish_draft() -> void:
 	if phase != PHASE_OFFSEASON:
 		return
+	sync_team_statics()
 	if not draft.is_started():
 		draft.set_order(draft_order())
 		trades.apply_owners(self)

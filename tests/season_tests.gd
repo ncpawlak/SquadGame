@@ -44,6 +44,7 @@ func _init() -> void:
 		"test_resign_negotiation",
 		"test_starter_promises",
 		"test_trades",
+		"test_trade_need_factor",
 		"test_roster_rules",
 		"test_ai_weekly_training",
 		"test_camp_respects_caps",
@@ -622,10 +623,13 @@ func test_draft_order_and_picks() -> void:
 	check(s.offseason_stage == Season.OFF_FREE_AGENCY, "free agency opened after the draft")
 	for t in s.league.teams:
 		if not t.user_controlled:
-			check(t.roster.size() <= Team.ROSTER_SIZE, "%s cut to limit" % t.abbrev)
+			check(t.roster.size() <= Team.OFFSEASON_MAX, "%s at or under the offseason max" % t.abbrev)
 		check(t.lineup.size() == 5, "lineup valid after cuts")
 		for so in t.roster:
 			check(so.contract != null and not so.contract.is_expiring(), "%s has a live contract" % so.full_name())
+	for pr in d.picks():
+		if pr.pick_number <= per_round * 2:
+			check(not s.league.free_agents.has(pr.soldier), "early pick %s (#%d) not cut into free agency" % [pr.soldier.full_name(), pr.pick_number])
 	check(made.size() == d.order.find(user), "AI picks before user")
 
 
@@ -1262,6 +1266,19 @@ func test_starter_promises() -> void:
 		check(n != null and n.patience < Negotiation.MAX_PATIENCE, "broken promise sours the next talks")
 
 
+func test_trade_need_factor() -> void:
+	var s := Season.new_franchise(12)
+	var t: Team = s.league.teams.filter(func(x: Team): return not x.user_controlled)[0]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3
+	var stud := PlayerGenerator.generate(rng, 9001, Scheme.Role.FLEX, 95.0, 25)
+	var scrub := PlayerGenerator.generate(rng, 9002, Scheme.Role.FLEX, 50.0, 29)
+	scrub.potential = 0
+	check(is_equal_approx(s.trades.need_factor(s, t, stud), 1.0), "a would-be starter is fully valued")
+	check(s.trades.need_factor(s, t, scrub) < 0.85, "a buried, low-potential vet is discounted (%.2f)" % s.trades.need_factor(s, t, scrub))
+	check(s.trades.player_value(s, scrub, t, false) < s.trades.player_value(s, scrub, t, true), "receiving a buried player is worth less than giving him")
+
+
 func test_trades() -> void:
 	# The real 20-team league: pick values are keyed to the 60-pick board.
 	var s := _fixed(123)
@@ -1753,6 +1770,7 @@ func test_keep_value_protects_prospects() -> void:
 	kid.potential = Soldier.POTENTIAL_A
 	var vet := PlayerGenerator.generate(rng, 101, Scheme.Role.FLEX, 68.0, 29)
 	vet.potential = 2
+	kid.stats = vet.stats.duplicate()
 	t.roster.append(kid)
 	t.roster.append(vet)
-	check(t.keep_value(kid) > t.keep_value(vet), "young A-potential is kept over a late-20s C")
+	check(t.keep_value(kid) > t.keep_value(vet), "young A-potential is kept over a late-20s C (%.1f vs %.1f; ovr %d/%d pot %d/%d role %d/%d)" % [t.keep_value(kid), t.keep_value(vet), kid.best_ovr(), vet.best_ovr(), kid.potential_ovr(), vet.potential_ovr(), Scheme.best_role(kid.stats), Scheme.best_role(vet.stats)])

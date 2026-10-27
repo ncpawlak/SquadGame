@@ -593,6 +593,15 @@ func is_complete() -> bool:
 	return is_started() and next_pick >= order.size()
 
 
+## Picks `team` still has to make.
+func picks_left_for(team: Team) -> int:
+	var n := 0
+	for i in range(next_pick, order.size()):
+		if order[i] == team:
+			n += 1
+	return n
+
+
 func on_the_clock() -> Team:
 	if not is_started() or is_complete():
 		return null

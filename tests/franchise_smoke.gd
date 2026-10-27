@@ -218,7 +218,7 @@ func _init() -> void:
 	_check(hub.season.offseason_stage == Season.OFF_FREE_AGENCY, "free agency open")
 	for t in hub.season.league.teams:
 		if t != user:
-			_check(t.roster.size() <= Team.ROSTER_SIZE, "AI cut to limit")
+			_check(t.roster.size() <= Team.OFFSEASON_MAX, "AI at or under the offseason max")
 	_check(not hub.season.league.free_agents.is_empty(), "free agent pool")
 	var fa_target: Soldier = hub.season.league.free_agents[0]
 	hub.pages.open_offer(fa_target)

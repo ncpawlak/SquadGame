@@ -651,60 +651,141 @@ func open_weekly_training() -> void:
 		open("Training", pages.training)
 
 
-## Home (2K / Madden style): big current-match pane up top, a row of this week's actions,
-## then league news tiles.
+## Home: this week's to-dos (urgent first, finished ones greyed with a check) next to the big
+## Advance tile; the match pane and Last Result below, then manage / news / league tiles.
 func _home_sections() -> Array:
 	var team := season.user_team()
-	var sp := 0
-	var tired := 0
-	var total_fat := 0.0
-	for s in team.roster:
-		if Progression.can_level_up(s):
-			sp += 1
-		if s.fatigue >= 50.0 and not s.is_injured():
-			tired += 1
-		total_fat += s.fatigue
-	var hurt := team.injured()
 	var unhappy := team.roster.filter(func(x: Soldier): return x.morale < Soldier.MORALE_NEUTRAL)
-	var actions: Array = [
-		UiKit.tile("Weekly Training", "%s\nAvg fatigue %d  -  %d tired" % [
-			"[color=#22c55e]Done this week[/color]" if season.user_trained() else (
-				"[color=#38bdf8]Ready to train[/color]" if season.can_train_user_team() else "Starts in Week 1"),
-			roundi(total_fat / maxi(1, team.roster.size())), tired],
-			SMALL, Color("#22c55e"), open_weekly_training),
-		UiKit.tile("Progress Players", ("[color=#38bdf8]%d player%s[/color] can level up" % [sp, "" if sp == 1 else "s"]) if sp > 0 else "No one can level up yet",
-			SMALL, UiKit.INFO, func(): open("Player Progression", pages.progression)),
-		UiKit.tile("Adjust Lineup", "%s  -  Team OVR %d%s" % [team.scheme.display_name, team.team_ovr(),
-			("\n[color=#ef4444]%d injured[/color]" % hurt.size()) if not hurt.is_empty() else ""], SMALL, Color("#f97316"), func(): open("Lineup", pages.lineup)),
+	var manage: Array = [
 		UiKit.tile("Roster", "%d players%s" % [team.roster.size(),
 			("  -  [color=#f97316]%d unhappy[/color]" % unhappy.size()) if not unhappy.is_empty() else "  -  morale good"], SMALL, team.color, func(): open("Roster", pages.roster)),
 		UiKit.tile("Scout", ("Opens in Week 1  -  %d prospects" % Draft.CLASS_SIZE) if season.preseason_camp else "[color=#38bdf8]%d scout points[/color]  -  %d of %d scouted" % [
 			season.draft.scout_points, _scouted_count(), Draft.CLASS_SIZE], SMALL, Color("#06b6d4"), open_scouting),
-		UiKit.tile("Free Agents", "%d available%s" % [season.league.free_agents.size(),
-			("  -  [color=#38bdf8]%d offers out[/color]" % season.fa.offers_by(team).size()) if not season.fa.offers_by(team).is_empty() else ""],
-			SMALL, Color("#14b8a6"), open_free_agents),
-		UiKit.tile("Contracts", "Cap space %s" % Contracts.money(Contracts.cap_space(team, season.cap_year())), SMALL, Color("#eab308"), open_contracts),
+		UiKit.tile("Contracts & Payroll", "Cap space %s\nPayroll %s" % [Contracts.money(Contracts.cap_space(team, season.cap_year())),
+			Contracts.money(Contracts.payroll(team, season.cap_year()))], SMALL, Color("#eab308"), open_contracts),
 	]
+	if not season.free_agency_open():
+		manage.insert(2, UiKit.tile("Free Agents", "%d available%s" % [season.league.free_agents.size(),
+			("  -  [color=#38bdf8]%d offers out[/color]" % season.fa.offers_by(team).size()) if not season.fa.offers_by(team).is_empty() else ""],
+			SMALL, Color("#14b8a6"), open_free_agents))
+	if season.phase == Season.PHASE_OFFSEASON:
+		manage.append_array(_offseason_tiles())
 	var league_tiles: Array = [
 		UiKit.tile("Standings", _mini_standings(), TALL, Color("#a855f7"), open_standings),
 		UiKit.tile("League Leaders", _leader_blurb(), TALL, Color("#eab308"), func(): open("League Leaders", pages.leaders)),
 		UiKit.tile("Playoff Picture", _playoff_blurb(), TALL, Color("#f43f5e"), func(): open("Playoff Picture", pages.playoffs)),
 	]
+	return [["MANAGE", manage], ["LEAGUE NEWS", _news_tiles()], ["AROUND THE LEAGUE", league_tiles]]
+
+
+## A to-do tile. Done: greyed out with a check. Urgent: orange with a "!" in the corner.
+func _todo(title: String, body: String, accent: Color, cb: Callable, done := false, urgent := false) -> Button:
+	var t := UiKit.tile(("\u2713  " if done else "") + title, body, SMALL, UiKit.MUTED.darkened(0.3) if done else (Color("#f97316") if urgent else accent), cb)
+	t.set_meta("todo_done", done)
+	t.set_meta("todo_urgent", urgent)
+	if done:
+		t.modulate = Color(1, 1, 1, 0.45)
+	if urgent:
+		var bang := UiKit.label("!", 30, Color("#f97316"))
+		bang.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bang.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		bang.offset_left = -34
+		bang.offset_top = 6
+		t.add_child(bang)
+	return t
+
+
+## This week's to-dos, ordered urgent > open > done.
+func _todo_tiles(team: Team) -> Array:
+	var out: Array = []
+	var off := season.phase == Season.PHASE_OFFSEASON
+	var roster := _roster_status(team)
+	if not roster.is_empty():
+		out.append(_todo(roster["title"], roster["body"], UiKit.BAD, roster["cb"], false, true))
+	if not season.trades.offers.is_empty():
+		var n := season.trades.offers.size()
+		out.append(_todo("Trade Offers", "[color=#f59e0b]%d team%s[/color] want to deal.\nOffers expire at week's end." % [n, "" if n == 1 else "s"],
+			Color("#f97316"), func(): open("Trade Offers", pages.trade_offers), false, true))
+	if off:
+		var expiring := Contracts.expiring(team)
+		if season.offseason_stage == Season.OFF_RESIGN or (season.can_resign() and not expiring.is_empty()):
+			out.append(_todo("Re-sign Players", ("[color=#f59e0b]%d expiring[/color]: %s" % [expiring.size(),
+				", ".join(PackedStringArray(expiring.map(func(x: Soldier): return x.short_name())))]) if not expiring.is_empty() else "No expiring contracts.",
+				Color("#22c55e"), open_resign, expiring.is_empty()))
+		if season.offseason_stage == Season.OFF_DRAFT:
+			var d := season.draft
+			out.append(_todo("Draft Room", "Every pick is in." if d.is_complete() else "[color=#38bdf8]Your picks:[/color] %d left" % d.picks_left_for(team),
+				UiKit.INFO, open_draft_room, d.is_complete()))
+		if season.free_agency_open():
+			var offers := season.fa.offers_by(team).size()
+			out.append(_todo("Free Agency", "%d available  -  [color=#38bdf8]%d pending offer%s[/color]\nCap space %s" % [season.league.free_agents.size(), offers,
+				"" if offers == 1 else "s", Contracts.money(Contracts.cap_space(team, season.cap_year()))], Color("#14b8a6"), open_free_agents))
 	if season.camp_open():
-		actions.insert(0, UiKit.tile("Training Camp", "[color=#38bdf8]%d of %d drills left[/color]\nOne player per drill" % [
-			season.camp.drills_left(team), Camp.DRILLS.size()], SMALL, Color("#22c55e"), open_camp))
-	var out: Array = [["THIS WEEK", actions]]
-	if season.phase == Season.PHASE_OFFSEASON:
-		out.append(["OFFSEASON", _offseason_tiles()])
-	out.append(["LEAGUE NEWS", _news_tiles()])
-	out.append(["AROUND THE LEAGUE", league_tiles])
-	return out
+		var left := season.camp.drills_left(team)
+		out.append(_todo("Training Camp", ("[color=#38bdf8]%d of %d drills left[/color]\nOne player per drill" % [left, Camp.DRILLS.size()]) if left > 0 else "All drills done.",
+			Color("#22c55e"), open_camp, left == 0))
+	if not off and not season.preseason_camp:
+		var tired := 0
+		var total_fat := 0.0
+		for s in team.roster:
+			if s.fatigue >= 50.0 and not s.is_injured():
+				tired += 1
+			total_fat += s.fatigue
+		var trained := season.user_trained()
+		out.append(_todo("Weekly Training", "%s\nAvg fatigue %d  -  %d tired" % ["Done this week" if trained else (
+			"[color=#38bdf8]Ready to train[/color]" if season.can_train_user_team() else "Not available this week"),
+			roundi(total_fat / maxi(1, team.roster.size())), tired], Color("#22c55e"), open_weekly_training, trained or not season.can_train_user_team()))
+	var sp := 0
+	for s in team.roster:
+		if Progression.can_level_up(s):
+			sp += 1
+	out.append(_todo("Progress Players", ("[color=#38bdf8]%d player%s[/color] can level up" % [sp, "" if sp == 1 else "s"]) if sp > 0 else "No one can level up.",
+		UiKit.INFO, func(): open("Player Progression", pages.progression), sp == 0))
+	var hurt_starters := team.starters().filter(func(x: Soldier): return x.is_injured())
+	var hurt := team.injured()
+	out.append(_todo("Adjust Lineup", "%s  -  Team OVR %d%s" % [team.scheme.display_name, team.team_ovr(),
+		("\n[color=#ef4444]%d injured starter%s[/color]" % [hurt_starters.size(), "" if hurt_starters.size() == 1 else "s"]) if not hurt_starters.is_empty() else (
+			("\n%d injured on the bench" % hurt.size()) if not hurt.is_empty() else "\nLineup is set.")],
+		Color("#f97316"), func(): open("Lineup", pages.lineup), hurt_starters.is_empty(), not hurt_starters.is_empty()))
+	var rank := func(t: Button) -> int:
+		return 0 if t.get_meta("todo_urgent") else (2 if t.get_meta("todo_done") else 1)
+	var keyed: Array = []
+	for i in out.size():
+		keyed.append([rank.call(out[i]), i, out[i]])
+	keyed.sort()
+	return keyed.map(func(k): return k[2])
 
 
-## Big pane: next match with both teams side by side, a stat comparison and impact players.
-## Offseason / bye / eliminated fall back to the status tile, next to Advance and Last Result.
+## Top of Home: to-do grid on the left, Advance on the right; next match and Last Result below.
 func _home_top() -> Control:
 	var team := season.user_team()
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 14)
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 14)
+	var left := VBoxContainer.new()
+	left.add_theme_constant_override("separation", 8)
+	left.add_child(UiKit.label("THIS WEEK", 15, UiKit.MUTED))
+	var grid := GridContainer.new()
+	grid.name = "TodoGrid"
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 14)
+	grid.add_theme_constant_override("v_separation", 14)
+	var todos := _todo_tiles(team)
+	for t in todos:
+		grid.add_child(t)
+	left.add_child(grid)
+	top.add_child(left)
+	var right := VBoxContainer.new()
+	right.add_theme_constant_override("separation", 8)
+	right.add_child(UiKit.label("NEXT", 15, UiKit.MUTED))
+	var rows := maxi(1, ceili(todos.size() / 3.0))
+	var adv := UiKit.tile(_advance_text().replace("  >>", ""), _advance_blurb(), Vector2(300, rows * SMALL.y + (rows - 1) * 14), UiKit.ACCENT, advance)
+	adv.name = "AdvanceTile"
+	right.add_child(adv)
+	top.add_child(right)
+	v.add_child(top)
+
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 14)
 	var m := season.next_match_for(team) if season.phase != Season.PHASE_OFFSEASON and not season.preseason_camp else null
@@ -714,57 +795,44 @@ func _home_top() -> Control:
 		var t := _next_match_tile(team)
 		t.custom_minimum_size = Vector2(900, 330)
 		h.add_child(t)
-	var side := VBoxContainer.new()
-	side.add_theme_constant_override("separation", 14)
-	side.add_child(UiKit.tile(_advance_text().replace("  >>", ""), _advance_blurb(), Vector2(300, 158), UiKit.ACCENT, advance))
 	var last := _last_played(team)
 	if last:
 		var won := last.winner() == team
 		var body := "[font_size=28][color=%s]%s[/color] %s[/font_size]  %s %s\n%s" % [
 			UiKit.hex(UiKit.GOOD if won else UiKit.BAD), "W" if won else "L", _score_for(last, team),
 			"vs" if last.home == team else "@", UiKit.logo_bb(last.opponent_of(team), 26) + UiKit.esc(last.opponent_of(team).abbrev), season.week_label(last.week)]
-		side.add_child(UiKit.tile("Last Result", body, Vector2(300, 158), UiKit.INFO,
+		h.add_child(UiKit.tile("Last Result", body, Vector2(300, 330), UiKit.INFO,
 			func(): open("Match Recap", func(): return pages.recap(last))))
 	else:
-		side.add_child(UiKit.tile("Last Result", "No matches played yet.", Vector2(300, 158), UiKit.INFO,
+		h.add_child(UiKit.tile("Last Result", "No matches played yet.", Vector2(300, 330), UiKit.INFO,
 			func(): app.toast("Play a match first.")))
-	h.add_child(side)
-	var cuts := _roster_banner(team)
-	if cuts == null:
-		return h
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 14)
-	v.add_child(cuts)
 	v.add_child(h)
 	return v
 
 
 ## Rosters can run over the limit (trades, draft picks, extra signings) or short (trades,
 ## expiring deals). Week 1 needs exactly ROSTER_SIZE, later matches ROSTER_MIN..ROSTER_SIZE.
-func _roster_banner(team: Team) -> Control:
+## Returns {} when legal, else {title, body, cb} for an urgent to-do.
+func _roster_status(team: Team) -> Dictionary:
 	var n := team.roster.size()
 	var before_week1 := season.phase == Season.PHASE_OFFSEASON or season.preseason_camp or (season.phase == Season.PHASE_REGULAR and season.week == 1)
 	var lo := Team.ROSTER_SIZE if before_week1 else Season.ROSTER_MIN
 	if n <= Team.ROSTER_SIZE and n >= lo:
-		return null
+		return {}
 	# Early offseason: the roster is still taking shape (expiring deals leave, picks arrive).
 	if season.phase == Season.PHASE_OFFSEASON and n < lo and season.offseason_stage in [Season.OFF_RESIGN, Season.OFF_DRAFT]:
-		return null
-	var when := "Week 1 of the %d season" % (season.year + (1 if season.phase == Season.PHASE_OFFSEASON else 0)) if before_week1 else "your next match"
+		return {}
+	# Offseason rosters may carry up to OFFSEASON_MAX until camp ends.
+	if season.phase == Season.PHASE_OFFSEASON and n > Team.ROSTER_SIZE and season.offseason_stage in [Season.OFF_RESIGN, Season.OFF_DRAFT, Season.OFF_FREE_AGENCY]:
+		return {}
+	var when := "Week 1" if before_week1 else "your next match"
 	if n > Team.ROSTER_SIZE:
 		var extra := n - Team.ROSTER_SIZE
-		var body := "[color=white]%d / %d players.[/color]  Release or trade [color=#ef4444]%d player%s[/color] before %s.  Open a player > Contract tab > Release." % [
-			n, Team.ROSTER_SIZE, extra, "" if extra == 1 else "s", when]
-		var t := UiKit.tile("Roster Cuts Required", body, Vector2(1214, 86), UiKit.BAD, open_contracts)
-		t.name = "RosterCutBanner"
-		return t
+		return {"title": "Roster Cuts", "body": "[color=white]%d / %d players.[/color] Release or trade [color=#ef4444]%d[/color] before %s." % [
+			n, Team.ROSTER_SIZE, extra, when], "cb": open_contracts}
 	var short := lo - n
-	var need := "exactly %d" % lo if before_week1 else "at least %d" % lo
-	var body2 := "[color=white]%d / %d players.[/color]  You need %s for %s: sign [color=#f59e0b]%d more free agent%s[/color] (or trade for them)." % [
-		n, Team.ROSTER_SIZE, need, when, short, "" if short == 1 else "s"]
-	var t2 := UiKit.tile("Roster Spots Open", body2, Vector2(1214, 86), UiKit.ACCENT, open_free_agents)
-	t2.name = "RosterShortBanner"
-	return t2
+	return {"title": "Roster Spots Open", "body": "[color=white]%d / %d players.[/color] Sign [color=#f59e0b]%d free agent%s[/color] before %s." % [
+		n, Team.ROSTER_SIZE, short, "" if short == 1 else "s", when], "cb": open_free_agents}
 
 
 func _match_pane(m: ScheduledMatch, team: Team) -> Control:
@@ -1041,9 +1109,6 @@ func _news_tiles() -> Array:
 		var so: Soldier = r["soldier"]
 		out.append(UiKit.tile("Retirement", UiKit.logo_bb(r["team"], 20) + "[color=white]%s[/color] retires at %d\n%s" % [UiKit.esc(so.display_name()), r["age"],
 			r["team"].abbrev if r["team"] != null else "free agent"], SMALL, Color("#94a3b8"), open_retirements))
-	if not season.trades.offers.is_empty():
-		out.push_front(UiKit.tile("Trade Offers", "[color=#f59e0b]%d team%s[/color] want to deal with you.\nOffers expire at week's end." % [season.trades.offers.size(),
-			"" if season.trades.offers.size() == 1 else "s"], SMALL, Color("#f97316"), func(): open("Trade Offers", pages.trade_offers)))
 	for e in season.trades.last_trades.slice(0, 3):
 		out.append(UiKit.tile("Trade", "%s[color=white]%s[/color] <-> %s[color=white]%s[/color]\n[font_size=13]%s for %s[/font_size]" % [UiKit.logo_bb(e["a"], 20), e["a"].abbrev, UiKit.logo_bb(e["b"], 20), e["b"].abbrev,
 			UiKit.esc(pages._join_or_nothing(e["a_gave"])), UiKit.esc(pages._join_or_nothing(e["b_gave"]))], SMALL, Color("#f97316"), func(): open("Trade Log", pages.trade_log)))
@@ -1055,35 +1120,23 @@ func _news_tiles() -> Array:
 
 func _offseason_tiles() -> Array:
 	var team := season.user_team()
-	var expiring := Contracts.expiring(team)
-	var resign_text := "No expiring contracts."
-	if not expiring.is_empty():
-		resign_text = "[color=#f59e0b]%d expiring[/color]: %s" % [expiring.size(), ", ".join(PackedStringArray(expiring.map(func(x: Soldier): return x.short_name())))]
-		if not season.can_resign():
-			resign_text = "Window closed."
-	var fa_text := "Opens after the draft.\n%d soldiers in the pool." % season.league.free_agents.size()
-	if season.free_agency_open():
-		fa_text = "%d available  -  [color=#38bdf8]%d pending offers[/color]\nCap space %s" % [
-			season.league.free_agents.size(), season.fa.offers_by(team).size(), Contracts.money(Contracts.cap_space(team, season.cap_year()))]
 	var ret := season.retirements_in(season.year)
 	var mine := ret.filter(func(r): return r["team"] == team)
 	var camp_text := "Opens after free agency.\n%d drills, one player each." % Camp.DRILLS.size()
-	if season.camp_open():
-		camp_text = "[color=#38bdf8]%d of %d drills left[/color]\nSend a player to each drill." % [season.camp.drills_left(team), Camp.DRILLS.size()]
-	elif season.offseason_stage == Season.OFF_DONE:
+	if season.offseason_stage == Season.OFF_DONE:
 		camp_text = "Camp is done."
 	var draft_text := "Recap after the draft."
 	if season.draft.is_complete():
 		draft_text = "Every pick, ratings revealed."
-	return [
-		UiKit.tile("Re-sign Players", resign_text, SMALL, Color("#22c55e"), open_resign),
-		UiKit.tile("Draft Recap", draft_text, SMALL, UiKit.INFO, open_draft_recap if season.draft.is_complete() else open_draft_room),
-		UiKit.tile("Training Camp", camp_text, SMALL, Color("#22c55e"), open_camp),
-		UiKit.tile("Free Agents", fa_text, SMALL, Color("#14b8a6"), open_free_agents),
-		UiKit.tile("Retirements", "%d retired league-wide\n%d from your team" % [ret.size(), mine.size()], SMALL, Color("#94a3b8"), open_retirements),
-		UiKit.tile("Contracts & Payroll", "Payroll %s of %s" % [Contracts.money(Contracts.payroll(team, season.cap_year())), Contracts.money(Contracts.SALARY_CAP)],
-			SMALL, Color("#eab308"), open_contracts),
-	]
+	# Re-sign, Draft Room, Free Agency and Camp show up as to-dos while they're live.
+	var out: Array = []
+	if season.offseason_stage != Season.OFF_DRAFT:
+		out.append(UiKit.tile("Draft Recap" if season.draft.is_complete() else "Draft Room", draft_text, SMALL, UiKit.INFO,
+			open_draft_recap if season.draft.is_complete() else open_draft_room))
+	out.append(UiKit.tile("Retirements", "%d retired league-wide\n%d from your team" % [ret.size(), mine.size()], SMALL, Color("#94a3b8"), open_retirements))
+	if not season.camp_open():
+		out.append(UiKit.tile("Training Camp", camp_text, SMALL, Color("#22c55e"), open_camp))
+	return out
 
 
 func open_camp() -> void:

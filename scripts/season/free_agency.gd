@@ -186,7 +186,7 @@ static func interest(team: Team, s: Soldier, salary: int, years: int, promise :=
 const AI_UPGRADE_MARGIN := 3.0
 const AI_UPGRADE_BIDS := 2
 const AI_UPGRADE_BIDS_IN_SEASON := 1
-const AI_OFFSEASON_MAX := Team.ROSTER_SIZE + 3
+const AI_OFFSEASON_MAX := Team.OFFSEASON_MAX
 
 
 func ai_offers(season: Season, rng: RandomNumberGenerator, in_season := false) -> void:

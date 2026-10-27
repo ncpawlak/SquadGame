@@ -235,7 +235,7 @@ func week_results(label: String, played: Array) -> Control:
 		v.add_child(_section("FREE-AGENT SIGNINGS"))
 		v.add_child(_signings_table(s.last_signings))
 	v.add_child(_section("STANDINGS"))
-	v.add_child(UiKit.label(hub._mini_standings().replace("[color=white]", "").replace("[color=#8b97ab]", "").replace("[/color]", ""), 16))
+	v.add_child(UiKit.rich(hub._mini_standings(), 16))
 	return v
 
 
@@ -350,12 +350,14 @@ func preview(m: ScheduledMatch) -> Control:
 		col.add_child(sl)
 		var rows: Array = []
 		var colors := {}
+		var starters: Array = []
 		for sid in t.scheme.slot_ids():
 			var so: Soldier = t.lineup[sid]
 			var ovr: int = t.ovr_in_slot(so, sid)
 			colors[rows.size()] = {2: UiKit.ovr_color(ovr)}
 			rows.append([sid, so.full_name(), ovr])
-		col.add_child(UiKit.table(["SLOT", "STARTER", "OVR"], rows, [60, 240, 60], {}, colors))
+			starters.append(so)
+		col.add_child(UiKit.table(["SLOT", "STARTER", "OVR"], rows, [60, 240, 60], {}, colors, func(i: int): open_player(starters[i])))
 		h.add_child(col)
 	v.add_child(h)
 	v.add_child(_section("%s  vs  %s  -  SEASON TEAM STATS PER GAME (LEAGUE RANK)" % [m.away.abbrev, m.home.abbrev]))
@@ -408,6 +410,7 @@ func recap(m: ScheduledMatch) -> Control:
 		var rows: Array = []
 		var colors := {}
 		var ids: Array = []
+		var players: Array = []
 		for sid in r.box:
 			if r.box[sid]["team"] == r.teams.find(t):
 				ids.append(sid)
@@ -416,6 +419,7 @@ func recap(m: ScheduledMatch) -> Control:
 			var line: Dictionary = r.box[sid]
 			var so := _soldier(sid)
 			var hit: float = 100.0 * line["hits"] / max(1, line["shots"])
+			players.append(so)
 			if sid == r.mvp_id:
 				colors[rows.size()] = {1: UiKit.ACCENT}
 			rows.append([line["slot"], (so.tag() if so else "?") + (" (MVP)" if sid == r.mvp_id else ""),
@@ -423,7 +427,9 @@ func recap(m: ScheduledMatch) -> Control:
 				MatchEngine._fmt_secs(line.get("hill_s", 0.0)), line.get("caps", 0), int(line["damage"]), "%d%%" % hit,
 				line["headshots"], line["clutches"]])
 		v.add_child(UiKit.table(["SLOT", "PLAYER", "K", "D", "A", "SAVES", "WIPES", "HILL", "CAPS", "DMG", "HIT%", "HS", "CLUTCH"], rows,
-			[60, 220, 40, 40, 40, 56, 56, 56, 50, 60, 56, 40, 60], {}, colors))
+			[60, 220, 40, 40, 40, 56, 56, 56, 50, 60, 56, 40, 60], {}, colors, func(i: int):
+				if players[i] != null:
+					open_player(players[i])))
 
 	v.add_child(_section("PLAY-BY-PLAY"))
 	var pbp := RichTextLabel.new()
@@ -1820,8 +1826,10 @@ func injuries() -> Control:
 	var rows: Array = []
 	var colors := {}
 	var hl := {}
+	var hurt: Array = []
 	for t in s.league.teams:
 		for so in t.injured():
+			hurt.append(so)
 			if t.user_controlled:
 				hl[rows.size()] = t.color.darkened(0.6)
 			colors[rows.size()] = {4: UiKit.BAD}
@@ -1829,18 +1837,20 @@ func injuries() -> Control:
 	if rows.is_empty():
 		v.add_child(UiKit.label("No current injuries.", 18, UiKit.MUTED))
 	else:
-		v.add_child(UiKit.table(["TEAM", "NAME", "AGE", "INJURY", "OUT", "INJ", "TGH"], rows, [60, 220, 50, 220, 70, 50, 50], hl, colors))
+		v.add_child(UiKit.table(["TEAM", "NAME", "AGE", "INJURY", "OUT", "INJ", "TGH"], rows, [60, 220, 50, 220, 70, 50, 50], hl, colors, func(i: int): open_player(hurt[i])))
 	v.add_child(_section("THIS SEASON"))
 	var log_rows: Array = []
+	var logged: Array = []
 	for i in range(s.injury_log.size() - 1, -1, -1):
 		var e: Dictionary = s.injury_log[i]
 		var so: Soldier = e["soldier"]
+		logged.append(so)
 		var t: Team = e["team"]
 		log_rows.append([s.week_label(e["week"]), t.abbrev, so.full_name(), e["name"], "%d wk" % e["weeks"]])
 	if log_rows.is_empty():
 		v.add_child(UiKit.label("No injuries yet this season.", 16, UiKit.MUTED))
 	else:
-		v.add_child(UiKit.table(["WHEN", "TEAM", "NAME", "INJURY", "OUT"], log_rows, [110, 60, 220, 220, 70]))
+		v.add_child(UiKit.table(["WHEN", "TEAM", "NAME", "INJURY", "OUT"], log_rows, [110, 60, 220, 220, 70], {}, {}, func(i: int): open_player(logged[i])))
 	return v
 
 
@@ -2425,7 +2435,17 @@ func _filter_row(title: String, rebuild: Callable) -> HBoxContainer:
 			hub.replace(title, rebuild), 15)
 		b.custom_minimum_size.x = 110
 		row.add_child(b)
+	row.add_child(_fav_toggle(title, rebuild))
 	return row
+
+
+## Shared "★ Favorites" filter toggle (Scouting, Draft Room, Mock Draft).
+func _fav_toggle(title: String, rebuild: Callable) -> Button:
+	var b := UiKit.button("[ ★ Favorites ]" if favorites_only else "★ Favorites", func():
+		favorites_only = not favorites_only
+		hub.replace(title, rebuild), 15)
+	b.tooltip_text = "Show only prospects you've starred."
+	return b
 
 
 ## Scouting-only filters: home region ("" = all) and favorites only.
@@ -2486,10 +2506,6 @@ func _scout_tools(d: Draft) -> Control:
 			region_filter = reg
 			hub.replace("Scouting", scouting), 15)
 		r3.add_child(b)
-	var fav := UiKit.button("[ ★ Favorites ]" if favorites_only else "★ Favorites", func():
-		favorites_only = not favorites_only
-		hub.replace("Scouting", scouting), 15)
-	r3.add_child(fav)
 	v.add_child(r3)
 	return v
 
@@ -2714,6 +2730,11 @@ func prospect(p: Prospect) -> Control:
 		hub.replace(s.full_name(), func(): return prospect(p)))
 	b.disabled = not d.can_scout(p)
 	actions.add_child(b)
+	var fav := UiKit.button("★ Favorited" if p.favorite else "☆ Favorite", func():
+		p.favorite = not p.favorite
+		hub.replace(s.full_name(), func(): return prospect(p)))
+	fav.tooltip_text = "Star this prospect to filter for him in Scouting, the Draft Room and the Mock Draft."
+	actions.add_child(fav)
 	if not p.is_available() and d.is_complete():
 		actions.add_child(UiKit.button("Full profile (ratings revealed)", func(): open_player(s)))
 	v.add_child(actions)
@@ -2928,10 +2949,13 @@ func mock_draft() -> Control:
 	var nav := _row()
 	nav.add_child(UiKit.button("Scouting", hub.open_scouting, 15))
 	nav.add_child(UiKit.button("Draft Room", hub.open_draft_room, 15))
+	nav.add_child(_fav_toggle("Mock Draft", mock_draft))
 	v.add_child(nav)
 	var mock := d.mock(s.mock_pick_order())
+	if favorites_only:
+		mock = mock.filter(func(e): return (e["prospect"] as Prospect).favorite)
 	if mock.is_empty():
-		v.add_child(UiKit.label("The draft is over.", 18))
+		v.add_child(UiKit.label("None of your favorites are projected to go." if favorites_only and not d.is_complete() else "The draft is over.", 18))
 		return v
 	var rows: Array = []
 	var hl := {}
@@ -2941,7 +2965,7 @@ func mock_draft() -> Control:
 		var p: Prospect = e["prospect"]
 		var need := " (need)" if Draft.need_bonus(team, p) > 0.0 else ""
 		rows.append([e["pick"], team.name, (int(e["pick"]) - 1) / _season().league.teams.size() + 1,
-			p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role] + need, Draft.projection_text(p.projected_rank),
+			("★ " if p.favorite else "") + p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role] + need, Draft.projection_text(p.projected_rank),
 			"%d/%d" % [p.points, Draft.MAX_POINTS_PER_PROSPECT]])
 		if team.user_controlled:
 			hl[i] = team.color.darkened(0.6)
