@@ -1635,7 +1635,7 @@ func _team_sections() -> Array:
 
 
 const TEAM_VIEWS := ["Roster", "Lineup"]
-const TEAM_PANE_H := 970  # fits a full 12-man roster and the lineup + bench without inner scrolling
+const TEAM_PANE_H := 840  # Roster scrolls inside this; Lineup sizes to fit (field + bench) and never scrolls
 var team_view := 0  # 0 roster, 1 lineup
 var _team_box: VBoxContainer
 
@@ -1703,7 +1703,9 @@ func _fill_team_box(keep := false) -> void:
 	var sc := ScrollContainer.new()
 	sc.name = "TeamPaneScroll"
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	sc.custom_minimum_size.y = TEAM_PANE_H
+	sc.custom_minimum_size.y = TEAM_PANE_H if team_view == 0 else 0
+	if team_view == 1:
+		sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	frame.add_child(sc)
 	var body: Control = pages.roster() if team_view == 0 else pages.lineup()
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
