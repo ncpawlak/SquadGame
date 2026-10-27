@@ -5031,6 +5031,27 @@ func _counter_panel(ai: Team) -> Control:
 	return p
 
 
+## The Personnel pane's Trades view: incoming offers, the trade block, then a card into the
+## manual Trade Center builder. Offer/block actions refresh it via hub.replace("Trade Offers"/"Trade Block").
+func trade_hub() -> Control:
+	var s := _season()
+	var tr := s.trades
+	var v := _vbox(14)
+	v.add_child(UiKit.rich("[color=#8b97ab]TRADE WINDOW[/color]   [color=%s]%s[/color]" % [
+		"#22c55e" if tr.window_open(s) else "#ef4444", tr.window_text(s)], 17))
+	v.add_child(_section("Trade offers  (%d)" % tr.offers.size()))
+	v.add_child(trade_offers())
+	v.add_child(_section("Trade block"))
+	v.add_child(trade_block())
+	v.add_child(_section("Manual trade"))
+	var card: Button = hub._stat_card("Trade Center", str(s.league.teams.size() - 1), "TRADE PARTNERS",
+		"Build your own deal: players and draft picks with any team", Color("#f97316"),
+		func(): hub.open("Trade Center", trade_center), "OPEN" if tr.window_open(s) else "")
+	card.name = "TradeCenterCard"
+	v.add_child(card)
+	return v
+
+
 func trade_offers() -> Control:
 	var s := _season()
 	var tr := s.trades

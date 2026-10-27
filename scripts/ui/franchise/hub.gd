@@ -156,8 +156,8 @@ func open(title: String, build: Callable, no_back := false) -> void:
 ## growing the back stack. Keeps the scroll position and the focused item.
 func replace(title: String, build: Callable, no_back := false) -> void:
 	# Personnel screens also live inline on the Personnel tab: refresh the pane in place.
-	if page_stack.is_empty() and tab_index == 3 and is_instance_valid(_pers_box) and _personnel_views().has(title):
-		personnel_view = _personnel_views().find(title)
+	if page_stack.is_empty() and tab_index == 3 and is_instance_valid(_pers_box) and _personnel_view_for(title) >= 0:
+		personnel_view = _personnel_view_for(title)
 		_fill_personnel_box(true)
 		return
 	var focus_index := -1
@@ -2230,8 +2230,8 @@ func _league_strip() -> Control:
 	return h
 
 
-## The Personnel tab is a custom layout (see _tab_view): the Contracts / Trades / Free Agency /
-## Draft pane, live cards, a link strip. No tile sections.
+## The Personnel tab is a custom layout (see _tab_view): the Contracts / Trades / Draft pane,
+##, live cards, a link strip. No tile sections.
 func _personnel_sections() -> Array:
 	return []
 
@@ -2243,24 +2243,37 @@ var _pers_box: VBoxContainer
 
 
 ## Page titles of the pane's views (the pages refresh themselves with hub.replace(title, ...)).
+## The Draft Room joins only while the draft is running.
 func _personnel_views() -> Array:
-	return ["Contracts & Payroll", "Trade Center", "Free Agents", "Draft Room" if season.draft.is_started() else "Scouting"]
+	var v := ["Contracts & Payroll", "Trades"]
+	if _draft_live():
+		v.append("Draft Room")
+	return v
 
 
 func _personnel_view_names() -> Array:
-	return ["Contracts", "Trades", "Free Agency", "Draft Room" if season.draft.is_started() else "Scouting"]
+	var v := ["Contracts", "Trades"]
+	if _draft_live():
+		v.append("Draft Room")
+	return v
 
 
-## The view that matters most right now: the draft on draft day, free agency during it, trades
-## in season, contracts otherwise.
+func _draft_live() -> bool:
+	return season.draft.is_started() and not draft_done()
+
+
+## Pane view a refreshing page title belongs to (-1: not a pane page). The Trades view is built
+## from the Trade Offers and Trade Block pages, which refresh under their own titles.
+func _personnel_view_for(title: String) -> int:
+	if title in ["Trade Offers", "Trade Block"]:
+		return 1
+	return _personnel_views().find(title)
+
+
+## The view that matters most right now: the draft on draft day, trades in season, contracts otherwise.
 func _personnel_default() -> int:
 	if season.phase == Season.PHASE_OFFSEASON:
-		match season.offseason_stage:
-			Season.OFF_DRAFT:
-				return 3
-			Season.OFF_FREE_AGENCY:
-				return 2
-		return 0
+		return 2 if season.offseason_stage == Season.OFF_DRAFT and _draft_live() else 0
 	if season.preseason_camp:
 		return 0
 	return 1
@@ -2296,6 +2309,7 @@ func _fill_personnel_box(keep := false) -> void:
 		_pers_box.remove_child(c)
 		c.queue_free()
 	var names := _personnel_view_names()
+	personnel_view = clampi(personnel_view, 0, names.size() - 1)
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
 	var title := UiKit.heading(names[personnel_view], 22)
@@ -2338,9 +2352,8 @@ func _fill_personnel_box(keep := false) -> void:
 	var body: Control
 	match personnel_view:
 		0: body = pages.contracts()
-		1: body = pages.trade_center()
-		2: body = pages.free_agents()
-		_: body = pages.draft_room() if season.draft.is_started() else pages.scouting()
+		1: body = pages.trade_hub()
+		_: body = pages.draft_room()
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sc.add_child(body)
 	if keep:
@@ -2364,22 +2377,19 @@ func _personnel_pane_info() -> String:
 ## Under the pane: live cards for the other Personnel screens.
 func _personnel_cards() -> Control:
 	var team := season.user_team()
-	var tr := season.trades
 	var row := HBoxContainer.new()
 	row.name = "PersonnelCards"
 	row.add_theme_constant_override("separation", 14)
 	var cards: Array = []
-	var orange := Color("#f97316")
 
-	var n_off := tr.offers.size()
-	cards.append(_stat_card("Trade Offers", str(n_off), "WAITING", "Window: [color=%s]%s[/color]" % [
-		"#22c55e" if tr.window_open(season) else "#ef4444", tr.window_text(season)], orange,
-		func(): open("Trade Offers", pages.trade_offers), "OFFER" if n_off > 0 else ""))
-
-	var block := team.roster.filter(func(x: Soldier): return tr.block.has(x.id))
-	cards.append(_stat_card("Trade Block", str(block.size()), "ON THE BLOCK", ", ".join(PackedStringArray(block.slice(0, 2).map(func(x: Soldier): return x.short_name())))
-		+ (" +%d" % (block.size() - 2) if block.size() > 2 else "") if not block.is_empty() else "AI teams send offers for players you list",
-		orange, func(): open("Trade Block", pages.trade_block)))
+	var fa_stage := season.phase == Season.PHASE_OFFSEASON and season.offseason_stage == Season.OFF_FREE_AGENCY
+	var bids: int = season.fa.offers_by(team).size()
+	var fa_detail := ("Day %d of %d" % [season.fa_day, Season.FA_DAYS]) if fa_stage else \
+		("Opens after the draft" if season.phase == Season.PHASE_OFFSEASON and not draft_done() else "Bidding open")
+	if bids > 0:
+		fa_detail += "\n%d offer%s out" % [bids, "" if bids == 1 else "s"]
+	cards.append(_stat_card("Free Agency", str(season.league.free_agents.size()), "AVAILABLE", fa_detail,
+		Color("#f97316"), open_free_agents, "FA DAY %d" % season.fa_day if fa_stage else ""))
 
 	# In season the contracts that expire are the ones in their final year.
 	var off := season.phase == Season.PHASE_OFFSEASON
