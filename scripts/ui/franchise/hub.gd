@@ -1828,6 +1828,9 @@ func _team_cards() -> Control:
 
 
 func _stat_card(title: String, big: String, caption: String, detail: String, accent: Color, cb: Callable, alert := "") -> Button:
+	# Every card wears the team trim; colour only means something on the alert chip.
+	var chip_color := UiKit.GOLD
+	accent = UiKit.MUTED if accent == UiKit.MUTED else UiKit.TRIM
 	var b := UiKit.tile(title, "", Vector2(0, 146), accent, cb)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var foot := HBoxContainer.new()
@@ -1858,7 +1861,7 @@ func _stat_card(title: String, big: String, caption: String, detail: String, acc
 	foot.add_child(num)
 	if alert != "":
 		var chip := PanelContainer.new()
-		var cs := UiKit.flat(accent, 4)
+		var cs := UiKit.flat(chip_color, 4)
 		cs.content_margin_left = 10
 		cs.content_margin_right = 10
 		cs.content_margin_top = 2

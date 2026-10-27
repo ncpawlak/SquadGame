@@ -20,6 +20,10 @@ const SKEW := 0.22
 
 ## Accent colour: a bright version of the user's team colour (see set_team).
 static var ACCENT := GOLD
+const SILVER := Color("#cbd5e1")
+## Trim colour: the team's other colour (the one the accent wasn't taken from), for card borders
+## and big numbers. Too-dark trims (charcoal, navy-black) fall back to silver.
+static var TRIM := SILVER
 ## Row background for the user's own team / players in league-wide tables (tables also give it an accent border).
 static var MINE := Color("#3d2c08")
 ## Deep version of the user's team colour for banners and backdrops.
@@ -43,6 +47,7 @@ static func set_team(t: Team) -> void:
 	if a == ACCENT and banner == TEAM_DARK and _theme != null:
 		return
 	ACCENT = a
+	TRIM = trim_of(t)
 	MINE = Color.from_hsv(a.h, clampf(a.s, 0.5, 0.9), 0.24)
 	TEAM_DARK = banner
 	_theme = null
@@ -53,6 +58,7 @@ static func reset_team() -> void:
 	if ACCENT == GOLD and _theme != null:
 		return
 	ACCENT = GOLD
+	TRIM = SILVER
 	MINE = Color("#3d2c08")
 	TEAM_DARK = Color("#1a2640")
 	_theme = null
@@ -70,6 +76,15 @@ static func accent_of(t: Team) -> Color:
 	if best.s < 0.12:
 		return GOLD
 	return Color.from_hsv(best.h, clampf(best.s, 0.5, 0.95), clampf(best.v, 0.82, 1.0))
+
+
+## The team colour the accent was NOT taken from, readable on dark panels.
+static func trim_of(t: Team) -> Color:
+	var src_is_primary := t.color.s * (0.35 + t.color.v) >= t.color2.s * (0.35 + t.color2.v)
+	var other: Color = t.color2 if src_is_primary else t.color
+	if other.v < 0.45:
+		return SILVER
+	return other.lightened(0.1) if other.v < 0.7 else other
 
 
 ## A deep, saturated team colour for banners (white or near-black primaries fall back).
