@@ -202,23 +202,31 @@ func _team_tile(t: Team, rank: int, count: int) -> Button:
 	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(nm)
 	var o := t.team_ovr()
+	# Three columns: OVR | ring (dead centre) | tag. The side columns share the width equally.
 	var line := HBoxContainer.new()
-	line.alignment = BoxContainer.ALIGNMENT_CENTER
-	line.add_theme_constant_override("separation", 12)
+	line.add_theme_constant_override("separation", 0)
 	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var ring := RingGauge.new(o, 100, UiKit.ovr_color(o), str(o), 100, 4.0)
+	var left := VBoxContainer.new()
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.alignment = BoxContainer.ALIGNMENT_CENTER
+	left.add_theme_constant_override("separation", -6)
+	var ovr := UiKit.display(str(o), 40, UiKit.ovr_color(o), true)
+	ovr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ovr.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	ovr.add_theme_constant_override("outline_size", 5)
+	left.add_child(ovr)
+	var cap := UiKit.display("OVR", 13, Color(1, 1, 1, 0.6), true)
+	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	left.add_child(cap)
+	_ignore_mouse_tree(left)
+	line.add_child(left)
+	var ring := RingGauge.new(o, 100, UiKit.ovr_color(o), str(o), 104, 4.0)
 	ring.logo = UiKit.logo_tex(t.abbrev)
 	ring.disc = Color(0.02, 0.03, 0.06, 0.72)
 	line.add_child(ring)
-	var side := VBoxContainer.new()
-	side.add_theme_constant_override("separation", 2)
-	side.alignment = BoxContainer.ALIGNMENT_CENTER
+	var side := CenterContainer.new()
+	side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	side.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	if ring.logo != null:
-		var ovr := UiKit.display(str(o), 38, UiKit.ovr_color(o), true)
-		ovr.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-		ovr.add_theme_constant_override("outline_size", 5)
-		side.add_child(ovr)
 	var tag: Array = _expectation_tag(rank, count)
 	var chip := PanelContainer.new()
 	var csb := UiKit.flat(Color(0, 0, 0, 0.55), 3, 1, tag[1])
@@ -228,7 +236,6 @@ func _team_tile(t: Team, rank: int, count: int) -> Button:
 	csb.content_margin_bottom = 1
 	chip.add_theme_stylebox_override("panel", csb)
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	chip.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	chip.add_child(UiKit.display(tag[0], 14, tag[1], true))
 	side.add_child(chip)
 	_ignore_mouse_tree(side)

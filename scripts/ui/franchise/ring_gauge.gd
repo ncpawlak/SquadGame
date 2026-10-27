@@ -30,9 +30,11 @@ func _draw() -> void:
 	if _fraction > 0.0:
 		draw_arc(c, r, -PI / 2.0, -PI / 2.0 + TAU * _fraction, 64, _color, _thickness, true)
 	if logo != null:
+		# Leave a clear gap inside the ring; the square logo fits within the disc, off the ring's path.
+		var disc_r := r - _thickness / 2.0 - maxf(3.0, _thickness)
 		if disc.a > 0.0:
-			draw_circle(c, r - _thickness / 2.0, disc, true, -1.0, true)
-		var inner := (r - _thickness / 2.0) * 2.0 * 0.86
+			draw_circle(c, disc_r, disc, true, -1.0, true)
+		var inner := disc_r * 2.0 * 0.78
 		draw_texture_rect(logo, Rect2(c - Vector2(inner, inner) / 2.0, Vector2(inner, inner)), false)
 		return
 	var font := get_theme_default_font()
