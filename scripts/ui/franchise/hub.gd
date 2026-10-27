@@ -725,6 +725,8 @@ func _tab_view(i: int) -> Control:
 		v.add_child(_personnel_top())
 		v.add_child(_personnel_cards())
 		v.add_child(_personnel_strip())
+	elif i == 4:
+		_settings_view(v)
 	var sections: Array = [_home_sections, _team_sections, _league_sections, _personnel_sections, _settings_sections][i].call()
 	var n := 0
 	for sec in sections:
@@ -2485,22 +2487,41 @@ func _personnel_strip() -> Control:
 	return _card_row("PersonnelMore", cards, 4)
 
 
+## The Settings tab is a custom layout (see _tab_view): two rows of cards. No tile sections.
 func _settings_sections() -> Array:
-	return [
-		["FRANCHISE", [
-			UiKit.tile("Sim Options", "Sim a week, to the playoffs, or the whole season.", TILE, UiKit.ACCENT, func(): open("Sim Options", pages.sim_options)),
-			UiKit.tile("Save Franchise", "%d save slots. The autosave updates every week." % SaveSystem.SLOTS, TILE, Color("#22c55e"),
-				func(): open("Save Franchise", func(): return pages.save_load(true))),
-			UiKit.tile("Load Franchise", "Load a saved franchise or the autosave.", TILE, UiKit.INFO,
-				func(): open("Load Franchise", func(): return pages.save_load(false))),
-			UiKit.tile("Franchise Settings", "Difficulty, injuries, trade logic.", TILE, UiKit.MUTED,
-				func(): coming_soon("Franchise Settings", ["Sim difficulty", "Injuries on/off and frequency", "Trade AI strictness", "Salary cap rules"]), "SOON"),
-		]],
-		["SYSTEM", [
-			UiKit.tile("Debug Sim Tools", "The milestone 1 sandbox: single matches, batch sims, raw ratings.", TILE, Color("#64748b"), app.open_debug),
-			UiKit.tile("Main Menu", "Back to the title screen. Your franchise stays loaded.", TILE, Color("#64748b"), app.show_title),
-		]],
-	]
+	return []
+
+
+func _settings_view(v: VBoxContainer) -> void:
+	var offseason := season.phase == Season.PHASE_OFFSEASON
+	var used := 0
+	for s in range(1, SaveSystem.SLOTS + 1):
+		if SaveSystem.has_slot(s):
+			used += 1
+	var auto := SaveSystem.slot_info(SaveSystem.AUTO_SLOT)
+	var latest := {}
+	for s in range(0, SaveSystem.SLOTS + 1):
+		var info := SaveSystem.slot_info(s)
+		if not info.is_empty() and str(info.get("saved_at", "")) > str(latest.get("saved_at", "")):
+			latest = info
+	var sim := _stat_card("Sim Options", "OFF" if offseason else "W%d" % season.week, "SEASON %d" % season.year,
+		"Sim a week, to the playoffs, or the whole season", UiKit.TRIM, func(): open("Sim Options", pages.sim_options))
+	var save := _stat_card("Save Franchise", "%d/%d" % [used, SaveSystem.SLOTS], "SLOTS USED",
+		("Autosave: [color=white]%s %s[/color]" % [auto.get("year", ""), auto.get("week", "")]) if not auto.is_empty() else "The autosave updates every week",
+		UiKit.TRIM, func(): open("Save Franchise", func(): return pages.save_load(true)))
+	var load_c := _stat_card("Load Franchise", str(used + (0 if auto.is_empty() else 1)), "SAVES",
+		("Latest: [color=white]%s[/color] · %s %s" % [UiKit.esc(str(latest.get("label", "")) if str(latest.get("label", "")) != "" else "Slot %d" % int(latest.get("slot", 0))), latest.get("abbrev", ""), latest.get("week", "")]) if not latest.is_empty() else "No saves yet",
+		UiKit.TRIM, func(): open("Load Franchise", func(): return pages.save_load(false)))
+	var fs := _soon_card("Franchise Settings", "Difficulty, injuries, trade logic", ["Sim difficulty", "Injuries on/off and frequency", "Trade AI strictness", "Salary cap rules"])
+	v.add_child(UiKit.heading("FRANCHISE", 22))
+	v.add_child(_card_row("SettingsFranchise", [sim, save, load_c, fs], 4))
+	var gap := Control.new()
+	gap.custom_minimum_size.y = 10
+	v.add_child(gap)
+	var dbg := _stat_card("Debug Sim Tools", "M1", "SANDBOX", "Single matches, batch sims, raw ratings", UiKit.TRIM, app.open_debug)
+	var menu := _stat_card("Main Menu", "◂", "TITLE", "Back to the title screen. Your franchise stays loaded", UiKit.TRIM, app.show_title)
+	v.add_child(UiKit.heading("SYSTEM", 22))
+	v.add_child(_card_row("SettingsSystem", [dbg, menu], 4))
 
 
 func open_standings() -> void:

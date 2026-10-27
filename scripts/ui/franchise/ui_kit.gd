@@ -318,13 +318,35 @@ static func style_skewed(b: Button, base := PANEL_HI) -> void:
 	b.add_theme_font_override("font", font_display)
 
 
+## Standard button: slanted broadcast secondary (dark plate, accent rim on hover/focus).
 static func button(text: String, cb: Callable, size := 16) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.add_theme_font_size_override("font_size", size)
-	style_button(b)
+	style_skewed(b)
+	_margins(b, 18)
 	b.pressed.connect(cb)
 	return b
+
+
+## The main action of a row or screen (Accept, Sign, Propose): slanted, in the team accent.
+static func action_button(text: String, cb: Callable, size := 16) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.add_theme_font_size_override("font_size", size)
+	style_primary(b)
+	_margins(b, 20)
+	b.pressed.connect(cb)
+	return b
+
+
+static func _margins(b: Button, h: int) -> void:
+	for k in ["normal", "hover", "pressed", "focus", "disabled"]:
+		var s: StyleBoxFlat = b.get_theme_stylebox(k)
+		s.content_margin_left = h
+		s.content_margin_right = h
+		s.content_margin_top = 8
+		s.content_margin_bottom = 8
 
 
 static func primary_button(text: String, cb: Callable, size := 20) -> Button:

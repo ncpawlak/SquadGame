@@ -1194,6 +1194,21 @@ func _player_header(s: Soldier, team: Team) -> Control:
 		a.clip_text = true
 		a.custom_minimum_size.x = 400
 		mid.add_child(a)
+	var chips := _row(8)
+	chips.add_theme_constant_override("separation", 8)
+	if s.contract != null and s.retired_year == 0:
+		chips.add_child(_header_chip("CONTRACT", "%s × %d" % [Contracts.money(s.contract.salary), s.contract.years]))
+	var line: Dictionary = s.season_lines.get(_season().year, {})
+	if not line.is_empty():
+		var k := int(line.get("kills", 0))
+		chips.add_child(_header_chip("%d SEASON" % _season().year, "%d GP  ·  %d K  ·  %.2f K/D" % [int(line.get("matches", 0)), k, float(k) / maxi(1, int(line.get("deaths", 0)))]))
+	if int(s.career.get("matches", 0)) > 0:
+		chips.add_child(_header_chip("CAREER", "%d GP  ·  %d K" % [int(s.career.get("matches", 0)), int(s.career.get("kills", 0))]))
+	if chips.get_child_count() > 0:
+		var gap := Control.new()
+		gap.custom_minimum_size.y = 4
+		mid.add_child(gap)
+		mid.add_child(chips)
 	h.add_child(mid)
 	var role := _row_role(team, s)
 	var ovr := team.ovr_in_slot(s, team.slot_of(s)) if team != null and team.slot_of(s) != &"" else s.best_ovr()
@@ -1204,17 +1219,119 @@ func _player_header(s: Soldier, team: Team) -> Control:
 
 
 func _big_badge(title: String, value_bb: String) -> Control:
-	var p := UiKit.panel(Color(0, 0, 0, 0.45), 4)
+	var p := PanelContainer.new()
+	var sb := UiKit.flat(Color(0, 0, 0, 0.55), 3, 2, UiKit.TRIM)
+	sb.skew = Vector2(UiKit.SKEW, 0)
+	sb.content_margin_left = 18
+	sb.content_margin_right = 18
+	sb.shadow_color = Color(UiKit.TRIM, 0.18)
+	sb.shadow_size = 10
+	p.add_theme_stylebox_override("panel", sb)
 	p.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var box := _vbox(0)
-	var t := UiKit.display(title, 15, Color(1, 1, 1, 0.65))
+	var t := UiKit.display(title, 15, UiKit.TRIM)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(t)
-	var r := UiKit.rich("[center][font_size=40]%s[/font_size][/center]" % value_bb, 18)
+	var r := UiKit.rich("[center][font_size=46]%s[/font_size][/center]" % value_bb, 18)
+	r.add_theme_font_override("normal_font", UiKit.font_heavy)
 	r.autowrap_mode = TextServer.AUTOWRAP_OFF
 	r.custom_minimum_size.x = 110
 	box.add_child(r)
 	p.add_child(box)
+	return p
+
+
+## A slanted label/value chip for the player header strip.
+func _header_chip(title: String, value: String) -> Control:
+	var p := PanelContainer.new()
+	var sb := UiKit.flat(Color(0, 0, 0, 0.4), 2, 1, Color(UiKit.TRIM, 0.5))
+	sb.skew = Vector2(UiKit.SKEW, 0)
+	sb.content_margin_top = 4
+	sb.content_margin_bottom = 4
+	p.add_theme_stylebox_override("panel", sb)
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var h := _row(8)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	h.add_child(UiKit.display(title, 13, UiKit.TRIM))
+	h.add_child(UiKit.label(value, 15, Color.WHITE))
+	p.add_child(h)
+	return p
+
+
+## Overview right column: this season's numbers, then the last five matches.
+func _player_snapshot(s: Soldier, team: Team) -> Control:
+	var season: Season = hub.season
+	var p := PanelContainer.new()
+	var sb := UiKit.flat(Color(UiKit.PANEL, 0.85), 4, 1, Color(1, 1, 1, 0.08))
+	sb.border_width_top = 3
+	sb.border_color = UiKit.TRIM
+	sb.content_margin_left = 20
+	sb.content_margin_right = 20
+	sb.content_margin_top = 14
+	sb.content_margin_bottom = 16
+	p.add_theme_stylebox_override("panel", sb)
+	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	p.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	var v := _vbox(12)
+	p.add_child(v)
+	v.add_child(UiKit.heading("%d Season" % season.year, 20))
+	var line: Dictionary = s.season_lines.get(season.year, {})
+	var k := int(line.get("kills", 0))
+	var hits := int(line.get("hits", 0))
+	var nums := GridContainer.new()
+	nums.columns = 3
+	nums.add_theme_constant_override("h_separation", 18)
+	nums.add_theme_constant_override("v_separation", 10)
+	for d in [["GP", str(int(line.get("matches", 0)))], ["KILLS", str(k)], ["K/D", "%.2f" % (float(k) / maxi(1, int(line.get("deaths", 0))))],
+			["ASSISTS", str(int(line.get("assists", 0)))], ["ACC", "%d%%" % roundi(100.0 * hits / maxi(1, int(line.get("shots", 0))))], ["DMG", str(roundi(line.get("damage", 0)))]]:
+		var cell := _vbox(-4)
+		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cell.add_child(UiKit.display(d[1], 40, UiKit.TRIM.lightened(0.15), true))
+		cell.add_child(UiKit.label(d[0], 12, UiKit.MUTED))
+		nums.add_child(cell)
+	v.add_child(nums)
+	v.add_child(_section("LAST 5 MATCHES"))
+	var logs: Array = []
+	for w in range(season.total_weeks(), 0, -1):
+		for m: ScheduledMatch in season.matches_for_week(w):
+			if logs.size() < 5 and m.is_played() and m.result.box.has(s.id):
+				logs.append([w, m])
+	if logs.is_empty():
+		v.add_child(UiKit.label("No matches played this season yet.", 15, UiKit.MUTED))
+	for e in logs:
+		var m: ScheduledMatch = e[1]
+		var r: MatchResult = m.result
+		var bl: Dictionary = r.box[s.id]
+		var idx: int = bl["team"]
+		var mine: Team = r.teams[idx]
+		var opp: Team = r.teams[1 - idx]
+		var won := r.winner_index == idx
+		var row := Button.new()
+		UiKit.style_button(row, UiKit.PANEL_HI, UiKit.ACCENT, 3)
+		row.custom_minimum_size.y = 40
+		row.pressed.connect(func(): hub.open("Match Recap", func(): return recap(m)))
+		var h := _row(12)
+		h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		h.set_anchors_preset(Control.PRESET_FULL_RECT)
+		h.offset_left = 12
+		h.offset_right = -12
+		row.add_child(h)
+		h.add_child(_big_cell(season.week_label(e[0]).to_upper(), UiKit.MUTED, 92, 13))
+		var wl := _big_cell("W" if won else "L", UiKit.GOOD if won else UiKit.BAD, 18, 18)
+		wl.add_theme_font_override("font", UiKit.font_heavy)
+		h.add_child(wl)
+		h.add_child(_big_cell("%d-%d  %s %s" % [r.score[idx], r.score[1 - idx], "vs" if m.home == mine else "@", opp.abbrev], Color.WHITE, 130, 15))
+		var kd := _big_cell("%d K  %d D  %d A" % [int(bl.get("kills", 0)), int(bl.get("deaths", 0)), int(bl.get("assists", 0))], UiKit.TEXT, 0, 15)
+		kd.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		kd.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		h.add_child(kd)
+		if r.mvp_id == s.id:
+			h.add_child(_big_cell("MVP", UiKit.GOLD, 36, 13))
+		v.add_child(row)
+	if team != null:
+		var full := UiKit.button("Full game log", func(): _player_refresh(s, 3), 14)
+		full.size_flags_horizontal = Control.SIZE_SHRINK_END
+		v.add_child(full)
 	return p
 
 
@@ -1255,7 +1372,6 @@ func _player_overview(s: Soldier, team: Team) -> Control:
 	h.add_child(rail)
 
 	var body := _vbox(16)
-	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var gauges := _row(18)
 	gauges.add_child(_ring_block("MORALE", s.morale, 100.0, morale_color(s.morale), str(roundi(s.morale)), Soldier.morale_label(s.morale), 96))
 	if s.is_injured():
@@ -1284,7 +1400,11 @@ func _player_overview(s: Soldier, team: Team) -> Control:
 	var ovrs := _row(12)
 	for r in Scheme.ROLE_NAMES:
 		var o := s.ovr_at_role(r)
-		var p := UiKit.panel(UiKit.ACCENT.darkened(0.6) if r == cur_role else UiKit.PANEL_HI, 10)
+		var p := PanelContainer.new()
+		var psb := UiKit.flat(UiKit.ACCENT.darkened(0.6) if r == cur_role else UiKit.PANEL_HI, 6, 2 if r == cur_role else 0, UiKit.TRIM)
+		psb.skew = Vector2(UiKit.SKEW, 0)
+		psb.content_margin_left = 20
+		p.add_theme_stylebox_override("panel", psb)
 		var box := _vbox(0)
 		box.add_child(UiKit.label(Scheme.ROLE_NAMES[r].to_upper(), 13, UiKit.MUTED))
 		var rt := UiKit.rich("[font_size=30][color=%s]%d[/color][/font_size]%s" % [UiKit.hex(UiKit.ovr_color(o)), o, delta_bb(s.morale_ovr_delta(r), 16)], 16)
@@ -1305,6 +1425,7 @@ func _player_overview(s: Soldier, team: Team) -> Control:
 		grid.add_child(_attr_tile(st, int(s.stats[st]), int(mods.get(st, 0))))
 	body.add_child(grid)
 	h.add_child(body)
+	h.add_child(_player_snapshot(s, team))
 	return h
 
 
@@ -1406,7 +1527,7 @@ func _player_contract(s: Soldier, team: Team) -> Control:
 			facts.add_child(_fact_box(item[0], item[1]))
 		v.add_child(facts)
 		var actions := _row()
-		actions.add_child(UiKit.button("Make Offer", func(): open_offer(s), 16))
+		actions.add_child(UiKit.action_button("Make Offer", func(): open_offer(s), 16))
 		v.add_child(actions)
 		return v
 	var c := s.contract
@@ -2120,7 +2241,7 @@ func training() -> Control:
 		foot.add_child(UiKit.label("This week's training is done. Changes apply next week.", 15, UiKit.GOOD))
 		foot.add_child(UiKit.button("View Results", func(): hub.open("Training Results", training_results, true)))
 	else:
-		var go := UiKit.button("Confirm & Train", func():
+		var go := UiKit.action_button("Confirm & Train", func():
 			season.train_user_team()
 			hub.replace("Training Results", training_results, true))
 		go.custom_minimum_size = Vector2(240, 52)
@@ -3081,7 +3202,7 @@ func _prospect_row(p: Prospect, action_text: String, action_enabled: bool, actio
 		cell.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		hb.add_child(cell)
 	row.add_child(info)
-	var act := UiKit.button(action_text, action, 15)
+	var act := UiKit.action_button(action_text, action, 15) if action_enabled and action_text.begins_with("Draft") else UiKit.button(action_text, action, 15)
 	act.custom_minimum_size = Vector2(PCOL_ACTION, 70)
 	act.disabled = not action_enabled
 	row.add_child(act)
@@ -3354,18 +3475,30 @@ func draft_room() -> Control:
 		var sel := "-"
 		var pos := ""
 		var proj := ""
+		var age := ""
+		var grade := ""
+		var home := ""
 		if p != null:
 			sel = p.soldier.full_name()
 			pos = Scheme.ROLE_NAMES[p.listed_role]
 			proj = Draft.projection_text(p.projected_rank)
+			age = str(p.soldier.age)
+			grade = p.scout_grade()
+			home = p.soldier.home_state
 		elif i == d.next_pick:
 			sel = "ON THE CLOCK"
-		rows.append([i + 1, team, d.round_of(i), sel, pos, proj])
+		rows.append([i + 1, team, d.round_of(i), sel, pos, age, grade, proj, home, Scheme.ROLE_NAMES[Draft.weakest_role(team)]])
+		var cc := {}
+		if grade != "":
+			cc[6] = AREA_COLORS.get(grade.trim_suffix("?"), UiKit.TEXT)
+		cc[9] = UiKit.MUTED
 		if team.user_controlled:
 			hl[i] = UiKit.MINE
 		if i == d.next_pick and not d.is_complete():
-			colors[i] = {3: UiKit.ACCENT}
-	v.add_child(UiKit.table(["PICK", "TEAM", "RD", "SELECTION", "POS", "PROJ"], rows, [50, 260, 40, 240, 110, 130], hl, colors,
+			cc[3] = UiKit.ACCENT
+		colors[i] = cc
+	v.add_child(UiKit.table(["PICK", "TEAM", "RD", "SELECTION", "POS", "AGE", "GRADE", "PROJ", "HOME", "TEAM NEED"], rows,
+		[50, 260, 40, 300, 120, 60, 80, 150, 80, 140], hl, colors,
 		func(i: int):
 			var p: Prospect = by_pick.get(i + 1)
 			if p != null:
@@ -3452,7 +3585,7 @@ func draft_recap(d: Draft) -> Control:
 		d.year, picks.size()], 16))
 	var nav := _row()
 	if s.phase == Season.PHASE_OFFSEASON and s.offseason_stage == Season.OFF_DRAFT:
-		nav.add_child(UiKit.button("Open free agency  >>", hub.advance, 18))
+		nav.add_child(UiKit.action_button("Open free agency  >>", hub.advance, 18))
 	nav.add_child(UiKit.button("Roster", func(): hub.open("Roster", roster), 18))
 	v.add_child(nav)
 	# Real value ranks (what the board should have been), for steals and reaches.
@@ -4353,7 +4486,7 @@ func resign() -> Control:
 		var ask := UiKit.label("%s / yr" % Contracts.money(n.demand(yrs)), 18, Color.WHITE)
 		ask.custom_minimum_size.x = 120
 		row.add_child(ask)
-		var b := UiKit.button("Sign at Ask", func():
+		var b := UiKit.action_button("Sign at Ask", func():
 			var err := s.resign_player(user, ref, yrs)
 			hub.app.toast(err if err != "" else "%s re-signed: %s x %d." % [ref.full_name(), Contracts.money(ref.contract.salary), yrs])
 			refresh.call(), 15)
@@ -4481,13 +4614,13 @@ func negotiate() -> Control:
 		if err != "":
 			left.add_child(UiKit.label(err, 15, UiKit.BAD))
 		var acts := _row(10)
-		var mk := UiKit.button("Make Offer", func():
+		var mk := UiKit.action_button("Make Offer", func():
 			var r := n.make_offer(_neg_salary, _neg_years, _neg_promise)
 			hub.app.toast(r["text"])
 			rebuild.call(), 18)
 		mk.disabled = err != ""
 		acts.add_child(mk)
-		var ac := UiKit.button("Accept %s" % Contracts.money(want), func():
+		var ac := UiKit.action_button("Accept %s" % Contracts.money(want), func():
 			var r := n.accept(_neg_years, _neg_promise)
 			hub.app.toast(r["text"])
 			rebuild.call(), 16)
@@ -4741,7 +4874,7 @@ func trade_center() -> Control:
 	if err != "":
 		v.add_child(UiKit.label(err, 15, UiKit.BAD))
 	var actions := _row(10)
-	var propose := UiKit.button("Propose Trade", func():
+	var propose := UiKit.action_button("Propose Trade", func():
 		var r := tr.propose(s, ai, _trade_give, _trade_get)
 		_trade_counter = {}
 		match r["result"]:
@@ -5005,7 +5138,7 @@ func _counter_panel(ai: Team) -> Control:
 	v.add_child(UiKit.rich("[color=#8b97ab]YOU GIVE[/color]  %s" % UiKit.esc(", ".join(PackedStringArray(c["give"].map(func(a): return Trades.asset_text(s, a))))), 16))
 	v.add_child(UiKit.rich("[color=#8b97ab]YOU GET[/color]   %s" % UiKit.esc(", ".join(PackedStringArray(c["get"].map(func(a): return Trades.asset_text(s, a))))), 16))
 	var h := _row(10)
-	h.add_child(UiKit.button("Accept Counter", func():
+	h.add_child(UiKit.action_button("Accept Counter", func():
 		var err := s.trades.validate(s, s.user_team(), c["give"], ai, c["get"])
 		if err != "":
 			hub.app.toast(err)
@@ -5063,13 +5196,16 @@ func trade_offers() -> Control:
 		var offer: Dictionary = o
 		var team: Team = offer["team"]
 		var p := UiKit.panel(UiKit.PANEL, 10)
+		var ph := _row(16)
+		p.add_child(ph)
 		var pv := _vbox(8)
-		p.add_child(pv)
+		pv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		ph.add_child(pv)
 		pv.add_child(UiKit.team_chip(team, 16))
 		pv.add_child(UiKit.rich("[color=#8b97ab]THEY OFFER[/color]   [color=white]%s[/color]" % UiKit.esc(", ".join(PackedStringArray(offer["give"].map(func(a): return Trades.asset_text(s, a))))), 17))
 		pv.add_child(UiKit.rich("[color=#8b97ab]FOR YOUR[/color]     [color=white]%s[/color]" % UiKit.esc(", ".join(PackedStringArray(offer["get"].map(func(a): return Trades.asset_text(s, a))))), 17))
 		var h := _row(10)
-		h.add_child(UiKit.button("Accept", func():
+		h.add_child(UiKit.action_button("Accept", func():
 			var err := tr.accept_offer(s, offer)
 			hub.app.toast(err if err != "" else "Trade complete with %s." % team.name)
 			hub.replace("Trade Offers", trade_offers), 16))
@@ -5083,7 +5219,8 @@ func trade_offers() -> Control:
 		h.add_child(UiKit.button("Decline", func():
 			tr.offers.erase(offer)
 			hub.replace("Trade Offers", trade_offers), 15))
-		pv.add_child(h)
+		h.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		ph.add_child(h)
 		v.add_child(p)
 	return v
 
@@ -5096,30 +5233,103 @@ func trade_block() -> Control:
 	v.add_child(UiKit.label("Put players on the block and AI teams send you offers for them (check Trade Offers each week).", 17, Color.WHITE))
 	var roster: Array = user.roster.duplicate()
 	roster.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
+	var head := _row(14)
+	var spacer := Control.new()
+	spacer.custom_minimum_size.x = 14 + 48 + 14 + 300
+	head.add_child(spacer)
+	for c in [["OVR", 64], ["POT", 52]]:
+		head.add_child(_col_head(c[0], c[1]))
+	for g in Stats.GROUP_ORDER:
+		head.add_child(_col_head(Stats.GROUP_LABELS[g].to_upper(), 92))
+	head.add_child(_col_head("CONTRACT", 150))
+	head.add_child(_col_head("MORALE", 70))
+	v.add_child(head)
 	for so: Soldier in roster:
 		var p := so
-		var row := _row(12)
-		row.add_child(Portrait.new(so, 40, user.color, user))
-		var nm := _two_lines(so.display_name(), Color.WHITE, "%s  -  age %d  -  %d OVR  -  POT %s" % [Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], so.age, so.best_ovr(), so.potential_letter()], 360, 16)
-		row.add_child(nm)
-		var ctext := ("%s x %d" % [Contracts.money(so.contract.salary), so.contract.years]) if Trades.tradeable(so) else "EXPIRING"
-		row.add_child(_big_cell(ctext, UiKit.TEXT, 130, 15))
-		if so.trade_request:
-			row.add_child(_big_cell("TRADE REQUESTED", UiKit.ACCENT, 170, 14))
 		var on := tr.block.has(so.id)
-		var b := UiKit.button("★ On the block" if on else "Add to block", func():
+		var row := _row(10)
+		var info := Button.new()
+		UiKit.style_button(info, UiKit.ACCENT.darkened(0.6) if on else UiKit.PANEL, UiKit.ACCENT, 4)
+		info.custom_minimum_size.y = 64
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		info.pressed.connect(func(): open_player(p))
+		var hb := _row(14)
+		hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hb.set_anchors_preset(Control.PRESET_FULL_RECT)
+		hb.offset_left = 14
+		hb.offset_right = -14
+		info.add_child(hb)
+		var por := Portrait.new(so, 48, user.color, user)
+		por.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		hb.add_child(por)
+		var sub := "%s  ·  age %d" % [Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], so.age]
+		if so.trade_request:
+			sub += "  ·  [TRADE REQUESTED]"
+		var nm := _two_lines(("★ " if on else "") + so.display_name(), Color.WHITE, sub, 300, 17)
+		if so.trade_request:
+			nm.get_child(1).add_theme_color_override("font_color", UiKit.ACCENT.lightened(0.2))
+		hb.add_child(nm)
+		var ovr := so.best_ovr()
+		var ol := _big_cell(str(ovr), UiKit.ovr_color(ovr), 64, 30)
+		ol.add_theme_font_override("font", UiKit.font_heavy)
+		hb.add_child(ol)
+		var pl := _big_cell(so.potential_letter(), potential_color(so.potential), 52, 26)
+		pl.add_theme_font_override("font", UiKit.font_heavy)
+		hb.add_child(pl)
+		for g in Stats.GROUP_ORDER:
+			hb.add_child(_rating_cell(so.group_rating(g), 92))
+		hb.add_child(_contract_pips(so, 150))
+		hb.add_child(_big_cell("%d" % roundi(so.morale), UiKit.ovr_color(roundi(so.morale)), 70, 20))
+		row.add_child(info)
+		var toggle := func():
 			if tr.block.has(p.id):
 				tr.block.erase(p.id)
 			else:
 				tr.block[p.id] = true
-			hub.replace("Trade Block", trade_block), 15)
-		b.custom_minimum_size.x = 170
+			hub.replace("Trade Block", trade_block)
+		var b := UiKit.action_button("★ On the block", toggle, 15) if on else UiKit.button("Add to block", toggle, 15)
+		b.custom_minimum_size = Vector2(160, 64)
 		b.disabled = not Trades.tradeable(so)
-		if on:
-			UiKit.style_button(b, UiKit.ACCENT.darkened(0.55), Color.WHITE, 6)
+		if not Trades.tradeable(so):
+			b.text = "Expiring"
 		row.add_child(b)
-		row.add_child(UiKit.button("Shop him", func(): open_trade(null, {}, Trades.player_asset(p)), 14))
+		var shop := UiKit.button("Shop him", func(): open_trade(null, {}, Trades.player_asset(p)), 15)
+		shop.custom_minimum_size = Vector2(120, 64)
+		row.add_child(shop)
 		v.add_child(row)
+	return v
+
+
+func _col_head(text: String, width: int) -> Label:
+	var l := UiKit.label(text, 12, UiKit.MUTED)
+	l.custom_minimum_size.x = width
+	l.clip_text = true
+	return l
+
+
+## Salary over one pip per year left (lit in the trim colour; amber when expiring).
+func _contract_pips(s: Soldier, width: int) -> Control:
+	var v := _vbox(5)
+	v.custom_minimum_size.x = width
+	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var c := s.contract
+	if c == null:
+		v.add_child(UiKit.label("-", 16, UiKit.MUTED))
+		return v
+	v.add_child(UiKit.label(Contracts.money(c.salary), 17, Color.WHITE))
+	var pips := _row(4)
+	pips.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var lit_c := UiKit.GOLD if c.is_expiring() else UiKit.TRIM
+	for i in 5:
+		var r := ColorRect.new()
+		r.color = lit_c if i < c.years else UiKit.LINE
+		r.custom_minimum_size = Vector2(18, 5)
+		r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pips.add_child(r)
+	var yl := UiKit.label("EXP" if c.is_expiring() else "%dY" % c.years, 11, lit_c)
+	pips.add_child(yl)
+	v.add_child(pips)
 	return v
 
 
