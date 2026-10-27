@@ -2205,33 +2205,68 @@ func _league_cards() -> Control:
 	return row
 
 
-## The remaining League screens as a thin link strip.
+## The remaining League screens as a second row of cards.
 func _league_strip() -> Control:
-	var h := HBoxContainer.new()
-	h.name = "LeagueStrip"
-	h.add_theme_constant_override("separation", 10)
-	var l := UiKit.display("MORE", 15, UiKit.MUTED)
-	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	h.add_child(l)
-	var links := [
-		["Schedule", func(): open("Scores & Schedule", func(): return pages.scores(clampi(season.week, 1, season.total_weeks())))],
-		["Team Stats", func(): open("League Team Stats", pages.league_team_stats)],
-		["Teams", func(): open("Teams", pages.teams)],
-		["Retirements (%d)" % season.retirements.size(), open_retirements],
-	]
-	for d in links:
-		var b := UiKit.button(d[0], d[1], 14)
-		UiKit.style_skewed(b, Color(UiKit.PANEL, 0.6))
-		h.add_child(b)
-	var soon := UiKit.button("Records & History  ·  SOON", func(): coming_soon("Records & History", ["Past champions by year", "Single-season and career records", "Hall of Fame"]), 14)
-	UiKit.style_skewed(soon, Color(UiKit.PANEL, 0.6))
-	soon.modulate = Color(1, 1, 1, 0.6)
-	h.add_child(soon)
-	return h
+	var team := season.user_team()
+	var cards: Array = []
+	var wk := clampi(season.week, 1, season.total_weeks())
+	var games: Array = season.matches_for_week(wk)
+	var played := games.filter(func(m: ScheduledMatch): return m.is_played()).size()
+	var nm := season.next_match_for(team)
+	var next_txt := ("Next: %s %s (%s)" % ["vs" if nm.home == team else "@", nm.opponent_of(team).abbrev, season.week_label(nm.week)]) if nm else "No games left"
+	cards.append(_stat_card("Schedule", str(wk), ("OF %d" % season.regular_weeks) if wk <= season.regular_weeks else season.week_label(wk).to_upper(),
+		"%s\n%d of %d matches played this week" % [next_txt, played, games.size()],
+		Color("#6366f1"), func(): open("Scores & Schedule", func(): return pages.scores(wk))))
+
+	var kills := {}
+	for t in pages.season_totals():
+		kills[t["team"]] = int(kills.get(t["team"], 0)) + int(t["kills"])
+	if kills.is_empty():
+		cards.append(_stat_card("Team Stats", "-", "KILLS RANK", "No games played yet", Color("#3b82f6"), func(): open("League Team Stats", pages.league_team_stats)))
+	else:
+		var order: Array = kills.keys()
+		order.sort_custom(func(a: Team, b: Team): return kills[a] > kills[b])
+		cards.append(_stat_card("Team Stats", "#%d" % (order.find(team) + 1), "KILLS RANK", "You: %d kills\nTop: %s (%d)" % [int(kills.get(team, 0)), order[0].abbrev, kills[order[0]]],
+			Color("#3b82f6"), func(): open("League Team Stats", pages.league_team_stats)))
+
+	cards.append(_stat_card("Teams", str(season.league.teams.size()), "TEAMS", "Every roster, logo and record\n%d make the playoffs" % season.playoff_teams,
+		Color("#a855f7"), func(): open("Teams", pages.teams)))
+
+	var rets: Array = season.retirements
+	var last: Dictionary = rets[-1] if not rets.is_empty() else {}
+	cards.append(_stat_card("Retirements", str(rets.size()), "RETIRED", ("Latest: [color=white]%s[/color] at %d" % [UiKit.esc(last["soldier"].short_name()), last["age"]]) if not last.is_empty() else "Nobody has retired yet",
+		Color("#94a3b8"), open_retirements))
+
+	cards.append(_soon_card("Records & History", "Champions, records, Hall of Fame", ["Past champions by year", "Single-season and career records", "Hall of Fame"]))
+	return _card_row("LeagueMore", cards, 5)
+
+
+## A dimmed card for a screen that is not built yet.
+func _soon_card(title: String, detail: String, bullets: Array) -> Button:
+	var c := _stat_card(title, "SOON", "", detail, UiKit.MUTED, func(): coming_soon(title, bullets))
+	c.modulate = Color(1, 1, 1, 0.6)
+	return c
+
+
+## A row of cards, padded with empty slots to `cols` so it lines up with the row above.
+func _card_row(row_name: String, cards: Array, cols: int) -> Control:
+	var row := HBoxContainer.new()
+	row.name = row_name
+	row.add_theme_constant_override("separation", 14)
+	var n := 0
+	for c in cards:
+		row.add_child(c)
+		UiKit.fade_in(c, 0.04 * n, 0.25)
+		n += 1
+	for i in range(cards.size(), cols):
+		var pad := Control.new()
+		pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(pad)
+	return row
 
 
 ## The Personnel tab is a custom layout (see _tab_view): the Contracts / Trades / Draft pane,
-##, live cards, a link strip. No tile sections.
+## live cards, a second row of cards. No tile sections.
 func _personnel_sections() -> Array:
 	return []
 
@@ -2423,27 +2458,28 @@ func _personnel_cards() -> Control:
 	return row
 
 
-## The remaining Personnel screens as a thin link strip.
+## The remaining Personnel screens as a second row of cards.
 func _personnel_strip() -> Control:
-	var h := HBoxContainer.new()
-	h.name = "PersonnelStrip"
-	h.add_theme_constant_override("separation", 10)
-	var l := UiKit.display("MORE", 15, UiKit.MUTED)
-	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	h.add_child(l)
-	var links := [["Trade Log (%d)" % season.trades.history.size(), func(): open("Trade Log", pages.trade_log)]]
+	var team := season.user_team()
+	var cards: Array = []
+	var hist: Array = season.trades.history
+	var mine := hist.filter(func(e): return e["a"] == team or e["b"] == team).size()
+	var lt: Dictionary = hist[-1] if not hist.is_empty() else {}
+	cards.append(_stat_card("Trade Log", str(hist.size()), "LEAGUE TRADES", ("%d involving you\nLatest: %s - %s" % [mine, lt["a"].abbrev, lt["b"].abbrev]) if not lt.is_empty() else "No trades yet",
+		Color("#f97316"), func(): open("Trade Log", pages.trade_log)))
+
 	var d: Draft = season.draft if season.draft.is_complete() else (season.past_drafts[-1] if not season.past_drafts.is_empty() else null)
-	if d != null:
-		links.append(["%d Draft Recap" % d.year, func(): open("Draft Recap", func(): return pages.draft_recap(d))])
-	for x in links:
-		var b := UiKit.button(x[0], x[1], 14)
-		UiKit.style_skewed(b, Color(UiKit.PANEL, 0.6))
-		h.add_child(b)
-	var soon := UiKit.button("Negotiation  ·  SOON", func(): coming_soon("Negotiation", ["Back-and-forth contract talks", "Signing bonuses, incentives and options", "Agent personalities and holdouts"]), 14)
-	UiKit.style_skewed(soon, Color(UiKit.PANEL, 0.6))
-	soon.modulate = Color(1, 1, 1, 0.6)
-	h.add_child(soon)
-	return h
+	if d == null:
+		cards.append(_stat_card("Draft Recap", "-", "NO DRAFT YET", "Every pick and grade after the first draft", UiKit.INFO, func(): coming_soon("Draft Recap", ["Available once the first draft is done"])))
+	else:
+		var picks: Array = d.picks()
+		var ours: Array = picks.filter(func(p: Prospect): return p.drafted_by == team)
+		var top: Prospect = picks[0]
+		cards.append(_stat_card("Draft Recap", str(ours.size()), "%d PICKS MADE" % d.year, "#1: [color=white]%s[/color] (%s)" % [UiKit.esc(top.soldier.short_name()), top.drafted_by.abbrev]
+			+ ("\nYour first: %s" % UiKit.esc(ours[0].soldier.short_name()) if not ours.is_empty() else ""), UiKit.INFO, func(): open("Draft Recap", func(): return pages.draft_recap(d))))
+
+	cards.append(_soon_card("Negotiation", "Back-and-forth contract talks", ["Back-and-forth contract talks", "Signing bonuses, incentives and options", "Agent personalities and holdouts"]))
+	return _card_row("PersonnelMore", cards, 4)
 
 
 func _settings_sections() -> Array:
