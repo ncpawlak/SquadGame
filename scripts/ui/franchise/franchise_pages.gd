@@ -677,7 +677,7 @@ func play_by_play(m: ScheduledMatch) -> Control:
 # --- team pages --------------------------------------------------------------------
 
 func roster() -> Control:
-	return _roster_table(false, null, func(): hub.replace("Roster", roster))
+	return _roster_table(false, null, func(): hub.page_refresh("Roster", roster))
 
 
 func progression() -> Control:
@@ -1814,7 +1814,7 @@ var _scheme_open := false
 
 func lineup() -> Control:
 	var team := _season().user_team()
-	var refresh := func(): hub.replace("Lineup", lineup)
+	var refresh := func(): hub.page_refresh("Lineup", lineup)
 	var h := _row(22)
 	var field := Panel.new()
 	var fsb := UiKit.flat(Color("#0d1a14"), 14, 1, UiKit.LINE)

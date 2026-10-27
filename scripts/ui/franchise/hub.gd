@@ -166,6 +166,15 @@ func replace(title: String, build: Callable, no_back := false) -> void:
 	_show_current(focus_index, scroll_pos, false)
 
 
+## Refresh a page after an action. Roster and Lineup also live inline on the Team tab: there only
+## the team pane rebuilds (keeping its scroll and focus); as a pushed page it is replaced.
+func page_refresh(title: String, build: Callable) -> void:
+	if page_stack.is_empty() and tab_index == 1 and is_instance_valid(_team_box):
+		_fill_team_box(true)
+	else:
+		replace(title, build)
+
+
 func go_back() -> bool:
 	if viewer:
 		viewer.toggle_pause()
@@ -699,6 +708,10 @@ func _tab_view(i: int) -> Control:
 		gap0.custom_minimum_size.y = 8
 		v.add_child(gap0)
 		v.add_child(_home_feed())
+	elif i == 1:
+		v.add_child(_team_top())
+		v.add_child(_team_cards())
+		v.add_child(_soon_strip())
 	var sections: Array = [_home_sections, _team_sections, _league_sections, _personnel_sections, _settings_sections][i].call()
 	var n := 0
 	for sec in sections:
@@ -1615,29 +1628,254 @@ func open_mock_draft() -> void:
 	open("Mock Draft", pages.mock_draft)
 
 
+## The Team tab is a custom layout (see _tab_view): the Roster / Lineup pane, live cards, a
+## coming-soon strip. No tile sections.
 func _team_sections() -> Array:
+	return []
+
+
+const TEAM_VIEWS := ["Roster", "Lineup"]
+const TEAM_PANE_H := 520
+var team_view := 0  # 0 roster, 1 lineup
+var _team_box: VBoxContainer
+
+
+## Top of the Team tab: one big pane whose arrows flip between the full Roster and Lineup screens.
+func _team_top() -> Control:
+	_team_box = VBoxContainer.new()
+	_team_box.name = "TeamPane"
+	_team_box.add_theme_constant_override("separation", 8)
+	_fill_team_box()
+	return _team_box
+
+
+func _flip_team_view(dir: int) -> void:
+	team_view = wrapi(team_view + dir, 0, TEAM_VIEWS.size())
+	_fill_team_box()
+
+
+## `keep`: an in-place refresh (sort, swap, scheme change) - keep the pane's scroll and focus.
+func _fill_team_box(keep := false) -> void:
+	var scroll_pos := 0
+	var focus_index := -1
+	if keep:
+		var old := _team_box.find_child("TeamPaneScroll", true, false) as ScrollContainer
+		if old:
+			scroll_pos = old.scroll_vertical
+		focus_index = app.focusables(_team_box).find(get_viewport().gui_get_focus_owner())
+	for c in _team_box.get_children():
+		_team_box.remove_child(c)
+		c.queue_free()
 	var team := season.user_team()
-	return [
-		["SQUAD", [
-			UiKit.tile("Roster", "View every soldier, ratings and levels.", TILE, team.color, func(): open("Roster", pages.roster)),
-			UiKit.tile("Lineup", "Pick a scheme and set your %s starters:\n%s." % [team.scheme.display_name, team.scheme.shape_text()], TILE, Color("#f97316"), func(): open("Lineup", pages.lineup)),
-			UiKit.tile("Player Progression", "Spend skill points on stat groups.", TILE, UiKit.INFO, func(): open("Player Progression", pages.progression)),
-			UiKit.tile("Training", "Set each soldier's training intensity and watch fatigue.", TILE, Color("#22c55e"), func(): open("Training", pages.training)),
-			UiKit.tile("Injuries", "Injury report for your team and the league.", TILE, UiKit.BAD, func(): open("Injuries", pages.injuries)),
-		]],
-		["PERFORMANCE", [
-			UiKit.tile("Team Stats", "Season totals for your soldiers.", TILE, Color("#eab308"), func(): open("Team Stats", pages.team_stats)),
-			UiKit.tile("Schedule", "Your matches, results and byes.", TILE, Color("#a855f7"), func(): open("Schedule", pages.schedule)),
-		]],
-		["ORGANISATION", [
-			UiKit.tile("Scheme & Strategy", "Formations and round tactics.", TILE, UiKit.MUTED,
-				func(): coming_soon("Scheme & Strategy", ["Alternate formations", "Aggression / pace sliders", "Per-mode round plans"]), "SOON"),
-			UiKit.tile("Coaching Staff", "Hire coaches that boost training.", TILE, UiKit.MUTED,
-				func(): coming_soon("Coaching Staff", ["Head coach and position coaches", "Training and progression boosts", "Staff contracts"]), "SOON"),
-			UiKit.tile("Facilities", "Upgrade training grounds and medical.", TILE, UiKit.MUTED,
-				func(): coming_soon("Facilities", ["Training facility upgrades", "Medical centre (injury recovery)", "Costs from the yearly money pool"]), "SOON"),
-		]],
-	]
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	var title := UiKit.heading(TEAM_VIEWS[team_view], 22)
+	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	for d in [["<", -1, "TeamPrev"], [">", 1, "TeamNext"]]:
+		var dir: int = d[1]
+		var b := UiKit.button(d[0], func(): _flip_team_view(dir), 18)
+		UiKit.style_skewed(b)
+		b.name = d[2]
+		b.custom_minimum_size = Vector2(52, 38)
+		head.add_child(b)
+		if dir < 0:
+			head.add_child(title)
+	var other := UiKit.label("%s  >" % TEAM_VIEWS[1 - team_view].to_upper(), 13, UiKit.MUTED)
+	other.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(other)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(spacer)
+	var info := UiKit.rich("[right]%s[/right]" % _team_pane_info(team), 15)
+	info.autowrap_mode = TextServer.AUTOWRAP_OFF
+	info.custom_minimum_size.x = 640
+	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(info)
+	_team_box.add_child(head)
+	var frame := PanelContainer.new()
+	var sb := UiKit.flat(Color(UiKit.PANEL, 0.85), 4, 1, Color(1, 1, 1, 0.08))
+	sb.border_width_top = 3
+	sb.border_color = UiKit.ACCENT
+	sb.set_content_margin_all(16)
+	frame.add_theme_stylebox_override("panel", sb)
+	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_team_box.add_child(frame)
+	var sc := ScrollContainer.new()
+	sc.name = "TeamPaneScroll"
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.custom_minimum_size.y = TEAM_PANE_H
+	frame.add_child(sc)
+	var body: Control = pages.roster() if team_view == 0 else pages.lineup()
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(body)
+	if keep:
+		_restore_team_pane(sc, scroll_pos, focus_index)
+	else:
+		UiKit.fade_in(body, 0.0, 0.2)
+		sc.follow_focus = true
+
+
+func _restore_team_pane(sc: ScrollContainer, pos: int, focus_index: int) -> void:
+	for i in 2:
+		await get_tree().process_frame
+		if not is_instance_valid(sc):
+			return
+		sc.scroll_vertical = pos
+	var list: Array[Control] = app.focusables(_team_box)
+	if focus_index >= 0 and focus_index < list.size():
+		list[focus_index].grab_focus()
+	sc.scroll_vertical = pos
+	sc.follow_focus = true
+
+
+func _team_pane_info(team: Team) -> String:
+	var dot := "   [color=#8b97ab]·[/color]   "
+	if team_view == 1:
+		return "[color=#8b97ab]SCHEME[/color] %s%s[color=#8b97ab]TEAM OVR[/color] [color=%s]%d[/color]" % [
+			team.scheme.display_name, dot, UiKit.hex(UiKit.ovr_color(team.team_ovr())), team.team_ovr()]
+	var age := 0.0
+	for s in team.roster:
+		age += s.age
+	return "%d [color=#8b97ab]SOLDIERS[/color]%s[color=#8b97ab]AVG AGE[/color] %.1f%s[color=#8b97ab]PAYROLL[/color] %s" % [
+		team.roster.size(), dot, age / maxi(1, team.roster.size()), dot, Contracts.money(Contracts.payroll(team, season.cap_year()))]
+
+
+## Under the pane: one live card per Team screen - a headline number, a detail line and an alert
+## chip when something needs doing.
+func _team_cards() -> Control:
+	var team := season.user_team()
+	var row := HBoxContainer.new()
+	row.name = "TeamCards"
+	row.add_theme_constant_override("separation", 14)
+	var cards: Array = []
+	var off := season.phase == Season.PHASE_OFFSEASON
+
+	var up := 0
+	var sp := 0
+	for s in team.roster:
+		sp += s.skill_points
+		if Progression.can_level_up(s):
+			up += 1
+	cards.append(_stat_card("Player Progression", str(up), "CAN LEVEL UP", "%d skill point%s banked" % [sp, "" if sp == 1 else "s"],
+		UiKit.INFO, func(): open("Player Progression", pages.progression), "LEVEL UP" if up > 0 else ""))
+
+	var fat := 0.0
+	var tired := 0
+	for s in team.roster:
+		fat += s.fatigue
+		if s.fatigue >= 50.0 and not s.is_injured():
+			tired += 1
+	var can_train := not off and not season.preseason_camp and season.can_train_user_team() and not season.user_trained()
+	var tstate := "Done this week" if season.user_trained() else ("[color=#38bdf8]Ready to train[/color]" if can_train else "Not available")
+	cards.append(_stat_card("Training", str(roundi(fat / maxi(1, team.roster.size()))), "AVG FATIGUE",
+		"%s\n%s" % [tstate, ("[color=#f97316]%d tired[/color]" % tired) if tired > 0 else "No one tired"],
+		Color("#22c55e"), func(): open("Training", pages.training), "TRAIN" if can_train else ""))
+
+	var hurt := team.injured()
+	var hurt_starters := team.starters().filter(func(x: Soldier): return x.is_injured())
+	var names := PackedStringArray(hurt.slice(0, 2).map(func(x: Soldier): return "%s (%dw)" % [x.short_name(), x.injury_weeks]))
+	cards.append(_stat_card("Injuries", str(hurt.size()), "OUT", ", ".join(names) + (" +%d" % (hurt.size() - 2) if hurt.size() > 2 else "") if not hurt.is_empty() else "Fully healthy",
+		UiKit.BAD, func(): open("Injuries", pages.injuries), "STARTER OUT" if not hurt_starters.is_empty() else ""))
+
+	var agg: Dictionary = pages.team_aggregates()
+	var mine: Dictionary = agg[team]
+	if int(mine["gp"]) > 0:
+		var kd := func(r: Dictionary) -> float: return float(r["kills"]) / maxi(1, int(r["deaths"]))
+		var vals: Array = agg.values().filter(func(r: Dictionary): return int(r["gp"]) > 0).map(kd)
+		cards.append(_stat_card("Team Stats", "%.2f" % kd.call(mine), "K/D  #%d" % _rank_in(vals, kd.call(mine), false),
+			"%.1f kills  ·  %.1f deaths / game" % [float(mine["kills"]) / int(mine["gp"]), float(mine["deaths"]) / int(mine["gp"])],
+			Color("#eab308"), func(): open("Team Stats", pages.team_stats)))
+	else:
+		cards.append(_stat_card("Team Stats", "-", "K/D", "No games played yet", Color("#eab308"), func(): open("Team Stats", pages.team_stats)))
+
+	var lines := PackedStringArray()
+	var played: Array = season.matches_for(team).filter(func(m: ScheduledMatch): return m.is_played())
+	if not played.is_empty():
+		var lm: ScheduledMatch = played[-1]
+		var o := lm.opponent_of(team)
+		lines.append("Last: [color=%s]%s[/color] %d-%d %s %s" % [UiKit.hex(UiKit.GOOD if lm.winner() == team else UiKit.BAD), "W" if lm.winner() == team else "L",
+			lm.games_for(team), lm.games_for(o), "vs" if lm.home == team else "@", o.abbrev])
+	var nm := season.next_match_for(team)
+	if nm:
+		lines.append("Next: %s %s %s" % [season.week_label(nm.week), "vs" if nm.home == team else "@", nm.opponent_of(team).abbrev])
+	cards.append(_stat_card("Schedule", season.record_text(team), "RECORD", "\n".join(lines) if not lines.is_empty() else "Season complete",
+		Color("#a855f7"), func(): open("Schedule", pages.schedule)))
+
+	var n := 0
+	for c in cards:
+		row.add_child(c)
+		UiKit.fade_in(c, 0.04 * n, 0.25)
+		n += 1
+	return row
+
+
+func _stat_card(title: String, big: String, caption: String, detail: String, accent: Color, cb: Callable, alert := "") -> Button:
+	var b := UiKit.tile(title, "", Vector2(0, 146), accent, cb)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var foot := HBoxContainer.new()
+	foot.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	foot.offset_left = 18
+	foot.offset_right = -18
+	foot.offset_top = -96
+	foot.offset_bottom = -12
+	foot.add_theme_constant_override("separation", 10)
+	foot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(foot)
+	var d := UiKit.rich(detail, 14)
+	d.add_theme_color_override("default_color", UiKit.MUTED)
+	d.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	d.size_flags_vertical = Control.SIZE_SHRINK_END
+	d.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	foot.add_child(d)
+	var num := VBoxContainer.new()
+	num.add_theme_constant_override("separation", -6)
+	num.size_flags_vertical = Control.SIZE_SHRINK_END
+	num.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bl := UiKit.display(big, 48, accent.lightened(0.15), true)
+	bl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	num.add_child(bl)
+	var cl := UiKit.label(caption, 12, UiKit.MUTED)
+	cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	num.add_child(cl)
+	foot.add_child(num)
+	if alert != "":
+		var chip := PanelContainer.new()
+		var cs := UiKit.flat(accent, 4)
+		cs.content_margin_left = 10
+		cs.content_margin_right = 10
+		cs.content_margin_top = 2
+		cs.content_margin_bottom = 2
+		cs.skew = Vector2(UiKit.SKEW, 0)
+		chip.add_theme_stylebox_override("panel", cs)
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chip.add_child(UiKit.display(alert, 14, Color(0.03, 0.04, 0.08), true))
+		chip.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		chip.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+		chip.offset_right = -14
+		chip.offset_top = 16
+		b.add_child(chip)
+		UiKit.pulse(chip)
+	return b
+
+
+## Not-yet-built Team screens as a thin, dimmed strip.
+func _soon_strip() -> Control:
+	var h := HBoxContainer.new()
+	h.name = "SoonStrip"
+	h.add_theme_constant_override("separation", 10)
+	h.modulate = Color(1, 1, 1, 0.6)
+	var l := UiKit.display("COMING SOON", 15, UiKit.MUTED)
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(l)
+	for d in [["Scheme & Strategy", ["Alternate formations", "Aggression / pace sliders", "Per-mode round plans"]],
+			["Coaching Staff", ["Head coach and position coaches", "Training and progression boosts", "Staff contracts"]],
+			["Facilities", ["Training facility upgrades", "Medical centre (injury recovery)", "Costs from the yearly money pool"]]]:
+		var title: String = d[0]
+		var bullets: Array = d[1]
+		var b := UiKit.button(title, func(): coming_soon(title, bullets), 14)
+		UiKit.style_skewed(b, Color(UiKit.PANEL, 0.6))
+		h.add_child(b)
+	return h
 
 
 func _league_sections() -> Array:

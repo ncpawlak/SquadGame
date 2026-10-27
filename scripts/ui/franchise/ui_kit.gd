@@ -658,6 +658,16 @@ static func fade_in(c: CanvasItem, delay := 0.0, dur := 0.22) -> void:
 		tw.tween_property(c, "modulate:a", target, dur).set_delay(delay).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT))
 
 
+## Gently pulse a control's opacity forever (attention badges).
+static func pulse(c: CanvasItem, low := 0.55, period := 1.1) -> void:
+	_when_ready(c, func():
+		if not is_instance_valid(c):
+			return
+		var tw := c.create_tween().set_loops()
+		tw.tween_property(c, "modulate:a", low, period / 2.0).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(c, "modulate:a", 1.0, period / 2.0).set_trans(Tween.TRANS_SINE))
+
+
 ## Count a label up from 0 to `to` (fmt holds one %d). The final text is set up front for layout.
 static func count_up(l: Label, to: int, fmt := "%d", dur := 0.7) -> void:
 	l.text = fmt % to

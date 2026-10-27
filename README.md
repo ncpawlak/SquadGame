@@ -57,6 +57,10 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   Player of the Week, wire stories, trades, signings, injuries, player stories, retirements) / Prospect News /
   Upcoming Matches (your next 3 plus this week's slate). After the trade deadline, < > arrows flip it to the
   **Playoff Picture**: a logo bracket (projected seeds in-season, live series in the playoffs) with a champion slot.
+- **Team tab**: one big fixed-height pane whose < > arrows flip between the full **Roster** and **Lineup** screens
+  (sorting, swaps and scheme changes refresh in place). Under it, live cards for Player Progression (can level up),
+  Training (avg fatigue), Injuries (out), Team Stats (K/D + league rank) and Schedule (record, last / next) with pulsing
+  alert chips (LEVEL UP / TRAIN / STARTER OUT), then a dimmed Coming Soon strip.
 - **Team select**: tiles rest in a muted team tint with a team-colour bottom stripe and light up in full colour on
   hover; each logo sits on a dark disc inside a thin OVR ring, with an expectation tag (Title Favorite / Contender /
   Playoff Team / Bubble / Rebuild). Divisions are vertical badges. A big pane on top shows the hovered/focused team - logo in its colours, division, OVR and
