@@ -280,7 +280,18 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 	id_col.custom_minimum_size.x = 300
 	id_col.add_theme_constant_override("separation", 4)
 	hb.add_child(id_col)
-	var nm := UiKit.display(t.name.to_upper(), 34, Color.WHITE, true)
+	# City on one line, nickname on the next.
+	var city := t.city
+	var nick := t.nickname
+	if city == "" or nick == "":
+		var cut := t.name.rfind(" ")
+		city = t.name.substr(0, cut) if cut > 0 else ""
+		nick = t.name.substr(cut + 1) if cut > 0 else t.name
+	if city != "":
+		var cl := UiKit.display(city.to_upper(), 24, Color(1, 1, 1, 0.75), true)
+		cl.add_theme_constant_override("line_spacing", -4)
+		id_col.add_child(cl)
+	var nm := UiKit.display(nick.to_upper(), 40, Color.WHITE, true)
 	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	id_col.add_child(nm)
 	id_col.add_child(UiKit.label("%s Division  ·  %s" % [t.division, LeagueData.state_name(t.home_state)], 15, Color(1, 1, 1, 0.7)))
