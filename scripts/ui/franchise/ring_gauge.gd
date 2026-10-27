@@ -10,11 +10,11 @@ var _thickness: float
 var logo: Texture2D
 
 
-func _init(value: float, max_value: float, color: Color, text: String, diameter := 84) -> void:
+func _init(value: float, max_value: float, color: Color, text: String, diameter := 84, thickness := 0.0) -> void:
 	_fraction = clampf(value / maxf(0.001, max_value), 0.0, 1.0)
 	_color = color
 	_text = text
-	_thickness = maxf(4.0, diameter * 0.09)
+	_thickness = thickness if thickness > 0.0 else maxf(4.0, diameter * 0.09)
 	custom_minimum_size = Vector2(diameter, diameter)
 	size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	mouse_filter = Control.MOUSE_FILTER_IGNORE

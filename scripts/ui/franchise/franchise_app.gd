@@ -121,13 +121,14 @@ func show_team_select() -> void:
 	var ranked := preview.league.teams.duplicate()
 	ranked.sort_custom(func(a: Team, b: Team): return a.team_ovr() > b.team_ovr())
 	var grid := VBoxContainer.new()
-	grid.add_theme_constant_override("separation", 6)
+	grid.add_theme_constant_override("separation", 18)
 	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(grid)
 	var first: Button = null
 	for d in preview.divisions():
 		var line := HBoxContainer.new()
-		line.add_theme_constant_override("separation", 10)
+		line.add_theme_constant_override("separation", 18)
+		line.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		var dl := UiKit.label(d.to_upper(), 15, UiKit.MUTED)
 		dl.custom_minimum_size.x = 90
 		dl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -153,16 +154,17 @@ func show_team_select() -> void:
 ## A team-select tile: name, then the logo inside a ring filled to the team OVR (ring and number in the OVR colour).
 func _team_tile(t: Team) -> Button:
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(0, 122)
+	b.custom_minimum_size = Vector2(0, 150)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	b.clip_text = true
 	UiKit.style_button(b, t.color.darkened(0.35), t.color2, 8)
 	var col := VBoxContainer.new()
 	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 8)
-	col.add_theme_constant_override("separation", 2)
+	col.add_theme_constant_override("separation", 8)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	var nm := UiKit.label(t.name, 15, Color.WHITE)
+	var nm := UiKit.label(t.name, 18, Color.WHITE)
 	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	nm.clip_text = true
 	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -170,12 +172,12 @@ func _team_tile(t: Team) -> Button:
 	var o := t.team_ovr()
 	var line := HBoxContainer.new()
 	line.alignment = BoxContainer.ALIGNMENT_CENTER
-	line.add_theme_constant_override("separation", 8)
+	line.add_theme_constant_override("separation", 12)
 	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var ring := RingGauge.new(o, 100, UiKit.ovr_color(o), str(o), 86)
+	var ring := RingGauge.new(o, 100, UiKit.ovr_color(o), str(o), 104, 4.0)
 	ring.logo = UiKit.logo_tex(t.abbrev)
 	line.add_child(ring)
-	var ovr := UiKit.label(str(o), 30, UiKit.ovr_color(o))
+	var ovr := UiKit.display(str(o), 36, UiKit.ovr_color(o), true)
 	ovr.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	ovr.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	ovr.add_theme_constant_override("outline_size", 5)
