@@ -1674,6 +1674,7 @@ func _fill_team_box(keep := false) -> void:
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
 	var title := UiKit.heading(TEAM_VIEWS[team_view], 22)
+	title.custom_minimum_size.x = 90
 	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	for d in [["<", -1, "TeamPrev"], [">", 1, "TeamNext"]]:
 		var dir: int = d[1]
@@ -1917,6 +1918,7 @@ func _fill_league_box() -> void:
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
 	var title := UiKit.heading(LEAGUE_VIEWS[league_view], 22)
+	title.custom_minimum_size.x = 170  # fits the widest view name, so the arrows never move
 	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	for d in [["<", -1, "LeaguePrev"], [">", 1, "LeagueNext"]]:
 		var dir: int = d[1]
