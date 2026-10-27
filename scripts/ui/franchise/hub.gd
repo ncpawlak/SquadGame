@@ -155,6 +155,11 @@ func open(title: String, build: Callable, no_back := false) -> void:
 ## Replace the top page (e.g. paging between weeks or refreshing after an action) without
 ## growing the back stack. Keeps the scroll position and the focused item.
 func replace(title: String, build: Callable, no_back := false) -> void:
+	# Personnel screens also live inline on the Personnel tab: refresh the pane in place.
+	if page_stack.is_empty() and tab_index == 3 and is_instance_valid(_pers_box) and _personnel_views().has(title):
+		personnel_view = _personnel_views().find(title)
+		_fill_personnel_box(true)
+		return
 	var focus_index := -1
 	var scroll_pos := 0
 	if _scroll and is_instance_valid(_scroll):
@@ -716,6 +721,10 @@ func _tab_view(i: int) -> Control:
 		v.add_child(_league_top())
 		v.add_child(_league_cards())
 		v.add_child(_league_strip())
+	elif i == 3:
+		v.add_child(_personnel_top())
+		v.add_child(_personnel_cards())
+		v.add_child(_personnel_strip())
 	var sections: Array = [_home_sections, _team_sections, _league_sections, _personnel_sections, _settings_sections][i].call()
 	var n := 0
 	for sec in sections:
@@ -1716,19 +1725,21 @@ func _fill_team_box(keep := false) -> void:
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sc.add_child(body)
 	if keep:
-		_restore_team_pane(sc, scroll_pos, focus_index)
+		_restore_pane(sc, scroll_pos, focus_index, _team_box)
 	else:
 		UiKit.fade_in(body, 0.0, 0.2)
 		sc.follow_focus = true
 
 
-func _restore_team_pane(sc: ScrollContainer, pos: int, focus_index: int) -> void:
+func _restore_pane(sc: ScrollContainer, pos: int, focus_index: int, box: Control) -> void:
 	for i in 2:
 		await get_tree().process_frame
 		if not is_instance_valid(sc):
 			return
 		sc.scroll_vertical = pos
-	var list: Array[Control] = app.focusables(_team_box)
+	if not is_instance_valid(box):
+		return
+	var list: Array[Control] = app.focusables(box)
 	if focus_index >= 0 and focus_index < list.size():
 		list[focus_index].grab_focus()
 	sc.scroll_vertical = pos
@@ -2219,73 +2230,210 @@ func _league_strip() -> Control:
 	return h
 
 
-func _trade_tiles() -> Array:
-	var tr := season.trades
-	var open := tr.window_open(season)
-	var team := season.user_team()
-	var on_block := team.roster.filter(func(x: Soldier): return tr.block.has(x.id)).size()
-	return [
-		UiKit.tile("Trade Center", "Build deals with any team (up to %d assets a side).
-Window: [color=%s]%s[/color]" % [Trades.MAX_ASSETS,
-			"#22c55e" if open else "#ef4444", tr.window_text(season)], TILE, Color("#f97316"), func(): pages.open_trade()),
-		UiKit.tile("Trade Offers", ("[color=#f59e0b]%d offer%s[/color] waiting." % [tr.offers.size(), "" if tr.offers.size() == 1 else "s"]) if not tr.offers.is_empty()
-			else "No offers right now.", TILE, Color("#f97316"), func(): open("Trade Offers", pages.trade_offers)),
-		UiKit.tile("Trade Block", "%d of your players on the block.
-AI teams send offers for them." % on_block, TILE, Color("#f97316"), func(): open("Trade Block", pages.trade_block)),
-		UiKit.tile("Trade Log", "%d trades so far." % tr.history.size(), TILE, Color("#f97316"), func(): open("Trade Log", pages.trade_log)),
-	]
-
-
+## The Personnel tab is a custom layout (see _tab_view): the Contracts / Trades / Free Agency /
+## Draft pane, live cards, a link strip. No tile sections.
 func _personnel_sections() -> Array:
-	var soon := func(title: String, sub: String, color: Color, bullets: Array) -> Button:
-		return UiKit.tile(title, sub, TILE, color, func(): coming_soon(title, bullets), "SOON")
+	return []
+
+
+const PERS_PANE_H := 660
+var personnel_view := 0
+var _personnel_key := ""  # phase the view was picked for; a new phase re-picks the default
+var _pers_box: VBoxContainer
+
+
+## Page titles of the pane's views (the pages refresh themselves with hub.replace(title, ...)).
+func _personnel_views() -> Array:
+	return ["Contracts & Payroll", "Trade Center", "Free Agents", "Draft Room" if season.draft.is_started() else "Scouting"]
+
+
+func _personnel_view_names() -> Array:
+	return ["Contracts", "Trades", "Free Agency", "Draft Room" if season.draft.is_started() else "Scouting"]
+
+
+## The view that matters most right now: the draft on draft day, free agency during it, trades
+## in season, contracts otherwise.
+func _personnel_default() -> int:
+	if season.phase == Season.PHASE_OFFSEASON:
+		match season.offseason_stage:
+			Season.OFF_DRAFT:
+				return 3
+			Season.OFF_FREE_AGENCY:
+				return 2
+		return 0
+	if season.preseason_camp:
+		return 0
+	return 1
+
+
+func _personnel_top() -> Control:
+	var key := "%d|%s|%s" % [season.year, season.phase, season.offseason_stage]
+	if key != _personnel_key:
+		_personnel_key = key
+		personnel_view = _personnel_default()
+	_pers_box = VBoxContainer.new()
+	_pers_box.name = "PersonnelPane"
+	_pers_box.add_theme_constant_override("separation", 8)
+	_fill_personnel_box()
+	return _pers_box
+
+
+func _flip_personnel_view(dir: int) -> void:
+	personnel_view = wrapi(personnel_view + dir, 0, _personnel_views().size())
+	_fill_personnel_box()
+
+
+## `keep`: an in-place refresh (sort, offer, pick) - keep the pane's scroll and focus.
+func _fill_personnel_box(keep := false) -> void:
+	var scroll_pos := 0
+	var focus_index := -1
+	if keep:
+		var old := _pers_box.find_child("PersonnelPaneScroll", true, false) as ScrollContainer
+		if old:
+			scroll_pos = old.scroll_vertical
+		focus_index = app.focusables(_pers_box).find(get_viewport().gui_get_focus_owner())
+	for c in _pers_box.get_children():
+		_pers_box.remove_child(c)
+		c.queue_free()
+	var names := _personnel_view_names()
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	var title := UiKit.heading(names[personnel_view], 22)
+	title.custom_minimum_size.x = 150  # fits the widest view name, so the arrows never move
+	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	for d in [["<", -1, "PersonnelPrev"], [">", 1, "PersonnelNext"]]:
+		var dir: int = d[1]
+		var b := UiKit.button(d[0], func(): _flip_personnel_view(dir), 18)
+		UiKit.style_skewed(b)
+		b.name = d[2]
+		b.custom_minimum_size = Vector2(52, 38)
+		head.add_child(b)
+		if dir < 0:
+			head.add_child(title)
+	var other := UiKit.label("%s  >" % String(names[wrapi(personnel_view + 1, 0, names.size())]).to_upper(), 13, UiKit.MUTED)
+	other.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(other)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(spacer)
+	var info := UiKit.rich("[right]%s[/right]" % _personnel_pane_info(), 15)
+	info.autowrap_mode = TextServer.AUTOWRAP_OFF
+	info.custom_minimum_size.x = 640
+	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(info)
+	_pers_box.add_child(head)
+	var frame := PanelContainer.new()
+	var sb := UiKit.flat(Color(UiKit.PANEL, 0.85), 4, 1, Color(1, 1, 1, 0.08))
+	sb.border_width_top = 3
+	sb.border_color = UiKit.ACCENT
+	sb.set_content_margin_all(16)
+	frame.add_theme_stylebox_override("panel", sb)
+	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_pers_box.add_child(frame)
+	var sc := ScrollContainer.new()
+	sc.name = "PersonnelPaneScroll"
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.custom_minimum_size.y = PERS_PANE_H
+	frame.add_child(sc)
+	var body: Control
+	match personnel_view:
+		0: body = pages.contracts()
+		1: body = pages.trade_center()
+		2: body = pages.free_agents()
+		_: body = pages.draft_room() if season.draft.is_started() else pages.scouting()
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(body)
+	if keep:
+		_restore_pane(sc, scroll_pos, focus_index, _pers_box)
+	else:
+		UiKit.fade_in(body, 0.0, 0.2)
+		sc.follow_focus = true
+
+
+func _personnel_pane_info() -> String:
+	var dot := "   [color=#8b97ab]·[/color]   "
 	var team := season.user_team()
-	var n_exp := Contracts.expiring(team).size()
-	return [
-		["TRADES", _trade_tiles()],
-		["CONTRACTS", [
-			UiKit.tile("Contracts & Payroll", "Payroll [color=white]%s[/color] of %s\nCap space [color=%s]%s[/color]\nRelease players (dead money applies)." % [
-				Contracts.money(Contracts.payroll(team, season.cap_year())), Contracts.money(Contracts.SALARY_CAP),
-				"#22c55e" if Contracts.cap_space(team, season.cap_year()) >= 0 else "#ef4444", Contracts.money(Contracts.cap_space(team, season.cap_year()))],
-				TILE, Color("#22c55e"), open_contracts),
-			UiKit.tile("Re-sign Players", ("[color=#f59e0b]%d expiring[/color] contracts.\n" % n_exp if n_exp > 0 else "No expiring contracts.\n")
-				+ ("Re-sign window is open." if season.can_resign() else "Opens after the Final, closes when free agency starts."), TILE, Color("#22c55e"), open_resign),
-			UiKit.tile("Free Agency", "Bid on unsigned soldiers against the AI.\n%d available  -  %d of your offers pending" % [
-				season.league.free_agents.size(), season.fa.offers_by(team).size()], TILE, Color("#14b8a6"), open_free_agents),
-			soon.call("Negotiation", "Haggle over salary, years and bonuses.", UiKit.MUTED, ["Back-and-forth contract talks", "Signing bonuses, incentives and options", "Agent personalities and holdouts"]),
-		]],
-		["DRAFT", [
-			UiKit.tile("Scouting", "Spend scout points to uncover the %d draft class.\n[color=#38bdf8]%d points available[/color]" % [
-				season.draft.year, season.draft.scout_points], TILE, Color("#06b6d4"), open_scouting),
-			UiKit.tile("Draft Room", _draft_blurb(), TILE, UiKit.INFO, open_draft_room),
-			UiKit.tile("Mock Draft", "Where the league projects every pick, based on %s." % [
-				"the draft order" if season.draft.is_started() else "current standings"], TILE, Color("#a855f7"), open_mock_draft),
-			_draft_history_tile(),
-		]],
-	]
+	var cy := season.cap_year()
+	var space := Contracts.cap_space(team, cy)
+	return "[color=#8b97ab]PAYROLL[/color] %s [color=#8b97ab]of %s[/color]%s[color=#8b97ab]CAP SPACE[/color] [color=%s]%s[/color]%s[color=#8b97ab]ROSTER[/color] [color=%s]%d / %d[/color]" % [
+		Contracts.money(Contracts.payroll(team, cy)), Contracts.money(Contracts.SALARY_CAP), dot,
+		UiKit.hex(UiKit.GOOD if space >= 0 else UiKit.BAD), Contracts.money(space), dot,
+		UiKit.hex(UiKit.BAD if team.is_over_roster_limit() else Color.WHITE), team.roster.size(), Team.ROSTER_SIZE]
 
 
-## The latest finished draft's recap (this offseason's, or last year's during the season).
-func _draft_history_tile() -> Button:
-	var d: Draft = season.draft if season.draft.is_complete() else (season.past_drafts[-1] if not season.past_drafts.is_empty() else null)
-	if d == null:
-		return UiKit.tile("Draft Recap", "Every pick with ratings and potential revealed, after the first draft.", TILE, UiKit.MUTED,
-			func(): app.toast("No draft has been held yet."))
-	return UiKit.tile("Draft Recap", "The %d draft: every pick with ratings and potential revealed." % d.year, TILE, UiKit.INFO,
-		func(): open("Draft Recap", func(): return pages.draft_recap(d)))
+## Under the pane: live cards for the other Personnel screens.
+func _personnel_cards() -> Control:
+	var team := season.user_team()
+	var tr := season.trades
+	var row := HBoxContainer.new()
+	row.name = "PersonnelCards"
+	row.add_theme_constant_override("separation", 14)
+	var cards: Array = []
+	var orange := Color("#f97316")
 
+	var n_off := tr.offers.size()
+	cards.append(_stat_card("Trade Offers", str(n_off), "WAITING", "Window: [color=%s]%s[/color]" % [
+		"#22c55e" if tr.window_open(season) else "#ef4444", tr.window_text(season)], orange,
+		func(): open("Trade Offers", pages.trade_offers), "OFFER" if n_off > 0 else ""))
 
-func _draft_blurb() -> String:
+	var block := team.roster.filter(func(x: Soldier): return tr.block.has(x.id))
+	cards.append(_stat_card("Trade Block", str(block.size()), "ON THE BLOCK", ", ".join(PackedStringArray(block.slice(0, 2).map(func(x: Soldier): return x.short_name())))
+		+ (" +%d" % (block.size() - 2) if block.size() > 2 else "") if not block.is_empty() else "AI teams send offers for players you list",
+		orange, func(): open("Trade Block", pages.trade_block)))
+
+	# In season the contracts that expire are the ones in their final year.
+	var off := season.phase == Season.PHASE_OFFSEASON
+	var exp: Array = Contracts.expiring(team) if off else team.roster.filter(func(x: Soldier): return x.contract != null and x.contract.years == 1)
+	cards.append(_stat_card("Re-sign Players", str(exp.size()), "EXPIRING" if off else "IN FINAL YEAR", "Window open" if season.can_resign() else "Window opens after the Final",
+		Color("#22c55e"), open_resign, "RE-SIGN" if season.can_resign() and not exp.is_empty() else ""))
+
 	var d := season.draft
-	if not d.is_started():
-		return "%d rounds after the Final. Worst finish picks first every round." % Draft.ROUNDS
-	if season.offseason_stage == Season.OFF_RESIGN:
-		return "Re-signing window first.\nThe draft starts when you advance."
-	if d.is_complete():
-		return "Draft complete."
-	var t := d.on_the_clock()
-	return "[color=%s]On the clock: %s[/color]\nPick %d of %d" % [
-		"#f59e0b" if t.user_controlled else "#8b97ab", UiKit.esc(t.name), d.next_pick + 1, d.order.size()]
+	var order: Array = season.mock_pick_order()
+	var mine: Array = []
+	for i in range(d.next_pick if d.is_started() else 0, order.size()):
+		if order[i] == team:
+			mine.append(i + 1)
+	if d.is_complete() or mine.is_empty():
+		cards.append(_stat_card("Mock Draft", "-", "YOUR NEXT PICK", "Draft complete" if d.is_complete() else "No picks left", UiKit.INFO, open_mock_draft))
+	else:
+		var per := maxi(1, order.size() / Draft.ROUNDS)
+		cards.append(_stat_card("Mock Draft", "#%d" % mine[0], "YOUR NEXT PICK", "Round %d  ·  %d pick%s left\n%s" % [
+			(mine[0] - 1) / per + 1, mine.size(), "" if mine.size() == 1 else "s", "Real order" if d.is_started() else "From current standings"],
+			UiKit.INFO, open_mock_draft, "ON THE CLOCK" if d.is_started() and d.on_the_clock() == team else ""))
+
+	var pts := d.scout_points
+	cards.append(_stat_card("Scouting", str(pts), "SCOUT POINTS", "%d of %d prospects scouted\n+%d per week" % [_scouted_count(), Draft.CLASS_SIZE, Draft.POINTS_PER_WEEK],
+		Color("#06b6d4"), open_scouting, "SPEND" if pts > 0 and not d.is_started() else ""))
+
+	var n := 0
+	for c in cards:
+		row.add_child(c)
+		UiKit.fade_in(c, 0.04 * n, 0.25)
+		n += 1
+	return row
+
+
+## The remaining Personnel screens as a thin link strip.
+func _personnel_strip() -> Control:
+	var h := HBoxContainer.new()
+	h.name = "PersonnelStrip"
+	h.add_theme_constant_override("separation", 10)
+	var l := UiKit.display("MORE", 15, UiKit.MUTED)
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(l)
+	var links := [["Trade Log (%d)" % season.trades.history.size(), func(): open("Trade Log", pages.trade_log)]]
+	var d: Draft = season.draft if season.draft.is_complete() else (season.past_drafts[-1] if not season.past_drafts.is_empty() else null)
+	if d != null:
+		links.append(["%d Draft Recap" % d.year, func(): open("Draft Recap", func(): return pages.draft_recap(d))])
+	for x in links:
+		var b := UiKit.button(x[0], x[1], 14)
+		UiKit.style_skewed(b, Color(UiKit.PANEL, 0.6))
+		h.add_child(b)
+	var soon := UiKit.button("Negotiation  ·  SOON", func(): coming_soon("Negotiation", ["Back-and-forth contract talks", "Signing bonuses, incentives and options", "Agent personalities and holdouts"]), 14)
+	UiKit.style_skewed(soon, Color(UiKit.PANEL, 0.6))
+	soon.modulate = Color(1, 1, 1, 0.6)
+	h.add_child(soon)
+	return h
 
 
 func _settings_sections() -> Array:
