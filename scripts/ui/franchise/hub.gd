@@ -1150,18 +1150,24 @@ func _team_block(t: Team, right: bool) -> Control:
 	return v
 
 
-## Season team stats per game with league rank: {label, a, b, a_text, b_text, lower_better}.
-## Before either side has played, falls back to the starters' group ratings.
+## Season team stats per game with league rank: {label, a, b, a_text, b_text, lower, a_rank,
+## b_rank, n}. Rank 0 = no games yet. Before either side has played, falls back to the starters'
+## group ratings (ranked across every team).
 func compare_rows(a: Team, b: Team) -> Array:
 	var agg: Dictionary = pages.team_aggregates()
 	var rows: Array = []
 	if int(agg[a]["gp"]) == 0 and int(agg[b]["gp"]) == 0:
+		var teams: Array = season.league.teams
 		for g in Stats.GROUP_ORDER:
 			if g == Stats.DURABILITY:
 				continue
-			var x := _avg(a, func(s: Soldier): return s.group_rating(g))
-			var y := _avg(b, func(s: Soldier): return s.group_rating(g))
-			rows.append({"label": Stats.GROUP_LABELS[g].to_upper() + " (RATING)", "a": x, "b": y, "a_text": str(x), "b_text": str(y), "lower": false})
+			var gf := func(s: Soldier): return s.group_rating(g)
+			var all: Array = teams.map(func(t: Team): return _avg(t, gf))
+			var x := _avg(a, gf)
+			var y := _avg(b, gf)
+			rows.append({"label": Stats.GROUP_LABELS[g].to_upper() + " (RATING)", "a": x, "b": y,
+				"a_text": str(x), "b_text": str(y), "lower": false,
+				"a_rank": _rank_in(all, x, false), "b_rank": _rank_in(all, y, false), "n": teams.size()})
 		return rows
 	var per := func(k: String) -> Callable:
 		return func(r: Dictionary) -> float: return float(r[k]) / maxi(1, int(r["gp"]))
@@ -1179,19 +1185,29 @@ func compare_rows(a: Team, b: Team) -> Array:
 		var f: Callable = d[1]
 		var lower: bool = d[3]
 		var vals: Array = played.map(func(r: Dictionary): return f.call(r))
+		var rank_of := func(t: Team) -> int:
+			var r: Dictionary = agg[t]
+			return 0 if int(r["gp"]) == 0 else _rank_in(vals, f.call(r), lower)
 		var fmt := func(t: Team) -> String:
 			var r: Dictionary = agg[t]
 			if int(r["gp"]) == 0:
 				return "-"
 			var x: float = f.call(r)
-			var rank := 1
-			for o in vals:
-				if (o < x if lower else o > x):
-					rank += 1
+			var rank: int = rank_of.call(t)
 			var txt: String = MatchEngine._fmt_secs(x) if d[2] == "secs" else (d[2] % (roundi(x) if d[2] == "%d%%" else x))
 			return "%s (#%d)" % [txt, rank]
-		rows.append({"label": d[0], "a": f.call(agg[a]), "b": f.call(agg[b]), "a_text": fmt.call(a), "b_text": fmt.call(b), "lower": lower})
+		rows.append({"label": d[0], "a": f.call(agg[a]), "b": f.call(agg[b]), "a_text": fmt.call(a), "b_text": fmt.call(b), "lower": lower,
+			"a_rank": rank_of.call(a), "b_rank": rank_of.call(b), "n": vals.size()})
 	return rows
+
+
+## 1-based league rank of `x` within `vals` (ties share the better rank).
+func _rank_in(vals: Array, x: float, lower: bool) -> int:
+	var rank := 1
+	for o in vals:
+		if (o < x if lower else o > x):
+			rank += 1
+	return rank
 
 
 func _avg(t: Team, f: Callable) -> int:
@@ -1204,8 +1220,8 @@ func _avg(t: Team, f: Callable) -> int:
 	return roundi(total / list.size())
 
 
-## One stat row: values either side and two bars growing out from the centre, scaled so the
-## better side reaches its edge. `delay` staggers the grow animation.
+## One stat row: values either side and two bars growing out from the centre. Each bar fills by
+## league rank: #1 of N is full, #k is (N - k + 1) / N, no games = empty. `delay` staggers the grow.
 func compare_bar(row: Dictionary, c1: Color, c2: Color, delay := 0.0) -> Control:
 	var title: String = row["label"]
 	var lower: bool = row["lower"]
@@ -1213,10 +1229,8 @@ func compare_bar(row: Dictionary, c1: Color, c2: Color, delay := 0.0) -> Control
 	var theirs := float(row["b"])
 	var ours_better := ours <= theirs if lower else ours >= theirs
 	var theirs_better := theirs <= ours if lower else theirs >= ours
-	if lower:
-		var tmp := ours
-		ours = theirs
-		theirs = tmp
+	var n := maxi(1, int(row.get("n", 1)))
+	var rank_frac := func(k: int) -> float: return 0.0 if k <= 0 else float(n - k + 1) / n
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 10)
 	var l := UiKit.display(row["a_text"], 18, Color.WHITE if ours_better else Color(1, 1, 1, 0.5))
@@ -1231,9 +1245,8 @@ func compare_bar(row: Dictionary, c1: Color, c2: Color, delay := 0.0) -> Control
 	mid.add_child(t)
 	var bar := HBoxContainer.new()
 	bar.add_theme_constant_override("separation", 4)
-	var top := maxf(0.0001, maxf(ours, theirs))
-	bar.add_child(_half_bar(c1, maxf(0.0, ours) / top, false, delay))
-	bar.add_child(_half_bar(c2, maxf(0.0, theirs) / top, true, delay))
+	bar.add_child(_half_bar(c1, rank_frac.call(int(row.get("a_rank", 0))), false, delay))
+	bar.add_child(_half_bar(c2, rank_frac.call(int(row.get("b_rank", 0))), true, delay))
 	mid.add_child(bar)
 	h.add_child(mid)
 	var r := UiKit.display(row["b_text"], 18, Color.WHITE if theirs_better else Color(1, 1, 1, 0.5))
