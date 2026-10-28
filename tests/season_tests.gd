@@ -671,6 +671,21 @@ func test_contracts_and_cap() -> void:
 	check(Contracts.fits(t, s.year, Contracts.MIN_SALARY, 999999), "minimum deals always fit")
 	check(not Contracts.fits(t, s.year, Contracts.cap_space(t, s.year) + 1), "can't exceed the cap")
 	check(Contracts.money(1250) == "$1.25M" and Contracts.money(750) == "$750K", "money format")
+	# Offseason cap holds: an expiring deal counts at his old salary; re-signing replaces it.
+	var h := Team.new()
+	var vet := PlayerGenerator.generate(RandomNumberGenerator.new(), 77, Scheme.Role.FLEX, 50.0, 28)
+	var other := PlayerGenerator.generate(RandomNumberGenerator.new(), 78, Scheme.Role.FLEX, 50.0, 28)
+	vet.contract = Contract.make(20000, 0, 2026)
+	other.contract = Contract.make(1000, 2, 2026)
+	h.roster.append(vet)
+	h.roster.append(other)
+	check(Contracts.payroll(h, 2027) == 21000, "expiring deal is a cap hold (21M)")
+	check(Contracts.payroll(h, 2027, 1) == 1000, "holds don't count in later years")
+	var room := Contracts.SALARY_CAP - 1000
+	check(Contracts.resign_fits(h, 2027, vet, room) and not Contracts.resign_fits(h, 2027, vet, room + 1), "his new deal replaces his hold")
+	check(not Contracts.fits(h, 2027, room), "his hold blocks other signings")
+	vet.contract = Contract.make(25000, 3, 2027)
+	check(Contracts.payroll(h, 2027) == 26000, "re-signed at 25M: payroll 26M")
 
 
 func test_free_agency_bidding() -> void:

@@ -4846,9 +4846,12 @@ func resign() -> Control:
 		var upcoming: Array = user.roster.filter(func(x: Soldier): return x.contract != null and x.contract.years == 1)
 		v.add_child(UiKit.label("Contracts ending this season: %s" % (", ".join(PackedStringArray(upcoming.map(func(x: Soldier): return x.full_name()))) if not upcoming.is_empty() else "none"), 16, UiKit.MUTED))
 		return v
-	v.add_child(UiKit.rich("[font_size=22][color=white]%s[/color][/font_size]   cap space for %d: [color=white]%s[/color]" % [
-		"RE-SIGN WINDOW OPEN" if s.can_resign() else "RE-SIGN WINDOW CLOSED", s.cap_year(), Contracts.money(Contracts.cap_space(user, s.cap_year()))], 16))
-	var help := UiKit.label("Each expiring player names his price (a hometown discount, moved by his DNA and trust in you). Sign at his ask, or Negotiate to make offers and argue your case with data. Push too hard and he walks into free agency. Anyone unsigned when free agency opens joins the pool.", 14, UiKit.MUTED)
+	var holds := 0
+	for x in expiring:
+		holds += Contracts.cap_hold(x)
+	v.add_child(UiKit.rich("[font_size=22][color=white]%s[/color][/font_size]   cap space for %d: [color=white]%s[/color]   (payroll includes [color=white]%s[/color] in cap holds)" % [
+		"RE-SIGN WINDOW OPEN" if s.can_resign() else "RE-SIGN WINDOW CLOSED", s.cap_year(), Contracts.money(Contracts.cap_space(user, s.cap_year())), Contracts.money(holds)], 16))
+	var help := UiKit.label("Each expiring player names his price (a hometown discount, moved by his DNA and trust in you). Sign at his ask, or Negotiate to make offers and argue your case with data. Push too hard and he walks into free agency. Until free agency opens, every expiring player still counts against the cap at his old salary (a cap hold); re-signing him swaps the hold for his new deal, and releasing him clears it. Anyone unsigned when free agency opens joins the pool.", 14, UiKit.MUTED)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(help)
 	if expiring.is_empty():
@@ -4951,8 +4954,8 @@ func negotiate() -> Control:
 		UiKit.esc(s.display_name()), s.age, Scheme.ROLE_NAMES[Scheme.best_role(s.stats)], UiKit.hex(UiKit.ovr_color(s.best_ovr())), s.best_ovr(),
 		UiKit.hex(potential_color(s.potential)), s.potential_letter()], 16))
 	head.add_child(UiKit.rich("[color=%s]%s[/color]   -   %s   -   %s" % [UiKit.hex(UiKit.INFO), d.headline(), d.temperament_label(), d.savvy_label()], 15))
-	head.add_child(UiKit.rich("Market value [color=white]%s[/color]   -   your cap space for %d: [color=white]%s[/color]   -   current deal %s" % [
-		Contracts.money(Contracts.market_value(s)), season.cap_year(), Contracts.money(Contracts.cap_space(user, season.cap_year())),
+	head.add_child(UiKit.rich("Market value [color=white]%s[/color]   -   %d cap room for him (his hold freed): [color=white]%s[/color]   -   current deal %s" % [
+		Contracts.money(Contracts.market_value(s)), season.cap_year(), Contracts.money(Contracts.cap_space(user, season.cap_year()) + Contracts.cap_hold(s)),
 		Contracts.money(s.contract.salary) if s.contract != null else "-"], 15))
 	top.add_child(head)
 	v.add_child(top)

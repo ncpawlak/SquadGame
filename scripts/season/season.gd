@@ -866,7 +866,7 @@ func _ai_resign() -> void:
 			var keep := s.age <= 33 and (s.best_ovr() >= bar - 2 or (s.age <= 25 and s.potential >= 3))
 			var yrs := Contracts.preferred_years(s)
 			var salary := Contracts.resign_asking(s, yrs)
-			if keep and Contracts.fits(t, cap_year(), salary):
+			if keep and Contracts.resign_fits(t, cap_year(), s, salary):
 				s.contract = Contract.make(salary, yrs, year)
 				resign_log.append({"soldier": s, "team": t, "salary": salary, "years": yrs, "year": year})
 

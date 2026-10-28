@@ -192,6 +192,9 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
 - **Offseason** (advance button walks the stages): **Re-sign** (Sign at Ask or Negotiate; AI teams re-sign
   their keepers; the week also has Season Awards, Retirements and a Hall of Fame card - coming soon) → **Free agency** (3 days) →
   **Draft** → **Roster review** (a week to cut, trade and sign; undrafted prospects join the pool) → **Training camp** → next season.
+  Until free agency opens, each expiring contract stays on the cap as a **cap hold** at his old salary (a $1M payroll
+  plus a $20M expiring star is $21M); re-signing him swaps the hold for his new deal (at $25M the payroll is $26M)
+  and releasing him clears it.
   Rookie deals always sign, even over the hard cap, but a team over the cap must cut or trade down before camp (you
   can't advance past the roster review until you're under; AI teams cut their least valuable players to get there). Rosters max out at 12 (5 starters + 7 backups).
   In the offseason your roster can be any size (trades, draft picks, extra signings), but **Week 1 needs exactly 12**:
