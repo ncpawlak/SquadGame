@@ -55,6 +55,7 @@ func _init() -> void:
 		"test_hometown_pull",
 		"test_region_and_auto_scout",
 		"test_league_news",
+		"test_rivalries",
 		"test_match_form_upsets",
 		"test_schemes",
 		"test_keep_value_protects_prospects",
@@ -1777,6 +1778,87 @@ func test_league_news() -> void:
 	check(s.news.latest(3).size() <= 3, "latest caps")
 	for n in s.news.latest(5, "DET"):
 		check((n["teams"] as Array).has("DET"), "team filter")
+
+
+func _meeting(home: Team, away: Team, home_games: int, away_games: int, stage := &"regular", week := 1) -> ScheduledMatch:
+	var m := ScheduledMatch.new()
+	m.week = week
+	m.stage = stage
+	m.home = home
+	m.away = away
+	fake_result(m, home_games, away_games)
+	return m
+
+
+func test_rivalries() -> void:
+	var s := _fixed(81)
+	var rv := s.rivalries
+	var by := func(ab: String) -> Team: return s.league.team_by_abbrev(ab)
+	# Kinds: division mates are divisional, named pairs are team-specific, and the two stack.
+	check(rv.flags(by.call("DET"), by.call("BOS")) == Rivalries.DIVISIONAL, "same division is divisional only")
+	check(rv.flags(by.call("SDV"), by.call("NSH")) == Rivalries.TEAM, "the snakes are team-specific only")
+	check(rv.flags(by.call("ORL"), by.call("MIA")) == (Rivalries.DIVISIONAL | Rivalries.TEAM), "Florida is both")
+	check(rv.flags(by.call("NYE"), by.call("BKN")) == (Rivalries.DIVISIONAL | Rivalries.TEAM), "the boroughs are both")
+	check(rv.flags(by.call("DET"), by.call("SEA")) == 0, "strangers are not rivals")
+	check(rv.title(by.call("SDV"), by.call("NSH")) == "Battle of the Snakes", "anchor name")
+	check(rv.titles(by.call("ORL"), by.call("MIA")).size() == 2, "both kinds list both names")
+	var keys := {}
+	for r in Rivalries.ANCHORS:
+		check(s.league.team_by_abbrev(r[0]) != null and s.league.team_by_abbrev(r[1]) != null, "anchor teams exist: %s" % [r])
+		keys[Rivalries.key(r[0], r[1])] = true
+	check(keys.size() == Rivalries.ANCHORS.size(), "no duplicate anchors")
+	check(rv.swing(by.call("ORL"), by.call("MIA")) > rv.swing(by.call("DET"), by.call("BOS")), "stacked rivalries swing morale more")
+	check(rv.swing(by.call("DET"), by.call("BOS")) >= 2.0 and rv.swing(by.call("ORL"), by.call("MIA")) <= 4.0, "swing stays in 2-4")
+	# Records, streaks and heat.
+	var det: Team = by.call("DET")
+	var bos: Team = by.call("BOS")
+	check(rv.record_text(det, bos) == "No meetings yet", "no meetings at first")
+	for w in 3:
+		rv.record_week(s, [_meeting(det, bos, 2, 1, &"regular", w + 1)])
+	var rec := rv.record_of(det, bos)
+	check(int(rec["n"]) == 3 and int(rec["w"]["DET"]) == 3 and int(rec["g"]["DET"]) == 6 and int(rec["g"]["BOS"]) == 3, "series tallies %s" % [rec])
+	check(rv.record_text(det, bos) == "DET lead the series 3-0, DET have won 3 straight", rv.record_text(det, bos))
+	rv.record_week(s, [_meeting(bos, det, 2, 0, &"regular", 4)])
+	check(int(rv.record_of(det, bos)["last"]["snapped"]) == 3, "a 3-game streak snapped")
+	check(rv.record_text(bos, det) == "DET lead the series 3-1", rv.record_text(bos, det))
+	check(rv.heat_of(det, bos) > 0.0, "meetings build heat")
+	# An emergent rivalry: two playoff classics between strangers, then it cools and ends.
+	var sea: Team = by.call("SEA")
+	rv.record_week(s, [_meeting(det, sea, 2, 1, Season.STAGE_SEMIFINAL, 11)])
+	check(rv.flags(det, sea) == 0, "one meeting is not a rivalry")
+	rv.record_week(s, [_meeting(sea, det, 2, 1, Season.STAGE_FINAL, 12)])
+	check(rv.flags(det, sea) == Rivalries.TEAM, "two playoff classics form a rivalry")
+	check(rv.last_events.size() == 1 and rv.last_events[0]["kind"] == &"formed", "formation is reported")
+	check(rv.title(det, sea) == "The %s-%s Rivalry" % [det.city, sea.city], rv.title(det, sea))
+	for i in 3:
+		rv.new_season()
+	check(rv.flags(det, sea) == 0 and rv.emergent.is_empty(), "the emergent rivalry cools off and ends")
+	check(rv.flags(by.call("SDV"), by.call("NSH")) == Rivalries.TEAM, "anchors never end")
+	# Trades stoke heat.
+	var before := rv.heat_of(sea, by.call("LAS"))
+	rv.note_trade(sea, by.call("LAS"))
+	check(is_equal_approx(rv.heat_of(sea, by.call("LAS")) - before, Rivalries.TRADE_HEAT), "trades add heat")
+	# News and morale for a team-specific game.
+	var snake: Team = by.call("SDV")
+	var rattler: Team = by.call("NSH")
+	var m := _meeting(snake, rattler, 2, 1, &"regular", 5)
+	rv.record_week(s, [m])
+	var w_morale := snake.roster[0].morale
+	var l_morale := rattler.roster[0].morale
+	var wire := s.news.items.size()
+	s.news.week_stories(s, [m], 5)
+	check(s.news.items.size() > wire and s.news.items[wire]["kind"] == "rivalry", "a team-specific game makes the wire")
+	check(snake.roster[0].morale > w_morale and rattler.roster[0].morale < l_morale, "winners gain and losers lose morale")
+	# A real week records every match, and the rivalries survive a save.
+	var s2 := _fixed(82)
+	s2.sim_week()
+	var meetings := 0
+	for k in s2.rivalries.records:
+		meetings += int(s2.rivalries.records[k]["n"])
+	check(meetings == s2.matches_for_week(1).size(), "every played match is recorded (%d)" % meetings)
+	var loaded := SaveSystem.from_text(SaveSystem.to_text(s2))
+	check(loaded != null and str(loaded.rivalries.records) == str(s2.rivalries.records), "records survive a save")
+	check(loaded != null and loaded.rivalries.heat == s2.rivalries.heat, "heat survives a save")
 
 
 func test_match_form_upsets() -> void:

@@ -1,7 +1,7 @@
 class_name LeagueData
 extends RefCounted
-## The fixed 20-team league: franchises, divisions, home states, rivalries and the opening
-## pick trades. Player rosters live in data/league.json (authored once by tools/build_league.gd
+## The fixed 20-team league: franchises, divisions, home states and the opening
+## pick trades (rivalries live in Rivalries). Player rosters live in data/league.json (authored once by tools/build_league.gd
 ## and never regenerated); only draft classes are generated each season.
 
 const DIVISIONS: Array[String] = ["East", "South", "Central", "West"]
@@ -86,12 +86,6 @@ const STATE_WEIGHTS := {
 	"ME": 1, "NH": 1, "RI": 1, "MT": 1, "DE": 1, "SD": 1, "ND": 1, "AK": 1, "VT": 1, "WY": 1, "DC": 1,
 }
 
-## Rivalry pairs (abbrevs). The first is the league's marquee rivalry.
-const RIVALRIES := [
-	["NYE", "BKN"], ["BOS", "NYE"], ["DET", "CHI"], ["LAS", "SDV"], ["SEA", "LAS"], ["ATL", "CHA"],
-	["MIA", "ORL"], ["NSH", "ATL"], ["ARL", "STL"], ["LOU", "IND"], ["DEN", "REN"], ["LRK", "ARL"],
-]
-
 ## Draft picks traded away before the league's first season: [draft year offset, round, original
 ## team, owner]. Louisville and Little Rock stockpiled them in their rebuilds.
 const OPENING_PICK_TRADES := [
@@ -113,18 +107,6 @@ static func region_of(state: String) -> String:
 
 static func state_name(state: String) -> String:
 	return STATE_NAMES.get(state, state)
-
-
-static func rivals(a: String, b: String) -> bool:
-	for p in RIVALRIES:
-		if (p[0] == a and p[1] == b) or (p[0] == b and p[1] == a):
-			return true
-	return false
-
-
-static func is_marquee(a: String, b: String) -> bool:
-	var p: Array = RIVALRIES[0]
-	return (p[0] == a and p[1] == b) or (p[0] == b and p[1] == a)
 
 
 ## A weighted random state (all states if `region` is "", else only that region's).

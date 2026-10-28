@@ -228,8 +228,19 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   league, written from the real state of the league so they keep coming in future seasons with new players -
   a veteran star on a contender in his final contract year (or 35+) wants **one more ring** (and how it ended),
   hometown heroes, contract-year breakouts, rookie starters, busts, trade requests, **rivalry** results
-  (division and backstory rivals), the champion, and salary-floor penalties. Each story fires once per player per
+  (see Rivalries below), the champion, and salary-floor penalties. Each story fires once per player per
   season, capped per kind per week.
+- **Rivalries** (`scripts/season/rivalries.gd`): two kinds that can stack. **Divisional**: every team in a division
+  is a rival of the other four. **Team-specific**: 11 permanent named rivalries (Battle of the Snakes SDV-NSH, Battle
+  of the Horses IND-LOU, Battle of the Coastal Powerhouses NYE-LAS, Battle for Florida ORL-MIA, Boroughs BKN-NYE, Old
+  Money vs. New Money BOS-LAS, Bulwarks DET-STL, Weather CHI-SEA, Wild West Showdown ARL-REN, Crown and Crossbones
+  MIA-CHA, Mid-South LRK-NSH) plus **emergent** ones. Every meeting adds heat to a pair (more for a three-game series
+  and for playoff games, plus trades between the clubs); heat decays weekly and more over the offseason. Past 35 a
+  pair becomes a new team-specific rivalry and it ends below 15 (the named ones never end). Intensity (kind + heat)
+  sets the morale swing for a rivalry game (2 to 4). Head-to-head records and streaks are kept for every pair that
+  meets (they move into the stat ledger, issue #11, later). Rivalries don't shape the schedule. On the Home
+  matchup the big VS / @ becomes a flame (team-specific) and/or clashing chevrons (divisional), stacked when both
+  apply, with the rivalry name, series record and intensity on hover.
 - **Save / Load** (`scripts/save/save_system.gd`, Settings → Save Franchise / Load Franchise, title → Load Franchise): 3 manual slots
   plus an **autosave** after every week, the season rollover and camp. A save is the whole league graph (shared
   objects, RNG states) as compressed text, so a loaded game continues exactly as the original would have.

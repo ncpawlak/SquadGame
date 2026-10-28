@@ -1104,6 +1104,15 @@ func _roster_status(team: Team) -> Dictionary:
 		n, Team.ROSTER_SIZE, short, "" if short == 1 else "s", when], "cb": open_free_agents}
 
 
+## Rivalry names, head-to-head and intensity for the badge's tooltip.
+func _rivalry_tip(a: Team, b: Team) -> String:
+	var lines: Array[String] = []
+	lines.append_array(season.rivalries.titles(a, b))
+	lines.append(season.rivalries.record_text(a, b))
+	lines.append("Intensity %d" % roundi(season.rivalries.intensity(a, b)))
+	return "\n".join(lines)
+
+
 ## This week's (or a browsed) matchup: big team blocks, centred stat bars and impact players.
 func _match_body(m: ScheduledMatch, team: Team) -> Control:
 	var opp := m.opponent_of(team)
@@ -1117,9 +1126,20 @@ func _match_body(m: ScheduledMatch, team: Team) -> Control:
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mid.alignment = BoxContainer.ALIGNMENT_CENTER
 	mid.add_theme_constant_override("separation", 7)
-	var vs := UiKit.display("VS" if m.home == team else "@", 34, Color(1, 1, 1, 0.9), true)
-	vs.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	mid.add_child(vs)
+	var rv_flags := season.rivalries.flags(team, opp)
+	if rv_flags != 0:
+		# Rivalry games swap the big VS / @ for the rivalry icons, keeping a small VS / @ tag.
+		var badge := RivalryBadge.new()
+		badge.setup(rv_flags, UiKit.accent_of(team), UiKit.accent_of(opp), _rivalry_tip(team, opp))
+		badge.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		mid.add_child(badge)
+		var tag := UiKit.display("VS" if m.home == team else "@", 16, Color(1, 1, 1, 0.7), true)
+		tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		mid.add_child(tag)
+	else:
+		var vs := UiKit.display("VS" if m.home == team else "@", 34, Color(1, 1, 1, 0.9), true)
+		vs.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		mid.add_child(vs)
 	var i := 0
 	for cmp in compare_rows(team, opp):
 		mid.add_child(compare_bar(cmp, UiKit.accent_of(team), UiKit.accent_of(opp), 0.15 + 0.05 * i))

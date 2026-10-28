@@ -87,6 +87,8 @@ var fa_day := 0
 var fa := FreeAgency.new()
 ## League-wide teammate chemistry (DNA module).
 var relationships := Relationships.new()
+## Divisional and team-specific rivalries: heat, head-to-head records and emergent rivalries.
+var rivalries := Rivalries.new()
 var trades := Trades.new()
 ## Signings from the most recent resolution (free-agency day or week).
 var last_signings: Array = []
@@ -489,6 +491,7 @@ func sim_week() -> Array:
 		Progression.auto_spend_team(t, _rng)
 	Morale.update_week(league, played)
 	relationships.week(league, played)
+	rivalries.record_week(self, played)
 	var news_week := week
 	_advance()
 	news.week_stories(self, played, news_week)
@@ -917,6 +920,7 @@ func _begin_season() -> void:
 	playoff_seeds = {}
 	_build_schedule()
 	trades.new_season(self)
+	rivalries.new_season()
 	draft = Draft.generate(_mix([league.league_seed, year, 0xD2AF]), year, league.next_soldier_id)
 	draft.league = league
 	league.next_soldier_id += Draft.CLASS_SIZE
@@ -1039,7 +1043,7 @@ func _build_schedule() -> void:
 ## divisions (pairing A-B / C-D); in the second leg they take their bye. Two more full rounds
 ## pair the remaining division matchups (A-C / B-D, A-D / B-C), so every team plays 8 division
 ## games, one game against each other division, and has exactly one bye in 12 weeks.
-## Cross-division opponents favour rivalries. Week order is shuffled per league seed + year.
+## Cross-division opponents are shuffled (rivalries don't shape the schedule). Week order is shuffled per league seed + year.
 func _build_division_schedule() -> void:
 	var srng := RandomNumberGenerator.new()
 	srng.seed = _mix([league.league_seed, year, 0x5C4E])
@@ -1096,7 +1100,8 @@ func _build_division_schedule() -> void:
 		var pairs: Array = []
 		for dp in pairings[k]:
 			var a_list: Array = members[divs[dp[0]]]
-			var b_list: Array = _best_cross_match(a_list, members[divs[dp[1]]], srng)
+			var b_list: Array = members[divs[dp[1]]].duplicate()
+			_shuffle(b_list, srng)
 			for i in a_list.size():
 				pairs.append([a_list[i], b_list[i]] if srng.randf() < 0.5 else [b_list[i], a_list[i]])
 		rounds.append({"pairs": pairs, "byes": []})
@@ -1114,37 +1119,6 @@ func _build_division_schedule() -> void:
 			wk.append(m)
 		schedule.append(wk)
 		_byes.append(rounds[w]["byes"])
-
-
-## A one-to-one pairing of `a` with a permutation of `b`, preferring rivalry games.
-func _best_cross_match(a: Array, b: Array, srng: RandomNumberGenerator) -> Array:
-	var best: Array = b.duplicate()
-	_shuffle(best, srng)
-	var best_score := -1
-	for perm in _permutations(b):
-		var score := 0
-		for i in a.size():
-			if LeagueData.rivals(a[i].abbrev, perm[i].abbrev):
-				score += 1
-		if score > best_score:
-			best_score = score
-			best = perm
-	if best_score == 0:
-		best = b.duplicate()
-		_shuffle(best, srng)
-	return best
-
-
-static func _permutations(items: Array) -> Array:
-	if items.size() <= 1:
-		return [items.duplicate()]
-	var out: Array = []
-	for i in items.size():
-		var rest := items.duplicate()
-		var head = rest.pop_at(i)
-		for p in _permutations(rest):
-			out.append([head] + p)
-	return out
 
 
 static func _shuffle(arr: Array, srng: RandomNumberGenerator) -> void:
