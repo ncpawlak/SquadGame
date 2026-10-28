@@ -443,6 +443,38 @@ func toast(text: String) -> void:
 const WASD := {KEY_W: &"ui_up", KEY_S: &"ui_down", KEY_A: &"ui_left", KEY_D: &"ui_right"}
 
 
+## True while the mouse was the last input device. Focus rings (and the autofocus that keyboard and
+## gamepad navigation need) stay hidden until a key or pad button is pressed.
+static var mouse_mode := Input.get_connected_joypads().is_empty()
+
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion or event is InputEventMouseButton:
+		if not mouse_mode:
+			mouse_mode = true
+			_drop_focus()
+		elif event is InputEventMouseButton and not event.pressed:
+			# After the click is handled (a button needs focus to stay pressed until release).
+			_drop_focus.call_deferred()
+	elif mouse_mode and ((event is InputEventKey and event.pressed and not event.echo) \
+			or (event is InputEventJoypadButton and event.pressed)):
+		mouse_mode = false
+		var root: Node = screen.get_node_or_null("ConfirmModal") if screen else null
+		if root == null:
+			root = screen
+		if root != null and get_viewport().gui_get_focus_owner() == null:
+			focus_first(root)
+		# The waking press only shows where focus is; it doesn't also move it.
+		if event is InputEventKey and (WASD.has(event.keycode) or event.keycode in [KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT]):
+			get_viewport().set_input_as_handled()
+
+
+func _drop_focus() -> void:
+	var o := get_viewport().gui_get_focus_owner()
+	if o != null and not (o is LineEdit or o is TextEdit or o is SpinBox):
+		o.release_focus()
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if debug_layer:
 		if event.is_action_pressed(&"ui_cancel"):
@@ -482,7 +514,7 @@ func _fire_action(action: StringName) -> void:
 
 
 static func focus_first(c: Node) -> void:
-	if not is_instance_valid(c):
+	if mouse_mode or not is_instance_valid(c):
 		return
 	var target := _find_focusable(c)
 	if target:

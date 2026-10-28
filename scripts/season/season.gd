@@ -85,6 +85,8 @@ var aging_report: Array = []
 ## Current offseason stage (OFF_*; "" during the season) and free-agency day (1..FA_DAYS).
 var offseason_stage: StringName = &""
 var fa_day := 0
+## Offseason step being advanced right now (see step_label); "" otherwise.
+var _step := ""
 ## Free-agent offers and signing history.
 var fa := FreeAgency.new()
 ## League-wide teammate chemistry (DNA module).
@@ -754,11 +756,41 @@ func can_resign() -> bool:
 func advance_offseason() -> Array:
 	if phase != PHASE_OFFSEASON:
 		return []
+	_step = step_label()
+	var signed := _advance_offseason_step()
+	_step = ""
+	return signed
+
+
+## Label of the offseason step in progress ("Re-signing", "FA Day 2", "Draft", "Roster Review", "Camp",
+## "Preseason").
+## Signings, cuts, trades and stories are filed under it so each step can be recapped
+## (LeagueNews.digest). While a step is being advanced it stays that step's label.
+func step_label() -> String:
+	if _step != "":
+		return _step
+	match offseason_stage:
+		OFF_RESIGN:
+			return "Re-signing"
+		OFF_DRAFT:
+			return "Draft"
+		OFF_FREE_AGENCY:
+			return "FA Day %d" % fa_day
+		OFF_REVIEW:
+			return "Roster Review"
+		OFF_CAMP:
+			return "Camp"
+	return "Preseason"
+
+
+func _advance_offseason_step() -> Array:
 	sync_team_statics()
 	var signed: Array = []
 	match offseason_stage:
 		OFF_RESIGN:
 			_ai_resign()
+			# Free agency opens: the market, the AI cut-downs and day one's bids belong to Day 1.
+			_step = "FA Day 1"
 			_open_free_agency()
 		OFF_FREE_AGENCY:
 			last_signings = fa.resolve(self, _rng, "FA Day %d" % fa_day)
@@ -773,6 +805,8 @@ func advance_offseason() -> Array:
 				fa.ai_offers(self, _rng)
 		OFF_DRAFT:
 			finish_draft()
+			# The review week's cut-downs and bids are recapped under their own step.
+			_step = "Roster Review"
 			_open_roster_review()
 		OFF_REVIEW:
 			last_signings = fa.resolve(self, _rng, "Roster Review")
@@ -842,6 +876,7 @@ func resign_player(team: Team, s: Soldier, years: int, promise := false) -> Stri
 ## Releases a soldier into free agency, booking dead money for what's left on his deal.
 ## Returns the dead money.
 func release_player(team: Team, s: Soldier) -> int:
+	news.release(self, team, s)
 	var dead := Contracts.charge_release(team, s, cap_year())
 	team.release(s)
 	league.add_free_agent(s, year)
@@ -869,12 +904,14 @@ func _ai_resign() -> void:
 			if keep and Contracts.resign_fits(t, cap_year(), s, salary):
 				s.contract = Contract.make(salary, yrs, year)
 				resign_log.append({"soldier": s, "team": t, "salary": salary, "years": yrs, "year": year})
+				news.resign(self, t, s, salary, yrs)
 
 
 func _open_free_agency() -> void:
 	offseason_stage = OFF_FREE_AGENCY
 	fa_day = 1
 	_release_expiring()
+	news.free_agency_opens(self)
 	for t in league.teams:
 		if t.user_controlled:
 			continue
@@ -997,6 +1034,7 @@ func finish_draft() -> void:
 		draft.set_order(draft_order())
 		trades.apply_owners(self)
 	draft.sim_to_end()
+	news.draft_stories(self)
 
 
 # --- internals -------------------------------------------------------------

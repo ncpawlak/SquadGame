@@ -13,6 +13,7 @@ func _init() -> void:
 		"test_primitives_round_trip",
 		"test_round_trip_identity",
 		"test_determinism_after_load",
+		"test_news_round_trip",
 		"test_slot_api",
 	]
 	var only := OS.get_environment("ONLY")
@@ -176,6 +177,29 @@ func test_determinism_after_load() -> void:
 	s.start_next_season()
 	s3.start_next_season()
 	compare_seasons(s, s3, "offseason save")
+
+
+## The league wire (offseason stories included) and the recap data survive a save mid-offseason.
+func test_news_round_trip() -> void:
+	var s := Season.new_franchise(321)
+	s.sim_to_end_of_season()
+	# Re-signing, three free-agency days and the draft: stories and recap steps exist mid-offseason.
+	for i in 5:
+		s.advance_offseason()
+	check(not s.news.items.is_empty(), "stories exist before the save")
+	var s2 := SaveSystem.from_text(SaveSystem.to_text(s))
+	check(s2 != null, "from_text returned null")
+	if s2 == null:
+		return
+	check(s2.news.items.size() == s.news.items.size(), "news items lost (%d vs %d)" % [s2.news.items.size(), s.news.items.size()])
+	for i in s.news.items.size():
+		if s2.news.items[i]["headline"] != s.news.items[i]["headline"]:
+			check(false, "news item %d differs after load" % i)
+			break
+	check(s2.news.digest_steps(s2) == s.news.digest_steps(s), "recap steps differ after load")
+	for step in s.news.digest_steps(s):
+		check(s2.news.digest_summary(s2, step) == s.news.digest_summary(s, step), "%s recap differs after load" % step)
+	check(s2.step_label() == s.step_label(), "step label differs after load")
 
 
 func test_slot_api() -> void:

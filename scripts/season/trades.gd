@@ -543,7 +543,7 @@ func execute(season: Season, a: Team, a_give: Array, b: Team, b_give: Array) -> 
 
 
 static func _when(season: Season) -> String:
-	return "Offseason" if season.phase == Season.PHASE_OFFSEASON else ("Preseason" if season.preseason_camp else season.week_label(season.week))
+	return season.step_label() if season.phase == Season.PHASE_OFFSEASON else ("Preseason" if season.preseason_camp else season.week_label(season.week))
 
 
 # --- AI roster restructuring ---------------------------------------------------------

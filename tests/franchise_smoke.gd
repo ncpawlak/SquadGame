@@ -251,6 +251,19 @@ func _init() -> void:
 	hub.advance()  # roster review -> training camp
 	await process_frame
 	_check(hub.season.offseason_stage == Season.OFF_CAMP, "roster review finished into training camp")
+	var recap_steps: Array = hub.season.news.digest_steps(hub.season)
+	_check(recap_steps == ["Re-signing", "FA Day 1", "FA Day 2", "FA Day 3", "Draft", "Roster Review"], "every offseason step has a recap, in order (%s)" % str(recap_steps))
+	_check(hub._feed_items().any(func(it): return String(it["tag"]).begins_with("OFFSEASON RECAP")), "Home shows the latest recap card")
+	for step in recap_steps:
+		var st: String = step
+		hub.open("Offseason Recap", func(): return hub.pages.offseason_recap(st))
+		await process_frame
+		_check(hub._content.get_child_count() > 0, "recap page builds: %s" % st)
+		hub.go_back()
+	hub.open_offseason_recap()
+	await process_frame
+	_check(hub.pages._recap_step == recap_steps[-1], "the recap card opens the latest step")
+	hub.go_back()
 	var drill_guy: Soldier = user.starters()[0]
 	for x in user.starters():
 		if not Progression.is_capped(x, Stats.ACCURACY):
