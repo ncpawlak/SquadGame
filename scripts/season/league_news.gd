@@ -11,7 +11,8 @@ extends RefCounted
 ##   rookie_starter   last offseason's draftee starts one of his team's first three games. Morale +4.
 ##   bust             a top-3 pick, 24+ and 3+ years in, still below 80 OVR. Morale -3.
 ##   trade_request    a player's trade request goes public. Morale -3.
-##   rivalry          a rivalry game: the winners +2 morale, the losers -2 (+/-3 for the marquee).
+##   rivalry          a rivalry game (see Rivalries): the winners gain morale and the losers lose it, by
+##                    the rivalry's intensity (2 to 4). Also a new emergent rivalry forming or ending.
 ##   champion / floor season-end headlines (title, salary-floor penalties).
 ## Per-player stories fire once (a season for seasonal ones, a career for the rest; tracked in
 ## Soldier.news_tags), and at most MAX_PER_KIND of a kind run in one week.
@@ -23,6 +24,8 @@ const LAST_RIDE_OVR := 85
 const CONTENDERS := 6
 const BREAKOUT_GAIN := 3
 const BUST_OVR := 80
+## Rivalry heat at which even a divisional game makes the wire.
+const HOT_HEAT := 25.0
 
 ## Newest last: {year, when, kind, headline, body, teams: [abbrev], soldier_id}.
 var items: Array = []
@@ -82,8 +85,10 @@ func week_stories(season: Season, played: Array, wk: int) -> void:
 		if not m.is_played():
 			continue
 		winners[m.winner()] = m
-		if LeagueData.rivals(m.home.abbrev, m.away.abbrev):
+		if season.rivalries.is_rivalry(m.home, m.away):
 			_rivalry(season, m, when)
+	for e in season.rivalries.last_events:
+		_rivalry_change(season, when, e)
 	var home_winners := {}
 	for t in winners:
 		if winners[t].home == t:
@@ -168,19 +173,46 @@ func end_season(season: Season, penalties: Array) -> void:
 				t.nickname, Contracts.money(Contracts.SALARY_FLOOR), Contracts.money(p["amount"])])
 
 
+## Every rivalry game moves morale; team-specific, playoff and hot games (and snapped streaks)
+## make the wire, quiet divisional ones only while the week has room.
 func _rivalry(season: Season, m: ScheduledMatch, when: String) -> void:
+	var rv := season.rivalries
 	var w := m.winner()
 	var l := m.loser()
-	var marquee := LeagueData.is_marquee(m.home.abbrev, m.away.abbrev)
-	var swing := 3.0 if marquee else 2.0
+	var swing := rv.swing(w, l)
 	for s in w.roster:
 		s.add_morale(swing)
 	for s in l.roster:
 		s.add_morale(-swing)
+	var rec := rv.record_of(w, l)
+	var snapped_streak := int(rec.get("last", {}).get("snapped", 0))
+	var notable := (rv.flags(w, l) & Rivalries.TEAM) != 0 or m.stage != Season.STAGE_REGULAR \
+		or rv.heat_of(w, l) >= HOT_HEAT or snapped_streak >= Rivalries.STREAK_STORY
+	if not notable and not _room(_counts, "rivalry"):
+		return
 	var games := "%d-%d" % [m.games_for(w), m.games_for(l)]
-	_add(season, when, "rivalry", [w.abbrev, l.abbrev], 0,
-		"%s take the %s rivalry game %s" % [w.name, "marquee" if marquee else l.city, games],
-		"Bragging rights to the %s. The %s will hear about this one until the rematch." % [w.nickname, l.nickname])
+	var head := "%s: %s beat %s %s" % [rv.title(w, l), w.name, l.name, games]
+	if snapped_streak >= Rivalries.STREAK_STORY:
+		head = "%s snap a %d-game skid against %s, %s" % [w.name, snapped_streak, l.nickname, games]
+	_add(season, when, "rivalry", [w.abbrev, l.abbrev], 0, head,
+		"Bragging rights to the %s. %s. The %s will hear about this one until the rematch." % [
+			w.nickname, rv.record_text(w, l), l.nickname])
+
+
+func _rivalry_change(season: Season, when: String, e: Dictionary) -> void:
+	var a := season.league.team_by_abbrev(e["a"])
+	var b := season.league.team_by_abbrev(e["b"])
+	if a == null or b == null:
+		return
+	if e["kind"] == &"formed":
+		_add(season, when, "rivalry", [a.abbrev, b.abbrev], 0,
+			"%s and %s: a new rivalry is born" % [a.name, b.name],
+			"After a string of close games, playoff clashes and front-office dealings, the %s and %s now genuinely dislike each other." % [
+				a.nickname, b.nickname])
+	else:
+		_add(season, when, "rivalry", [a.abbrev, b.abbrev], 0,
+			"The %s-%s rivalry cools off" % [a.city, b.city],
+			"The %s and %s have gone quiet on each other. Whatever this was, it is over for now." % [a.nickname, b.nickname])
 
 
 func _played(t: Team, played: Array) -> bool:

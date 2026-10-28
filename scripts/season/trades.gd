@@ -532,6 +532,7 @@ func execute(season: Season, a: Team, a_give: Array, b: Team, b_give: Array) -> 
 		"b_gave": b_give.map(func(x): return asset_text(season, x)), "reactions": reactions, "ai": not (a.user_controlled or b.user_controlled)}
 	history.append(e)
 	last_trades.append(e)
+	season.rivalries.note_trade(a, b)
 	var moved := {}
 	for x in a_give + b_give:
 		moved[key_of(x)] = true
