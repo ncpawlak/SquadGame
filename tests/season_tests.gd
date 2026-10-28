@@ -55,6 +55,7 @@ func _init() -> void:
 		"test_hometown_pull",
 		"test_region_and_auto_scout",
 		"test_league_news",
+		"test_offseason_news",
 		"test_rivalries",
 		"test_match_form_upsets",
 		"test_schemes",
@@ -1778,6 +1779,63 @@ func test_league_news() -> void:
 	check(s.news.latest(3).size() <= 3, "latest caps")
 	for n in s.news.latest(5, "DET"):
 		check((n["teams"] as Array).has("DET"), "team filter")
+
+
+func test_offseason_news() -> void:
+	var s := _fixed(61)
+	var year := s.year
+	s.sim_to_end_of_season()
+	var kinds := {}
+	for n in s.news.for_year(year):
+		kinds[n["kind"]] = true
+	# Signing a mega deal and cutting a star are both newsworthy, whoever they are.
+	var star: Soldier = null
+	var from: Team = null
+	for t in s.league.teams:
+		if t.user_controlled:
+			continue
+		for p in t.roster:
+			if p.contract != null and (star == null or p.best_ovr() > star.best_ovr()):
+				star = p
+				from = t
+	var to: Team = s.league.teams[0] if s.league.teams[0] != from else s.league.teams[1]
+	var wire := s.news.items.size()
+	s.news.release(s, from, star)
+	check(s.news.items.size() == wire + 1 and s.news.items[-1]["kind"] == "surprise_cut", "a star's release makes the wire")
+	s.news.release(s, from, star)
+	check(s.news.items.size() == wire + 1, "a release is written once per year")
+	var entry := {"soldier": star, "team": to, "salary": LeagueNews.MEGA_SALARY, "years": 4, "year": year, "when": "FA Day 1"}
+	s.news.signing(s, entry)
+	check(s.news.items[-1]["kind"] == "mega_deal" and (s.news.items[-1]["teams"] as Array).has(to.abbrev), "a mega deal makes the wire")
+	var minor := {"soldier": star, "team": to, "salary": Contracts.MIN_SALARY, "years": 1, "year": year, "when": "FA Day 1"}
+	wire = s.news.items.size()
+	star.former_team = ""
+	s.news.signing(s, minor)
+	check(s.news.items.size() == wire or s.news.items[-1]["kind"] != "mega_deal", "no second mega story for one player")
+	s.advance_offseason()
+	s.advance_offseason()
+	kinds = {}
+	for n in s.news.for_year(year):
+		kinds[n["kind"]] = (kinds.get(n["kind"], 0) as int) + 1
+	check(kinds.has("draft_top") and kinds["draft_top"] == 1, "the first pick is announced once")
+	check(kinds.has("draft_haul"), "the best draft haul is named")
+	# Each finished step has a recap, and a step's signings carry that step's label.
+	var steps := s.news.digest_steps(s)
+	check(steps == ["Re-signing", "Draft"] or steps.size() >= 2, "re-signing and the draft can be recapped (%s)" % str(steps))
+	check(not (s.news.digest(s, "Draft")["picks"] as Array).is_empty(), "the draft recap lists picks")
+	check(s.news.digest_summary(s, "Draft") != "", "recap summary text")
+	s.advance_offseason()
+	s.advance_offseason()
+	steps = s.news.digest_steps(s)
+	check(steps.has("FA Day 1") and steps.has("FA Day 2"), "free-agency days are recapped once resolved (%s)" % str(steps))
+	for e in s.news.digest(s, "FA Day 1")["signings"]:
+		check(e["when"] == "FA Day 1", "day-one recap holds only day-one signings")
+	check(not (s.news.digest(s, "FA Day 1")["market"] as Array).is_empty(), "day one lists who hit the market")
+	check(s.news.for_soldier(star.id).size() >= 1, "a soldier's own stories are found")
+	s.finish_draft()
+	check(int(s.news.for_year(year).filter(func(n): return n["kind"] == "draft_top").size()) == 1, "finishing the draft twice doesn't repeat stories")
+	for k in ["mega_deal", "fa_signing", "defection", "homecoming", "resign", "hits_market", "surprise_cut"]:
+		check(int(kinds.get(k, 0)) <= LeagueNews.OFFSEASON_PER_KIND, "%s stays under its yearly cap" % k)
 
 
 func _meeting(home: Team, away: Team, home_games: int, away_games: int, stage := &"regular", week := 1) -> ScheduledMatch:

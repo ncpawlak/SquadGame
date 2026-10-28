@@ -323,6 +323,7 @@ func sign_player(season: Season, team: Team, s: Soldier, salary: int, years: int
 		team.auto_lineup()
 	var entry := {"soldier": s, "team": team, "salary": salary, "years": years, "year": season.year, "when": when, "user": team.user_controlled, "promise": promise}
 	history.append(entry)
+	season.news.signing(season, entry)
 	return entry
 
 

@@ -83,6 +83,8 @@ var aging_report: Array = []
 ## Current offseason stage (OFF_*; "" during the season) and free-agency day (1..FA_DAYS).
 var offseason_stage: StringName = &""
 var fa_day := 0
+## Offseason step being advanced right now (see step_label); "" otherwise.
+var _step := ""
 ## Free-agent offers and signing history.
 var fa := FreeAgency.new()
 ## League-wide teammate chemistry (DNA module).
@@ -721,6 +723,31 @@ func can_resign() -> bool:
 func advance_offseason() -> Array:
 	if phase != PHASE_OFFSEASON:
 		return []
+	_step = step_label()
+	var signed := _advance_offseason_step()
+	_step = ""
+	return signed
+
+
+## Label of the offseason step in progress ("Re-signing", "Draft", "FA Day 2", "Camp", "Preseason").
+## Signings, cuts, trades and stories are filed under it so each step can be recapped
+## (LeagueNews.digest). While a step is being advanced it stays that step's label.
+func step_label() -> String:
+	if _step != "":
+		return _step
+	match offseason_stage:
+		OFF_RESIGN:
+			return "Re-signing"
+		OFF_DRAFT:
+			return "Draft"
+		OFF_FREE_AGENCY:
+			return "FA Day %d" % fa_day
+		OFF_CAMP:
+			return "Camp"
+	return "Preseason"
+
+
+func _advance_offseason_step() -> Array:
 	sync_team_statics()
 	var signed: Array = []
 	match offseason_stage:
@@ -729,6 +756,8 @@ func advance_offseason() -> Array:
 			offseason_stage = OFF_DRAFT
 		OFF_DRAFT:
 			finish_draft()
+			# Free agency opens: the market, the AI cut-downs and day one's bids belong to Day 1.
+			_step = "FA Day 1"
 			_open_free_agency()
 		OFF_FREE_AGENCY:
 			last_signings = fa.resolve(self, _rng, "FA Day %d" % fa_day)
@@ -800,6 +829,7 @@ func resign_player(team: Team, s: Soldier, years: int, promise := false) -> Stri
 ## Releases a soldier into free agency, booking dead money for what's left on his deal.
 ## Returns the dead money.
 func release_player(team: Team, s: Soldier) -> int:
+	news.release(self, team, s)
 	var dead := Contracts.charge_release(team, s, cap_year())
 	team.release(s)
 	league.add_free_agent(s, year)
@@ -827,6 +857,7 @@ func _ai_resign() -> void:
 			if keep and Contracts.fits(t, cap_year(), salary):
 				s.contract = Contract.make(salary, yrs, year)
 				resign_log.append({"soldier": s, "team": t, "salary": salary, "years": yrs, "year": year})
+				news.resign(self, t, s, salary, yrs)
 
 
 func _open_free_agency() -> void:
@@ -847,6 +878,7 @@ func _open_free_agency() -> void:
 		# Offseason rosters may run to OFFSEASON_MAX (final cut-down to ROSTER_SIZE comes at the
 		# end of camp, in start_next_season); only extreme surpluses are shopped or cut now.
 		trades.restructure(self, t, Team.OFFSEASON_MAX)
+	news.free_agency_opens(self)
 	fa.ai_offers(self, _rng)
 
 
@@ -898,6 +930,7 @@ func finish_draft() -> void:
 		draft.set_order(draft_order())
 		trades.apply_owners(self)
 	draft.sim_to_end()
+	news.draft_stories(self)
 
 
 # --- internals -------------------------------------------------------------

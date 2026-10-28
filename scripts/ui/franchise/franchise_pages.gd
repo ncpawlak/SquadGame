@@ -1145,8 +1145,23 @@ func player(s: Soldier) -> Control:
 		3: v.add_child(_player_stats(s))
 		4: v.add_child(_player_dna(s, team))
 		5: v.add_child(_player_progression(s))
-		_: v.add_child(_player_overview(s, team))
+		_:
+			v.add_child(_player_overview(s, team))
+			_player_stories(v, s)
 	return v
+
+
+const PLAYER_STORIES := 6
+
+
+## League-wire stories written about `s` (newest first), under the overview.
+func _player_stories(v: VBoxContainer, s: Soldier) -> void:
+	var list := _season().news.for_soldier(s.id)
+	if list.is_empty():
+		return
+	v.add_child(_section("STORIES"))
+	for n in list.slice(0, PLAYER_STORIES):
+		v.add_child(_wire_panel(n, false))
 
 
 func _player_header(s: Soldier, team: Team) -> Control:
@@ -2729,6 +2744,11 @@ func team_rankings() -> Control:
 func news() -> Control:
 	var v := _vbox(10)
 	var items := headlines(40)
+	if not _season().news.digest_steps(_season()).is_empty():
+		var recaps := UiKit.button("OFFSEASON RECAPS", func(): hub.open_offseason_recap(), 16)
+		UiKit.style_primary(recaps)
+		recaps.custom_minimum_size = Vector2(240, 40)
+		v.add_child(recaps)
 	var wire: Array = _season().news.latest(15)
 	if not wire.is_empty():
 		v.add_child(_section("LEAGUE WIRE"))
@@ -2808,7 +2828,8 @@ static func save_slot_tile(slot: int, saving: bool, app: Node, refresh: Callable
 
 
 ## One league-wire story (LeagueNews item).
-func _wire_panel(n: Dictionary) -> Control:
+## One league-wire story. With `link`, clicking it opens the page of the soldier it is about.
+func _wire_panel(n: Dictionary, link := true) -> Control:
 	var p := UiKit.panel(UiKit.PANEL, 8)
 	var accent := UiKit.ACCENT
 	var h := _row(12)
@@ -2826,6 +2847,15 @@ func _wire_panel(n: Dictionary) -> Control:
 		n["when"], n["year"], UiKit.esc(String(n["body"]))], 17)
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	h.add_child(body)
+	var who := _soldier_any(int(n.get("soldier_id", 0))) if link else null
+	if who != null:
+		_ignore_mouse(h)
+		p.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		p.mouse_entered.connect(func(): p.modulate = Color(1.12, 1.12, 1.12))
+		p.mouse_exited.connect(func(): p.modulate = Color.WHITE)
+		p.gui_input.connect(func(ev: InputEvent):
+			if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+				open_player(who))
 	return p
 
 
@@ -5166,6 +5196,22 @@ func _soldier(id: int) -> Soldier:
 	return null
 
 
+## A soldier by id wherever he is: a roster, the free-agent pool or the retired list (null if none).
+func _soldier_any(id: int) -> Soldier:
+	if id <= 0:
+		return null
+	var s := _soldier(id)
+	if s != null:
+		return s
+	for f in _season().league.free_agents:
+		if f.id == id:
+			return f
+	for r in _season().retirements:
+		if r["soldier"].id == id:
+			return r["soldier"]
+	return null
+
+
 func _team_of(s: Soldier) -> Team:
 	return _season().league.team_of(s)
 
@@ -5748,6 +5794,109 @@ func trade_log() -> Control:
 			v.add_child(UiKit.rich("[color=#ef4444]CUT[/color]  [color=#8b97ab]%d %s[/color]   [color=white]%s[/color] released %s (%d OVR, age %d)." % [
 				m["year"], m["when"], UiKit.esc(m["team"].name), UiKit.esc(so.display_name()), so.best_ovr(), so.age], 15))
 	return v
+
+
+var _recap_step := ""
+const RECAP_ROWS := 12
+
+
+## Offseason recap: what happened in one finished step (re-signing, the draft, each free-agency
+## day, the final preseason signings). A button row switches step; the default is the latest.
+func offseason_recap(step := "") -> Control:
+	var s := _season()
+	var steps := s.news.digest_steps(s)
+	var v := _vbox(12)
+	if steps.is_empty():
+		v.add_child(UiKit.label("Nothing to recap yet. Recaps appear after each offseason step.", 17, UiKit.MUTED))
+		return v
+	if not steps.has(step):
+		step = _recap_step if steps.has(_recap_step) else steps[-1]
+	_recap_step = step
+	var tabs := _row(8)
+	for st in steps:
+		var pick: String = st
+		tabs.add_child(_seg(pick, pick == step, func(): hub.replace("Offseason Recap", func(): return offseason_recap(pick)), 15))
+	v.add_child(tabs)
+	var d := s.news.digest(s, step)
+	v.add_child(UiKit.label("%d %s  -  %s" % [d["year"], step, s.news.digest_summary(s, step)], 16, UiKit.MUTED))
+	var stories: Array = d["stories"]
+	# Soldiers a story is already about; their rows are left out of the lists below.
+	var told := {}
+	if not stories.is_empty():
+		v.add_child(_section("STORIES"))
+		for n in stories:
+			v.add_child(_wire_panel(n))
+			if int(n["soldier_id"]) > 0:
+				told[int(n["soldier_id"])] = true
+	var picks: Array = (d["picks"] as Array).slice(0, s.league.teams.size())
+	if not picks.is_empty():
+		v.add_child(_section("FIRST ROUND"))
+		for p: Prospect in picks:
+			v.add_child(_recap_row("[color=#8b97ab]#%d[/color]  %s[color=white]%s[/color] (%d OVR, age %d)  to %s" % [
+				p.pick_number, UiKit.logo_bb(p.drafted_by, 22), UiKit.esc(p.soldier.display_name()), p.soldier.best_ovr(), p.soldier.age,
+				UiKit.esc(p.drafted_by.name)], p.soldier))
+		v.add_child(UiKit.button("Full draft recap", hub.open_draft_recap, 15))
+	var resigned: Array = d["resigned"]
+	_recap_section(v, "RE-SIGNED", resigned, func(r: Dictionary) -> Control:
+		var so: Soldier = r["soldier"]
+		return _recap_row("%s[color=white]%s[/color] (%d OVR)  re-signed with %s  -  %s x %d yr" % [UiKit.logo_bb(r["team"], 22),
+			UiKit.esc(so.display_name()), so.best_ovr(), UiKit.esc(r["team"].name), Contracts.money(r["salary"]), r["years"]], so), told, "ALSO RE-SIGNED")
+	_recap_section(v, "RETIRED", d["retired"], func(r: Dictionary) -> Control:
+		var so: Soldier = r["soldier"]
+		var t: Team = r["team"]
+		return _recap_row("%s[color=white]%s[/color] (%d OVR, age %d)  retires  -  %s" % [UiKit.logo_bb(t, 22) if t != null else "",
+			UiKit.esc(so.display_name()), r["ovr"], r["age"], UiKit.esc(t.name) if t != null else "free agent"], so), told, "ALSO RETIRED")
+	_recap_section(v, "HIT THE MARKET", d["market"], func(m: Dictionary) -> Control:
+		var so: Soldier = m["soldier"]
+		return _recap_row("%s[color=white]%s[/color] (%d OVR, age %d)  left %s" % [UiKit.logo_bb(m["team"], 22),
+			UiKit.esc(so.display_name()), so.best_ovr(), so.age, UiKit.esc(m["team"].name)], so), told, "ALSO ON THE MARKET")
+	_recap_section(v, "SIGNINGS", d["signings"], func(e: Dictionary) -> Control:
+		var so: Soldier = e["soldier"]
+		var from := s.league.team_by_abbrev(so.former_team)
+		var you := "[color=#14b8a6]YOUR TEAM[/color]  " if e["user"] else ""
+		return _recap_row("%s%s[color=white]%s[/color] (%d OVR)  to %s%s  -  %s x %d yr" % [you, UiKit.logo_bb(e["team"], 22),
+			UiKit.esc(so.display_name()), so.best_ovr(), UiKit.esc(e["team"].name),
+			(" (from %s)" % from.abbrev) if from != null and from != e["team"] else "", Contracts.money(e["salary"]), e["years"]], so), told, "OTHER SIGNINGS")
+	_recap_section(v, "CUTS", d["cuts"], func(m: Dictionary) -> Control:
+		var so: Soldier = m["soldier"]
+		return _recap_row("[color=#ef4444]CUT[/color]  %s[color=white]%s[/color] released %s (%d OVR, age %d)" % [UiKit.logo_bb(m["team"], 22),
+			UiKit.esc(m["team"].name), UiKit.esc(so.display_name()), so.best_ovr(), so.age], so), told, "OTHER CUTS")
+	var trades: Array = d["trades"]
+	if not trades.is_empty():
+		v.add_child(_section("TRADES"))
+		for e in trades:
+			var tp := UiKit.panel(UiKit.PANEL, 8)
+			tp.add_child(UiKit.rich(trade_headline(e), 16))
+			v.add_child(tp)
+	if v.get_child_count() <= 3 and stories.is_empty():
+		v.add_child(UiKit.label("A quiet step: nothing worth reporting.", 17, UiKit.MUTED))
+	return v
+
+
+## A titled list of recap rows (first RECAP_ROWS, then a count); `row` builds one entry's control.
+## Entries about a soldier in `told` (he already has a story above) are left out, and the list
+## is then titled `rest_title`. Rows for the user's own team always stay.
+func _recap_section(v: VBoxContainer, title: String, list: Array, row: Callable, told := {}, rest_title := "") -> void:
+	var rest := list.filter(func(e: Dictionary):
+		var t: Team = e.get("team")
+		return not told.has(e["soldier"].id) or (t != null and t.user_controlled))
+	if rest.size() < list.size() and rest_title != "":
+		title = rest_title
+	list = rest
+	if list.is_empty():
+		return
+	v.add_child(_section(title))
+	for i in mini(list.size(), RECAP_ROWS):
+		v.add_child(row.call(list[i]))
+	if list.size() > RECAP_ROWS:
+		v.add_child(UiKit.label("... and %d more" % (list.size() - RECAP_ROWS), 14, UiKit.MUTED))
+
+
+## One clickable recap line that opens the soldier's page.
+func _recap_row(bb: String, s: Soldier) -> Control:
+	var r := UiKit.rich(bb, 16)
+	r.autowrap_mode = TextServer.AUTOWRAP_OFF
+	return _click_wrap(r, func(): open_player(s), 36)
 
 
 ## BBCode news line for one trade log entry, with player reactions.

@@ -505,7 +505,9 @@ func _settle_focus(view: Control, focus_index: int, scroll_pos: int) -> void:
 		if scroll:
 			scroll.scroll_vertical = scroll_pos
 	var list: Array[Control] = app.focusables(view)
-	if focus_index >= 0 and not list.is_empty():
+	if app.mouse_mode:
+		pass
+	elif focus_index >= 0 and not list.is_empty():
 		list[mini(focus_index, list.size() - 1)].grab_focus()
 	else:
 		app.focus_first(view)
@@ -1375,6 +1377,13 @@ func _feed_items() -> Array:
 	var out: Array = []
 	var add := func(cat: StringName, tag: String, body: String, accent: Color, cb: Callable):
 		out.append({"cat": cat, "tag": tag, "body": body, "accent": accent, "cb": cb})
+	# After each offseason step, a card that opens its recap.
+	if season.phase == Season.PHASE_OFFSEASON or season.preseason_camp:
+		var steps := season.news.digest_steps(season)
+		if not steps.is_empty():
+			var step: String = steps[-1]
+			add.call(&"league", "OFFSEASON RECAP  ·  %s" % step.to_upper(), "[color=white]What happened in %s[/color]\n[font_size=13]%s[/font_size]" % [
+				UiKit.esc(step), UiKit.esc(season.news.digest_summary(season, step))], Color("#f59e0b"), open_offseason_recap)
 	# Upcoming: your next matches, then the rest of this week's slate.
 	if season.phase != Season.PHASE_OFFSEASON:
 		var mine: Array = []
@@ -1630,6 +1639,12 @@ func open_free_agents() -> void:
 	open("Free Agents", pages.free_agents)
 
 
+## Opens the recap of the latest finished offseason step.
+func open_offseason_recap() -> void:
+	pages._recap_step = ""
+	open("Offseason Recap", pages.offseason_recap)
+
+
 func open_retirements() -> void:
 	open("Retirements", pages.retirements)
 
@@ -1762,7 +1777,7 @@ func _restore_pane(sc: ScrollContainer, pos: int, focus_index: int, box: Control
 	if not is_instance_valid(box):
 		return
 	var list: Array[Control] = app.focusables(box)
-	if focus_index >= 0 and focus_index < list.size():
+	if not app.mouse_mode and focus_index >= 0 and focus_index < list.size():
 		list[focus_index].grab_focus()
 	sc.scroll_vertical = pos
 	sc.follow_focus = true

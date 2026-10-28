@@ -273,6 +273,7 @@ func _sign(salary: int, years: int, promise: bool) -> void:
 	if promise:
 		soldier.promise = {"year": season.cap_year(), "team": team.abbrev, "games": 0, "started": 0}
 	season.resign_log.append({"soldier": soldier, "team": team, "salary": salary, "years": years, "year": season.year, "promise": promise})
+	season.news.resign(season, team, soldier, salary, years)
 	state = SIGNED
 
 

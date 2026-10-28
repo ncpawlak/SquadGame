@@ -14,6 +14,16 @@ extends RefCounted
 ##   rivalry          a rivalry game (see Rivalries): the winners gain morale and the losers lose it, by
 ##                    the rivalry's intensity (2 to 4). Also a new emergent rivalry forming or ending.
 ##   champion / floor season-end headlines (title, salary-floor penalties).
+## Offseason stories (filed under the season just finished), each capped per year:
+##   mega_deal        a signing or re-signing at MEGA_SALARY or more a year.
+##   fa_signing       a free agent of BIG_SIGNING_OVR+ lands with a new team.
+##   defection        a free agent of DEFECTION_OVR+ leaves for his old team's rival.
+##   homecoming       a free agent of HOMECOMING_OVR+ signs with his home-state club.
+##   resign           a cornerstone (BIG_SIGNING_OVR+) re-signs.
+##   hits_market      a STAR_MARKET_OVR+ player reaches free agency.
+##   surprise_cut     an AI team releases a STAR_CUT_OVR+ player ranked in its top STAR_CUT_RANK.
+##   draft_*          #1 pick, a generational talent who slid, steals, reaches and the best haul.
+##   retired          a legend (LEGEND_OVR+ or an award winner) retires.
 ## Per-player stories fire once (a season for seasonal ones, a career for the rest; tracked in
 ## Soldier.news_tags), and at most MAX_PER_KIND of a kind run in one week.
 
@@ -26,6 +36,23 @@ const BREAKOUT_GAIN := 3
 const BUST_OVR := 80
 ## Rivalry heat at which even a divisional game makes the wire.
 const HOT_HEAT := 25.0
+## Offseason story thresholds (see the header).
+const MEGA_SALARY := 12000
+const BIG_SIGNING_OVR := 84
+const DEFECTION_OVR := 78
+const HOMECOMING_OVR := 76
+const STAR_MARKET_OVR := 82
+const STAR_CUT_OVR := 78
+## A release only shocks when he ranked this high on his team's roster.
+const STAR_CUT_RANK := 8
+const LEGEND_OVR := 80
+const OFFSEASON_PER_KIND := 3
+## Draft: a steal went STEAL_GAP picks later than his value rank (a top-STEAL_RANK talent); a reach
+## went in the top REACH_PICK despite ranking REACH_GAP places lower.
+const STEAL_GAP := 25
+const STEAL_RANK := 12
+const REACH_GAP := 25
+const REACH_PICK := 10
 
 ## Newest last: {year, when, kind, headline, body, teams: [abbrev], soldier_id}.
 var items: Array = []
@@ -165,12 +192,284 @@ func end_season(season: Season, penalties: Array) -> void:
 				_add(season, "Final", "last_ride", [champ.abbrev], s.id,
 					"%s gets his ring" % s.display_name(),
 					"%s chased one more title and got it. Whatever he decides next, he goes out a champion." % s.full_name())
+	var legends: Array = season.retirements_in(season.year).filter(func(r): return r["reason"] == Retirement.REASON_AGE \
+		and (int(r["ovr"]) >= LEGEND_OVR or not (r["awards"] as Array).is_empty()))
+	legends.sort_custom(func(a, b): return int(a["ovr"]) > int(b["ovr"]))
+	for r in legends.slice(0, 3):
+		var s: Soldier = r["soldier"]
+		if not _tag(s, "retired", 0):
+			continue
+		var rt: Team = r["team"]
+		var awards: Array = r["awards"]
+		var line := "%d matches and %d kills" % [int(r["matches"]), int(r["kills"])]
+		if not awards.is_empty():
+			line += ", with %d award%s (%s)" % [awards.size(), "" if awards.size() == 1 else "s", ", ".join(awards.slice(0, 3))]
+		_add(season, "Re-signing", "retired", [rt.abbrev] if rt != null else [], s.id,
+			"%s retires at %d" % [s.display_name(), int(r["age"])],
+			"%s hangs it up after a career of %s." % [s.full_name(), line])
 	for p in penalties:
 		var t: Team = p["team"]
 		_add(season, "Offseason", "floor", [t.abbrev], 0,
 			"%s fined for spending under the salary floor" % t.name,
 			"The %s finished under the %s floor and owe the %s shortfall next season." % [
 				t.nickname, Contracts.money(Contracts.SALARY_FLOOR), Contracts.money(p["amount"])])
+
+
+## A soldier signs with a team (free agency, camp fill-ins, in-season pickups). `entry` is a
+## FreeAgency history entry. One story at most, the biggest angle first.
+func signing(season: Season, entry: Dictionary) -> void:
+	var s: Soldier = entry["soldier"]
+	var t: Team = entry["team"]
+	var salary := int(entry["salary"])
+	var years := int(entry["years"])
+	var ovr := s.best_ovr()
+	var from := season.league.team_by_abbrev(s.former_team)
+	var moved := from != null and from != t
+	var teams := [t.abbrev]
+	if moved:
+		teams.append(from.abbrev)
+	var rival := moved and season.rivalries.is_rivalry(from, t)
+	var deal := "%s a year for %d year%s (%s in all)" % [Contracts.money(salary), years, "" if years == 1 else "s", Contracts.money(salary * years)]
+	var kind := ""
+	var head := ""
+	var body := ""
+	if salary >= MEGA_SALARY:
+		kind = "mega_deal"
+		head = "%s cashes in: %s a year from %s" % [s.display_name(), Contracts.money(salary), t.city]
+		body = "%s (%d OVR) gets %s, one of the biggest contracts the league has seen." % [s.full_name(), ovr, deal]
+		if rival:
+			body += " He left rival %s to get it." % from.nickname
+	elif rival and ovr >= DEFECTION_OVR:
+		kind = "defection"
+		head = "%s leaves %s for rival %s" % [s.display_name(), from.city, t.city]
+		body = "%s (%d OVR) walks away from the %s and joins their rivals, the %s, on %s. Expect that to come up at the next meeting." % [
+			s.full_name(), ovr, from.nickname, t.nickname, deal]
+	elif moved and ovr >= BIG_SIGNING_OVR:
+		kind = "fa_signing"
+		head = "%s signs with %s" % [s.display_name(), t.name]
+		body = "The %s land one of the top names on the market: %s (%d OVR) on %s." % [t.nickname, s.full_name(), ovr, deal]
+	elif moved and ovr >= HOMECOMING_OVR and s.home_state != "" and s.home_state == t.home_state:
+		kind = "homecoming"
+		head = "%s is going home to %s" % [s.display_name(), t.city]
+		body = "%s (%d OVR) grew up in %s and signs with the %s on %s." % [
+			s.full_name(), ovr, LeagueData.state_name(s.home_state), t.nickname, deal]
+	if kind == "" or not _year_room(season, kind) or not _tag(s, kind, season.year):
+		return
+	_add(season, String(entry["when"]), kind, teams, s.id, head, body)
+
+
+## An expiring contract is renewed (AI teams, or the user through a negotiation).
+func resign(season: Season, team: Team, s: Soldier, salary: int, years: int) -> void:
+	var ovr := s.best_ovr()
+	var mega := salary >= MEGA_SALARY
+	if not mega and ovr < BIG_SIGNING_OVR:
+		return
+	var kind := "mega_deal" if mega else "resign"
+	if not _year_room(season, kind) or not _tag(s, kind, season.year):
+		return
+	var deal := "%s a year for %d year%s" % [Contracts.money(salary), years, "" if years == 1 else "s"]
+	if mega:
+		_add(season, "Re-signing", kind, [team.abbrev], s.id,
+			"%s lock up %s on %s a year" % [team.name, s.display_name(), Contracts.money(salary)],
+			"%s (%d OVR) stays put and gets %s. The %s are building around him." % [s.full_name(), ovr, deal, team.nickname])
+	else:
+		_add(season, "Re-signing", kind, [team.abbrev], s.id,
+			"%s stays with %s" % [s.display_name(), team.city],
+			"%s (%d OVR) re-signs with the %s on %s." % [s.full_name(), ovr, team.nickname, deal])
+
+
+## Free agency opens: the best players who just hit the market.
+func free_agency_opens(season: Season) -> void:
+	var gone: Array = season.departures.filter(func(d): return d["year"] == season.year and d["soldier"].best_ovr() >= STAR_MARKET_OVR)
+	gone.sort_custom(func(a, b): return a["soldier"].best_ovr() > b["soldier"].best_ovr())
+	for d in gone:
+		var s: Soldier = d["soldier"]
+		var t: Team = d["team"]
+		if not _year_room(season, "hits_market") or not _tag(s, "hits_market", season.year):
+			continue
+		_add(season, "FA Day 1", "hits_market", [t.abbrev], s.id,
+			"%s hits the open market" % s.display_name(),
+			"%s (%d OVR, age %d) is a free agent after leaving the %s. Every team with cap space will call." % [
+				s.full_name(), s.best_ovr(), s.age, t.nickname])
+
+
+## An AI team releases `s` (call before his contract is cleared). Only stars make the wire.
+func release(season: Season, team: Team, s: Soldier) -> void:
+	if team.user_controlled or s.contract == null or s.best_ovr() < STAR_CUT_OVR:
+		return
+	var rank := 1
+	for o in team.roster:
+		if o != s and o.best_ovr() > s.best_ovr():
+			rank += 1
+	if rank > STAR_CUT_RANK or not _year_room(season, "surprise_cut") or not _tag(s, "surprise_cut", season.year):
+		return
+	var owed := s.contract.salary * maxi(s.contract.years, 1)
+	_add(season, _offseason_when(season), "surprise_cut", [team.abbrev], s.id,
+		"Shock: %s cut %s" % [team.name, s.display_name()],
+		"The %s released %s (%d OVR, age %d), the #%d soldier on their roster, with %s still owed on his deal. Nobody saw it coming." % [
+			team.nickname, s.full_name(), s.best_ovr(), s.age, rank, Contracts.money(owed)])
+
+
+## The draft is complete: the top pick, a generational talent who slid, steals, reaches, best haul.
+func draft_stories(season: Season) -> void:
+	var picks := season.draft.picks()
+	if picks.is_empty() or _wrote(season, "draft_top"):
+		return
+	var by_value: Array = picks.duplicate()
+	by_value.sort_custom(func(a: Prospect, b: Prospect): return Draft.true_value(a) > Draft.true_value(b))
+	var vrank := {}
+	for i in by_value.size():
+		vrank[by_value[i]] = i + 1
+	var first: Prospect = picks[0]
+	var fs := first.soldier
+	var flavor := ""
+	if first.standout == &"generational":
+		flavor = " Scouts call him a generational talent."
+	elif first.standout == &"blue_chip":
+		flavor = " Scouts see a day-one starter."
+	_add(season, "Draft", "draft_top", [first.drafted_by.abbrev], fs.id,
+		"%s take %s first overall" % [first.drafted_by.name, fs.display_name()],
+		"%s (%d OVR) goes #1 in the %d draft on a %s rookie deal.%s" % [
+			fs.full_name(), fs.best_ovr(), season.draft.year, Contracts.contract_text(fs.contract), flavor])
+	for p: Prospect in picks:
+		if p.standout == &"generational" and p.pick_number > 1:
+			_add(season, "Draft", "draft_slide", [p.drafted_by.abbrev], p.soldier.id,
+				"%s slides to #%d" % [p.soldier.display_name(), p.pick_number],
+				"%s (%d OVR), a generational talent, is still on the board at #%d and the %s pounce." % [
+					p.soldier.full_name(), p.soldier.best_ovr(), p.pick_number, p.drafted_by.nickname])
+			break
+	var steals := 0
+	var reaches := 0
+	for p: Prospect in picks:
+		var v: int = vrank[p]
+		var s := p.soldier
+		if steals < 2 and v <= STEAL_RANK and p.pick_number - v >= STEAL_GAP and p.standout != &"generational":
+			steals += 1
+			_add(season, "Draft", "draft_steal", [p.drafted_by.abbrev], s.id,
+				"%s is the steal of the draft" % s.display_name(),
+				"%s lasted until #%d and the %s grabbed him. He rates as the #%d talent in the class (%d OVR)." % [
+					s.full_name(), p.pick_number, p.drafted_by.nickname, v, s.best_ovr()])
+		elif reaches < 1 and p.pick_number <= REACH_PICK and v - p.pick_number >= REACH_GAP:
+			reaches += 1
+			_add(season, "Draft", "draft_reach", [p.drafted_by.abbrev], s.id,
+				"Why did %s take %s at #%d?" % [p.drafted_by.city, s.display_name(), p.pick_number],
+				"%s (%d OVR) rates only #%d in this class. The %s reached, and the board noticed." % [
+					s.full_name(), s.best_ovr(), v, p.drafted_by.nickname])
+	var haul := {}
+	var count := {}
+	for p: Prospect in picks:
+		haul[p.drafted_by] = float(haul.get(p.drafted_by, 0.0)) + Draft.true_value(p)
+		count[p.drafted_by] = int(count.get(p.drafted_by, 0)) + 1
+	var best: Team = null
+	for t: Team in haul:
+		if best == null or haul[t] > haul[best]:
+			best = t
+	if best != null:
+		_add(season, "Draft", "draft_haul", [best.abbrev], 0,
+			"%s win the draft" % best.name,
+			"With %d picks, the %s took the most talent of any team in the %d class." % [count[best], best.nickname, season.draft.year])
+
+
+func _offseason_when(season: Season) -> String:
+	return season.step_label() if season.phase == Season.PHASE_OFFSEASON else season.week_label(season.week)
+
+
+# --- offseason recaps ----------------------------------------------------------------
+
+## The year whose offseason is being recapped: this season during the offseason, last season
+## once the next one has started.
+func recap_year(season: Season) -> int:
+	return season.year if season.phase == Season.PHASE_OFFSEASON else season.year - 1
+
+
+## Offseason steps that have finished and can be recapped, in order.
+func digest_steps(season: Season) -> Array[String]:
+	var out: Array[String] = []
+	if season.review_history.is_empty():
+		return out
+	var stage := season.offseason_stage if season.phase == Season.PHASE_OFFSEASON else Season.OFF_DONE
+	var past_draft := stage in [Season.OFF_FREE_AGENCY, Season.OFF_CAMP, Season.OFF_DONE]
+	var past_fa := stage in [Season.OFF_CAMP, Season.OFF_DONE]
+	if stage != Season.OFF_RESIGN or season.phase != Season.PHASE_OFFSEASON:
+		out.append("Re-signing")
+	if past_draft:
+		out.append("Draft")
+	for d in range(1, Season.FA_DAYS + 1):
+		if past_fa or (stage == Season.OFF_FREE_AGENCY and season.fa_day > d):
+			out.append("FA Day %d" % d)
+	if stage == Season.OFF_DONE and _step_has_entries(season, "Preseason"):
+		out.append("Preseason")
+	return out
+
+
+func _step_has_entries(season: Season, step: String) -> bool:
+	var y := recap_year(season)
+	return season.fa.history.any(func(e): return e["year"] == y and e["when"] == step) \
+		or season.trades.moves.any(func(m): return m["year"] == y and m["when"] == step)
+
+
+## Everything that happened in one offseason step: {step, year, stories, signings, cuts, trades,
+## resigned, retired, market, picks}. Signings are sorted by salary, the market and re-signs by OVR.
+func digest(season: Season, step: String) -> Dictionary:
+	var y := recap_year(season)
+	var out := {"step": step, "year": y, "stories": [], "signings": [], "cuts": [], "trades": [],
+		"resigned": [], "retired": [], "market": [], "picks": []}
+	var wire_when := [step] + (["Offseason"] if step == "Re-signing" else [])
+	out["stories"] = items.filter(func(it): return it["year"] == y and wire_when.has(it["when"]))
+	out["signings"] = season.fa.history.filter(func(e): return e["year"] == y and e["when"] == step)
+	out["signings"].sort_custom(func(a, b): return int(a["salary"]) > int(b["salary"]))
+	out["cuts"] = season.trades.moves.filter(func(m): return m["year"] == y and m["when"] == step and m["kind"] == &"cut")
+	out["trades"] = season.trades.history.filter(func(e): return e["year"] == y and e["when"] == step)
+	if step == "Re-signing":
+		out["resigned"] = season.resign_log.filter(func(r): return r["year"] == y)
+		out["resigned"].sort_custom(func(a, b): return a["soldier"].best_ovr() > b["soldier"].best_ovr())
+		out["retired"] = season.retirements.filter(func(r): return r["year"] == y)
+		out["retired"].sort_custom(func(a, b): return int(a["ovr"]) > int(b["ovr"]))
+	elif step == "Draft":
+		out["picks"] = season.draft.picks()
+	elif step == "FA Day 1":
+		out["market"] = season.departures.filter(func(d): return d["year"] == y)
+		out["market"].sort_custom(func(a, b): return a["soldier"].best_ovr() > b["soldier"].best_ovr())
+	return out
+
+
+## One-line summary of a step for the Home card ("14 signings, 2 cuts, 1 trade, 3 stories").
+func digest_summary(season: Season, step: String) -> String:
+	var d := digest(season, step)
+	var parts: Array[String] = []
+	var add := func(n: int, one: String, many: String):
+		if n > 0:
+			parts.append("%d %s" % [n, one if n == 1 else many])
+	add.call((d["picks"] as Array).size(), "pick", "picks")
+	add.call((d["resigned"] as Array).size(), "re-signing", "re-signings")
+	add.call((d["retired"] as Array).size(), "retirement", "retirements")
+	add.call((d["market"] as Array).size(), "free agent", "free agents")
+	add.call((d["signings"] as Array).size(), "signing", "signings")
+	add.call((d["cuts"] as Array).size(), "cut", "cuts")
+	add.call((d["trades"] as Array).size(), "trade", "trades")
+	add.call((d["stories"] as Array).size(), "story", "stories")
+	return ", ".join(parts) if not parts.is_empty() else "a quiet step"
+
+
+## Stories about one soldier, newest first.
+func for_soldier(id: int) -> Array:
+	var out: Array = []
+	for i in range(items.size() - 1, -1, -1):
+		if int(items[i]["soldier_id"]) == id and id > 0:
+			out.append(items[i])
+	return out
+
+
+func _year_room(season: Season, kind: String) -> bool:
+	var n := 0
+	for it in items:
+		if it["year"] == season.year and it["kind"] == kind:
+			n += 1
+	return n < OFFSEASON_PER_KIND
+
+
+func _wrote(season: Season, kind: String) -> bool:
+	return items.any(func(it): return it["year"] == season.year and it["kind"] == kind)
 
 
 ## Every rivalry game moves morale; team-specific, playoff and hot games (and snapped streaks)
