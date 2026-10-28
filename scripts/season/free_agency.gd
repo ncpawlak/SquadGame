@@ -65,7 +65,7 @@ func committed(team: Team, except: Soldier = null) -> int:
 ## Why `team` can't make this offer ("" = it can).
 func offer_error(season: Season, team: Team, s: Soldier, salary: int, years: int, promise := false) -> String:
 	if not season.free_agency_open():
-		return "Free agency opens after the draft."
+		return "Free agency opens when the re-signing window closes."
 	if not season.league.free_agents.has(s):
 		return "%s is not a free agent." % s.full_name()
 	if years < 1 or years > Contracts.MAX_YEARS:
@@ -199,10 +199,13 @@ func ai_offers(season: Season, rng: RandomNumberGenerator, in_season := false) -
 		if in_season and rng.randf() > 0.5:
 			continue
 		var mine := offers_by(team)
-		var open := maxi(0, Team.ROSTER_SIZE - team.roster.size() - mine.size())
-		var budget := maxi(0, Team.ROSTER_SIZE - team.roster.size()) + (AI_UPGRADE_BIDS_IN_SEASON if in_season else AI_UPGRADE_BIDS) - mine.size()
+		# Before the draft, roster spots and rookie-scale money are held back for the picks.
+		var picks := season.pending_picks(team)
+		var reserve := season.rookie_reserve(team)
+		var open := maxi(0, Team.ROSTER_SIZE - team.roster.size() - picks - mine.size())
+		var budget := maxi(0, Team.ROSTER_SIZE - team.roster.size() - picks) + (AI_UPGRADE_BIDS_IN_SEASON if in_season else AI_UPGRADE_BIDS) - mine.size()
 		if not roster_capped(season, team):
-			budget = mini(budget, AI_OFFSEASON_MAX - team.roster.size() - mine.size())
+			budget = mini(budget, AI_OFFSEASON_MAX - team.roster.size() - picks - mine.size())
 		if budget <= 0:
 			continue
 		var worst := team.least_valuable()
@@ -226,9 +229,9 @@ func ai_offers(season: Season, rng: RandomNumberGenerator, in_season := false) -
 			if contender and s.best_ovr() >= 80:
 				mult += 0.05
 			var salary := clampi(roundi(ask * mult / 10.0) * 10, Contracts.MIN_SALARY, Contracts.MAX_SALARY)
-			if not Contracts.fits(team, season.cap_year(), salary, committed(team)):
+			if not Contracts.fits(team, season.cap_year(), salary, committed(team) + reserve):
 				salary = ask
-				if not Contracts.fits(team, season.cap_year(), salary, committed(team)):
+				if not Contracts.fits(team, season.cap_year(), salary, committed(team) + reserve):
 					continue
 			if make_offer(season, team, s, salary, years) == "":
 				budget -= 1

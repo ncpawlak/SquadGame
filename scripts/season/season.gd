@@ -27,13 +27,15 @@ const STAGE_REGULAR := &"regular"
 const STAGE_QUARTERFINAL := &"quarterfinal"
 const STAGE_SEMIFINAL := &"semifinal"
 const STAGE_FINAL := &"final"
-## Offseason stages (Madden-style): re-sign your expiring players, run the draft, then free
-## agency (FA_DAYS bidding rounds), then training camp (Camp drills), then the next season.
-## Every offseason step is a "week" for XP: rostered soldiers earn OFFSEASON_WEEK_XP (scaled by
-## potential), and the training-camp week pays CAMP_WEEK_XP instead.
+## Offseason stages: re-sign your expiring players (awards and retirements are in), then free
+## agency (FA_DAYS bidding rounds), then the draft, then a roster-review week (undrafted
+## prospects join free agency; get under the cap), then training camp (Camp drills), then the
+## next season. Every offseason step is a "week" for XP: rostered soldiers earn
+## OFFSEASON_WEEK_XP (scaled by potential), and the training-camp week pays CAMP_WEEK_XP instead.
 const OFF_RESIGN := &"resign"
-const OFF_DRAFT := &"draft"
 const OFF_FREE_AGENCY := &"free_agency"
+const OFF_DRAFT := &"draft"
+const OFF_REVIEW := &"review"
 const OFF_CAMP := &"camp"
 const OFF_DONE := &"done"
 const OFFSEASON_WEEK_XP := 100.0
@@ -676,9 +678,39 @@ func cap_year() -> int:
 	return year + (1 if phase == PHASE_OFFSEASON else 0)
 
 
-## Offers can be made in-season and once the offseason reaches free agency.
+## Offers can be made in-season and once the re-signing window closes (through the draft,
+## roster review and camp; offers outside FA days are answered when the review week ends).
 func free_agency_open() -> bool:
-	return phase != PHASE_OFFSEASON or offseason_stage in [OFF_FREE_AGENCY, OFF_CAMP, OFF_DONE]
+	return phase != PHASE_OFFSEASON or offseason_stage in [OFF_FREE_AGENCY, OFF_DRAFT, OFF_REVIEW, OFF_CAMP, OFF_DONE]
+
+
+## Picks `team` still has to make in this offseason's draft (0 once it's done or in-season).
+func pending_picks(team: Team) -> int:
+	if phase != PHASE_OFFSEASON or draft == null or not draft.is_started() or draft.is_complete():
+		return 0
+	return draft.picks_left_for(team)
+
+
+## Rookie-scale money `team` will owe for its remaining picks this offseason.
+func rookie_reserve(team: Team) -> int:
+	if pending_picks(team) == 0:
+		return 0
+	var total := 0
+	for i in range(draft.next_pick, draft.order.size()):
+		if draft.order[i] == team:
+			total += Contracts.rookie_contract(i + 1, draft.order.size(), year).salary
+	return total
+
+
+## Why the user can't leave the roster-review week yet ("" = he can): payroll must be under
+## the cap before training camp (rookie deals always sign, so a team can end up over).
+func user_cap_error() -> String:
+	if phase != PHASE_OFFSEASON or offseason_stage != OFF_REVIEW:
+		return ""
+	var over := -Contracts.cap_space(user_team(), cap_year())
+	if over <= 0:
+		return ""
+	return "You're %s over the cap. Release or trade players to get under it before training camp." % Contracts.money(over)
 
 
 func camp_open() -> bool:
@@ -706,18 +738,19 @@ func run_drill(group: StringName, s: Soldier) -> Dictionary:
 
 func camp_check(group: StringName, s: Soldier) -> String:
 	if not camp_open() or camp == null:
-		return "Training camp opens after free agency."
+		return "Training camp opens after the roster review."
 	return camp.check(user_team(), group, s)
 
 
 func can_resign() -> bool:
-	return phase == PHASE_OFFSEASON and (offseason_stage == OFF_RESIGN or offseason_stage == OFF_DRAFT)
+	return phase == PHASE_OFFSEASON and offseason_stage == OFF_RESIGN
 
 
-## Moves the offseason one step: re-sign -> draft (AI teams re-sign) -> free agency (expiring
-## and undrafted soldiers hit the pool, AI teams cut down) -> each free-agency day resolves
-## offers -> training camp (AI teams run their drills, bonus XP) -> done. Finishes the draft
-## with AI picks if it isn't done. Each step is an XP week. Returns new signings.
+## Moves the offseason one step: re-sign (AI teams re-sign) -> free agency (expiring soldiers
+## hit the pool) -> each free-agency day resolves offers -> draft (finished with AI picks if it
+## isn't done) -> roster review (undrafted prospects join the pool, AI teams cut down and get
+## under the cap) -> pending offers are answered -> training camp (AI teams run their drills,
+## bonus XP) -> done. Each step is an XP week. Returns new signings.
 func advance_offseason() -> Array:
 	if phase != PHASE_OFFSEASON:
 		return []
@@ -726,18 +759,27 @@ func advance_offseason() -> Array:
 	match offseason_stage:
 		OFF_RESIGN:
 			_ai_resign()
-			offseason_stage = OFF_DRAFT
-		OFF_DRAFT:
-			finish_draft()
 			_open_free_agency()
 		OFF_FREE_AGENCY:
 			last_signings = fa.resolve(self, _rng, "FA Day %d" % fa_day)
 			signed = last_signings
 			if fa_day >= FA_DAYS:
-				offseason_stage = OFF_CAMP
+				offseason_stage = OFF_DRAFT
+				if not draft.is_started():
+					draft.set_order(draft_order())
+					trades.apply_owners(self)
 			else:
 				fa_day += 1
 				fa.ai_offers(self, _rng)
+		OFF_DRAFT:
+			finish_draft()
+			_open_roster_review()
+		OFF_REVIEW:
+			last_signings = fa.resolve(self, _rng, "Roster Review")
+			signed = last_signings
+			for t in league.teams:
+				_cut_to_cap(t)
+			offseason_stage = OFF_CAMP
 		OFF_CAMP:
 			for t in league.teams:
 				if not t.user_controlled:
@@ -832,11 +874,29 @@ func _ai_resign() -> void:
 func _open_free_agency() -> void:
 	offseason_stage = OFF_FREE_AGENCY
 	fa_day = 1
+	_release_expiring()
+	for t in league.teams:
+		if t.user_controlled:
+			continue
+		trades.restructure(self, t, Team.OFFSEASON_MAX)
+	fa.ai_offers(self, _rng)
+
+
+## Expiring soldiers who weren't re-signed leave their teams for the free-agent pool.
+func _release_expiring() -> void:
 	for t in league.teams:
 		for s in Contracts.expiring(t):
 			departures.append({"soldier": s, "team": t, "year": year})
 			t.release(s)
 			league.add_free_agent(s, year)
+
+
+## After the draft: the best undrafted prospects turn pro as free agents, AI teams trim to the
+## offseason max and get under the cap, and they bid on the new pool.
+func _open_roster_review() -> void:
+	offseason_stage = OFF_REVIEW
+	# Saves from the old order (draft before free agency) may still hold expiring deals.
+	_release_expiring()
 	var undrafted: Array = draft.available()
 	undrafted.sort_custom(func(a: Prospect, b: Prospect): return Draft.true_value(a) > Draft.true_value(b))
 	for p in undrafted.slice(0, UNDRAFTED_TO_FA):
@@ -847,7 +907,46 @@ func _open_free_agency() -> void:
 		# Offseason rosters may run to OFFSEASON_MAX (final cut-down to ROSTER_SIZE comes at the
 		# end of camp, in start_next_season); only extreme surpluses are shopped or cut now.
 		trades.restructure(self, t, Team.OFFSEASON_MAX)
+		_cut_to_cap(t)
 	fa.ai_offers(self, _rng)
+
+
+## Releases soldiers until `team`'s payroll is under the cap (each cut still leaves dead money):
+## from its less valuable half, the cheapest-to-lose player whose savings clear the overage,
+## else the one who saves the most. For the user this only runs as a safety net (headless
+## sims); the hub holds him in the review week until he fixes it himself (user_cap_error).
+func _cut_to_cap(team: Team) -> void:
+	while Contracts.cap_space(team, cap_year()) < 0 and team.roster.size() > Trades.MIN_ROSTER_OFFSEASON:
+		var over := -Contracts.cap_space(team, cap_year())
+		var kv := {}
+		for s in team.roster:
+			kv[s] = team.keep_value(s)
+		var order: Array = team.roster.duplicate()
+		order.sort_custom(func(a: Soldier, b: Soldier): return kv[a] < kv[b])
+		var pool: Array = order.slice(0, maxi(1, order.size() / 2))
+		var cut: Soldier = null
+		var best_save := 0
+		for s: Soldier in pool:
+			var save := _cap_savings(s)
+			if save >= over:
+				cut = s
+				break
+			if save > best_save:
+				best_save = save
+				cut = s
+		if cut == null:
+			break
+		release_player(team, cut)
+		trades.moves.append({"year": year, "when": "Offseason", "team": team, "soldier": cut, "kind": &"cut", "to": null})
+	if team.roster.size() >= team.scheme.slot_ids().size():
+		team.auto_lineup()
+
+
+## Cap-year money freed by releasing `s` (his salary minus the dead money it leaves).
+static func _cap_savings(s: Soldier) -> int:
+	if s.contract == null or s.contract.years <= 0:
+		return 0
+	return s.contract.salary - roundi(s.contract.salary * Contracts.DEAD_MONEY_SHARE)
 
 
 ## Draft order (the same every round): teams that missed the playoffs first (worst record
@@ -889,7 +988,7 @@ func mock_pick_order() -> Array:
 
 
 ## Completes the draft (AI picks for everyone still on the clock, including the user).
-## Roster cut-downs happen when free agency opens. Safe to call more than once.
+## Roster cut-downs happen when the roster review opens. Safe to call more than once.
 func finish_draft() -> void:
 	if phase != PHASE_OFFSEASON:
 		return

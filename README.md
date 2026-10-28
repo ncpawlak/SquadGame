@@ -76,7 +76,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   from each other division (3) and has one **bye**. The **playoffs** take 8 teams: the 4 division winners are seeds
   1-4 (by record), then the 4 best other records are wild cards 5-8. Bracket 1v8, 4v5, 2v7, 3v6 (no reseeding),
   higher seed hosts: Quarterfinals → Semifinals → Final.
-  Then the end-of-season review (awards and potential changes), the offseason (re-sign → draft → free agency → training camp),
+  Then the end-of-season review (awards and potential changes), the offseason (re-sign → free agency → draft → roster review → training camp),
   and aging → next season (rosters, ratings and contracts carry over).
 - **Standings** (League → Standings): Divisions / Whole league toggle with W-L, division record and a SEED column
   (DIV / WC) for the current playoff picture. League → Playoffs shows the projected logo bracket in-season and the live
@@ -142,7 +142,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   The Draft Room runs a **clock**: you have 2:00 on your pick (then the best available is auto-picked) and CPU teams
   pick after 5 seconds. The clock only runs while the Draft Room is open. **Sim to next pick** skips one CPU pick;
   you can also sim to your pick, draft a prospect or auto-pick. Draftees get rookie contracts (cheaper
-  later in the draft; 3 years in round 1, 2 years in rounds 2-3). The best 12 undrafted prospects join free agency; the rest leave.
+  later in the draft; 3 years in round 1, 2 years in rounds 2-3). The draft comes after free agency, so teams pick knowing their signings; AI teams hold roster spots and cap room for their picks during free agency. The best 12 undrafted prospects join free agency when the roster review opens; the rest leave.
   When the draft ends the Draft Room becomes the **Draft Recap**: every pick with all ratings and potential revealed,
   a note for blue chips, specialists, steals and reaches, and click-through to each player's profile. Past recaps
   stay under Personnel → Draft.
@@ -174,7 +174,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
 - **Trades** (`scripts/season/trades.gd`, Personnel → Trades, or "Trade for Him" / "Shop" on any player card):
   up to 3 assets a side - players under contract past this season and this year's and next year's draft picks
   (expiring contracts can't be traded). The window is open in preseason camp, through Week 8 (the deadline), and
-  in the offseason from the draft on (including during the live draft); closed for the rest of the season and the
+  for the whole offseason, from the re-sign week on (including during the live draft); closed for the rest of the season and the
   playoffs. Trades can push a roster past 12 (you must cut before your next match; AI teams restructure right away:
   shop their least valuable surplus to teams with room for a pick, else cut, weighing OVR, potential, age, years
   left, dead money and depth at his role). AI teams value incoming players by **need**: a would-be starter is worth
@@ -190,11 +190,14 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   lose morale by their Loyalty (players who asked out are relieved), trust resets, and requests clear. Trades show
   in News and the Trade Log; traded picks move in the mock and real draft order.
 - **Offseason** (advance button walks the stages): **Re-sign** (Sign at Ask or Negotiate; AI teams re-sign
-  their keepers) → **Draft** → **Free agency** (3 days) → **Training camp** → next season. Rosters max out at 12 (5 starters + 7 backups).
+  their keepers; the week also has Season Awards, Retirements and a Hall of Fame card - coming soon) → **Free agency** (3 days) →
+  **Draft** → **Roster review** (a week to cut, trade and sign; undrafted prospects join the pool) → **Training camp** → next season.
+  Rookie deals always sign, even over the hard cap, but a team over the cap must cut or trade down before camp (you
+  can't advance past the roster review until you're under; AI teams cut their least valuable players to get there). Rosters max out at 12 (5 starters + 7 backups).
   In the offseason your roster can be any size (trades, draft picks, extra signings), but **Week 1 needs exactly 12**:
   release down or sign up to it (an urgent "Roster Cuts" / "Roster Spots Open" to-do on Home). After Week 1
   you can play with 8-12; going over 12 by trade blocks your next match until you cut. AI teams carry up to 15 through
-  the draft and free agency and cut to 12 when camp ends, by a **keep score**: current OVR, upside (potential gap x
+  free agency and the draft and cut to 12 when camp ends, by a **keep score**: current OVR, upside (potential gap x
   grade, weighted toward youth), age decline, depth at his role (starters and the top backup are safe; players buried
   behind better prospects drop), a bonus for recent draft picks (round 1 > 2 > 3, fading after two years) and contract
   (dead money, surplus value). So a young A-potential is kept over a late-20s C, and fresh picks aren't cut into free agency.

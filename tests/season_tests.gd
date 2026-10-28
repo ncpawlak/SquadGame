@@ -625,8 +625,14 @@ func test_draft_order_and_picks() -> void:
 	check(d.picks().size() == d.order.size(), "all picks made")
 	check(s.offseason_stage == Season.OFF_RESIGN, "still in the re-sign window")
 	s.advance_offseason()
+	check(s.offseason_stage == Season.OFF_FREE_AGENCY, "free agency opens after the re-sign week")
+	while s.offseason_stage == Season.OFF_FREE_AGENCY:
+		s.advance_offseason()
+	check(s.offseason_stage == Season.OFF_DRAFT, "the draft follows free agency")
 	s.advance_offseason()
-	check(s.offseason_stage == Season.OFF_FREE_AGENCY, "free agency opened after the draft")
+	check(s.offseason_stage == Season.OFF_REVIEW, "roster review after the draft")
+	var undrafted := d.available()
+	check(undrafted.is_empty() or undrafted.any(func(pr): return s.league.free_agents.has(pr.soldier)), "undrafted prospects join free agency at the review")
 	for t in s.league.teams:
 		if not t.user_controlled:
 			check(t.roster.size() <= Team.OFFSEASON_MAX, "%s at or under the offseason max" % t.abbrev)
@@ -1028,22 +1034,25 @@ func test_training_camp_and_offseason_xp() -> void:
 	check(s.camp != null and s.camp.drills_left(user) == Camp.DRILLS.size(), "fresh camp each offseason")
 	# Every offseason step is an XP week, scaled by potential.
 	var x0 := _xp_total(probe)
-	s.advance_offseason()  # re-sign -> draft
+	s.advance_offseason()  # re-sign -> free agency
 	var step: int = _xp_total(probe) - x0
 	check(step == roundi(Season.OFFSEASON_WEEK_XP * Progression.xp_multiplier(probe)), "re-sign week xp (%d)" % step)
-	s.advance_offseason()  # draft -> free agency
-	check(_xp_total(probe) - x0 == 2 * step, "draft week xp")
-	var rookie: Soldier = null
-	for p in s.draft.picks():
-		if p.drafted_by == user:
-			rookie = p.soldier
 	var guard := 0
 	while s.offseason_stage == Season.OFF_FREE_AGENCY and guard < 10:
 		s.advance_offseason()
 		guard += 1
-	check(s.offseason_stage == Season.OFF_CAMP, "free agency ends in training camp")
+	check(s.offseason_stage == Season.OFF_DRAFT, "free agency ends in the draft")
+	check(_xp_total(probe) - x0 == (1 + Season.FA_DAYS) * step, "every FA day is an xp week")
+	s.advance_offseason()  # draft -> roster review
+	check(s.offseason_stage == Season.OFF_REVIEW, "the draft ends in the roster review")
+	var rookie: Soldier = null
+	for p in s.draft.picks():
+		if p.drafted_by == user:
+			rookie = p.soldier
+	s.advance_offseason()  # roster review -> training camp
+	check(s.offseason_stage == Season.OFF_CAMP, "the roster review ends in training camp")
 	check(s.camp_open() and s.free_agency_open(), "camp open; unsigned players still sign")
-	check(_xp_total(probe) - x0 == (2 + Season.FA_DAYS) * step, "every FA day is an xp week")
+	check(_xp_total(probe) - x0 == (3 + Season.FA_DAYS) * step, "draft and review weeks are xp weeks")
 	check(rookie == null or rookie.xp > 0 or rookie.level > 1, "draftees earn xp too")
 	# Drills.
 	var a: Soldier = user.roster.filter(func(x: Soldier): return x.group_headroom(Stats.PHYSICALITY) >= 2 and not x.is_injured())[0]
@@ -1533,8 +1542,9 @@ func test_roster_rules() -> void:
 	# Offseason: trades allowed regardless of count; floor of 5; AI over the limit restructures.
 	var s3 := Season.new_franchise(987)
 	s3.sim_to_end_of_season()
+	check(s3.offseason_stage == Season.OFF_RESIGN and s3.trades.window_open(s3), "trade window open from the re-sign week")
 	s3.advance_offseason()
-	check(s3.offseason_stage == Season.OFF_DRAFT and s3.trades.window_open(s3), "trade window open at the draft")
+	check(s3.offseason_stage == Season.OFF_FREE_AGENCY and s3.trades.window_open(s3), "trade window open in free agency")
 	check(Trades.min_roster(s3) == Trades.MIN_ROSTER_OFFSEASON, "offseason trade floor is %d" % Trades.MIN_ROSTER_OFFSEASON)
 	var u3 := s3.user_team()
 	var a3: Team = s3.league.teams.filter(func(t: Team): return t != u3)[0]
