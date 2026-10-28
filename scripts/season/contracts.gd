@@ -97,13 +97,19 @@ static func rookie_contract(pick_number: int, total_picks: int, year: int) -> Co
 	return Contract.make(salary, ROOKIE_YEARS[rnd], year, true)
 
 
-## Payroll for `cap_year + ahead` (ahead 0 = the cap year itself).
+## Payroll for `cap_year + ahead` (ahead 0 = the cap year itself). In the offseason an expiring
+## deal stays on the cap year as a cap hold (his old salary) until he re-signs or leaves.
 static func payroll(team: Team, cap_year: int, ahead := 0) -> int:
 	var total := int(team.dead_money.get(cap_year + ahead, 0))
 	for s in team.roster:
-		if s.contract != null and s.contract.years > ahead:
+		if s.contract != null and (s.contract.years > ahead or (ahead == 0 and s.contract.is_expiring())):
 			total += s.contract.salary
 	return total
+
+
+## The cap hold an expiring soldier carries (his old salary); re-signing him replaces it.
+static func cap_hold(s: Soldier) -> int:
+	return s.contract.salary if s.contract != null and s.contract.is_expiring() else 0
 
 
 static func cap_space(team: Team, cap_year: int) -> int:
@@ -111,9 +117,14 @@ static func cap_space(team: Team, cap_year: int) -> int:
 
 
 ## Whether a new deal paying `salary` fits (minimum deals always fit). `committed` is money
-## already promised elsewhere (e.g. pending free-agent offers).
+## already promised elsewhere (e.g. pending free-agent offers); negative frees room (a cap hold).
 static func fits(team: Team, cap_year: int, salary: int, committed := 0) -> bool:
 	return salary <= MIN_SALARY or salary + committed <= cap_space(team, cap_year)
+
+
+## Whether re-signing `s` at `salary` fits: his new deal replaces his cap hold.
+static func resign_fits(team: Team, cap_year: int, s: Soldier, salary: int) -> bool:
+	return fits(team, cap_year, salary, -cap_hold(s))
 
 
 ## Dead money left on the cap if `s` is released now: DEAD_MONEY_SHARE of each remaining year.

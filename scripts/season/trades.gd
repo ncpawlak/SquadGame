@@ -334,7 +334,7 @@ func window_open(season: Season) -> bool:
 		Season.PHASE_REGULAR:
 			return season.week <= DEADLINE_WEEK
 		Season.PHASE_OFFSEASON:
-			return season.offseason_stage in [Season.OFF_DRAFT, Season.OFF_FREE_AGENCY, Season.OFF_CAMP, Season.OFF_DONE]
+			return true
 	return false
 
 
@@ -343,9 +343,7 @@ func window_text(season: Season) -> String:
 		if season.phase == Season.PHASE_REGULAR and not season.preseason_camp:
 			return "OPEN  -  deadline after Week %d" % DEADLINE_WEEK
 		return "OPEN"
-	if season.phase == Season.PHASE_OFFSEASON:
-		return "CLOSED  -  reopens when the draft starts"
-	return "CLOSED  -  the deadline passed after Week %d; reopens at the draft" % DEADLINE_WEEK
+	return "CLOSED  -  the deadline passed after Week %d; reopens after the Final" % DEADLINE_WEEK
 
 
 static func _salary(list: Array) -> int:

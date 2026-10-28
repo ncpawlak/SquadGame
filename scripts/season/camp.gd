@@ -1,6 +1,6 @@
 class_name Camp
 extends RefCounted
-## Offseason training camp (after free agency, before Week 1): one drill per rating group.
+## Offseason training camp (after the draft and roster review, before Week 1): one drill per rating group.
 ## Each team sends one soldier to each drill and a soldier can attend only one drill per camp.
 ## A drill hands the soldier a pool of points (rolled from his potential) that is spread at
 ## random over the group's stats (max MAX_STAT_GAIN per stat, 99 max). Drills respect the

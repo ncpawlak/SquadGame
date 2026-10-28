@@ -289,28 +289,38 @@ func _roster_blocked() -> bool:
 var _camp_skip_warned := false
 
 
-## Offseason steps: re-sign window -> draft -> free agency days -> training camp -> next season.
+## Offseason steps: re-sign window -> free agency days -> draft -> roster review -> training camp -> next season.
 func _advance_offseason() -> void:
 	match season.offseason_stage:
 		Season.OFF_RESIGN:
 			season.advance_offseason()
-			_rebuild_and_open("Draft Room", pages.draft_room)
-			app.toast("Re-signing window closed. The %d draft is on." % season.draft.year)
+			_rebuild_and_open("Free Agents", pages.free_agents)
+			app.toast("Re-signing window closed. Free agency is open: %d soldiers available. Offers are answered each FA day." % season.league.free_agents.size())
+		Season.OFF_FREE_AGENCY:
+			var label := "FA Day %d" % season.fa_day
+			var signed: Array = season.advance_offseason()
+			_rebuild_and_open("%s Results" % label, func(): return pages.signings(label, signed))
+			if season.offseason_stage == Season.OFF_DRAFT:
+				app.toast("Free agency is over. The %d draft is on: open the Draft Room." % season.draft.year)
 		Season.OFF_DRAFT:
 			if not season.draft.is_complete():
 				_rebuild_and_open("Draft Room", pages.draft_room)
 				app.toast("Make your picks (or sim the rest of the draft) first.")
 				return
 			season.advance_offseason()
-			_rebuild_and_open("Free Agents", pages.free_agents)
-			app.toast("Free agency is open: %d soldiers available. Offers are answered each FA day." % season.league.free_agents.size())
-		Season.OFF_FREE_AGENCY:
-			var label := "FA Day %d" % season.fa_day
+			_rebuild_and_open("Contracts & Payroll", pages.contracts)
+			app.toast("Roster review: undrafted prospects joined free agency. Set your roster and get under the cap before camp.")
+		Season.OFF_REVIEW:
+			var err := season.user_cap_error()
+			if err != "":
+				_rebuild_and_open("Contracts & Payroll", pages.contracts)
+				app.toast(err)
+				return
 			var signed: Array = season.advance_offseason()
 			_camp_skip_warned = false
-			_rebuild_and_open("%s Results" % label, func(): return pages.signings(label, signed))
+			_rebuild_and_open("Roster Review Results", func(): return pages.signings("Roster Review", signed))
 			if season.camp_open():
-				app.toast("Free agency is over. Training camp is open: send a player to each drill.")
+				app.toast("Training camp is open: send a player to each drill.")
 		_:
 			var user := season.user_team()
 			if season.camp_open() and season.camp.drills_left(user) > 0 and not _camp_skip_warned:
@@ -660,10 +670,12 @@ func _phase_text() -> String:
 			match season.offseason_stage:
 				Season.OFF_RESIGN:
 					return "OFFSEASON - RE-SIGN"
-				Season.OFF_DRAFT:
-					return "OFFSEASON - DRAFT"
 				Season.OFF_FREE_AGENCY:
 					return "OFFSEASON - FREE AGENCY"
+				Season.OFF_DRAFT:
+					return "OFFSEASON - DRAFT"
+				Season.OFF_REVIEW:
+					return "OFFSEASON - ROSTER REVIEW"
 				Season.OFF_CAMP:
 					return "OFFSEASON - TRAINING CAMP"
 			return "OFFSEASON - PRESEASON"
@@ -678,11 +690,13 @@ func _advance_text() -> String:
 	if season.phase == Season.PHASE_OFFSEASON:
 		match season.offseason_stage:
 			Season.OFF_RESIGN:
-				return "TO THE DRAFT  >>"
-			Season.OFF_DRAFT:
-				return "%d DRAFT  >>" % season.year if not season.draft.is_complete() else "FREE AGENCY  >>"
+				return "FREE AGENCY  >>"
 			Season.OFF_FREE_AGENCY:
 				return "FA DAY %d of %d  >>" % [season.fa_day, Season.FA_DAYS]
+			Season.OFF_DRAFT:
+				return "%d DRAFT  >>" % season.year if not season.draft.is_complete() else "ROSTER REVIEW  >>"
+			Season.OFF_REVIEW:
+				return "TRAINING CAMP  >>"
 		return "START %d SEASON  >>" % (season.year + 1)
 	if season.preseason_camp:
 		return "START %d SEASON  >>" % season.year
@@ -792,10 +806,31 @@ func _todo_tiles(team: Team) -> Array:
 			out.append(_todo("Re-sign Players", ("[color=#f59e0b]%d expiring[/color]: %s" % [expiring.size(),
 				", ".join(PackedStringArray(expiring.map(func(x: Soldier): return x.short_name())))]) if not expiring.is_empty() else "No expiring contracts.",
 				Color("#22c55e"), open_resign, expiring.is_empty()))
+		if season.offseason_stage == Season.OFF_RESIGN:
+			if season.review != null and not season.review.awards.is_empty():
+				var mvp: Dictionary = season.review.awards[0]
+				out.append(_todo("Season Awards", "%d MVP: [color=white]%s[/color] (%s)" % [season.review.year, UiKit.esc(mvp["soldier"].short_name()), mvp["team"].abbrev],
+					Color("#f59e0b"), func(): open("Awards & Development", pages.awards)))
+			var rets := season.retirements_in(season.year)
+			out.append(_todo("Retirements", ("[color=white]%d[/color] soldier%s hung it up this year." % [rets.size(), "" if rets.size() == 1 else "s"]) if not rets.is_empty() else "Nobody retired this year.",
+				Color("#94a3b8"), open_retirements))
+			var hof := _todo("Hall of Fame", "Coming soon: this year's inductees.", UiKit.MUTED,
+				func(): coming_soon("Hall of Fame", ["This year's inductees", "Career numbers and honours", "The full Hall by class"]))
+			hof.modulate = Color(1, 1, 1, 0.6)
+			hof.set_meta("todo_done", true)
+			out.append(hof)
 		if season.offseason_stage == Season.OFF_DRAFT:
 			var d := season.draft
 			out.append(_todo("Draft Room", "Every pick is in." if d.is_complete() else "[color=#38bdf8]Your picks:[/color] %d left" % d.picks_left_for(team),
 				UiKit.INFO, open_draft_room, d.is_complete()))
+		if season.offseason_stage == Season.OFF_REVIEW:
+			var space := Contracts.cap_space(team, season.cap_year())
+			if space < 0:
+				out.append(_todo("Over the Cap", "[color=#ef4444]%s over[/color] the cap.\nRelease or trade players before training camp." % Contracts.money(-space),
+					UiKit.BAD, open_contracts, false, true))
+			else:
+				out.append(_todo("Roster Review", "%d / %d players  -  cap space %s\nMake your cuts and moves before camp." % [team.roster.size(), Team.ROSTER_SIZE, Contracts.money(space)],
+					Color("#f97316"), open_contracts))
 		if season.free_agency_open():
 			var offers := season.fa.offers_by(team).size()
 			out.append(_todo("Free Agency", "%d available  -  [color=#38bdf8]%d pending offer%s[/color]\nCap space %s" % [season.league.free_agents.size(), offers,
@@ -1088,11 +1123,11 @@ func _roster_status(team: Team) -> Dictionary:
 	var lo := Team.ROSTER_SIZE if before_week1 else Season.ROSTER_MIN
 	if n <= Team.ROSTER_SIZE and n >= lo:
 		return {}
-	# Early offseason: the roster is still taking shape (expiring deals leave, picks arrive).
-	if season.phase == Season.PHASE_OFFSEASON and n < lo and season.offseason_stage in [Season.OFF_RESIGN, Season.OFF_DRAFT]:
+	# Early offseason: the roster is still taking shape (expiring deals leave, signings and picks arrive).
+	if season.phase == Season.PHASE_OFFSEASON and n < lo and season.offseason_stage in [Season.OFF_RESIGN, Season.OFF_FREE_AGENCY, Season.OFF_DRAFT]:
 		return {}
-	# Offseason rosters may carry up to OFFSEASON_MAX until camp ends.
-	if season.phase == Season.PHASE_OFFSEASON and n > Team.ROSTER_SIZE and season.offseason_stage in [Season.OFF_RESIGN, Season.OFF_DRAFT, Season.OFF_FREE_AGENCY]:
+	# Offseason rosters may carry up to OFFSEASON_MAX until the roster review.
+	if season.phase == Season.PHASE_OFFSEASON and n > Team.ROSTER_SIZE and season.offseason_stage in [Season.OFF_RESIGN, Season.OFF_FREE_AGENCY, Season.OFF_DRAFT]:
 		return {}
 	var when := "Week 1" if before_week1 else "your next match"
 	if n > Team.ROSTER_SIZE:
@@ -1646,9 +1681,9 @@ func _scouted_count() -> int:
 	return n
 
 
-## The draft is finished (free agency or later).
+## The draft is finished (roster review or later).
 func draft_done() -> bool:
-	return season.phase == Season.PHASE_OFFSEASON and season.offseason_stage in [Season.OFF_FREE_AGENCY, Season.OFF_CAMP, Season.OFF_DONE]
+	return season.phase == Season.PHASE_OFFSEASON and season.offseason_stage in [Season.OFF_REVIEW, Season.OFF_CAMP, Season.OFF_DONE]
 
 
 func open_scouting() -> void:
@@ -2220,7 +2255,7 @@ func _league_cards() -> Control:
 			bfa = s
 	var open_fa := season.free_agency_open()
 	cards.append(_stat_card("Free Agents", str(fas.size()), "AVAILABLE", ("Best: [color=white]%s[/color] (%d)\n" % [UiKit.esc(bfa.short_name()), bfa.best_ovr()] if bfa else "")
-		+ ("Bidding open" if open_fa else "Bidding reopens after the draft"), Color("#14b8a6"), open_free_agents, "BIDDING" if open_fa else ""))
+		+ ("Bidding open" if open_fa else "Bidding opens after re-signing"), Color("#14b8a6"), open_free_agents, "BIDDING" if open_fa else ""))
 
 	var n := 0
 	for c in cards:
@@ -2445,7 +2480,7 @@ func _personnel_cards() -> Control:
 	var fa_stage := season.phase == Season.PHASE_OFFSEASON and season.offseason_stage == Season.OFF_FREE_AGENCY
 	var bids: int = season.fa.offers_by(team).size()
 	var fa_detail := ("Day %d of %d" % [season.fa_day, Season.FA_DAYS]) if fa_stage else \
-		("Opens after the draft" if season.phase == Season.PHASE_OFFSEASON and not draft_done() else "Bidding open")
+		("Opens after re-signing" if not season.free_agency_open() else "Bidding open")
 	if bids > 0:
 		fa_detail += "\n%d offer%s out" % [bids, "" if bids == 1 else "s"]
 	cards.append(_stat_card("Free Agency", str(season.league.free_agents.size()), "AVAILABLE", fa_detail,
@@ -2570,15 +2605,21 @@ func _status_info(team: Team) -> Dictionary:
 		var cta := "Draft Room"
 		match season.offseason_stage:
 			Season.OFF_RESIGN:
-				next_step = "Re-sign your expiring players, then advance to the draft."
+				next_step = "Re-sign your expiring players and catch up on the awards and retirements, then advance to free agency."
 				target = open_resign
 				cta = "Re-sign Players"
-			Season.OFF_DRAFT:
-				next_step = "Draft day is here: scout the class, then make your picks."
 			Season.OFF_FREE_AGENCY:
-				next_step = "Free agency, day %d of %d: bid on soldiers before they sign elsewhere." % [season.fa_day, Season.FA_DAYS]
+				next_step = "Free agency, day %d of %d: bid on soldiers before they sign elsewhere. The draft follows." % [season.fa_day, Season.FA_DAYS]
 				target = open_free_agents
 				cta = "Free Agents"
+			Season.OFF_DRAFT:
+				next_step = "Draft day is here: make your picks."
+			Season.OFF_REVIEW:
+				var over := -Contracts.cap_space(team, season.cap_year())
+				next_step = "Roster review: undrafted prospects are in free agency. Make your cuts and moves%s, then advance to training camp." % (
+					(" ([color=#ef4444]%s over the cap[/color])" % Contracts.money(over)) if over > 0 else "")
+				target = open_contracts
+				cta = "Contracts & Payroll"
 			Season.OFF_CAMP:
 				next_step = "Training camp: send one player to each drill ([color=#38bdf8]%d left[/color]), then start the season." % season.camp.drills_left(team)
 				target = open_camp
@@ -2644,12 +2685,17 @@ func _advance_blurb() -> String:
 	if season.phase == Season.PHASE_OFFSEASON:
 		match season.offseason_stage:
 			Season.OFF_RESIGN:
-				return "Close the re-signing window. Unsigned expiring players hit free agency after the draft."
-			Season.OFF_DRAFT:
-				return "Make your picks in the Draft Room, then open free agency." if not season.draft.is_complete() else "Expiring players and undrafted prospects hit the market."
+				return "Close the re-signing window. Unsigned expiring players hit free agency."
 			Season.OFF_FREE_AGENCY:
 				return "Players answer this round of offers. Best offer (money, team, playing time) wins." + (
-					"\nTraining camp follows." if season.fa_day >= Season.FA_DAYS else "")
+					"\nThe draft follows." if season.fa_day >= Season.FA_DAYS else "")
+			Season.OFF_DRAFT:
+				return "Make your picks in the Draft Room." if not season.draft.is_complete() else "Undrafted prospects hit the market. Then a week to review your roster."
+			Season.OFF_REVIEW:
+				var err := season.user_cap_error()
+				if err != "":
+					return "[color=#ef4444]%s[/color]" % err
+				return "Pending offers are answered, then training camp opens."
 		if season.camp_open() and season.camp.drills_left(season.user_team()) > 0:
 			return "Close camp ([color=#f59e0b]%d drills unused[/color]) and start the %d season." % [season.camp.drills_left(season.user_team()), season.year + 1]
 		var n := season.user_team().roster.size()

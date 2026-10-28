@@ -3321,7 +3321,7 @@ func prospect(p: Prospect) -> Control:
 	return v
 
 
-## Called after every draft-room pick. Roster cut-downs now happen when free agency opens.
+## Called after every draft-room pick. Roster cut-downs now happen when the roster review opens.
 func _after_pick() -> void:
 	pass
 
@@ -3386,13 +3386,15 @@ func draft_room() -> Control:
 		v.add_child(rules)
 		v.add_child(UiKit.button("Go to Scouting", hub.open_scouting))
 		return v
-	if s.offseason_stage == Season.OFF_RESIGN:
-		v.add_child(UiKit.label("Re-signing window: the draft starts when you advance.", 22, Color.WHITE))
-		var rules := UiKit.label("Lock up your expiring players first - anyone you don't re-sign hits free agency after the draft. You pick in the order below.", 15, UiKit.MUTED)
+	if s.offseason_stage in [Season.OFF_RESIGN, Season.OFF_FREE_AGENCY]:
+		var fa_now := s.offseason_stage == Season.OFF_FREE_AGENCY
+		v.add_child(UiKit.label("Free agency (day %d of %d) comes first: the draft starts after it." % [s.fa_day, Season.FA_DAYS] if fa_now
+			else "Re-signing window: free agency, then the draft, follow.", 22, Color.WHITE))
+		var rules := UiKit.label("Anyone you don't re-sign hits free agency when the window closes. Leave roster spots and cap room for your rookies - over-cap teams must cut down before camp. You pick in the order below.", 15, UiKit.MUTED)
 		rules.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(rules)
 		var nav := _row()
-		nav.add_child(UiKit.button("Re-sign Players", hub.open_resign))
+		nav.add_child(UiKit.button("Free Agents" if fa_now else "Re-sign Players", hub.open_free_agents if fa_now else hub.open_resign))
 		nav.add_child(UiKit.button("Scouting", hub.open_scouting))
 		nav.add_child(UiKit.button("Mock Draft", hub.open_mock_draft))
 		v.add_child(nav)
@@ -3585,7 +3587,7 @@ func draft_recap(d: Draft) -> Control:
 		d.year, picks.size()], 16))
 	var nav := _row()
 	if s.phase == Season.PHASE_OFFSEASON and s.offseason_stage == Season.OFF_DRAFT:
-		nav.add_child(UiKit.action_button("Open free agency  >>", hub.advance, 18))
+		nav.add_child(UiKit.action_button("Roster review  >>", hub.advance, 18))
 	nav.add_child(UiKit.button("Roster", func(): hub.open("Roster", roster), 18))
 	v.add_child(nav)
 	# Real value ranks (what the board should have been), for steals and reaches.
@@ -3784,7 +3786,7 @@ func training_camp() -> Control:
 	var camp := s.camp
 	var v := _vbox(14)
 	if camp == null:
-		v.add_child(UiKit.label("Training camp runs each offseason, after free agency.", 22, Color.WHITE))
+		v.add_child(UiKit.label("Training camp runs each offseason, after the draft and roster review.", 22, Color.WHITE))
 		return v
 	_camp_sync(s)
 	var open := s.camp_open()
@@ -3823,7 +3825,7 @@ func _camp_header(s: Season, open: bool) -> Control:
 	title.add_child(UiKit.display("%d TRAINING CAMP" % (camp.year + 1), 30, Color.WHITE, true))
 	var status := "Pick a player for each drill, then run camp."
 	if not open:
-		status = "Opens after free agency." if s.phase == Season.PHASE_OFFSEASON and s.offseason_stage != Season.OFF_DONE else "Camp is closed."
+		status = "Opens after the roster review." if s.phase == Season.PHASE_OFFSEASON and s.offseason_stage != Season.OFF_DONE else "Camp is closed."
 	elif camp.drills_left(user) == 0:
 		status = "Every drill is done."
 	title.add_child(UiKit.label(status, 14, UiKit.MUTED))
@@ -3911,7 +3913,7 @@ func _camp_card(s: Season, g: StringName, open: bool) -> Control:
 			_camp_focus = gg
 			_camp_refresh())
 	else:
-		b.pressed.connect(func(): hub.app.toast("Training camp opens after free agency."))
+		b.pressed.connect(func(): hub.app.toast("Training camp opens after the roster review."))
 	var v := _vbox(6)
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -4119,7 +4121,7 @@ func drill_pick(group: StringName) -> Control:
 	var user := s.user_team()
 	var v := _vbox(12)
 	if s.camp == null:
-		v.add_child(UiKit.label("Training camp runs each offseason, after free agency.", 22, Color.WHITE))
+		v.add_child(UiKit.label("Training camp runs each offseason, after the draft and roster review.", 22, Color.WHITE))
 		return v
 	var info: Dictionary = Camp.DRILLS[group]
 	v.add_child(UiKit.rich("[font_size=26][color=white]%s[/color][/font_size]     %s drill  -  %s" % [
@@ -4467,8 +4469,10 @@ func free_agents() -> Control:
 	var v := _vbox(12)
 	var status := "Bidding is open: offers are answered at the start of each week." if s.phase != Season.PHASE_OFFSEASON \
 		else ("FREE AGENCY DAY %d of %d: offers are answered when you advance." % [s.fa_day, Season.FA_DAYS] if s.offseason_stage == Season.OFF_FREE_AGENCY
-		else ("Free agency is over; unsigned soldiers still take offers until the season starts." if s.offseason_stage == Season.OFF_DONE
-		else "Free agency opens after the draft. Expiring contracts and undrafted prospects join this pool."))
+		else ("Draft day: offers stay pending and are answered when the roster review ends." if s.offseason_stage == Season.OFF_DRAFT
+		else ("Roster review: undrafted prospects have joined the pool. Offers are answered when you advance to camp." if s.offseason_stage == Season.OFF_REVIEW
+		else ("Free agency is over; unsigned soldiers still take offers until the season starts." if s.offseason_stage in [Season.OFF_CAMP, Season.OFF_DONE]
+		else "Free agency opens when the re-signing window closes. Expiring contracts join this pool; undrafted prospects join after the draft."))))
 	v.add_child(UiKit.label(status, 18, Color.WHITE))
 	var pending := s.fa.offers_by(user)
 	v.add_child(_cap_banner(user))
@@ -4842,9 +4846,12 @@ func resign() -> Control:
 		var upcoming: Array = user.roster.filter(func(x: Soldier): return x.contract != null and x.contract.years == 1)
 		v.add_child(UiKit.label("Contracts ending this season: %s" % (", ".join(PackedStringArray(upcoming.map(func(x: Soldier): return x.full_name()))) if not upcoming.is_empty() else "none"), 16, UiKit.MUTED))
 		return v
-	v.add_child(UiKit.rich("[font_size=22][color=white]%s[/color][/font_size]   cap space for %d: [color=white]%s[/color]" % [
-		"RE-SIGN WINDOW OPEN" if s.can_resign() else "RE-SIGN WINDOW CLOSED", s.cap_year(), Contracts.money(Contracts.cap_space(user, s.cap_year()))], 16))
-	var help := UiKit.label("Each expiring player names his price (a hometown discount, moved by his DNA and trust in you). Sign at his ask, or Negotiate to make offers and argue your case with data. Push too hard and he walks into free agency. Anyone unsigned when free agency opens joins the pool.", 14, UiKit.MUTED)
+	var holds := 0
+	for x in expiring:
+		holds += Contracts.cap_hold(x)
+	v.add_child(UiKit.rich("[font_size=22][color=white]%s[/color][/font_size]   cap space for %d: [color=white]%s[/color]   (payroll includes [color=white]%s[/color] in cap holds)" % [
+		"RE-SIGN WINDOW OPEN" if s.can_resign() else "RE-SIGN WINDOW CLOSED", s.cap_year(), Contracts.money(Contracts.cap_space(user, s.cap_year())), Contracts.money(holds)], 16))
+	var help := UiKit.label("Each expiring player names his price (a hometown discount, moved by his DNA and trust in you). Sign at his ask, or Negotiate to make offers and argue your case with data. Push too hard and he walks into free agency. Until free agency opens, every expiring player still counts against the cap at his old salary (a cap hold); re-signing him swaps the hold for his new deal, and releasing him clears it. Anyone unsigned when free agency opens joins the pool.", 14, UiKit.MUTED)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(help)
 	if expiring.is_empty():
@@ -4947,8 +4954,8 @@ func negotiate() -> Control:
 		UiKit.esc(s.display_name()), s.age, Scheme.ROLE_NAMES[Scheme.best_role(s.stats)], UiKit.hex(UiKit.ovr_color(s.best_ovr())), s.best_ovr(),
 		UiKit.hex(potential_color(s.potential)), s.potential_letter()], 16))
 	head.add_child(UiKit.rich("[color=%s]%s[/color]   -   %s   -   %s" % [UiKit.hex(UiKit.INFO), d.headline(), d.temperament_label(), d.savvy_label()], 15))
-	head.add_child(UiKit.rich("Market value [color=white]%s[/color]   -   your cap space for %d: [color=white]%s[/color]   -   current deal %s" % [
-		Contracts.money(Contracts.market_value(s)), season.cap_year(), Contracts.money(Contracts.cap_space(user, season.cap_year())),
+	head.add_child(UiKit.rich("Market value [color=white]%s[/color]   -   %d cap room for him (his hold freed): [color=white]%s[/color]   -   current deal %s" % [
+		Contracts.money(Contracts.market_value(s)), season.cap_year(), Contracts.money(Contracts.cap_space(user, season.cap_year()) + Contracts.cap_hold(s)),
 		Contracts.money(s.contract.salary) if s.contract != null else "-"], 15))
 	top.add_child(head)
 	v.add_child(top)
