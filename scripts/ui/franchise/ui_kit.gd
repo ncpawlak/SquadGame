@@ -20,6 +20,10 @@ const SKEW := 0.22
 
 ## Accent colour: a bright version of the user's team colour (see set_team).
 static var ACCENT := GOLD
+const SILVER := Color("#cbd5e1")
+## Trim colour: the team's other colour (the one the accent wasn't taken from), for card borders
+## and big numbers. Too-dark trims (charcoal, navy-black) fall back to silver.
+static var TRIM := SILVER
 ## Row background for the user's own team / players in league-wide tables (tables also give it an accent border).
 static var MINE := Color("#3d2c08")
 ## Deep version of the user's team colour for banners and backdrops.
@@ -43,6 +47,7 @@ static func set_team(t: Team) -> void:
 	if a == ACCENT and banner == TEAM_DARK and _theme != null:
 		return
 	ACCENT = a
+	TRIM = trim_of(t)
 	MINE = Color.from_hsv(a.h, clampf(a.s, 0.5, 0.9), 0.24)
 	TEAM_DARK = banner
 	_theme = null
@@ -53,6 +58,7 @@ static func reset_team() -> void:
 	if ACCENT == GOLD and _theme != null:
 		return
 	ACCENT = GOLD
+	TRIM = SILVER
 	MINE = Color("#3d2c08")
 	TEAM_DARK = Color("#1a2640")
 	_theme = null
@@ -70,6 +76,15 @@ static func accent_of(t: Team) -> Color:
 	if best.s < 0.12:
 		return GOLD
 	return Color.from_hsv(best.h, clampf(best.s, 0.5, 0.95), clampf(best.v, 0.82, 1.0))
+
+
+## The team colour the accent was NOT taken from, readable on dark panels.
+static func trim_of(t: Team) -> Color:
+	var src_is_primary := t.color.s * (0.35 + t.color.v) >= t.color2.s * (0.35 + t.color2.v)
+	var other: Color = t.color2 if src_is_primary else t.color
+	if other.v < 0.45:
+		return SILVER
+	return other.lightened(0.1) if other.v < 0.7 else other
 
 
 ## A deep, saturated team colour for banners (white or near-black primaries fall back).
@@ -303,13 +318,35 @@ static func style_skewed(b: Button, base := PANEL_HI) -> void:
 	b.add_theme_font_override("font", font_display)
 
 
+## Standard button: slanted broadcast secondary (dark plate, accent rim on hover/focus).
 static func button(text: String, cb: Callable, size := 16) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.add_theme_font_size_override("font_size", size)
-	style_button(b)
+	style_skewed(b)
+	_margins(b, 18)
 	b.pressed.connect(cb)
 	return b
+
+
+## The main action of a row or screen (Accept, Sign, Propose): slanted, in the team accent.
+static func action_button(text: String, cb: Callable, size := 16) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.add_theme_font_size_override("font_size", size)
+	style_primary(b)
+	_margins(b, 20)
+	b.pressed.connect(cb)
+	return b
+
+
+static func _margins(b: Button, h: int) -> void:
+	for k in ["normal", "hover", "pressed", "focus", "disabled"]:
+		var s: StyleBoxFlat = b.get_theme_stylebox(k)
+		s.content_margin_left = h
+		s.content_margin_right = h
+		s.content_margin_top = 8
+		s.content_margin_bottom = 8
 
 
 static func primary_button(text: String, cb: Callable, size := 20) -> Button:
@@ -508,6 +545,25 @@ static func logo_bb(team: Team, size := 22) -> String:
 
 
 ## Square team logo; falls back to the coloured chip when the team has no logo.
+## The team logo on a dark disc ringed in the team accent, `size` px across, so it reads on any
+## background (team-colour banners included).
+static func logo_disc(team: Team, size := 120, glow := true) -> Control:
+	var p := PanelContainer.new()
+	var acc := accent_of(team)
+	var sb := flat(Color(0.02, 0.03, 0.06, 0.85), size, maxi(2, size / 50), acc)
+	var logo := int(size * 0.76)
+	sb.set_content_margin_all((size - logo) / 2.0)
+	if glow:
+		sb.shadow_color = Color(acc, 0.25)
+		sb.shadow_size = maxi(4, size / 12)
+	p.add_theme_stylebox_override("panel", sb)
+	p.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	p.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(team_logo(team, logo))
+	return p
+
+
 static func team_logo(team: Team, size := 48) -> Control:
 	var tex := logo_tex(team.abbrev)
 	if tex == null:
@@ -637,6 +693,16 @@ static func fade_in(c: CanvasItem, delay := 0.0, dur := 0.22) -> void:
 			return
 		var tw := c.create_tween()
 		tw.tween_property(c, "modulate:a", target, dur).set_delay(delay).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT))
+
+
+## Gently pulse a control's opacity forever (attention badges).
+static func pulse(c: CanvasItem, low := 0.55, period := 1.1) -> void:
+	_when_ready(c, func():
+		if not is_instance_valid(c):
+			return
+		var tw := c.create_tween().set_loops()
+		tw.tween_property(c, "modulate:a", low, period / 2.0).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(c, "modulate:a", 1.0, period / 2.0).set_trans(Tween.TRANS_SINE))
 
 
 ## Count a label up from 0 to `to` (fmt holds one %d). The final text is set up front for layout.

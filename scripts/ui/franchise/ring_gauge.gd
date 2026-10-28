@@ -8,13 +8,15 @@ var _color: Color
 var _text: String
 var _thickness: float
 var logo: Texture2D
+## Filled disc behind the logo so it reads on any tile colour (transparent = none).
+var disc := Color.TRANSPARENT
 
 
-func _init(value: float, max_value: float, color: Color, text: String, diameter := 84) -> void:
+func _init(value: float, max_value: float, color: Color, text: String, diameter := 84, thickness := 0.0) -> void:
 	_fraction = clampf(value / maxf(0.001, max_value), 0.0, 1.0)
 	_color = color
 	_text = text
-	_thickness = maxf(4.0, diameter * 0.09)
+	_thickness = thickness if thickness > 0.0 else maxf(4.0, diameter * 0.09)
 	custom_minimum_size = Vector2(diameter, diameter)
 	size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -28,7 +30,11 @@ func _draw() -> void:
 	if _fraction > 0.0:
 		draw_arc(c, r, -PI / 2.0, -PI / 2.0 + TAU * _fraction, 64, _color, _thickness, true)
 	if logo != null:
-		var inner := (r - _thickness / 2.0) * 2.0 * 0.86
+		# Leave a clear gap inside the ring; the square logo fits within the disc, off the ring's path.
+		var disc_r := r - _thickness / 2.0 - maxf(3.0, _thickness)
+		if disc.a > 0.0:
+			draw_circle(c, disc_r, disc, true, -1.0, true)
+		var inner := disc_r * 2.0 * 0.78
 		draw_texture_rect(logo, Rect2(c - Vector2(inner, inner) / 2.0, Vector2(inner, inner)), false)
 		return
 	var font := get_theme_default_font()

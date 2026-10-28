@@ -57,7 +57,18 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   Player of the Week, wire stories, trades, signings, injuries, player stories, retirements) / Prospect News /
   Upcoming Matches (your next 3 plus this week's slate). After the trade deadline, < > arrows flip it to the
   **Playoff Picture**: a logo bracket (projected seeds in-season, live series in the playoffs) with a champion slot.
-- **Team select**: a big pane on top shows the hovered/focused team - logo in its colours, division, OVR and
+- **Team tab**: one big pane (Lineup sizes to fit the field + bench; the Roster scrolls inside a fixed height) whose < > arrows flip between the full **Roster** and **Lineup** screens
+- **League tab**: one big pane whose < > arrows flip between **Standings** (the four divisions as a 2x2 grid of mini tables with logos, W-L, game record, diff, streak and playoff seed - or one whole-league table), **Scores** (a week of results with week arrows), **League Leaders** and the **Playoff Picture** bracket. Under it, live cards (your OVR rank, the kills leader, the latest headline, the MVP favourite, free agents) and a second row of cards (Schedule, Team Stats, Teams, Retirements)
+- **Personnel tab**: one big pane whose < > arrows flip between **Contracts & Payroll** and **Trades** (plus the **Draft Room** while the draft runs). Trades lists incoming offers, then the trade block, then a card into the manual **Trade Center** builder. It opens on the view the current phase needs (trades in season, the Draft Room on draft day) and the header shows payroll, cap space and roster size. Under it, live cards (Free Agency, Re-sign, your next pick, scout points) and a second row of cards (Trade Log, Draft Recap, Negotiation coming soon). Trade block rows show portrait, big OVR, POT, the six stat-group bars, contract pips and morale; offers put Accept / Counter / Decline on the right. The live draft order table also shows age, scout grade, hometown and each team's need
+- **Training Camp**: six drill cards in the team colours. Click a drill, then click players on the Camp Board (OVR, POT, point pool, stat-group bars, best drill) to plan who goes; Auto-fill plans the best fits. **Run Camp** runs every planned drill at once and shows a camp report with each stat gain
+- **Settings tab**: two rows of cards - Franchise (Sim Options, Save, Load, Franchise Settings soon) and System (Debug Sim Tools, Main Menu)
+- **Buttons**: all slanted; main actions (Make Offer, Sign, Propose Trade, Accept, Draft) use the team accent colour
+- **Player page**: slanted OVR/POT plates, contract / season / career chips in the header, and a right-hand season snapshot (GP, kills, K/D, assists, accuracy, damage) with the last 5 matches  (sorting, swaps and scheme changes refresh in place). Under it, live cards for Player Progression (can level up),
+  Training (avg fatigue), Injuries (out), Team Stats (K/D + league rank) and Schedule (record, last / next) with pulsing
+  alert chips (LEVEL UP / TRAIN / STARTER OUT), then a dimmed Coming Soon strip.
+- **Team select**: tiles rest in a muted team tint with a team-colour bottom stripe and light up in full colour on
+  hover; each logo sits on a dark disc inside a thin OVR ring, with an expectation tag (Title Favorite / Contender /
+  Playoff Team / Bubble / Rebuild). Divisions are vertical badges. A big pane on top shows the hovered/focused team - logo in its colours, division, OVR and
   preseason rank, cap space, average age, expectation, backstory (a fixed 5-line box), starters' average group
   ratings and its top 3 players in the team's uniform - over 4 division rows of 5 team tiles (name and a big OVR).
   Click to start.
