@@ -3648,58 +3648,155 @@ func draft_recap(d: Draft) -> Control:
 
 # --- training camp -----------------------------------------------------------------
 
-const DRILL_COLORS := {Stats.ACCURACY: Color("#f97316"), Stats.HANDLING: Color("#eab308"), Stats.PHYSICALITY: Color("#22c55e"),
-	Stats.MENTALITY: Color("#a855f7"), Stats.OBJECTIVE: Color("#06b6d4"), Stats.DURABILITY: Color("#94a3b8")}
+## Camp plan: pick a player for each drill, then run them all at once.
+var _camp_plan := {}
+var _camp_focus: StringName = &""
+var _camp_plan_year := -1
+## Results of the last "Run Camp" (shown as the camp report).
+var _camp_last: Array = []
+
+
+func _camp_sync(s: Season) -> void:
+	var user := s.user_team()
+	if _camp_plan_year != s.camp.year:
+		_camp_plan = {}
+		_camp_last = []
+		_camp_focus = &""
+		_camp_plan_year = s.camp.year
+	for g in _camp_plan.keys():
+		if s.camp_check(g, _camp_plan[g]) != "":
+			_camp_plan.erase(g)
+	if _camp_focus == &"" or s.camp.has_run(user, _camp_focus):
+		_camp_focus = _camp_next_open(s, &"")
+
+
+## The next drill (after `from`) that hasn't run and has nobody planned, else any unrun drill.
+func _camp_next_open(s: Season, from: StringName) -> StringName:
+	var user := s.user_team()
+	var order: Array = Camp.DRILLS.keys()
+	var start := order.find(from) + 1
+	for i in order.size():
+		var g: StringName = order[(start + i) % order.size()]
+		if not s.camp.has_run(user, g) and not _camp_plan.has(g):
+			return g
+	for g in order:
+		if not s.camp.has_run(user, g):
+			return g
+	return order[0]
+
+
+## How well a drill suits a soldier (same weighting the AI uses).
+func _camp_fit(team: Team, g: StringName, so: Soldier) -> float:
+	var slot := team.slot_of(so)
+	var role := team.scheme.role_for_slot(slot) if slot != &"" else Scheme.best_role(so.stats)
+	var v := Progression.group_value(role, g) * 10.0 + so.potential * 2.0 - maxf(0.0, so.age - 26.0)
+	if team.starters().has(so):
+		v += 3.0
+	return v
+
+
+func _camp_best_drill(s: Season, so: Soldier) -> StringName:
+	var user := s.user_team()
+	var best: StringName = &""
+	var best_v := -INF
+	for g in Camp.DRILLS:
+		if s.camp.has_run(user, g) or s.camp_check(g, so) != "":
+			continue
+		var slot := user.slot_of(so)
+		var role := user.scheme.role_for_slot(slot) if slot != &"" else Scheme.best_role(so.stats)
+		var v := Progression.group_value(role, g)
+		if v > best_v:
+			best_v = v
+			best = g
+	return best
+
+
+func _camp_planned_group(so: Soldier) -> StringName:
+	for g in _camp_plan:
+		if _camp_plan[g] == so:
+			return g
+	return &""
+
+
+func _camp_refresh() -> void:
+	var title: String = hub.page_stack[-1]["title"] if not hub.page_stack.is_empty() else "Training Camp"
+	hub.replace(title, training_camp)
+
+
+func _camp_assign(so: Soldier) -> void:
+	var s := _season()
+	if _camp_plan.get(_camp_focus) == so:
+		_camp_plan.erase(_camp_focus)
+		_camp_refresh()
+		return
+	var why := s.camp_check(_camp_focus, so)
+	if why != "":
+		hub.app.toast(why)
+		return
+	var prev := _camp_planned_group(so)
+	if prev != &"":
+		_camp_plan.erase(prev)
+	_camp_plan[_camp_focus] = so
+	_camp_focus = _camp_next_open(s, _camp_focus)
+	_camp_refresh()
+
+
+## Fills every open drill with the best remaining fit.
+func _camp_autofill() -> void:
+	var s := _season()
+	var user := s.user_team()
+	for g in Camp.DRILLS:
+		if s.camp.has_run(user, g) or _camp_plan.has(g):
+			continue
+		var best: Soldier = null
+		var best_v := -INF
+		for so in user.roster:
+			if _camp_planned_group(so) != &"" or s.camp_check(g, so) != "":
+				continue
+			var v := _camp_fit(user, g, so)
+			if v > best_v:
+				best_v = v
+				best = so
+		if best != null:
+			_camp_plan[g] = best
+	_camp_focus = _camp_next_open(s, &"")
+	_camp_refresh()
+
+
+func _camp_run_all() -> void:
+	var s := _season()
+	_camp_last = []
+	for g in Camp.DRILLS:
+		if not _camp_plan.has(g):
+			continue
+		var res := s.run_drill(g, _camp_plan[g])
+		if not res.is_empty():
+			_camp_last.append(res)
+	_camp_plan = {}
+	_camp_focus = _camp_next_open(s, &"")
+	hub.app.toast("Camp complete: %d drill%s run." % [_camp_last.size(), "" if _camp_last.size() == 1 else "s"])
+	_camp_refresh()
 
 
 func training_camp() -> Control:
 	var s := _season()
 	var user := s.user_team()
 	var camp := s.camp
-	var v := _vbox(12)
+	var v := _vbox(14)
 	if camp == null:
 		v.add_child(UiKit.label("Training camp runs each offseason, after free agency.", 22, Color.WHITE))
 		return v
+	_camp_sync(s)
 	var open := s.camp_open()
-	var head := "[font_size=26][color=white]%d TRAINING CAMP[/color][/font_size]     " % (camp.year + 1)
-	if open:
-		head += "[color=#38bdf8]%d of %d drills left[/color]  -  one player per drill, one drill per player" % [camp.drills_left(user), Camp.DRILLS.size()]
-	elif s.phase == Season.PHASE_OFFSEASON and s.offseason_stage != Season.OFF_DONE:
-		head += "[color=#8b97ab]Opens after free agency.[/color]"
-	else:
-		head += "[color=#8b97ab]Camp is closed.[/color]"
-	v.add_child(UiKit.rich(head, 16))
-	var pools: PackedStringArray = []
-	for i in range(Soldier.POTENTIAL_A, -1, -1):
-		var r := Camp.pool_range(i)
-		pools.append("[color=%s]%s[/color] %d-%d" % [UiKit.hex(potential_color(i)), Soldier.POTENTIAL_LETTERS[i], r[0], r[1]])
-	v.add_child(UiKit.rich("[color=#8b97ab]Each drill gives the player a pool of rating points, spread at random over the group's stats (max +%d per stat). Pool by potential:[/color]  %s" % [
-		Camp.MAX_STAT_GAIN, "   ".join(pools)], 14))
-	var flow := HFlowContainer.new()
-	flow.add_theme_constant_override("h_separation", 14)
-	flow.add_theme_constant_override("v_separation", 14)
+	v.add_child(_camp_header(s, open))
+	var cards := _row(12)
 	for g in Camp.DRILLS:
-		var info: Dictionary = Camp.DRILLS[g]
-		var stats_txt := ", ".join(PackedStringArray(Stats.group_stats(g).map(func(x): return Stats.LABELS[x])))
-		var res := camp.result_for(user, g)
-		var body := "[color=#8b97ab]%s[/color]\n%s\n\n" % [Stats.GROUP_LABELS[g].to_upper(), UiKit.esc(info["blurb"])]
-		var cb: Callable
-		var badge := ""
-		if not res.is_empty():
-			var so: Soldier = res["soldier"]
-			body += "[color=#22c55e]DONE[/color]  [color=white]%s[/color]  +%d pts\nOVR %d -> %d" % [UiKit.esc(so.short_name()), res["points"], res["ovr_before"], res["ovr_after"]]
-			var gg: StringName = g
-			cb = func(): hub.open(Camp.drill_name(gg), func(): return drill_result(gg))
-			badge = "DONE"
-		elif open:
-			body += "[color=#38bdf8]Select a player >[/color]\n[color=#8b97ab]%s[/color]" % stats_txt
-			var gg: StringName = g
-			cb = func(): hub.open(Camp.drill_name(gg), func(): return drill_pick(gg))
-		else:
-			body += "[color=#8b97ab]%s[/color]" % stats_txt
-			cb = func(): hub.app.toast("Training camp opens after free agency.")
-		flow.add_child(UiKit.tile(info["name"], body, Vector2(300, 230), DRILL_COLORS[g], cb, badge))
-	v.add_child(flow)
+		cards.add_child(_camp_card(s, g, open))
+	v.add_child(cards)
+	if not _camp_last.is_empty():
+		v.add_child(_camp_report())
+	if open and camp.drills_left(user) > 0:
+		v.add_child(_camp_board(s))
 	# Other teams' camps, once they've run.
 	var rows: Array = []
 	var targets: Array = []
@@ -3714,6 +3811,305 @@ func training_camp() -> Control:
 	if not rows.is_empty():
 		v.add_child(_section("AROUND THE LEAGUE"))
 		v.add_child(_soldier_table(["TEAM", "DRILL", "PLAYER", "POT", "POINTS", "OVR"], rows, [60, 200, 220, 50, 70, 100], targets))
+	return v
+
+
+func _camp_header(s: Season, open: bool) -> Control:
+	var camp := s.camp
+	var user := s.user_team()
+	var h := _row(26)
+	var title := _vbox(2)
+	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	title.add_child(UiKit.display("%d TRAINING CAMP" % (camp.year + 1), 30, Color.WHITE, true))
+	var status := "Pick a player for each drill, then run camp."
+	if not open:
+		status = "Opens after free agency." if s.phase == Season.PHASE_OFFSEASON and s.offseason_stage != Season.OFF_DONE else "Camp is closed."
+	elif camp.drills_left(user) == 0:
+		status = "Every drill is done."
+	title.add_child(UiKit.label(status, 14, UiKit.MUTED))
+	h.add_child(title)
+	h.add_child(_camp_big_stat(str(camp.drills_left(user)), "/ %d  DRILLS LEFT" % Camp.DRILLS.size(), UiKit.TRIM))
+	h.add_child(_camp_big_stat(str(_camp_plan.size()), "PLANNED", UiKit.ACCENT.lightened(0.15)))
+	var pools := _vbox(4)
+	pools.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	pools.add_child(UiKit.label("POINT POOL BY POTENTIAL  ·  max +%d per stat" % Camp.MAX_STAT_GAIN, 11, UiKit.MUTED))
+	var chips := _row(6)
+	for i in range(Soldier.POTENTIAL_A, -1, -1):
+		var r := Camp.pool_range(i)
+		var chip := UiKit.panel(UiKit.PANEL, 4)
+		chip.get_theme_stylebox("panel").set_content_margin_all(6)
+		var c := _row(6)
+		var l := UiKit.label(Soldier.POTENTIAL_LETTERS[i], 18, potential_color(i))
+		l.add_theme_font_override("font", UiKit.font_heavy)
+		c.add_child(l)
+		c.add_child(UiKit.label("%d-%d" % [r[0], r[1]], 14, Color.WHITE))
+		chip.add_child(c)
+		chips.add_child(chip)
+	pools.add_child(chips)
+	h.add_child(pools)
+	var fill := Control.new()
+	fill.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.add_child(fill)
+	if open and camp.drills_left(user) > 0:
+		var btns := _row(10)
+		btns.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		btns.add_child(UiKit.button("Auto-fill", func(): _camp_autofill(), 15))
+		var clear := UiKit.button("Clear", func():
+			_camp_plan = {}
+			_camp_focus = _camp_next_open(s, &"")
+			_camp_refresh(), 15)
+		clear.disabled = _camp_plan.is_empty()
+		btns.add_child(clear)
+		var run := UiKit.action_button("Run Camp  (%d)" % _camp_plan.size(), func():
+			_confirm_modal(_camp_confirm_card(), "Run Camp", func(): _camp_run_all()), 18)
+		run.name = "RunCampButton"
+		run.custom_minimum_size = Vector2(220, 56)
+		run.disabled = _camp_plan.is_empty()
+		btns.add_child(run)
+		h.add_child(btns)
+	return h
+
+
+func _camp_big_stat(big: String, caption: String, color: Color) -> Control:
+	var h := _row(8)
+	h.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var l := UiKit.label(big, 44, color)
+	l.add_theme_font_override("font", UiKit.font_heavy)
+	h.add_child(l)
+	var c := UiKit.label(caption, 13, UiKit.MUTED)
+	c.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(c)
+	return h
+
+
+## One drill: what it trains and who's planned / who went.
+func _camp_card(s: Season, g: StringName, open: bool) -> Control:
+	var user := s.user_team()
+	var info: Dictionary = Camp.DRILLS[g]
+	var res := s.camp.result_for(user, g)
+	var planned: Soldier = _camp_plan.get(g)
+	var focused := open and res.is_empty() and g == _camp_focus
+	var b := Button.new()
+	b.name = "Drill_%s" % g
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.custom_minimum_size = Vector2(0, 236)
+	var base := UiKit.ACCENT.darkened(0.72) if focused else UiKit.PANEL
+	UiKit.style_button(b, base, UiKit.ACCENT, 6)
+	var sb: StyleBoxFlat = b.get_theme_stylebox("normal").duplicate()
+	sb.border_color = UiKit.ACCENT if focused else (UiKit.GOOD.darkened(0.3) if not res.is_empty() else UiKit.TRIM.darkened(0.25))
+	sb.set_border_width_all(1)
+	sb.border_width_top = 4
+	sb.set_border_width_all(2) if focused else null
+	if focused:
+		sb.border_width_top = 4
+	b.add_theme_stylebox_override("normal", sb)
+	var gg := g
+	if not res.is_empty():
+		b.pressed.connect(func(): hub.open(Camp.drill_name(gg), func(): return drill_result(gg)))
+	elif open:
+		b.pressed.connect(func():
+			_camp_focus = gg
+			_camp_refresh())
+	else:
+		b.pressed.connect(func(): hub.app.toast("Training camp opens after free agency."))
+	var v := _vbox(6)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.set_anchors_preset(Control.PRESET_FULL_RECT)
+	v.offset_left = 16
+	v.offset_right = -16
+	v.offset_top = 14
+	v.offset_bottom = -12
+	b.add_child(v)
+	v.add_child(UiKit.label(Stats.GROUP_LABELS[g].to_upper(), 12, UiKit.ACCENT.lightened(0.25) if focused else UiKit.TRIM))
+	v.add_child(UiKit.display(info["name"].to_upper(), 22, Color.WHITE, true))
+	var stats_l := UiKit.label(", ".join(PackedStringArray(Stats.group_stats(g).map(func(x): return Stats.LABELS[x]))), 13, UiKit.MUTED)
+	stats_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	stats_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(stats_l)
+	var gap := Control.new()
+	gap.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(gap)
+	var who: Soldier = res["soldier"] if not res.is_empty() else planned
+	if who != null:
+		var h := _row(10)
+		h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var por := Portrait.new(who, 52, user.color, user)
+		por.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		h.add_child(por)
+		var nv := _vbox(2)
+		nv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		nv.add_child(UiKit.label(who.short_name(), 16, Color.WHITE))
+		if not res.is_empty():
+			var d: int = res["ovr_after"] - res["ovr_before"]
+			nv.add_child(UiKit.label("OVR %d > %d%s" % [res["ovr_before"], res["ovr_after"], ("  (+%d)" % d) if d > 0 else ""], 14,
+				UiKit.GOOD if d > 0 else UiKit.MUTED))
+		else:
+			var pool := Camp.pool_range(who.potential)
+			nv.add_child(UiKit.label("%d OVR  ·  %s POT  ·  %d-%d pts" % [who.best_ovr(), who.potential_letter(), pool[0], pool[1]], 14, UiKit.GOOD))
+		for c in nv.get_children():
+			c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		h.add_child(nv)
+		v.add_child(h)
+	var foot := ""
+	var foot_c := UiKit.MUTED
+	if not res.is_empty():
+		foot = "DONE  ·  +%d PTS" % res["points"]
+		foot_c = UiKit.GOOD
+	elif planned != null:
+		foot = "PLANNED" + ("  ·  PICKING" if focused else "")
+		foot_c = UiKit.ACCENT.lightened(0.3)
+	elif focused:
+		foot = "▼ PICK A PLAYER BELOW"
+		foot_c = UiKit.ACCENT.lightened(0.3)
+	elif open:
+		foot = "OPEN  ·  click to pick"
+		foot_c = UiKit.INFO
+	else:
+		foot = "CLOSED"
+	v.add_child(UiKit.label(foot, 13, foot_c))
+	return b
+
+
+## Roster rows to assign to the focused drill.
+func _camp_board(s: Season) -> Control:
+	var user := s.user_team()
+	var g := _camp_focus
+	var v := _vbox(8)
+	v.add_child(UiKit.rich("[font_size=13][color=#8b97ab]CAMP BOARD  ·  ASSIGNING TO[/color][/font_size]  [font_size=20][color=%s]%s[/color][/font_size]  [font_size=14][color=#8b97ab]%s  -  click a player to assign, click again to remove[/color][/font_size]" % [
+		UiKit.hex(UiKit.ACCENT.lightened(0.3)), Camp.drill_name(g).to_upper(), Stats.GROUP_LABELS[g]], 16))
+	var head := _row(14)
+	var spacer := Control.new()
+	spacer.custom_minimum_size.x = 14 + 48 + 14 + 260
+	head.add_child(spacer)
+	for c in [["OVR", 64], ["POT", 52], ["POOL", 70]]:
+		head.add_child(_col_head(c[0], c[1]))
+	for gr in Stats.GROUP_ORDER:
+		var hl := _col_head(Stats.GROUP_LABELS[gr].to_upper(), 92)
+		if gr == g:
+			hl.add_theme_color_override("font_color", UiKit.ACCENT.lightened(0.3))
+			hl.text = "▼ " + hl.text
+		head.add_child(hl)
+	head.add_child(_col_head("BEST DRILL", 170))
+	head.add_child(_col_head("CAMP", 200))
+	v.add_child(head)
+	var list: Array = user.roster.filter(func(so: Soldier): return not s.camp.has_attended(so))
+	list.sort_custom(func(a: Soldier, b: Soldier):
+		var oa := s.camp_check(g, a) == ""
+		var ob := s.camp_check(g, b) == ""
+		if oa != ob:
+			return oa
+		var pa := _camp_planned_group(a) not in [&"", g]
+		var pb := _camp_planned_group(b) not in [&"", g]
+		if pa != pb:
+			return pb
+		return _camp_fit(user, g, a) > _camp_fit(user, g, b))
+	if list.is_empty():
+		v.add_child(UiKit.label("Every soldier has already attended a drill this camp.", 16, UiKit.MUTED))
+	for so: Soldier in list:
+		var p := so
+		var mine := _camp_planned_group(so)
+		var why := s.camp_check(g, so)
+		var row := Button.new()
+		var here := mine == g
+		UiKit.style_button(row, UiKit.ACCENT.darkened(0.6) if here else (UiKit.PANEL_HI.darkened(0.25) if mine != &"" else UiKit.PANEL), UiKit.ACCENT, 4)
+		row.custom_minimum_size.y = 64
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.pressed.connect(func(): _camp_assign(p))
+		var hb := _row(14)
+		hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hb.set_anchors_preset(Control.PRESET_FULL_RECT)
+		hb.offset_left = 14
+		hb.offset_right = -14
+		row.add_child(hb)
+		var por := Portrait.new(so, 48, user.color, user)
+		por.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		hb.add_child(por)
+		hb.add_child(_two_lines(so.display_name(), Color.WHITE if why == "" else UiKit.MUTED,
+			"%s  ·  age %d" % [Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], so.age], 260, 17))
+		var ovr := so.best_ovr()
+		var ol := _big_cell(str(ovr), UiKit.ovr_color(ovr), 64, 30)
+		ol.add_theme_font_override("font", UiKit.font_heavy)
+		hb.add_child(ol)
+		var pl := _big_cell(so.potential_letter(), potential_color(so.potential), 52, 26)
+		pl.add_theme_font_override("font", UiKit.font_heavy)
+		hb.add_child(pl)
+		var pool := Camp.pool_range(so.potential)
+		hb.add_child(_big_cell("%d-%d" % [pool[0], pool[1]], UiKit.GOOD, 70, 18))
+		for gr in Stats.GROUP_ORDER:
+			hb.add_child(_rating_cell(so.group_rating(gr), 92))
+		var best := _camp_best_drill(s, so)
+		hb.add_child(_big_cell(Camp.drill_name(best) if best != &"" else "-", UiKit.TRIM if best == g else UiKit.MUTED, 170, 15))
+		var tag := "+ Assign"
+		var tag_c := UiKit.INFO
+		if here:
+			tag = "★ " + Camp.drill_name(g)
+			tag_c = UiKit.ACCENT.lightened(0.35)
+		elif mine != &"":
+			tag = "In %s  (move)" % Camp.drill_name(mine)
+			tag_c = UiKit.MUTED
+		elif why != "":
+			tag = "Injured" if so.is_injured() else ("Capped" if why.contains("capped") else "Unavailable")
+			tag_c = UiKit.BAD
+		hb.add_child(_big_cell(tag, tag_c, 200, 15))
+		v.add_child(row)
+	return v
+
+
+## The last Run Camp: each drill's player, points and stat gains.
+func _camp_report() -> Control:
+	var v := _vbox(6)
+	v.add_child(_section("CAMP REPORT"))
+	for r in _camp_last:
+		var res: Dictionary = r
+		var so: Soldier = res["soldier"]
+		var g: StringName = res["group"]
+		var row := Button.new()
+		UiKit.style_button(row, UiKit.PANEL, UiKit.ACCENT, 4)
+		row.custom_minimum_size.y = 46
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.pressed.connect(func(): hub.open(Camp.drill_name(g), func(): return drill_result(g)))
+		var hb := _row(14)
+		hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hb.set_anchors_preset(Control.PRESET_FULL_RECT)
+		hb.offset_left = 14
+		hb.offset_right = -14
+		row.add_child(hb)
+		hb.add_child(_big_cell(Camp.drill_name(g).to_upper(), UiKit.TRIM, 200, 15))
+		hb.add_child(_big_cell(so.display_name(), Color.WHITE, 220, 17))
+		hb.add_child(_big_cell("+%d PTS" % res["points"], UiKit.GOOD, 80, 17))
+		var d: int = res["ovr_after"] - res["ovr_before"]
+		hb.add_child(_big_cell("OVR %d > %d%s" % [res["ovr_before"], res["ovr_after"], ("  (+%d)" % d) if d > 0 else ""], UiKit.ovr_color(res["ovr_after"]), 170, 17))
+		var gains: PackedStringArray = []
+		for st in res["gains"]:
+			if res["gains"][st] > 0:
+				gains.append("%s %d>%d" % [Stats.ABBREV[st], res["before"][st], res["before"][st] + res["gains"][st]])
+		var gl := _big_cell("   ".join(gains) if not gains.is_empty() else "no gains (capped)", UiKit.MUTED, 0, 15)
+		gl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		hb.add_child(gl)
+		v.add_child(row)
+	return v
+
+
+## "Run camp?" summary of every planned drill.
+func _camp_confirm_card() -> Control:
+	var team := _season().user_team()
+	var v := _vbox(12)
+	v.add_child(UiKit.label("RUN TRAINING CAMP?", 16, UiKit.ACCENT))
+	for g in Camp.DRILLS:
+		if not _camp_plan.has(g):
+			continue
+		var so: Soldier = _camp_plan[g]
+		var pool := Camp.pool_range(so.potential)
+		var h := _row(14)
+		h.add_child(Portrait.new(so, 44, team.color, team))
+		h.add_child(_big_cell(Camp.drill_name(g), UiKit.TRIM, 200, 16))
+		h.add_child(_big_cell(so.display_name(), Color.WHITE, 220, 17))
+		h.add_child(_big_cell("%d-%d pts" % [pool[0], pool[1]], UiKit.GOOD, 90, 16))
+		v.add_child(h)
+	var left := Camp.DRILLS.size() - _season().camp.team_results(team).size() - _camp_plan.size()
+	if left > 0:
+		v.add_child(UiKit.label("%d drill%s still open - you can run %s later." % [left, "" if left == 1 else "s", "it" if left == 1 else "them"], 14, UiKit.GOLD))
 	return v
 
 
