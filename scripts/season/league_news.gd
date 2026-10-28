@@ -388,15 +388,17 @@ func digest_steps(season: Season) -> Array[String]:
 	if season.review_history.is_empty():
 		return out
 	var stage := season.offseason_stage if season.phase == Season.PHASE_OFFSEASON else Season.OFF_DONE
-	var past_draft := stage in [Season.OFF_FREE_AGENCY, Season.OFF_CAMP, Season.OFF_DONE]
-	var past_fa := stage in [Season.OFF_CAMP, Season.OFF_DONE]
-	if stage != Season.OFF_RESIGN or season.phase != Season.PHASE_OFFSEASON:
+	# Order: re-signing, free agency days, the draft, the roster review week, camp.
+	var past_fa := stage in [Season.OFF_DRAFT, Season.OFF_REVIEW, Season.OFF_CAMP, Season.OFF_DONE]
+	if stage != Season.OFF_RESIGN:
 		out.append("Re-signing")
-	if past_draft:
-		out.append("Draft")
 	for d in range(1, Season.FA_DAYS + 1):
 		if past_fa or (stage == Season.OFF_FREE_AGENCY and season.fa_day > d):
 			out.append("FA Day %d" % d)
+	if stage in [Season.OFF_REVIEW, Season.OFF_CAMP, Season.OFF_DONE]:
+		out.append("Draft")
+	if stage in [Season.OFF_CAMP, Season.OFF_DONE]:
+		out.append("Roster Review")
 	if stage == Season.OFF_DONE and _step_has_entries(season, "Preseason"):
 		out.append("Preseason")
 	return out

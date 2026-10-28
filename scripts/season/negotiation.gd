@@ -94,8 +94,9 @@ func offer_error(salary: int, years: int, promise := false) -> String:
 		return "Deals run 1-%d years." % Contracts.MAX_YEARS
 	if salary < Contracts.MIN_SALARY or salary > Contracts.MAX_SALARY:
 		return "Salary must be %s - %s." % [Contracts.money(Contracts.MIN_SALARY), Contracts.money(Contracts.MAX_SALARY)]
-	if not Contracts.fits(team, season.cap_year(), salary):
-		return "Not enough cap space (%s left)." % Contracts.money(Contracts.cap_space(team, season.cap_year()))
+	if not Contracts.resign_fits(team, season.cap_year(), soldier, salary):
+		return "Not enough cap space (%s left, counting his %s cap hold)." % [
+			Contracts.money(Contracts.cap_space(team, season.cap_year()) + Contracts.cap_hold(soldier)), Contracts.money(Contracts.cap_hold(soldier))]
 	if promise and season.fa.promises_made(season, team) >= team.scheme.slot_ids().size():
 		return "You've already promised all %d starting spots." % team.scheme.slot_ids().size()
 	return ""
@@ -415,7 +416,7 @@ func _build_arguments() -> Array:
 			"fit": 0.1 + 1.2 * d.n(&"winning")})
 
 	# Cap squeeze.
-	var space := Contracts.cap_space(team, season.cap_year()) - ask
+	var space := Contracts.cap_space(team, season.cap_year()) + Contracts.cap_hold(soldier) - ask
 	var tight := Contracts.SALARY_CAP * 0.08
 	if space < tight:
 		out.append({"id": &"cap", "title": "Cap is tight", "tone": "soft",

@@ -183,8 +183,9 @@ func test_determinism_after_load() -> void:
 func test_news_round_trip() -> void:
 	var s := Season.new_franchise(321)
 	s.sim_to_end_of_season()
-	s.advance_offseason()
-	s.advance_offseason()
+	# Re-signing, three free-agency days and the draft: stories and recap steps exist mid-offseason.
+	for i in 5:
+		s.advance_offseason()
 	check(not s.news.items.is_empty(), "stories exist before the save")
 	var s2 := SaveSystem.from_text(SaveSystem.to_text(s))
 	check(s2 != null, "from_text returned null")

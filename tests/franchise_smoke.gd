@@ -177,12 +177,32 @@ func _init() -> void:
 	hub.refresh()
 	await process_frame
 
-	hub.advance()  # offseason: re-sign window -> draft
+	hub.advance()  # offseason: re-sign window -> free agency
 	await process_frame
-	_check(hub.season.phase == Season.PHASE_OFFSEASON, "can't skip the draft")
-	_check(hub.season.offseason_stage == Season.OFF_DRAFT, "re-sign window closed into the draft")
+	_check(hub.season.offseason_stage == Season.OFF_FREE_AGENCY, "re-sign window closed into free agency")
 	var d: Draft = hub.season.draft
 	var user: Team = hub.season.user_team()
+	_check(not d.is_complete(), "the draft waits for free agency")
+	for t in hub.season.league.teams:
+		if t != user:
+			_check(t.roster.size() <= Team.OFFSEASON_MAX, "AI at or under the offseason max")
+	_check(not hub.season.league.free_agents.is_empty(), "free agent pool")
+	var fa_target: Soldier = hub.season.league.free_agents[0]
+	hub.pages.open_offer(fa_target)
+	await process_frame
+	await _visit_pages(hub, "free agency")
+	hub.open("Draft Room", hub.pages.draft_room)
+	await process_frame
+	var pick_at := d.next_pick
+	await create_timer(0.3).timeout
+	_check(d.next_pick == pick_at, "no draft clock during free agency")
+	var guard_fa := 0
+	while hub.season.offseason_stage == Season.OFF_FREE_AGENCY and guard_fa < 10:
+		hub.advance()
+		await process_frame
+		guard_fa += 1
+	_check(hub.season.phase == Season.PHASE_OFFSEASON, "can't skip the draft")
+	_check(hub.season.offseason_stage == Season.OFF_DRAFT, "free agency days finished into the draft")
 	var before_draft := user.roster.size()
 	var my_picks: int = hub.season.trades.picks_of(hub.season, user).filter(func(a): return a["year"] == d.year).size()
 	_check(d.is_started() and not d.is_complete(), "draft is open")
@@ -213,17 +233,10 @@ func _init() -> void:
 		await process_frame
 	_check(user.roster.size() == before_draft + my_picks, "user drafted %d (%d)" % [my_picks, user.roster.size() - before_draft])
 	await _visit_pages(hub, "post-draft")
-	hub.advance()  # open free agency
+	hub.advance()  # draft -> roster review
 	await process_frame
-	_check(hub.season.offseason_stage == Season.OFF_FREE_AGENCY, "free agency open")
-	for t in hub.season.league.teams:
-		if t != user:
-			_check(t.roster.size() <= Team.OFFSEASON_MAX, "AI at or under the offseason max")
-	_check(not hub.season.league.free_agents.is_empty(), "free agent pool")
-	var fa_target: Soldier = hub.season.league.free_agents[0]
-	hub.pages.open_offer(fa_target)
-	await process_frame
-	await _visit_pages(hub, "free agency")
+	_check(hub.season.offseason_stage == Season.OFF_REVIEW, "roster review after the draft")
+	await _visit_pages(hub, "roster review")
 	while user.is_over_roster_limit():
 		var cut: Soldier = user.bench().back()
 		hub.pages.open_player(cut, 2)
@@ -233,14 +246,13 @@ func _init() -> void:
 		_check(_press(hub, "Confirm"), "confirm release")
 		await process_frame
 	_check(user.lineup.size() == 5, "user lineup intact after cuts")
-	var guard2 := 0
-	while hub.season.offseason_stage != Season.OFF_CAMP and guard2 < 10:
-		hub.advance()
-		await process_frame
-		guard2 += 1
-	_check(hub.season.offseason_stage == Season.OFF_CAMP, "free agency days finished into training camp")
+	while hub.season.user_cap_error() != "" and user.roster.size() > Trades.MIN_ROSTER_OFFSEASON:
+		hub.season.release_player(user, user.least_valuable())
+	hub.advance()  # roster review -> training camp
+	await process_frame
+	_check(hub.season.offseason_stage == Season.OFF_CAMP, "roster review finished into training camp")
 	var recap_steps: Array = hub.season.news.digest_steps(hub.season)
-	_check(recap_steps.has("FA Day 3"), "every free-agency day has a recap")
+	_check(recap_steps == ["Re-signing", "FA Day 1", "FA Day 2", "FA Day 3", "Draft", "Roster Review"], "every offseason step has a recap, in order (%s)" % str(recap_steps))
 	_check(hub._feed_items().any(func(it): return String(it["tag"]).begins_with("OFFSEASON RECAP")), "Home shows the latest recap card")
 	for step in recap_steps:
 		var st: String = step

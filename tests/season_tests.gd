@@ -626,8 +626,14 @@ func test_draft_order_and_picks() -> void:
 	check(d.picks().size() == d.order.size(), "all picks made")
 	check(s.offseason_stage == Season.OFF_RESIGN, "still in the re-sign window")
 	s.advance_offseason()
+	check(s.offseason_stage == Season.OFF_FREE_AGENCY, "free agency opens after the re-sign week")
+	while s.offseason_stage == Season.OFF_FREE_AGENCY:
+		s.advance_offseason()
+	check(s.offseason_stage == Season.OFF_DRAFT, "the draft follows free agency")
 	s.advance_offseason()
-	check(s.offseason_stage == Season.OFF_FREE_AGENCY, "free agency opened after the draft")
+	check(s.offseason_stage == Season.OFF_REVIEW, "roster review after the draft")
+	var undrafted := d.available()
+	check(undrafted.is_empty() or undrafted.any(func(pr): return s.league.free_agents.has(pr.soldier)), "undrafted prospects join free agency at the review")
 	for t in s.league.teams:
 		if not t.user_controlled:
 			check(t.roster.size() <= Team.OFFSEASON_MAX, "%s at or under the offseason max" % t.abbrev)
@@ -666,6 +672,21 @@ func test_contracts_and_cap() -> void:
 	check(Contracts.fits(t, s.year, Contracts.MIN_SALARY, 999999), "minimum deals always fit")
 	check(not Contracts.fits(t, s.year, Contracts.cap_space(t, s.year) + 1), "can't exceed the cap")
 	check(Contracts.money(1250) == "$1.25M" and Contracts.money(750) == "$750K", "money format")
+	# Offseason cap holds: an expiring deal counts at his old salary; re-signing replaces it.
+	var h := Team.new()
+	var vet := PlayerGenerator.generate(RandomNumberGenerator.new(), 77, Scheme.Role.FLEX, 50.0, 28)
+	var other := PlayerGenerator.generate(RandomNumberGenerator.new(), 78, Scheme.Role.FLEX, 50.0, 28)
+	vet.contract = Contract.make(20000, 0, 2026)
+	other.contract = Contract.make(1000, 2, 2026)
+	h.roster.append(vet)
+	h.roster.append(other)
+	check(Contracts.payroll(h, 2027) == 21000, "expiring deal is a cap hold (21M)")
+	check(Contracts.payroll(h, 2027, 1) == 1000, "holds don't count in later years")
+	var room := Contracts.SALARY_CAP - 1000
+	check(Contracts.resign_fits(h, 2027, vet, room) and not Contracts.resign_fits(h, 2027, vet, room + 1), "his new deal replaces his hold")
+	check(not Contracts.fits(h, 2027, room), "his hold blocks other signings")
+	vet.contract = Contract.make(25000, 3, 2027)
+	check(Contracts.payroll(h, 2027) == 26000, "re-signed at 25M: payroll 26M")
 
 
 func test_free_agency_bidding() -> void:
@@ -1029,22 +1050,25 @@ func test_training_camp_and_offseason_xp() -> void:
 	check(s.camp != null and s.camp.drills_left(user) == Camp.DRILLS.size(), "fresh camp each offseason")
 	# Every offseason step is an XP week, scaled by potential.
 	var x0 := _xp_total(probe)
-	s.advance_offseason()  # re-sign -> draft
+	s.advance_offseason()  # re-sign -> free agency
 	var step: int = _xp_total(probe) - x0
 	check(step == roundi(Season.OFFSEASON_WEEK_XP * Progression.xp_multiplier(probe)), "re-sign week xp (%d)" % step)
-	s.advance_offseason()  # draft -> free agency
-	check(_xp_total(probe) - x0 == 2 * step, "draft week xp")
-	var rookie: Soldier = null
-	for p in s.draft.picks():
-		if p.drafted_by == user:
-			rookie = p.soldier
 	var guard := 0
 	while s.offseason_stage == Season.OFF_FREE_AGENCY and guard < 10:
 		s.advance_offseason()
 		guard += 1
-	check(s.offseason_stage == Season.OFF_CAMP, "free agency ends in training camp")
+	check(s.offseason_stage == Season.OFF_DRAFT, "free agency ends in the draft")
+	check(_xp_total(probe) - x0 == (1 + Season.FA_DAYS) * step, "every FA day is an xp week")
+	s.advance_offseason()  # draft -> roster review
+	check(s.offseason_stage == Season.OFF_REVIEW, "the draft ends in the roster review")
+	var rookie: Soldier = null
+	for p in s.draft.picks():
+		if p.drafted_by == user:
+			rookie = p.soldier
+	s.advance_offseason()  # roster review -> training camp
+	check(s.offseason_stage == Season.OFF_CAMP, "the roster review ends in training camp")
 	check(s.camp_open() and s.free_agency_open(), "camp open; unsigned players still sign")
-	check(_xp_total(probe) - x0 == (2 + Season.FA_DAYS) * step, "every FA day is an xp week")
+	check(_xp_total(probe) - x0 == (3 + Season.FA_DAYS) * step, "draft and review weeks are xp weeks")
 	check(rookie == null or rookie.xp > 0 or rookie.level > 1, "draftees earn xp too")
 	# Drills.
 	var a: Soldier = user.roster.filter(func(x: Soldier): return x.group_headroom(Stats.PHYSICALITY) >= 2 and not x.is_injured())[0]
@@ -1534,8 +1558,9 @@ func test_roster_rules() -> void:
 	# Offseason: trades allowed regardless of count; floor of 5; AI over the limit restructures.
 	var s3 := Season.new_franchise(987)
 	s3.sim_to_end_of_season()
+	check(s3.offseason_stage == Season.OFF_RESIGN and s3.trades.window_open(s3), "trade window open from the re-sign week")
 	s3.advance_offseason()
-	check(s3.offseason_stage == Season.OFF_DRAFT and s3.trades.window_open(s3), "trade window open at the draft")
+	check(s3.offseason_stage == Season.OFF_FREE_AGENCY and s3.trades.window_open(s3), "trade window open in free agency")
 	check(Trades.min_roster(s3) == Trades.MIN_ROSTER_OFFSEASON, "offseason trade floor is %d" % Trades.MIN_ROSTER_OFFSEASON)
 	var u3 := s3.user_team()
 	var a3: Team = s3.league.teams.filter(func(t: Team): return t != u3)[0]
@@ -1812,26 +1837,31 @@ func test_offseason_news() -> void:
 	star.former_team = ""
 	s.news.signing(s, minor)
 	check(s.news.items.size() == wire or s.news.items[-1]["kind"] != "mega_deal", "no second mega story for one player")
-	s.advance_offseason()
-	s.advance_offseason()
+	# Re-signing -> free agency opens -> day 1 and day 2 resolve.
+	for i in 3:
+		s.advance_offseason()
+	var steps := s.news.digest_steps(s)
+	check(steps == ["Re-signing", "FA Day 1", "FA Day 2"], "finished steps can be recapped (%s)" % str(steps))
+	for e in s.news.digest(s, "FA Day 1")["signings"]:
+		check(e["when"] == "FA Day 1", "day-one recap holds only day-one signings")
+	check(not (s.news.digest(s, "FA Day 1")["market"] as Array).is_empty(), "day one lists who hit the market")
+	check(s.news.for_soldier(star.id).size() >= 1, "a soldier's own stories are found")
+	# Day 3, then the draft and the roster review week it opens.
+	for i in 2:
+		s.advance_offseason()
+	steps = s.news.digest_steps(s)
+	check(steps == ["Re-signing", "FA Day 1", "FA Day 2", "FA Day 3", "Draft"], "the draft is recapped after free agency (%s)" % str(steps))
 	kinds = {}
 	for n in s.news.for_year(year):
 		kinds[n["kind"]] = (kinds.get(n["kind"], 0) as int) + 1
 	check(kinds.has("draft_top") and kinds["draft_top"] == 1, "the first pick is announced once")
 	check(kinds.has("draft_haul"), "the best draft haul is named")
-	# Each finished step has a recap, and a step's signings carry that step's label.
-	var steps := s.news.digest_steps(s)
-	check(steps == ["Re-signing", "Draft"] or steps.size() >= 2, "re-signing and the draft can be recapped (%s)" % str(steps))
 	check(not (s.news.digest(s, "Draft")["picks"] as Array).is_empty(), "the draft recap lists picks")
 	check(s.news.digest_summary(s, "Draft") != "", "recap summary text")
 	s.advance_offseason()
-	s.advance_offseason()
-	steps = s.news.digest_steps(s)
-	check(steps.has("FA Day 1") and steps.has("FA Day 2"), "free-agency days are recapped once resolved (%s)" % str(steps))
-	for e in s.news.digest(s, "FA Day 1")["signings"]:
-		check(e["when"] == "FA Day 1", "day-one recap holds only day-one signings")
-	check(not (s.news.digest(s, "FA Day 1")["market"] as Array).is_empty(), "day one lists who hit the market")
-	check(s.news.for_soldier(star.id).size() >= 1, "a soldier's own stories are found")
+	check(s.news.digest_steps(s)[-1] == "Roster Review", "the roster review week is recapped last")
+	for e in s.news.digest(s, "Roster Review")["signings"]:
+		check(e["when"] == "Roster Review", "review recap holds only review signings")
 	s.finish_draft()
 	check(int(s.news.for_year(year).filter(func(n): return n["kind"] == "draft_top").size()) == 1, "finishing the draft twice doesn't repeat stories")
 	for k in ["mega_deal", "fa_signing", "defection", "homecoming", "resign", "hits_market", "surprise_cut"]:
