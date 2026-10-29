@@ -384,51 +384,200 @@ func _build_nav() -> void:
 
 ## Next point to walk toward on the way from `from` to `to`: `to` itself when the straight line is
 ## clear, otherwise the first waypoint of the shortest route through the nav graph. Visibility
-## from 1 m cells and per-goal-cell route costs are cached, so planning stays cheap.
+## from 1 m cells and per-goal-cell route costs are cached, so planning stays cheap. A soldier who
+## can't see any nav node (tucked into a dead-end pocket) first steps somewhere that can, so he
+## never just walks into a wall.
 func next_waypoint(from: Vector2, to: Vector2) -> Vector2:
 	if walk_clear(from, to):
 		return to
 	var costs := _goal_costs(to)
+	var candidates := _visible_nodes(from)
+	for a in nodes.size():
+		if from.distance_squared_to(nodes[a]) < ON_NODE * ON_NODE:
+			# Standing on a node: carry on along its route rather than turning back.
+			var ahead := _along_route(from, a, costs, to)
+			if ahead != Vector2.INF:
+				return ahead
+			# Its graph neighbours are walkable even when the cell centre can't see them.
+			var row: PackedInt32Array = _next[a]
+			candidates = candidates.duplicate()
+			for b in nodes.size():
+				if b != a and row[b] == b:
+					candidates.append(b)
+			break
+	var best_node := _best_node(from, candidates, costs)
+	if best_node == -1:
+		# The cell's view was wrong for this exact spot: check from the spot itself.
+		best_node = _best_node(from, _nodes_seen_from(from), costs)
+	if best_node != -1:
+		# Already partway along the route edge out of that node: keep going instead of turning back.
+		var nxt := _route_next(best_node, costs, to)
+		if nxt != Vector2.INF and _on_segment(from, nodes[best_node], nxt):
+			var ahead := _along_route(from, best_node, costs, to)
+			if ahead != Vector2.INF:
+				return ahead
+		return nodes[best_node]
+	var step := _escape_step(from, costs)
+	return step if step != Vector2.INF else to
+
+
+## Cheapest candidate node to head for (walkable from this exact spot), or -1.
+func _best_node(from: Vector2, candidates: PackedInt32Array, costs: PackedFloat32Array) -> int:
 	var best := INF
 	var best_node := -1
-	for a in _visible_nodes(from):
+	for a in candidates:
 		var p := nodes[a]
 		var da := from.distance_to(p)
 		# Standing on a node: route through its neighbours instead of back to it.
-		if da < 0.6:
+		if da < ON_NODE:
 			continue
 		var cost := da + costs[a]
-		if cost < best:
+		if cost < best and walk_clear(from, p):
 			best = cost
 			best_node = a
-	if best_node == -1:
+	return best_node
+
+
+## How close counts as standing on a nav node, and how far off a route edge still counts as on it.
+const ON_NODE := 0.6
+const ON_EDGE := 0.4
+
+
+## Next node after `a` on its cheapest route to the goal, or -1 when `a` heads straight for it.
+func _hop(a: int, costs: PackedFloat32Array) -> int:
+	var row: PackedInt32Array = _next[a]
+	var pa := nodes[a]
+	var best := costs[a] + 0.01
+	var hop := -1
+	for b in nodes.size():
+		if b != a and row[b] == b and costs[b] < costs[a]:
+			var c := pa.distance_to(nodes[b]) + costs[b]
+			if c < best:
+				best = c
+				hop = b
+	return hop
+
+
+## Where the route out of node `a` heads next: the following node, or the goal itself when `a` can
+## walk straight to it (Vector2.INF if neither).
+func _route_next(a: int, costs: PackedFloat32Array, to: Vector2) -> Vector2:
+	var hop := _hop(a, costs)
+	if hop != -1:
+		return nodes[hop]
+	if costs[a] < INF and walk_clear(nodes[a], to):
 		return to
-	return nodes[best_node]
+	return Vector2.INF
+
+
+static func _on_segment(p: Vector2, a: Vector2, b: Vector2) -> bool:
+	var ab := b - a
+	var t := (p - a).dot(ab) / ab.length_squared()
+	return t > 0.0 and t < 1.0 and p.distance_to(a + ab * t) < ON_EDGE
+
+
+## The farthest point along the route edge out of node `a` that `from` (on or beside that edge) can
+## walk to in a straight line, or Vector2.INF. Edges can graze a corner so closely that spots just
+## off them lose sight of the far end; this keeps a soldier moving along rather than turning back.
+func _along_route(from: Vector2, a: int, costs: PackedFloat32Array, to: Vector2) -> Vector2:
+	var pb := _route_next(a, costs, to)
+	if pb == Vector2.INF:
+		return Vector2.INF
+	var pa := nodes[a]
+	var ab := pb - pa
+	var len := ab.length()
+	if len < ON_NODE:
+		return Vector2.INF
+	var t0 := clampf((from - pa).dot(ab) / (len * len), 0.0, 1.0)
+	var t := 1.0
+	while t > t0:
+		var q := pa + ab * t
+		if from.distance_to(q) >= ON_NODE and walk_clear(from, q):
+			return q
+		t -= 0.5 / len
+	return Vector2.INF
+
+
+## Grid step and reach of the local search a soldier boxed in with no nav node in view uses.
+const ESCAPE_STEP := 0.25
+const ESCAPE_RANGE := 10.0
+
+
+## Breadth-first search over a fine local grid for the nearest open spot that can walk to a nav
+## node with a route to the goal; returns the farthest point along that path walkable in a straight
+## line from `from` (Vector2.INF if there is none). Threads gaps the nav graph's corner nodes miss.
+func _escape_step(from: Vector2, costs: PackedFloat32Array) -> Vector2:
+	var reach := int(ESCAPE_RANGE / ESCAPE_STEP)
+	var parent := {Vector2i.ZERO: Vector2i.ZERO}
+	var queue: Array[Vector2i] = [Vector2i.ZERO]
+	var dirs: Array[Vector2i] = [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]
+	var head := 0
+	while head < queue.size():
+		var cell: Vector2i = queue[head]
+		head += 1
+		var q := from + Vector2(cell) * ESCAPE_STEP
+		if cell != Vector2i.ZERO:
+			for a in _visible_nodes(q):
+				if costs[a] < INF and walk_clear(q, nodes[a]):
+					return _farthest_clear(from, cell, parent)
+		for d in dirs:
+			var n: Vector2i = cell + d
+			if parent.has(n) or absi(n.x) > reach or absi(n.y) > reach:
+				continue
+			if blocked(from + Vector2(n) * ESCAPE_STEP):
+				continue
+			parent[n] = cell
+			queue.append(n)
+	return Vector2.INF
+
+
+func _farthest_clear(from: Vector2, cell: Vector2i, parent: Dictionary) -> Vector2:
+	var path: Array[Vector2i] = []
+	while cell != Vector2i.ZERO:
+		path.append(cell)
+		cell = parent[cell]
+	# path runs goal -> start; the first clear one is the farthest.
+	for c in path:
+		var p := from + Vector2(c) * ESCAPE_STEP
+		if walk_clear(from, p):
+			return p
+	return from + Vector2(path[-1]) * ESCAPE_STEP
 
 
 static func _cell(p: Vector2) -> Vector2i:
 	return Vector2i(floori(p.x), floori(p.y))
 
 
+## Nav nodes walkable from p, judged from its 1 m cell centre (cached) unless that centre is inside
+## an obstacle (p hugs one), in which case from p itself.
 func _visible_nodes(p: Vector2) -> PackedInt32Array:
 	var key := _cell(p)
 	if _vis_cache.has(key):
 		return _vis_cache[key]
 	var centre := Vector2(key) + Vector2(0.5, 0.5)
-	var out := PackedInt32Array()
-	for i in nodes.size():
-		if walk_clear(centre, nodes[i]):
-			out.append(i)
+	if blocked(centre):
+		return _nodes_seen_from(p)
+	var out := _nodes_seen_from(centre)
 	_vis_cache[key] = out
 	return out
 
 
-## For every nav node: cheapest route length from it to the goal cell.
+func _nodes_seen_from(p: Vector2) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	for i in nodes.size():
+		if walk_clear(p, nodes[i]):
+			out.append(i)
+	return out
+
+
+## For every nav node: cheapest route length from it to the goal cell. A goal tucked where no node
+## can see it is approximated by the straight-line distance from each node.
 func _goal_costs(goal: Vector2) -> PackedFloat32Array:
 	var key := _cell(goal)
 	if _goal_cache.has(key):
 		return _goal_cache[key]
 	var centre := Vector2(key) + Vector2(0.5, 0.5)
+	var exact := blocked(centre)
+	var end_p := goal if exact else centre
 	var ends := _visible_nodes(goal)
 	var out := PackedFloat32Array()
 	out.resize(nodes.size())
@@ -436,11 +585,14 @@ func _goal_costs(goal: Vector2) -> PackedFloat32Array:
 		var row: PackedFloat32Array = _dist[a]
 		var best := INF
 		for b in ends:
-			var c := row[b] + nodes[b].distance_to(centre)
+			var c := row[b] + nodes[b].distance_to(end_p)
 			if c < best:
 				best = c
+		if ends.is_empty():
+			best = nodes[a].distance_to(end_p)
 		out[a] = best
-	_goal_cache[key] = out
+	if not exact:
+		_goal_cache[key] = out
 	return out
 
 
