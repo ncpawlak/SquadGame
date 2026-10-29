@@ -38,6 +38,7 @@ func _init() -> void:
 		"test_training_camp_and_offseason_xp",
 		"test_preseason_camp",
 		"test_watched_match_flow",
+		"test_home_field_and_start_areas",
 		"test_progression_history_and_potw",
 		"test_dna_profiles",
 		"test_fa_dna_weights",
@@ -1966,14 +1967,15 @@ func test_match_form_upsets() -> void:
 
 
 func test_schemes() -> void:
-	ArenaMap.ensure_built()
+	var arena := ArenaMap.legacy()
+	arena.ensure_built()
 	check(Scheme.all().size() == 6, "six schemes")
 	for sch in Scheme.all():
 		check(sch.slot_ids().size() == 5, "%s has 5 slots" % sch.id)
 		for sid in sch.slot_ids():
-			check(not ArenaMap.blocked(sch.spawn_of(sid)), "%s %s spawn is clear" % [sch.id, sid])
+			check(not arena.blocked(sch.spawn_of(sid)), "%s %s spawn is clear" % [sch.id, sid])
 			if sch.role_for_slot(sid) != Scheme.Role.FLEX:
-				check(not ArenaMap.blocked(sch.hold_of(sid)) and not ArenaMap.blocked(sch.hold_of(sid, true)), "%s %s hold is clear" % [sch.id, sid])
+				check(not arena.blocked(sch.hold_of(sid)) and not arena.blocked(sch.hold_of(sid, true)), "%s %s hold is clear" % [sch.id, sid])
 		# Matchup edges are small and zero-sum.
 		for other in Scheme.all():
 			var e := sch.edge_vs(other)
@@ -2003,6 +2005,43 @@ func test_schemes() -> void:
 	s.league.teams[2].set_scheme(Scheme.by_id(&"pack"))
 	var back := SaveSystem.from_text(SaveSystem.to_text(s))
 	check(back.league.teams[2].scheme.id == &"pack" and back.league.teams[2].scheme.spawn_of(&"CT2") == Vector2(-44, 4), "scheme survives save/load")
+
+
+## Every match is played on the home team's field, with the home side in the left starting area and the
+## away side in the right one, whether or not the teams are rivals, in the regular season and the playoffs.
+func test_home_field_and_start_areas() -> void:
+	Season.fixture_teams = 0
+	var s := Season.new_franchise(8, 0)
+	check(s.league.teams.size() == 20, "the real 20-team league")
+	s.sim_to_end_of_regular_season()
+	var rivalry_matches := 0
+	var checked_homes := {}
+	var played := 0
+	for w in range(1, s.regular_weeks + 1):
+		for m: ScheduledMatch in s.matches_for_week(w):
+			played += 1
+			check(m.field() == ArenaMap.for_team(m.home.abbrev), "%s is played on %s's field" % [m.away.abbrev, m.home.abbrev])
+			check(m.result.teams[0] == m.home and m.result.teams[1] == m.away, "home side is team 0")
+			if s.rivalries.is_rivalry(m.home, m.away):
+				rivalry_matches += 1
+			if not checked_homes.has(m.home):
+				checked_homes[m.home] = true
+				var e := m.live_engine()
+				check(e.arena == m.field(), "live engine uses the home field")
+				e.step()
+				for c in e.squads[0]:
+					check(c.pos.x <= -ArenaMap.START_X, "%s starts in the left (home) area" % m.home.abbrev)
+				for c in e.squads[1]:
+					check(c.pos.x >= ArenaMap.START_X, "%s starts in the right (away) area" % m.away.abbrev)
+	check(played > 100, "plenty of regular-season matches checked (%d)" % played)
+	check(rivalry_matches > 0, "rivalry matches were among them (%d)" % rivalry_matches)
+	s.sim_to_end_of_season()
+	check(not s.playoff_matches.is_empty(), "playoffs were played")
+	for m: ScheduledMatch in s.playoff_matches:
+		if m.is_played():
+			check(m.field() == ArenaMap.for_team(m.home.abbrev), "playoff match on the home team's field")
+			check(m.result.teams[0] == m.home, "playoff home side is team 0")
+	Season.fixture_teams = 5
 
 
 func test_keep_value_protects_prospects() -> void:

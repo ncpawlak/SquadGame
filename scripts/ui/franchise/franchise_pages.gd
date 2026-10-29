@@ -295,7 +295,7 @@ func _score_line(m: ScheduledMatch) -> Button:
 func matchup(m: ScheduledMatch) -> Control:
 	var s := _season()
 	var v := _vbox(18)
-	v.add_child(UiKit.label("%s  -  BEST OF 3:  TDM  -  KING OF THE HILL  -  TDM SUDDEN DEATH" % s.week_label(m.week).to_upper(), 16, UiKit.MUTED))
+	v.add_child(UiKit.label("%s  -  AT %s  -  BEST OF 3:  TDM  -  KING OF THE HILL  -  TDM SUDDEN DEATH" % [s.week_label(m.week).to_upper(), m.field().venue.to_upper()], 16, UiKit.MUTED))
 	var h := _row(20)
 	h.alignment = BoxContainer.ALIGNMENT_CENTER
 	h.add_child(_matchup_side(m.home, "HOME"))
@@ -383,7 +383,7 @@ func _ignore_mouse(c: Control) -> void:
 func preview(m: ScheduledMatch) -> Control:
 	var s := _season()
 	var v := _vbox(16)
-	v.add_child(UiKit.label("%s  -  %s" % [s.week_label(m.week).to_upper(), "at " + m.home.name], 16, UiKit.MUTED))
+	v.add_child(UiKit.label("%s  -  %s" % [s.week_label(m.week).to_upper(), "at %s (%s)" % [m.field().venue, m.home.name]], 16, UiKit.MUTED))
 	var h := _row(24)
 	for t in [m.away, m.home]:
 		var col := _vbox(6)

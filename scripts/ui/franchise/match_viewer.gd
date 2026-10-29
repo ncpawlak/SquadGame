@@ -15,10 +15,6 @@ const DOT_RADIUS := 21.0
 const PANEL_W := 340
 ## Teleports (respawns, new rounds) longer than this snap instead of sliding across the map.
 const SNAP_DISTANCE := 6.0
-const WALL_COLOR := Color("#3a4150")
-const CRATE_COLOR := Color("#7a5a36")
-const FLOOR_COLOR := Color("#1b2230")
-const GRID_COLOR := Color(1, 1, 1, 0.04)
 const RESULT_COLORS := {
 	"MISS": Color("#9ca3af"), "HIT": Color("#f3f4f6"), "HEADSHOT": Color("#fb923c"), "KILL": Color("#ef4444"),
 }
@@ -482,21 +478,10 @@ func _display_pos(c: MatchEngine.Combatant) -> Vector2:
 func _draw_map() -> void:
 	var sc := _scale()
 	var arena := _rect_to_screen(Rect2(-ArenaMap.HALF, ArenaMap.HALF * 2.0))
-	_map.draw_rect(arena, FLOOR_COLOR)
-	var x := -ArenaMap.HALF.x
-	while x <= ArenaMap.HALF.x:
-		_map.draw_line(_to_screen(Vector2(x, -ArenaMap.HALF.y)), _to_screen(Vector2(x, ArenaMap.HALF.y)), GRID_COLOR)
-		x += 4.0
-	var y := -ArenaMap.HALF.y
-	while y <= ArenaMap.HALF.y:
-		_map.draw_line(_to_screen(Vector2(-ArenaMap.HALF.x, y)), _to_screen(Vector2(ArenaMap.HALF.x, y)), GRID_COLOR)
-		y += 4.0
-	# Spawn zones tinted with each team's colour.
-	for i in 2:
-		var zone := Rect2(Vector2(-ArenaMap.HALF.x, -ArenaMap.HALF.y), Vector2(9, ArenaMap.HALF.y * 2.0))
-		if i == 1:
-			zone.position.x = ArenaMap.HALF.x - 9.0
-		_map.draw_rect(_rect_to_screen(zone), Color(teams[i].color, 0.08))
+	FieldPainter.draw_floor(_map, engine.arena, _map.size / 2.0, sc)
+	# Both starting areas wear the home team's tint, so the field reads as the home team's ground.
+	var tint := FieldPainter.start_tint(teams[0], engine.arena.surface)
+	FieldPainter.draw_start_areas(_map, _map.size / 2.0, sc, [tint, tint], [teams[0].abbrev, teams[1].abbrev], _font)
 	if engine.mode() == MatchEngine.MODE_KOTH:
 		var hs := engine.hill_state()
 		var col := Color(1, 1, 1, 0.10)
@@ -508,15 +493,9 @@ func _draw_map() -> void:
 		_map.draw_rect(hr, col)
 		_map.draw_rect(hr, Color(1, 1, 1, 0.55), false, 2.0)
 		_map.draw_string(_font, hr.position + Vector2(4, 14), "HILL", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.6))
-	for r in ArenaMap.crates:
-		var sr := _rect_to_screen(r)
-		_map.draw_rect(sr, CRATE_COLOR)
-		_map.draw_rect(sr, CRATE_COLOR.darkened(0.4), false, 2.0)
-		_map.draw_line(sr.position, sr.end, CRATE_COLOR.darkened(0.25), 1.0)
-		_map.draw_line(Vector2(sr.end.x, sr.position.y), Vector2(sr.position.x, sr.end.y), CRATE_COLOR.darkened(0.25), 1.0)
-	for r in ArenaMap.walls:
-		_map.draw_rect(_rect_to_screen(r), WALL_COLOR)
+	FieldPainter.draw_props(_map, engine.arena, _map.size / 2.0, sc, UiKit.logo_tex(teams[0].abbrev))
 	_map.draw_rect(arena, Color(1, 1, 1, 0.25), false, 2.0)
+	_map.draw_string(_font, arena.position + Vector2(8, arena.size.y - 8), engine.arena.venue.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.45))
 
 	# Tracers and muzzle flashes.
 	for t in _tracers:

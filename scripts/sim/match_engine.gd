@@ -192,6 +192,8 @@ var _everyone: Array = []
 var _arena_score: Array[float] = [0.0, 0.0]
 var _game_over := false
 var _game: Dictionary = {}
+## The field this match is played on (set by start()).
+var arena: ArenaMap
 var _need_game := true
 var _need_round := false
 var _holder := -1
@@ -200,9 +202,9 @@ var _clutch_candidate: Combatant = null
 var _scheme_edge: Array = [[0.0, 0.0], [0.0, 0.0]]
 
 
-static func simulate(team_a: Team, team_b: Team, seed_value: int) -> MatchResult:
+static func simulate(team_a: Team, team_b: Team, seed_value: int, field: ArenaMap = null) -> MatchResult:
 	var engine := MatchEngine.new()
-	engine.start(team_a, team_b, seed_value)
+	engine.start(team_a, team_b, seed_value, field)
 	while engine.step():
 		pass
 	return engine.result()
@@ -255,8 +257,10 @@ func hill_state() -> int:
 	return -1
 
 
-func start(team_a: Team, team_b: Team, seed_value: int) -> void:
-	ArenaMap.ensure_built()
+## `field` is the home team's field (team_a is home); the legacy field when omitted.
+func start(team_a: Team, team_b: Team, seed_value: int, field: ArenaMap = null) -> void:
+	arena = field if field != null else ArenaMap.legacy()
+	arena.ensure_built()
 	_rng.seed = seed_value
 	_result = MatchResult.new()
 	_result.match_seed = seed_value
@@ -629,7 +633,7 @@ func _update_vision() -> void:
 		if not a.alive:
 			continue
 		for b: Combatant in squads[1]:
-			if b.alive and a.pos.distance_squared_to(b.pos) <= max_d2 and ArenaMap.line_of_sight(a.pos, b.pos):
+			if b.alive and a.pos.distance_squared_to(b.pos) <= max_d2 and arena.line_of_sight(a.pos, b.pos):
 				a.visible.append(b)
 				b.visible.append(a)
 	for c: Combatant in _everyone:
@@ -695,7 +699,7 @@ func _move(c: Combatant, enemies: Array) -> void:
 			c.soldier.add_usage(Stats.BREACH, 0.2)
 	if goal.distance_squared_to(c.waypoint_goal) > 4.0 or _tick >= c.repath_tick \
 			or c.pos.distance_squared_to(c.waypoint) < 0.25:
-		c.waypoint = ArenaMap.next_waypoint(c.pos, goal)
+		c.waypoint = arena.next_waypoint(c.pos, goal)
 		c.waypoint_goal = goal
 		c.repath_tick = _tick + REPATH_TICKS
 	var to := c.waypoint - c.pos
@@ -705,12 +709,12 @@ func _move(c: Combatant, enemies: Array) -> void:
 	var dir := to / d
 	var stride := minf(rate, d)
 	var np := c.pos + dir * stride
-	if ArenaMap.blocked(np):
+	if arena.blocked(np):
 		# Slide along whatever is in the way, then re-plan next tick.
 		np = c.pos + Vector2(dir.x * stride, 0.0)
-		if ArenaMap.blocked(np):
+		if arena.blocked(np):
 			np = c.pos + Vector2(0.0, dir.y * stride)
-			if ArenaMap.blocked(np):
+			if arena.blocked(np):
 				np = c.pos
 		c.repath_tick = _tick
 	c.pos = np
@@ -722,7 +726,7 @@ func _seek_cover(c: Combatant, shooter: Combatant) -> void:
 		return
 	if _rng.randf() > c.stat(Stats.AWARENESS) / 100.0 * 0.35:
 		return
-	var spot := ArenaMap.find_cover(c.pos, shooter.pos, COVER_SEARCH_RADIUS)
+	var spot := arena.find_cover(c.pos, shooter.pos, COVER_SEARCH_RADIUS)
 	if spot != Vector2.INF:
 		c.cover_spot = spot
 		c.cover_until = _tick + COVER_TICKS
@@ -835,7 +839,7 @@ func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band:
 	# Caught mid-reload: target can't return fire or dodge as well.
 	if target.reload_ticks > 0:
 		p *= 1.25
-	var covered := ArenaMap.through_cover(c.pos, target.pos)
+	var covered := arena.through_cover(c.pos, target.pos)
 	if covered:
 		p *= COVER_HIT_MULT
 	if _mode == MODE_KOTH:
