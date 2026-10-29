@@ -267,6 +267,12 @@ func blocked(p: Vector2) -> bool:
 	return false
 
 
+## True if world point p is inside `team`'s own spawn zone (behind x = -+START_X). Soldiers there
+## can't be fired upon.
+static func in_spawn_zone(team: int, p: Vector2) -> bool:
+	return p.x <= -START_X if team == 0 else p.x >= START_X
+
+
 static func on_hill(p: Vector2) -> bool:
 	return HILL.has_point(p)
 

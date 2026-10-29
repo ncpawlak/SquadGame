@@ -47,7 +47,9 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   point-symmetric: the file lists half and the game reflects it, but the reflected copy of each prop keeps its
   footprint and cover value and is drawn as a different object (`ArenaMap.mirror_skin`), so cover is identical on
   both sides while the scenery isn't. Each team starts in a starting area behind a vertical line at x = +-35
-  (`ArenaMap.START_X`); the team's logo sits on the floor in the middle. Fields are authored in
+  (`ArenaMap.START_X`); the team's logo sits on the floor in the middle. That starting area is a spawn zone: nobody
+  may fire on a soldier standing in his own team's zone (`ArenaMap.in_spawn_zone`), and hunters ignore enemies there.
+  Fields are authored in
   `tools/field_designs.gd` and written by `tools/build_fields.gd` (checks: nothing on a spawn, hold, flank point,
   the hill or a starting area; one connected floor; some sight lanes); set `"locked": true` on an entry in the JSON
   to keep hand edits when the tool is re-run (`-- sheet=<png>` also renders a contact sheet). Teams without an
