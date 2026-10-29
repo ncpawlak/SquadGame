@@ -291,11 +291,24 @@ func _score_line(m: ScheduledMatch) -> Button:
 
 # --- match preview / recap -----------------------------------------------------------
 
+## The match's weather chip under a header line: this week's unplayed fixtures (the forecast is a
+## surprise until match week) and played ones (what it was). Nothing when clear.
+func _add_weather_chip(parent: Control, m: ScheduledMatch) -> void:
+	if not m.is_played() and m.week != _season().week:
+		return
+	var chip := UiKit.weather_chip(m.shown_weather())
+	if chip == null:
+		return
+	chip.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	parent.add_child(chip)
+
+
 ## Pre-match screen for the user's fixture: both starting fives side by side, Watch or Sim.
 func matchup(m: ScheduledMatch) -> Control:
 	var s := _season()
 	var v := _vbox(18)
 	v.add_child(UiKit.label("%s  -  AT %s  -  BEST OF 3:  TDM  -  KING OF THE HILL  -  TDM SUDDEN DEATH" % [s.week_label(m.week).to_upper(), m.field().venue.to_upper()], 16, UiKit.MUTED))
+	_add_weather_chip(v, m)
 	var h := _row(20)
 	h.alignment = BoxContainer.ALIGNMENT_CENTER
 	h.add_child(_matchup_side(m.home, "HOME"))
@@ -384,6 +397,7 @@ func preview(m: ScheduledMatch) -> Control:
 	var s := _season()
 	var v := _vbox(16)
 	v.add_child(UiKit.label("%s  -  %s" % [s.week_label(m.week).to_upper(), "at %s (%s)" % [m.field().venue, m.home.name]], 16, UiKit.MUTED))
+	_add_weather_chip(v, m)
 	var h := _row(24)
 	for t in [m.away, m.home]:
 		var col := _vbox(6)
@@ -431,6 +445,7 @@ func recap(m: ScheduledMatch) -> Control:
 	var v := _vbox(16)
 	var user := _season().user_team()
 	v.add_child(match_summary(m, user if m.involves(user) else null))
+	_add_weather_chip(v, m)
 	v.add_child(_pbp_button(m))
 	for t in r.teams:
 		v.add_child(_section("%s BOX SCORE" % t.name.to_upper()))

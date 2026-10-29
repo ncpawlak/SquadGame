@@ -146,13 +146,14 @@ class Combatant:
 	var _behaviour: Dictionary = {}
 	var _flanked_behaviour: Dictionary = {}
 
-	func setup() -> void:
+	func setup(weather: Weather = null) -> void:
 		var eff := soldier.effective_stats()
 		for s in Stats.ALL:
 			var v := float(eff[s])
 			if condition < 1.0 and FATIGUE_STATS.has(s):
 				v *= condition
-			_stats[s] = clampf(v + form, 1.0, 110.0)
+			var wet := weather.penalty(s) if weather != null else 0.0
+			_stats[s] = clampf(v + form - wet, 1.0, 110.0)
 		var b: Dictionary = Scheme.ROLE_BEHAVIOUR[role]
 		for key in b:
 			_behaviour[key] = b[key]
@@ -194,6 +195,8 @@ var _game_over := false
 var _game: Dictionary = {}
 ## The field this match is played on (set by start()).
 var arena: ArenaMap
+## The weather it is played in (clear unless start() is given some).
+var weather: Weather
 var _need_game := true
 var _need_round := false
 var _holder := -1
@@ -202,9 +205,9 @@ var _clutch_candidate: Combatant = null
 var _scheme_edge: Array = [[0.0, 0.0], [0.0, 0.0]]
 
 
-static func simulate(team_a: Team, team_b: Team, seed_value: int, field: ArenaMap = null) -> MatchResult:
+static func simulate(team_a: Team, team_b: Team, seed_value: int, field: ArenaMap = null, wx: Weather = null) -> MatchResult:
 	var engine := MatchEngine.new()
-	engine.start(team_a, team_b, seed_value, field)
+	engine.start(team_a, team_b, seed_value, field, wx)
 	while engine.step():
 		pass
 	return engine.result()
@@ -257,13 +260,18 @@ func hill_state() -> int:
 	return -1
 
 
-## `field` is the home team's field (team_a is home); the legacy field when omitted.
-func start(team_a: Team, team_b: Team, seed_value: int, field: ArenaMap = null) -> void:
+## `field` is the home team's field (team_a is home); the legacy field when omitted. `wx` is the
+## match weather (clear when omitted).
+func start(team_a: Team, team_b: Team, seed_value: int, field: ArenaMap = null, wx: Weather = null) -> void:
 	arena = field if field != null else ArenaMap.legacy()
 	arena.ensure_built()
+	weather = wx if wx != null else Weather.clear()
+	weather.prepare(arena)
 	_rng.seed = seed_value
 	_result = MatchResult.new()
 	_result.match_seed = seed_value
+	_result.weather_kind = weather.kind
+	_result.weather_level = weather.level
 	_result.teams = [team_a, team_b]
 	team_form = [_roll_form(TEAM_FORM_SD), _roll_form(TEAM_FORM_SD)]
 	squads = [_build_squad(team_a, 0), _build_squad(team_b, 1)]
@@ -274,6 +282,8 @@ func start(team_a: Team, team_b: Team, seed_value: int, field: ArenaMap = null) 
 	]
 	_result.events.append("=== %s vs %s (seed %d) ===" % [team_a.name, team_b.name, seed_value])
 	_result.events.append("%s OVR %d | %s OVR %d" % [team_a.abbrev, team_a.team_ovr(), team_b.abbrev, team_b.team_ovr()])
+	if not weather.is_clear():
+		_result.events.append("Weather: %s. %s" % [weather.label(), weather.effect_text()])
 	for i in 2:
 		if team_form[i] >= FORM_NOTE:
 			_result.events.append("%s look razor sharp in warmups." % _result.teams[i].abbrev)
@@ -328,7 +338,7 @@ func _build_squad(team: Team, index: int) -> Array:
 		_pick_flank_side(c)
 		c.condition = 1.0 - Conditioning.penalty(s.fatigue)
 		c.form = team_form[index] + _roll_form(PLAYER_FORM_SD)
-		c.setup()
+		c.setup(weather)
 		c.pos = ArenaMap.world(index, team.scheme.spawn_of(slot_id))
 		c.prev_pos = c.pos
 		squad.append(c)
@@ -689,6 +699,8 @@ func _move(c: Combatant, enemies: Array) -> void:
 	if c.pos.distance_squared_to(goal) < 0.04:
 		return
 	var rate := (0.45 + c.stat(Stats.SPEED) / 100.0 * 0.9) * (1.0 - c.fatigue * 0.3)
+	# Rain and snow patches slow whoever is standing in one.
+	rate *= weather.slow_at(c.pos)
 	if _tick - c.pinned_tick <= 4:
 		rate *= CONTACT_ADVANCE_MULT
 	if _mode == MODE_KOTH and c.goes_point and _on_point_count(enemies) > 0:
@@ -833,7 +845,9 @@ func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band:
 	if outnumbered:
 		c.soldier.add_usage(Stats.COMPOSURE, 0.3)
 	p *= 1.0 + (_avg_stat(allies, Stats.TEAMWORK) - 60.0) / 500.0
-	p *= 1.0 - target.stat(Stats.AGILITY) / 100.0 * 0.15 * (1.0 - target.fatigue * 0.5)
+	# A target slogging through a rain or snow patch dodges worse.
+	var agility := target.stat(Stats.AGILITY) * weather.slow_at(target.pos)
+	p *= 1.0 - agility / 100.0 * 0.15 * (1.0 - target.fatigue * 0.5)
 	# Fast movers are harder to track.
 	p *= 1.0 - (target.stat(Stats.SPEED) - 60.0) * 0.0015
 	# Caught mid-reload: target can't return fire or dodge as well.

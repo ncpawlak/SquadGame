@@ -19,7 +19,7 @@ const NODE_MARGIN := 1.7
 const HILL := Rect2(-5.0, -5.0, 10.0, 10.0)
 const FIELDS_PATH := "res://data/fields.json"
 
-## Floor surfaces (weather will act on these later).
+## Floor surfaces (cosmetic for now; weather depends on the home climate, not the surface).
 const SURFACES: Array[String] = ["asphalt", "concrete", "turf", "sand"]
 
 ## Prop kinds: tall = blocks sight, cover = shots across it are less likely to hit.

@@ -97,6 +97,82 @@ static func draw_floor(c: CanvasItem, field: ArenaMap, origin: Vector2, sc: floa
 			i += 1
 
 
+## Texture of a match's rain puddles or snow patches with rounded edges. The 1 m patch grid is blurred
+## a little, scaled up smoothly and then cut at a threshold, so the outline follows soft curves instead
+## of the grid cells (the sim still uses the cells; this only changes how they are drawn).
+## Build once per match and pass it to draw_patches.
+const PATCH_UPSCALE := 6
+
+static func patch_texture(w: Weather) -> Texture2D:
+	if w == null or w.is_clear():
+		return null
+	var rain := w.kind == Weather.RAIN
+	var col := Color(0.25, 0.50, 0.82) if rain else Color(0.95, 0.97, 1.0)
+	var base := 0.62 if rain else 0.85
+	var cols := Weather.COLS
+	var rows := Weather.ROWS
+	# 3x3 weighted blur (centre 4, sides 2, corners 1) of the patch depth.
+	var soft := PackedByteArray()
+	soft.resize(cols * rows)
+	for y in rows:
+		for x in cols:
+			var sum := 0.0
+			for dy in range(-1, 2):
+				for dx in range(-1, 2):
+					var nx := clampi(x + dx, 0, cols - 1)
+					var ny := clampi(y + dy, 0, rows - 1)
+					sum += w.cell_depth(nx, ny) * float((2 - absi(dx)) * (2 - absi(dy)))
+			soft[y * cols + x] = clampi(int(sum / 16.0 * 255.0), 0, 255)
+	var grey := Image.create_from_data(cols, rows, false, Image.FORMAT_L8, soft)
+	grey.resize(cols * PATCH_UPSCALE, rows * PATCH_UPSCALE, Image.INTERPOLATE_BILINEAR)
+	var src := grey.get_data()
+	var out := PackedByteArray()
+	out.resize(src.size() * 4)
+	var rgb := [int(col.r * 255.0), int(col.g * 255.0), int(col.b * 255.0)]
+	for i in src.size():
+		var m := src[i] / 255.0
+		var edge := smoothstep(0.10, 0.30, m)
+		var a := base * edge * (0.65 + 0.35 * minf(1.0, m / 0.7))
+		out[i * 4] = rgb[0]
+		out[i * 4 + 1] = rgb[1]
+		out[i * 4 + 2] = rgb[2]
+		out[i * 4 + 3] = clampi(int(a * 255.0), 0, 255)
+	var img := Image.create_from_data(grey.get_width(), grey.get_height(), false, Image.FORMAT_RGBA8, out)
+	var tex := ImageTexture.create_from_image(img)
+	return tex
+
+
+static func draw_patches(c: CanvasItem, tex: Texture2D, origin: Vector2, sc: float) -> void:
+	if tex != null:
+		c.draw_texture_rect(tex, _rect(Rect2(-ArenaMap.HALF, ArenaMap.HALF * 2.0), origin, sc), false)
+
+
+static func _hash01(i: int) -> float:
+	return fposmod(sin(float(i) * 12.9898) * 43758.5453, 1.0)
+
+
+## Falling rain streaks or drifting snow over the whole view, plus a slight grade. `t` is seconds.
+static func draw_precip(c: CanvasItem, w: Weather, size: Vector2, t: float) -> void:
+	if w == null or w.is_clear():
+		return
+	var heavy := w.level >= 2
+	if w.kind == Weather.RAIN:
+		c.draw_rect(Rect2(Vector2.ZERO, size), Color(0.05, 0.10, 0.20, 0.20 if heavy else 0.10))
+		var dir := Vector2(-120.0, 520.0).normalized()
+		for i in (320 if heavy else 150):
+			var sp := _hash01(i + 977)
+			var y := fposmod(_hash01(i * 2 + 1) * size.y + t * (480.0 + 200.0 * sp), size.y)
+			var x := fposmod(_hash01(i * 2) * size.x - t * 110.0, size.x)
+			c.draw_line(Vector2(x, y), Vector2(x, y) - dir * (14.0 + 8.0 * sp), Color(0.78, 0.88, 1.0, 0.30 + 0.15 * sp), 1.2)
+	else:
+		c.draw_rect(Rect2(Vector2.ZERO, size), Color(0.85, 0.90, 1.0, 0.10 if heavy else 0.05))
+		for i in (220 if heavy else 100):
+			var sp := _hash01(i + 977)
+			var y := fposmod(_hash01(i * 2 + 1) * size.y + t * (36.0 + 34.0 * sp), size.y)
+			var x := fposmod(_hash01(i * 2) * size.x + sin(t * 0.8 + i) * 14.0, size.x)
+			c.draw_circle(Vector2(x, y), 1.4 + 1.6 * sp, Color(1, 1, 1, 0.55 + 0.3 * sp))
+
+
 ## Floor decals (in DECAL_Z order), the centre logo on top of them, then low props, then tall ones.
 static func draw_props(c: CanvasItem, field: ArenaMap, origin: Vector2, sc: float, logo: Texture2D = null) -> void:
 	for z in 2:

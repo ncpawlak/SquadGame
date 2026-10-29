@@ -27,6 +27,7 @@ var paused := false
 
 var _acc := 0.0
 var _clock := 0.0  # real seconds, drives effect lifetimes
+var _patch_tex: Texture2D  # this match's puddles / snow patches, built on first draw
 var _by_id := {}  # soldier id -> Combatant
 var _tracers: Array = []  # {from_id, to, team, born, result}
 var _popups: Array = []  # {id, text, color, born}
@@ -479,6 +480,9 @@ func _draw_map() -> void:
 	var sc := _scale()
 	var arena := _rect_to_screen(Rect2(-ArenaMap.HALF, ArenaMap.HALF * 2.0))
 	FieldPainter.draw_floor(_map, engine.arena, _map.size / 2.0, sc)
+	if _patch_tex == null and not engine.weather.is_clear():
+		_patch_tex = FieldPainter.patch_texture(engine.weather)
+	FieldPainter.draw_patches(_map, _patch_tex, _map.size / 2.0, sc)
 	# Both starting areas wear the home team's tint, so the field reads as the home team's ground.
 	var tint := FieldPainter.start_tint(teams[0], engine.arena.surface)
 	FieldPainter.draw_start_areas(_map, _map.size / 2.0, sc, [tint, tint], [teams[0].abbrev, teams[1].abbrev], _font)
@@ -495,7 +499,10 @@ func _draw_map() -> void:
 		_map.draw_string(_font, hr.position + Vector2(4, 14), "HILL", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.6))
 	FieldPainter.draw_props(_map, engine.arena, _map.size / 2.0, sc, UiKit.logo_tex(teams[0].abbrev))
 	_map.draw_rect(arena, Color(1, 1, 1, 0.25), false, 2.0)
-	_map.draw_string(_font, arena.position + Vector2(8, arena.size.y - 8), engine.arena.venue.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.45))
+	var venue_line := engine.arena.venue.to_upper()
+	if not engine.weather.is_clear():
+		venue_line += "  -  %s" % engine.weather.label().to_upper()
+	_map.draw_string(_font, arena.position + Vector2(8, arena.size.y - 8), venue_line, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.45))
 
 	# Tracers and muzzle flashes.
 	for t in _tracers:
@@ -521,6 +528,8 @@ func _draw_map() -> void:
 				if c.alive != pass_alive:
 					continue
 				_draw_soldier(c, sc)
+
+	FieldPainter.draw_precip(_map, engine.weather, _map.size, _clock)
 
 	for p in _popups:
 		var c: MatchEngine.Combatant = _by_id[p["id"]]

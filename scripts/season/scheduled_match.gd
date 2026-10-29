@@ -66,15 +66,31 @@ func field() -> ArenaMap:
 	return ArenaMap.for_team(home.abbrev)
 
 
+## The weather this match is played in, rolled from the seed and the home climate. Not stored (saves keep
+## only the condition on the result), so every call returns a fresh copy.
+func weather() -> Weather:
+	return Weather.roll(match_seed, home.abbrev)
+
+
+## Weather to show for this fixture: its own while it is still ahead, what was played once it is done.
+func shown_weather() -> Weather:
+	if result != null:
+		var w := Weather.new()
+		w.kind = result.weather_kind
+		w.level = result.weather_level
+		return w
+	return weather()
+
+
 func play() -> MatchResult:
-	result = MatchEngine.simulate(home, away, match_seed, field())
+	result = MatchEngine.simulate(home, away, match_seed, field(), weather())
 	return result
 
 
 ## A steppable engine for this fixture, for the live viewer. Assign its result via `set_live_result`.
 func live_engine() -> MatchEngine:
 	var e := MatchEngine.new()
-	e.start(home, away, match_seed, field())
+	e.start(home, away, match_seed, field(), weather())
 	return e
 
 

@@ -4,6 +4,9 @@ extends RefCounted
 ## box scores. A match is best of 3 games (see MatchEngine).
 
 var match_seed: int
+## The weather it was played in (Weather.CLEAR, RAIN or SNOW; level 0 = clear, 1 light, 2 inclement).
+var weather_kind: StringName = Weather.CLEAR
+var weather_level := 0
 var teams: Array[Team] = []
 ## Games won by each side.
 var score: Array[int] = [0, 0]

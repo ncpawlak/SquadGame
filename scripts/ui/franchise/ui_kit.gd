@@ -544,6 +544,30 @@ static func logo_bb(team: Team, size := 22) -> String:
 	return "[img=%dx%d]res://assets/logos/%s.png[/img] " % [size, size, team.abbrev]
 
 
+## "LIGHT RAIN" / "INCLEMENT SNOW" pill, hover for what it does. Null when the weather is clear.
+static func weather_chip(w: Weather, size := 15) -> Control:
+	if w == null or w.is_clear():
+		return null
+	var inclement := w.level >= 2
+	var col := Color("#3b82c4") if w.kind == Weather.RAIN else Color("#8fb8d8")
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", flat(Color(col, 0.55 if inclement else 0.28), 999, 2, Color(col, 0.9 if inclement else 0.6)))
+	p.mouse_filter = Control.MOUSE_FILTER_STOP
+	p.tooltip_text = w.effect_text()
+	p.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var l := label(w.label().to_upper(), size, Color.WHITE)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var m := MarginContainer.new()
+	m.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side in ["left", "right"]:
+		m.add_theme_constant_override("margin_" + side, 14)
+	for side in ["top", "bottom"]:
+		m.add_theme_constant_override("margin_" + side, 3)
+	m.add_child(l)
+	p.add_child(m)
+	return p
+
+
 ## Square team logo; falls back to the coloured chip when the team has no logo.
 ## The team logo on a dark disc ringed in the team accent, `size` px across, so it reads on any
 ## background (team-colour banners included).

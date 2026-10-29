@@ -40,7 +40,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   21 and under start around 60-66 (a couple of story prodigies excepted); ratings climb
   toward a 26-30 prime, which is where most of the league's best players sit.
 - **Team fields** (`data/fields.json`, `scripts/sim/arena_map.gd`): every match is played on the home team's field.
-  A field is a venue name, a floor surface (asphalt, concrete, turf or sand - weather will act on this later)
+  A field is a venue name, a floor surface (asphalt, concrete, turf or sand; weather ignores surface for now)
   and a list of props: tall ones (building walls, containers, bleachers, trees, hedges, pillars) block movement
   and sight, low ones (cars, dumpsters, crates, sandbags, barriers, boats, tables) block movement and give cover,
   fences only block movement; floor decals (interior, grass, boards, dirt, shallow water) are cosmetic. Layouts are
@@ -52,6 +52,17 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   the hill or a starting area; one connected floor; some sight lanes); set `"locked": true` on an entry in the JSON
   to keep hand edits when the tool is re-run (`-- sheet=<png>` also renders a contact sheet). Teams without an
   entry play on the legacy crate layout (`ArenaMap.legacy()`).
+- **Weather** (`scripts/sim/weather.gd`, `data/climates.json`): each match is clear, or rain / snow at level 1 (light) or
+  2 (inclement). It is rolled from the match seed and the home team's climate (a rain chance and a snow chance per team,
+  so Miami rains far more than Reno and San Diego never snows), never from the engine's RNG, so a watched match gets the
+  same weather as a simulated one and clear matches play exactly as before. Two effects. Match-wide, everyone loses
+  rating points: rain takes 3 / 6 off short, medium and long accuracy, Sway and Composure; snow takes 4 / 8 off those
+  accuracies, Reload, Grouping and Endurance. Locally, patches of puddles or snow cover 11-20% (light) or 25-50%
+  (inclement) of the open floor - random, never in a start zone, possibly on the hill - and a soldier standing in one
+  moves at x0.8 / x0.7 (rain) or x0.65 / x0.5 (snow) speed and dodges with the same multiplier on Agility. The patch
+  map is a 1 m grid shared by the engine and the viewer. A chip ("LIGHT RAIN", "INCLEMENT SNOW") shows on the Home
+  matchup, Match Preview, Matchup and recap pages for this week's matches (the forecast stays a surprise until match
+  week; clear weather shows nothing), and the viewer draws the patches, rain streaks or snow.
 - **Look**: sports-broadcast style themed in your team's colours (`UiKit.set_team`) - Barlow / Barlow Condensed
   fonts (`assets/fonts/`, OFL), slanted accent buttons and tabs, a team-colour header banner with a score-bug
   (year + phase), a gradient backdrop with your logo watermarked, and short fade/slide transitions between pages.

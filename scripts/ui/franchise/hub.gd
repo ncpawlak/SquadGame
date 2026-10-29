@@ -1177,6 +1177,9 @@ func _match_body(m: ScheduledMatch, team: Team) -> Control:
 		var vs := UiKit.display("VS" if m.home == team else "@", 34, Color(1, 1, 1, 0.9), true)
 		vs.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		mid.add_child(vs)
+	var chip := _weather_chip(m)
+	if chip != null:
+		mid.add_child(chip)
 	var i := 0
 	for cmp in compare_rows(team, opp):
 		mid.add_child(compare_bar(cmp, UiKit.accent_of(team), UiKit.accent_of(opp), 0.15 + 0.05 * i))
@@ -1196,6 +1199,14 @@ func _match_body(m: ScheduledMatch, team: Team) -> Control:
 			imp.add_child(_impact_chip(t, so))
 	v.add_child(imp)
 	return v
+
+
+## Weather chip for a fixture. Only this week's unplayed matches show it (the forecast stays a surprise
+## until match week); a played one shows what it was in the recap instead. Null when clear.
+func _weather_chip(m: ScheduledMatch) -> Control:
+	if m.is_played() or m.week != season.week:
+		return null
+	return UiKit.weather_chip(m.weather())
 
 
 func _team_block(t: Team, right: bool) -> Control:
