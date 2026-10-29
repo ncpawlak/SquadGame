@@ -290,7 +290,13 @@ func test_playoff_seeding() -> void:
 	check(played.size() == 2 and played[0].is_played(), "semis played")
 	var fin := s.matches_for_week(12)
 	check(fin.size() == 1 and fin[0].stage == &"final", "final created")
-	check(fin[0].home == semis[0].winner() and fin[0].away == semis[1].winner(), "final pairs semi winners")
+	# The final pairs the two semifinal winners, and the better seed hosts (an upset can put the lower
+	# bracket's winner at home, so the host is decided by seed, not by which semifinal they won).
+	var w0: Team = semis[0].winner()
+	var w1: Team = semis[1].winner()
+	check(fin[0].involves(w0) and fin[0].involves(w1), "final pairs semi winners")
+	var better: Team = w0 if int(s.playoff_seeds[w0]) < int(s.playoff_seeds[w1]) else w1
+	check(fin[0].home == better, "final is hosted by the better seed")
 
 
 func test_full_season_champion() -> void:
