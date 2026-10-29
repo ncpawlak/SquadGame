@@ -20,6 +20,7 @@ func _init() -> void:
 		"test_looks",
 		"test_match_is_deterministic",
 		"test_live_engine_matches_sim",
+		"test_team_fields",
 		"test_different_seeds_vary",
 		"test_better_team_wins_more",
 		"test_each_combat_stat_matters",
@@ -270,6 +271,71 @@ func test_live_engine_matches_sim() -> void:
 	for squad in e.squads:
 		for c in squad:
 			check(ArenaMap.in_bounds(c.pos), "stays inside the arena")
+
+
+## Authored home fields: symmetric, schemes can spawn and hold on them, the flank is walkable,
+## and a match on one is deterministic.
+func test_team_fields() -> void:
+	var names := ArenaMap.authored()
+	check(names.size() == 20, "every team has an authored field (%d)" % names.size())
+	for abbrev in names:
+		var f := ArenaMap.for_team(abbrev)
+		f.ensure_built()
+		check(ArenaMap.SURFACES.has(f.surface), "%s surface %s is known" % [abbrev, f.surface])
+		check(f.venue != "" and f.props.size() >= 20, "%s has a venue and props" % abbrev)
+		var mirrored := true
+		for r in f.obstacles:
+			var found := false
+			for o in f.obstacles:
+				if o.is_equal_approx(Rect2(-r.end, r.size)):
+					found = true
+			mirrored = mirrored and found
+		check(mirrored, "%s layout is point-symmetric" % abbrev)
+		# Reflected props keep their class: tall stays tall, cover stays cover (only the look may differ).
+		for group in [f.walls, f.crates]:
+			var same := true
+			for r in group:
+				var found := false
+				for o in group:
+					if o.is_equal_approx(Rect2(-r.end, r.size)):
+						found = true
+				same = same and found
+			check(same, "%s sight blockers and cover mirror each other" % abbrev)
+		var starts_clear := true
+		for r in f.obstacles:
+			starts_clear = starts_clear and r.position.x >= -ArenaMap.START_X - 0.01 and r.end.x <= ArenaMap.START_X + 0.01
+		check(starts_clear, "%s starting areas are clear" % abbrev)
+		for sch in Scheme.all():
+			for sid in sch.slot_ids():
+				check(not f.blocked(sch.spawn_of(sid)), "%s %s %s spawn is clear" % [abbrev, sch.id, sid])
+				if sch.role_for_slot(sid) != Scheme.Role.FLEX:
+					check(not f.blocked(sch.hold_of(sid)) and not f.blocked(sch.hold_of(sid, true)), "%s %s %s hold is clear" % [abbrev, sch.id, sid])
+		for right in [false, true]:
+			for i in 11:
+				var p := ArenaMap.flank_point(i / 10.0, right)
+				check(not f.blocked(p) and not f.blocked(-p), "%s flank route is clear" % abbrev)
+		var spawn := Scheme.power_front().spawn_of(&"FM1")
+		var p := spawn
+		var steps := 0
+		while p.distance_to(Vector2.ZERO) > 1.0 and steps < 200:
+			var w := f.next_waypoint(p, Vector2.ZERO)
+			check(not f.blocked(w), "%s waypoint is walkable" % abbrev)
+			p = w
+			steps += 1
+		check(p.distance_to(Vector2.ZERO) <= 1.0, "%s: spawn can path to the hill" % abbrev)
+	var league := League.generate(7)
+	var home: Team = league.teams[0]
+	var field := ArenaMap.for_team(names[0])
+	var a := MatchEngine.simulate(home, league.teams[1], 4242, field)
+	var b := MatchEngine.simulate(home, league.teams[1], 4242, field)
+	check(a.events == b.events, "a match on a field is deterministic")
+	var e := MatchEngine.new()
+	e.start(home, league.teams[1], 4242, field)
+	for i in 400:
+		e.step()
+	for squad in e.squads:
+		for c in squad:
+			check(ArenaMap.in_bounds(c.pos) and not field.blocked(c.pos), "soldiers stay on open ground")
 
 
 func test_different_seeds_vary() -> void:

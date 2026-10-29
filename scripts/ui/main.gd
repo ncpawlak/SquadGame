@@ -266,7 +266,7 @@ func _sim_match() -> void:
 		log_text.text = "[color=#ef4444]Pick two different teams.[/color]"
 		return
 	var seed_value := int(match_seed_spin.value)
-	var result := MatchEngine.simulate(a, b, seed_value)
+	var result := MatchEngine.simulate(a, b, seed_value, ArenaMap.for_team(a.abbrev))
 	var reports := Progression.award_match_xp(result)
 	for t in [a, b]:
 		Progression.auto_spend_team(t, rng)
@@ -354,7 +354,7 @@ func _batch_sim() -> void:
 	var bands := {"short": 0, "medium": 0, "long": 0}
 	var base := int(match_seed_spin.value)
 	for i in n:
-		var r := MatchEngine.simulate(a, b, base + i)
+		var r := MatchEngine.simulate(a, b, base + i, ArenaMap.for_team(a.abbrev))
 		if r.winner_index == 0:
 			wins += 1
 		var key := "%d-%d" % [r.score[0], r.score[1]]

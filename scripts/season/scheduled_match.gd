@@ -61,15 +61,20 @@ func points_for(team: Team) -> int:
 	return result.tdm_points()[0 if team == home else 1]
 
 
+## The home team's field: every match is played there.
+func field() -> ArenaMap:
+	return ArenaMap.for_team(home.abbrev)
+
+
 func play() -> MatchResult:
-	result = MatchEngine.simulate(home, away, match_seed)
+	result = MatchEngine.simulate(home, away, match_seed, field())
 	return result
 
 
 ## A steppable engine for this fixture, for the live viewer. Assign its result via `set_live_result`.
 func live_engine() -> MatchEngine:
 	var e := MatchEngine.new()
-	e.start(home, away, match_seed)
+	e.start(home, away, match_seed, field())
 	return e
 
 

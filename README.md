@@ -39,6 +39,19 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   groups at his level and one or two clear holes - so nobody is 90+ in every group and 99s are rare. Players
   21 and under start around 60-66 (a couple of story prodigies excepted); ratings climb
   toward a 26-30 prime, which is where most of the league's best players sit.
+- **Team fields** (`data/fields.json`, `scripts/sim/arena_map.gd`): every match is played on the home team's field.
+  A field is a venue name, a floor surface (asphalt, concrete, turf or sand - weather will act on this later)
+  and a list of props: tall ones (building walls, containers, bleachers, trees, hedges, pillars) block movement
+  and sight, low ones (cars, dumpsters, crates, sandbags, barriers, boats, tables) block movement and give cover,
+  fences only block movement; floor decals (interior, grass, boards, dirt, shallow water) are cosmetic. Layouts are
+  point-symmetric: the file lists half and the game reflects it, but the reflected copy of each prop keeps its
+  footprint and cover value and is drawn as a different object (`ArenaMap.mirror_skin`), so cover is identical on
+  both sides while the scenery isn't. Each team starts in a starting area behind a vertical line at x = +-35
+  (`ArenaMap.START_X`); the team's logo sits on the floor in the middle. Fields are authored in
+  `tools/field_designs.gd` and written by `tools/build_fields.gd` (checks: nothing on a spawn, hold, flank point,
+  the hill or a starting area; one connected floor; some sight lanes); set `"locked": true` on an entry in the JSON
+  to keep hand edits when the tool is re-run (`-- sheet=<png>` also renders a contact sheet). Teams without an
+  entry play on the legacy crate layout (`ArenaMap.legacy()`).
 - **Look**: sports-broadcast style themed in your team's colours (`UiKit.set_team`) - Barlow / Barlow Condensed
   fonts (`assets/fonts/`, OFL), slanted accent buttons and tabs, a team-colour header banner with a score-bug
   (year + phase), a gradient backdrop with your logo watermarked, and short fade/slide transitions between pages.
