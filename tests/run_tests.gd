@@ -21,6 +21,7 @@ func _init() -> void:
 		"test_match_is_deterministic",
 		"test_live_engine_matches_sim",
 		"test_team_fields",
+		"test_weather",
 		"test_different_seeds_vary",
 		"test_better_team_wins_more",
 		"test_each_combat_stat_matters",
@@ -336,6 +337,129 @@ func test_team_fields() -> void:
 	for squad in e.squads:
 		for c in squad:
 			check(ArenaMap.in_bounds(c.pos) and not field.blocked(c.pos), "soldiers stay on open ground")
+
+
+## Weather: climate odds, deterministic rolls, patch coverage, the match-wide stat penalties, the
+## in-patch slowdown and that clear weather leaves a match exactly as it was.
+func test_weather() -> void:
+	# Climate: Miami rains far more than Reno, Boston snows, San Diego never does.
+	var rain := {}
+	var snow := {}
+	for abbrev in ["MIA", "REN", "BOS", "SDV"]:
+		rain[abbrev] = 0
+		snow[abbrev] = 0
+		for s in 3000:
+			var w := Weather.roll(s, abbrev)
+			rain[abbrev] += 1 if w.kind == Weather.RAIN else 0
+			snow[abbrev] += 1 if w.kind == Weather.SNOW else 0
+	check(rain["MIA"] > rain["REN"] * 3, "Miami rains much more than Reno (%d vs %d)" % [rain["MIA"], rain["REN"]])
+	check(snow["SDV"] == 0, "San Diego never snows")
+	check(snow["BOS"] > snow["REN"] * 2 and snow["BOS"] > 300, "Boston snows often (%d)" % snow["BOS"])
+	check(abs(rain["MIA"] / 3000.0 - 0.30) < 0.04, "Miami's rain rate follows its climate (%d/3000)" % rain["MIA"])
+
+	# A roll is a pure function of the seed and the home team.
+	var a := Weather.roll(1234, "BOS")
+	var b := Weather.roll(1234, "BOS")
+	check(a.kind == b.kind and a.level == b.level and is_equal_approx(a.coverage, b.coverage), "weather rolls are deterministic")
+	var levels := {1: 0, 2: 0}
+	for s in 4000:
+		var w := Weather.roll(s, "SEA")
+		if w.level > 0:
+			levels[w.level] += 1
+			var span: Vector2 = Weather.COVERAGE[w.level]
+			check(w.coverage >= span.x - 0.001 and w.coverage <= span.y + 0.001, "coverage sits in the level's range")
+	check(levels[1] > levels[2] and levels[2] > 0, "light weather is more common than inclement (%s)" % str(levels))
+
+	# Patches cover about the rolled share of the open floor, never a start zone or a prop.
+	var field := ArenaMap.for_team("BOS")
+	field.ensure_built()
+	for lvl in [1, 2]:
+		var w := Weather.new()
+		w.kind = Weather.RAIN
+		w.level = lvl
+		w.coverage = 0.3 if lvl == 2 else 0.15
+		w._seed = 99 + lvl
+		w.prepare(field)
+		check(absf(w.covered_share() - w.coverage) < 0.02, "level %d patches cover %.0f%% (got %.1f%%)" % [lvl, w.coverage * 100.0, w.covered_share() * 100.0])
+		var clean := true
+		for y in Weather.ROWS:
+			for x in Weather.COLS:
+				if w.cell_depth(x, y) > 0.0:
+					var c := Vector2(x + 0.5 - ArenaMap.HALF.x, y + 0.5 - ArenaMap.HALF.y)
+					clean = clean and absf(c.x) <= ArenaMap.START_X - 0.5 and not Weather._under_prop(field, c)
+		check(clean, "no patch in a start zone or under a prop")
+
+	# Slowdown only inside a patch, by the table.
+	var wet := Weather.new()
+	wet.kind = Weather.SNOW
+	wet.level = 2
+	wet.coverage = 0.4
+	wet._seed = 5
+	wet.prepare(field)
+	var inside := Vector2.INF
+	var outside := Vector2.INF
+	for y in Weather.ROWS:
+		for x in Weather.COLS:
+			var c := Vector2(x + 0.5 - ArenaMap.HALF.x, y + 0.5 - ArenaMap.HALF.y)
+			if wet.cell_depth(x, y) > 0.0 and inside == Vector2.INF:
+				inside = c
+			elif wet.cell_depth(x, y) == 0.0 and outside == Vector2.INF:
+				outside = c
+	check(is_equal_approx(wet.slow_at(inside), 0.5), "inclement snow halves speed in a patch")
+	check(wet.slow_at(outside) == 1.0, "bare floor is not slowed")
+	check(Weather.clear().slow_at(inside) == 1.0, "clear weather never slows")
+
+	# Match-wide stat penalties (rain and snow differ).
+	var league := League.generate(7)
+	var home: Team = league.teams[0]
+	var away: Team = league.teams[1]
+	var rain2 := Weather.new()
+	rain2.kind = Weather.RAIN
+	rain2.level = 2
+	var snow1 := Weather.new()
+	snow1.kind = Weather.SNOW
+	snow1.level = 1
+	check(rain2.penalty(&"short_acc") == 6.0 and rain2.penalty(&"sway") == 6.0 and rain2.penalty(&"composure") == 6.0, "inclement rain costs 6 points of aim, sway and composure")
+	check(rain2.penalty(&"reload") == 0.0 and rain2.penalty(&"endurance") == 0.0, "rain leaves reload and endurance alone")
+	check(snow1.penalty(&"reload") == 4.0 and snow1.penalty(&"grouping") == 4.0 and snow1.penalty(&"endurance") == 4.0 and snow1.penalty(&"long_acc") == 4.0, "light snow costs 4 points of reload, grouping, endurance and aim")
+	check(snow1.penalty(&"sway") == 0.0 and snow1.penalty(&"composure") == 0.0, "snow leaves sway and composure alone")
+	var clear_e := MatchEngine.new()
+	clear_e.start(home, away, 31, field)
+	var rain_e := MatchEngine.new()
+	rain_e.start(home, away, 31, field, rain2)
+	var snow_e := MatchEngine.new()
+	snow_e.start(home, away, 31, field, snow1)
+	var c0: MatchEngine.Combatant = clear_e.squads[0][0]
+	var r0: MatchEngine.Combatant = rain_e.squads[0][0]
+	var s0: MatchEngine.Combatant = snow_e.squads[0][0]
+	check(is_equal_approx(c0.stat(&"short_acc") - r0.stat(&"short_acc"), 6.0), "rain lowers a soldier's short accuracy by 6")
+	check(is_equal_approx(c0.stat(&"reload") - s0.stat(&"reload"), 4.0), "snow lowers a soldier's reload by 4")
+	check(is_equal_approx(c0.stat(&"speed"), r0.stat(&"speed")), "speed is only slowed on the patches, not match-wide")
+
+	# Clear weather changes nothing; weather is deterministic and recorded on the result.
+	var plain := MatchEngine.simulate(home, away, 4242, field)
+	var explicit := MatchEngine.simulate(home, away, 4242, field, Weather.clear())
+	check(plain.events == explicit.events, "clear weather leaves a match untouched")
+	check(plain.weather_level == 0 and plain.weather_kind == Weather.CLEAR, "a clear match is recorded as clear")
+	var seed_wet := 0
+	while Weather.roll(seed_wet, "BOS").level < 2 or Weather.roll(seed_wet, "BOS").kind != Weather.SNOW:
+		seed_wet += 1
+	var sm := ScheduledMatch.new()
+	sm.home = home
+	sm.away = away
+	sm.match_seed = seed_wet
+	sm.home.abbrev = "BOS"
+	check(sm.weather().kind == Weather.SNOW and sm.weather().level == 2, "a fixture rolls its weather from its seed and home team")
+	var played := sm.play()
+	check(played.weather_kind == Weather.SNOW and played.weather_level == 2, "the result records the weather")
+	check(sm.shown_weather().label() == "Inclement Snow", "a played match shows the weather it had")
+	var live := sm.live_engine()
+	while live.step():
+		pass
+	check(live.result().events == played.events, "a watched match plays the same weather as a simulated one")
+	for squad in live.squads:
+		for c in squad:
+			check(ArenaMap.in_bounds(c.pos) and not field.blocked(c.pos), "soldiers stay on open ground in the snow")
 
 
 func test_different_seeds_vary() -> void:

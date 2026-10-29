@@ -1,0 +1,22 @@
+{
+	"MIA": {"rain": 0.30, "snow": 0.00},
+	"ORL": {"rain": 0.25, "snow": 0.00},
+	"SEA": {"rain": 0.35, "snow": 0.02},
+	"SDV": {"rain": 0.08, "snow": 0.00},
+	"LAS": {"rain": 0.06, "snow": 0.00},
+	"ARL": {"rain": 0.10, "snow": 0.01},
+	"REN": {"rain": 0.04, "snow": 0.06},
+	"BOS": {"rain": 0.15, "snow": 0.20},
+	"CHI": {"rain": 0.15, "snow": 0.18},
+	"DET": {"rain": 0.15, "snow": 0.18},
+	"DEN": {"rain": 0.08, "snow": 0.18},
+	"NYE": {"rain": 0.15, "snow": 0.12},
+	"BKN": {"rain": 0.15, "snow": 0.12},
+	"IND": {"rain": 0.15, "snow": 0.10},
+	"STL": {"rain": 0.15, "snow": 0.08},
+	"LOU": {"rain": 0.15, "snow": 0.05},
+	"NSH": {"rain": 0.17, "snow": 0.03},
+	"CHA": {"rain": 0.17, "snow": 0.02},
+	"ATL": {"rain": 0.20, "snow": 0.01},
+	"LRK": {"rain": 0.18, "snow": 0.02}
+}
