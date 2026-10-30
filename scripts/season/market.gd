@@ -19,10 +19,10 @@ const TIER_NAMES := ["Small Market", "Regional Market", "Major Market", "Metropo
 const BAND_NAMES := ["Ice Cold", "Cooling", "Steady", "Warm", "Hot", "Electric"]
 ## Lowest buzz of each band.
 const BAND_STARTS := [0.0, 20.0, 40.0, 60.0, 75.0, 90.0]
-## Resting buzz: BASELINE_BASE plus BASELINE_PER_RATING per rating point (about 41 for the smallest
-## market, 55 for the biggest).
-const BASELINE_BASE := 40.0
-const BASELINE_PER_RATING := 0.15
+## Resting buzz: BASELINE_BASE plus BASELINE_PER_RATING per rating point (about 40 for the smallest
+## market, 65 for the biggest).
+const BASELINE_BASE := 38.0
+const BASELINE_PER_RATING := 0.28
 ## Most buzz absorbed from heat in one week (or offseason step), the share of the heat absorbed, how much
 ## of the gap to the baseline closes, and the heat reservoir limit.
 const WEEK_CAP := 3.0

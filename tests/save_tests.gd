@@ -112,6 +112,7 @@ func test_primitives_round_trip() -> void:
 	s.league = l
 	# A started franchise always has its markets seeded (loading seeds older saves), so seed the bare graph too.
 	s.market.ensure(s)
+	s.revenue.ensure(s)
 	s.injury_log = [t.roster[0], t.roster[0], &"name", Vector2i(3, 4), 1, 1.0, PackedInt32Array([1, 2])]
 	s.negotiations = {t: {t.roster[1]: [1.5, "x"]}}
 	var s2 := SaveSystem.from_text(SaveSystem.to_text(s))

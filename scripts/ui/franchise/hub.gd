@@ -3,7 +3,7 @@ extends Control
 ## (Home / Team / League / Personnel / Settings) of scrollable tile rows, and a page stack for
 ## detail screens (Esc / B goes back).
 
-const TABS := ["Home", "Team", "League", "Personnel", "Settings"]
+const TABS := ["Home", "Team", "League", "Personnel", "Club", "Settings"]
 const TILE := Vector2(290, 170)
 const SMALL := Vector2(290, 120)
 ## League tiles that list a division or several leaders.
@@ -12,6 +12,7 @@ const TALL := Vector2(290, 236)
 var app: Control
 var season: Season
 var pages: FranchisePages
+var club: ClubPages
 
 var tab_index := 0
 ## Each entry: {"title": String, "build": Callable -> Control}. Empty = showing tab tiles.
@@ -34,6 +35,8 @@ var simming := false
 func _ready() -> void:
 	pages = FranchisePages.new()
 	pages.hub = self
+	club = ClubPages.new()
+	club.hub = self
 	_bg = Control.new()
 	_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -758,8 +761,10 @@ func _tab_view(i: int) -> Control:
 		v.add_child(_personnel_cards())
 		v.add_child(_personnel_strip())
 	elif i == 4:
+		_club_view(v)
+	elif i == 5:
 		_settings_view(v)
-	var sections: Array = [_home_sections, _team_sections, _league_sections, _personnel_sections, _settings_sections][i].call()
+	var sections: Array = [_home_sections, _team_sections, _league_sections, _personnel_sections, _club_sections, _settings_sections][i].call()
 	var n := 0
 	for sec in sections:
 		v.add_child(UiKit.heading(sec[0], 22))
@@ -2614,6 +2619,60 @@ func _personnel_strip() -> Control:
 
 	cards.append(_soon_card("Negotiation", "Back-and-forth contract talks", ["Back-and-forth contract talks", "Signing bonuses, incentives and options", "Agent personalities and holdouts"]))
 	return _card_row("PersonnelMore", cards, 4)
+
+
+## The Club tab is a custom layout (see _tab_view): the club's money and its market and buzz, then
+## the spending screens that are still to come. No tile sections.
+func _club_sections() -> Array:
+	return []
+
+
+func _club_view(v: VBoxContainer) -> void:
+	var team := season.user_team()
+	var rv := season.revenue
+	var l := rv.ledger_of(season.year, team)
+	var table := rv.table(season)
+	var rank := 0
+	for i in table.size():
+		if table[i]["team"] == team:
+			rank = i + 1
+	var fin := _stat_card("Finances", Contracts.money(roundi(float(l.get("revenue", 0.0)))), "REVENUE %d" % season.year,
+		"Net [color=white]%s[/color]  ·  Cash [color=white]%s[/color]
+#%d of %d in the league" % [
+			Contracts.money(roundi(float(l.get("net", 0.0)))), Contracts.money(roundi(rv.cash_of(team))), rank, table.size()],
+		UiKit.TRIM, func(): open("Finances", club.finances))
+	var trend := Market.trend(team)
+	var mb := _stat_card("Market & Buzz", Market.band_name(team.buzz).to_upper(), "BUZZ %d" % roundi(team.buzz),
+		"[color=white]%s[/color] (%d)  ·  resting %d
+%s" % [Market.market_name(team), team.market_rating, roundi(Market.baseline(team)),
+			"Rising" if trend == &"up" else ("Cooling" if trend == &"down" else "Holding steady")],
+		UiKit.TRIM, func(): open("Market & Buzz", club.market_buzz))
+	v.add_child(UiKit.heading("CLUB", 22))
+	v.add_child(_card_row("ClubCards", [fin, mb], 4))
+	var gap := Control.new()
+	gap.custom_minimum_size.y = 10
+	v.add_child(gap)
+	v.add_child(_club_soon_strip())
+
+
+## Not-yet-built Club screens as a thin, dimmed strip.
+func _club_soon_strip() -> Control:
+	var h := HBoxContainer.new()
+	h.name = "ClubSoonStrip"
+	h.add_theme_constant_override("separation", 10)
+	h.modulate = Color(1, 1, 1, 0.6)
+	var l := UiKit.display("COMING SOON", 15, UiKit.MUTED)
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(l)
+	for d in [["Facilities", ["Training facility upgrades (weekly training and camp XP)", "Scouting and medical upgrades", "Costs from the club budget"]],
+			["Stadium", ["Capacity and upgrades", "A bigger crowd effect"]],
+			["Ticket Pricing", ["Set your own prices", "Higher prices earn more per fan but cost attendance and buzz"]]]:
+		var title: String = d[0]
+		var bullets: Array = d[1]
+		var b := UiKit.button(title, func(): coming_soon(title, bullets), 14)
+		UiKit.style_skewed(b, Color(UiKit.PANEL, 0.6))
+		h.add_child(b)
+	return h
 
 
 ## The Settings tab is a custom layout (see _tab_view): two rows of cards. No tile sections.
