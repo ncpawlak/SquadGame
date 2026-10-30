@@ -98,6 +98,51 @@ func win_rate(a: Team, b: Team, matches: int, seed_base := 1000) -> float:
 	return float(wins) / matches
 
 
+## True unless p sits in a sealed pocket: a 0.25 m flood fill from it covers at least 25 m².
+func _open_ground(f: ArenaMap, p: Vector2) -> bool:
+	var seen := {Vector2i.ZERO: true}
+	var queue: Array[Vector2i] = [Vector2i.ZERO]
+	var head := 0
+	while head < queue.size() and queue.size() < 400:
+		var c: Vector2i = queue[head]
+		head += 1
+		for d in [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]:
+			var n: Vector2i = c + d
+			if not seen.has(n) and not f.blocked(p + Vector2(n) * 0.25):
+				seen[n] = true
+				queue.append(n)
+	return queue.size() >= 400
+
+
+## Walks like MatchEngine._move (1 m strides, re-planning every few steps, on reaching the
+## waypoint or after sliding along an obstacle) and reports reaching `to`.
+func _walks_to(f: ArenaMap, from: Vector2, to: Vector2) -> bool:
+	var p := from
+	var w := p
+	var repath := 0
+	for i in 300:
+		if p.distance_to(to) <= 1.0:
+			return true
+		if i >= repath or p.distance_squared_to(w) < 0.25:
+			w = f.next_waypoint(p, to)
+			repath = i + MatchEngine.REPATH_TICKS
+		var d := p.distance_to(w)
+		if d < 0.001:
+			return false
+		var dir := (w - p) / d
+		var stride := minf(1.0, d)
+		var np := p + dir * stride
+		if f.blocked(np):
+			np = p + Vector2(dir.x * stride, 0.0)
+			if f.blocked(np):
+				np = p + Vector2(0.0, dir.y * stride)
+				if f.blocked(np):
+					np = p
+			repath = i + 1
+		p = np
+	return false
+
+
 # --- tests -----------------------------------------------------------------
 
 func test_generator_ranges() -> void:
@@ -354,6 +399,13 @@ func test_team_fields() -> void:
 			p = w
 			steps += 1
 		check(p.distance_to(Vector2.ZERO) <= 1.0, "%s: spawn can path to the hill" % abbrev)
+		# Hugging any obstacle (cover spots, dead-end pockets) a soldier can still walk out. Spots
+		# sealed off from the field (gaps between packed trees or tables) can't be reached anyway.
+		var trapped := 0
+		for s in f.cover_spots:
+			if _open_ground(f, s) and not _walks_to(f, s, Vector2.ZERO):
+				trapped += 1
+		check(trapped == 0, "%s: %d wall-hugging spots can't walk to the hill" % [abbrev, trapped])
 	var league := League.generate(7)
 	var home: Team = league.teams[0]
 	var field := ArenaMap.for_team(names[0])
