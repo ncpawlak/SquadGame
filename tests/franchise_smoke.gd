@@ -353,6 +353,22 @@ func _visit_pages(hub, phase: String) -> void:
 		"legacy_record_page": func():
 			var top := Records.player_seasons(hub.season, Records.PLAYER_STATS[0])
 			return hub.legacy_pages.record_page(Records.PLAYER_STATS[0], top, "season"),
+		"legacy_callsigns": func():
+			hub.legacy_pages.tab = "callsigns"
+			return hub.legacy_pages.legacy(),
+		"legacy_callsign_proposals": func():
+			var lg: League = hub.season.league
+			var so: Soldier = hub.season.user_team().roster[0]
+			var entry := {"callsign": so.callsign, "soldier": so, "team": hub.season.user_team(), "year": hub.season.year, "seasons": 7, "honors": ["2030 Season MVP"]}
+			lg.callsign_proposals.append(entry)
+			lg.retired_callsigns.append(entry)
+			var c: Control = hub.legacy_pages.callsign_proposals()
+			var banner: Control = hub.legacy_pages.banner_row(hub.season.user_team())
+			lg.callsign_proposals.erase(entry)
+			lg.retired_callsigns.erase(entry)
+			if banner != null:
+				banner.free()
+			return c,
 		"legacy_season": func():
 			if hub.season.history.is_empty():
 				return Control.new()
