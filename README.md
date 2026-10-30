@@ -74,7 +74,8 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   shows each week as it sims.
 - **Home layout**: **This Week** to-dos on the left (Roster Cuts / Spots Open, Trade Offers, Re-sign whenever the
   re-sign window is open, Draft Room, Free Agency, Training Camp, Weekly Training, Upgrade Players (only when someone
-  can level up), Scout (in season), Adjust Lineup); the current week on the right. **<** / **>** arrows on the
+  can level up), Weekly News (the latest issue and how many are unread; checked off once read), Scout (in season),
+  Adjust Lineup); the current week on the right. **<** / **>** arrows on the
   "WEEK n of 12" bar browse back and forward through the season and playoffs: past weeks show the final score, each
   game and the MVP with a Box Score button; future weeks show the matchup preview (two-tone team banner, logos, team OVRs
   and stat-comparison bars). **SIM TO ▾** and **PLAY WEEK X** sit in the week card's top bar next to Match Preview.
@@ -85,7 +86,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   **Playoff Picture**: a logo bracket (projected seeds in-season, live series in the playoffs) with a champion slot.
 - **Team tab**: one big pane (Lineup sizes to fit the field + bench; the Roster scrolls inside a fixed height) whose < > arrows flip between the full **Roster** and **Lineup** screens
 - **League tab**: one big pane whose < > arrows flip between **Standings** (the four divisions as a 2x2 grid of mini tables with logos, W-L, game record, diff, streak and playoff seed - or one whole-league table), **Scores** (a week of results with week arrows), **League Leaders** and the **Playoff Picture** bracket. Under it, live cards (your OVR rank, the kills leader, the latest headline, the MVP favourite, free agents) and a second row of cards (Schedule, Team Stats, Teams, Retirements)
-- **Personnel tab**: one big pane whose < > arrows flip between **Contracts & Payroll** and **Trades** (plus the **Draft Room** while the draft runs). Trades lists incoming offers, then the trade block, then a card into the manual **Trade Center** builder. It opens on the view the current phase needs (trades in season, the Draft Room on draft day) and the header shows payroll, cap space and roster size. Under it, live cards (Free Agency, Re-sign, your next pick, scout points) and a second row of cards (Trade Log, Draft Recap, Negotiation coming soon). Trade block rows show portrait, big OVR, POT, the six stat-group bars, contract pips and morale; offers put Accept / Counter / Decline on the right. The live draft order table also shows age, scout grade, hometown and each team's need
+- **Personnel tab**: one big pane whose < > arrows flip between **Contracts & Payroll** and **Trades** (plus the **Draft Room** while the draft runs). Trades lists incoming offers, then the trade block, then a card into the manual **Trade Center** builder. It opens on the view the current phase needs (trades in season, the Draft Room on draft day) and the header shows payroll, cap space and roster size. Under it, live cards (Free Agency, Re-sign, your next pick, scout points) and a second row of cards (Trade Log, Draft Recap, Weekly News archive with a NEW badge, Negotiation coming soon). Trade block rows show portrait, big OVR, POT, the six stat-group bars, contract pips and morale; offers put Accept / Counter / Decline on the right. The live draft order table also shows age, scout grade, hometown and each team's need
 - **Training Camp**: six drill cards in the team colours. Click a drill, then click players on the Camp Board (OVR, POT, point pool, stat-group bars, best drill) to plan who goes; Auto-fill plans the best fits. **Run Camp** runs every planned drill at once and shows a camp report with each stat gain
 - **Settings tab**: two rows of cards - Franchise (Sim Options, Save, Load, Franchise Settings soon) and System (Debug Sim Tools, Main Menu)
 - **Buttons**: all slanted; main actions (Make Offer, Sign, Propose Trade, Accept, Draft) use the team accent colour
@@ -379,6 +380,11 @@ godot --headless --path . --script res://tests/franchise_smoke.gd  # franchise m
 godot --headless --path . --script res://tests/save_tests.gd    # save/load round trips and determinism after load
 ```
 
+```powershell
+# Dev tool: dump a season of Weekly News articles to markdown for proofreading
+godot --headless --path . --script res://tests/newsroom_sample.gd -- out.md <seed> <team_index>
+```
+
 Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 matches per stat.
 
 ## Model (Milestone 1)
@@ -478,5 +484,6 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
 - Contracts, hard cap, free agency, retirement, DNA, re-sign negotiation and starter promises (done)
 - Trades: in-season (Week 8 deadline), offseason and draft-day, trade block and AI offers (done)
 - Best-of-3 match modes (done; next: more modes and per-mode schemes)
+- Weekly News: your club's beat writer files a generated newspaper article every week and offseason step (done)
 - Visual combat
 - Android and PC exports
