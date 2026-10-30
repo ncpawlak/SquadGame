@@ -3,11 +3,13 @@ extends RefCounted
 ## The Legacy page: league history in tabs (champions, awards). Built by the hub like the other
 ## detail pages; reads Season.history and Season.review_history fresh every time.
 
-const TABS := [["champions", "Champions"], ["awards", "Awards"]]
+const TABS := [["champions", "Champions"], ["awards", "Awards"], ["records", "Records"]]
 
 var hub: Control  # hub.gd
 var pages: FranchisePages
 var tab := "champions"
+## Records scope: a team abbrev for one franchise, "" for the whole league.
+var records_team := ""
 
 
 func _season() -> Season:
@@ -30,6 +32,8 @@ func legacy() -> Control:
 	match tab:
 		"awards":
 			v.add_child(_awards())
+		"records":
+			v.add_child(_records())
 		_:
 			v.add_child(_champions())
 	return v
@@ -171,3 +175,89 @@ func _tally(tally: Dictionary, so: Soldier) -> Dictionary:
 	if not tally.has(so):
 		tally[so] = {"awards": 0, "mvps": 0, "all_league": 0}
 	return tally[so]
+
+
+# --- records --------------------------------------------------------------------------
+
+func _records() -> Control:
+	var s := _season()
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	var scope := HBoxContainer.new()
+	scope.add_theme_constant_override("separation", 12)
+	scope.add_child(UiKit.label("Record book:", 16, UiKit.MUTED))
+	var pick := OptionButton.new()
+	pick.custom_minimum_size = Vector2(260, 44)
+	UiKit.style_button(pick)
+	pick.add_item("Whole league")
+	for t: Team in s.league.teams:
+		pick.add_item(t.name)
+		if t.abbrev == records_team:
+			pick.select(pick.item_count - 1)
+	pick.item_selected.connect(func(i: int):
+		records_team = "" if i == 0 else s.league.teams[i - 1].abbrev
+		hub.replace("Legacy", legacy))
+	scope.add_child(pick)
+	v.add_child(scope)
+	var abbrev := records_team
+	var who := "LEAGUE" if abbrev == "" else s.league.team_by_abbrev(abbrev).name.to_upper()
+	v.add_child(UiKit.label("The best mark in each category. Click a row for the top %d. Counts every season played, including this one." % Records.TOP_N, 13, UiKit.MUTED))
+
+	v.add_child(pages._section("%s SEASON RECORDS" % who))
+	v.add_child(_holders(Records.PLAYER_STATS, func(stat): return Records.player_seasons(s, stat, abbrev), "season"))
+	v.add_child(pages._section("%s CAREER RECORDS" % who))
+	v.add_child(_holders(Records.PLAYER_STATS, func(stat): return Records.player_careers(s, stat, abbrev), "career"))
+	v.add_child(pages._section("%s TEAM RECORDS" % who))
+	v.add_child(_holders(Records.TEAM_STATS, func(stat): return Records.team_seasons(s, stat, abbrev), "team"))
+	return v
+
+
+## One row per stat showing its record holder. `rows_for` returns the stat's top list.
+func _holders(stats: Array, rows_for: Callable, kind: String) -> Control:
+	var rows: Array = []
+	var lists: Array = []
+	for stat: Dictionary in stats:
+		var top: Array = rows_for.call(stat)
+		lists.append(top)
+		if top.is_empty():
+			rows.append([stat["label"], "-", "-", "", ""])
+		else:
+			rows.append([stat["label"], Records.format_value(stat, top[0]["value"])] + _holder_cells(top[0], kind))
+	return UiKit.table(["RECORD", "VALUE", "HOLDER", "TEAM", "YEAR"], rows, [260, 80, 240, 70, 110], {}, {},
+		func(i: int):
+			if lists[i].is_empty():
+				return
+			var stat: Dictionary = stats[i]
+			hub.open(stat["label"], func(): return record_page(stat, lists[i], kind)))
+
+
+## The HOLDER, TEAM and YEAR cells of a record entry.
+func _holder_cells(e: Dictionary, kind: String) -> Array:
+	match kind:
+		"team":
+			return [e["team"], "", str(e["year"])]
+		"career":
+			var so: Soldier = e["soldier"]
+			return [so.full_name(), "", str(e["first"]) if e["first"] == e["last"] else "%d-%d" % [e["first"], e["last"]]]
+		_:
+			var so: Soldier = e["soldier"]
+			return [so.full_name(), e["team"], str(e["year"])]
+
+
+## The top entries of one record.
+func record_page(stat: Dictionary, top: Array, kind: String) -> Control:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	var span := "CAREER" if kind == "career" else "SINGLE SEASON"
+	v.add_child(pages._section("%s  -  %s" % [stat["label"].to_upper(), span]))
+	var rows: Array = []
+	for i in top.size():
+		rows.append([i + 1, Records.format_value(stat, top[i]["value"])] + _holder_cells(top[i], kind))
+	v.add_child(UiKit.table(["#", "VALUE", "HOLDER", "TEAM", "YEAR"], rows, [40, 80, 260, 70, 110], {}, {},
+		func(i: int):
+			if kind == "team":
+				var t: Team = top[i]["team"]
+				hub.open(t.name, func(): return pages.team_roster(t))
+			else:
+				pages.open_player(top[i]["soldier"])))
+	return v
