@@ -2339,7 +2339,7 @@ func _draft_article() -> Dictionary:
 		if first.phenom:
 			body.append(_g("d_phenom", ["Scouts called him a phenom, and the tape doesn't argue.", "He came in with the phenom tag, and that label carries expectations."]))
 		var pex := {"ovr": str(s.best_ovr()), "pot": s.potential_letter(), "ceil": str(s.potential_ovr()), "last": s.last_name}
-		if s.potential >= 3:
+		if s.potential_grade() >= 3:
 			body.append(_g("d_pot_hi", ["He's a {ovr} today with {pot}-grade potential, and the staff's projections have him topping out around {ceil}.",
 				"Right now {last} is a {ovr}. The ceiling is the selling point: a {pot} potential grade and a projected peak near {ceil}."], pex))
 		else:

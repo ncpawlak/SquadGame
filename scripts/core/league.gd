@@ -113,7 +113,10 @@ static func soldier_from_dict(d: Dictionary) -> Soldier:
 	s.callsign = d.get("callsign", "")
 	s.age = int(d["age"])
 	s.home_state = d.get("state", "")
-	s.potential = int(d["potential"])
+	if d.has("dev"):
+		s.dev = clampi(int(d["dev"]), Soldier.DEV_MIN, Soldier.DEV_MAX)
+	else:
+		s._migrate_prop("potential", int(d.get("potential", 2)))
 	s.draft_year = int(d.get("draft_year", 0))
 	var st: Dictionary = d["stats"]
 	for k in Stats.ALL:

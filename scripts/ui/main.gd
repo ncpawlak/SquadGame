@@ -401,7 +401,7 @@ func _refresh_roster() -> void:
 		if pos_ovr >= 0:
 			it.set_custom_color(3, _ovr_color(pos_ovr))
 		it.set_text(4, "%d %s" % [s.best_ovr(), Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].left(3)])
-		it.set_text(5, s.potential_letter())
+		it.set_text(5, "%s %s" % [s.potential_letter(), s.dev_text()])
 		it.set_text(6, str(s.skill_points))
 		for i in Stats.ALL.size():
 			var v: int = s.stats[Stats.ALL[i]]
@@ -442,7 +442,7 @@ func _refresh_card() -> void:
 	title.text = "[font_size=20][b]%s[/b][/font_size]  age %d  •  %s  •  %s\nXP %d / %d  •  [color=#38bdf8]%d skill points[/color]  •  Best OVR %d  •  Potential %s" % [
 		_esc(s.full_name()), s.age, _esc(team.name),
 		team.scheme.label_for_slot(slot) if slot != &"" else "Bench",
-		s.xp, Progression.xp_to_next(s.level), s.skill_points, s.best_ovr(), s.potential_letter()]
+		s.xp, Progression.xp_to_next(s.level), s.skill_points, s.best_ovr(), "%s %s" % [s.potential_letter(), s.dev_text()]]
 	card_box.add_child(title)
 
 	var ovr_line := HBoxContainer.new()

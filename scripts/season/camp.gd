@@ -2,10 +2,11 @@ class_name Camp
 extends RefCounted
 ## Offseason training camp (after the draft and roster review, before Week 1): one drill per rating group.
 ## Each team sends one soldier to each drill and a soldier can attend only one drill per camp.
-## A drill hands the soldier a pool of points (rolled from his potential) that is spread at
+## A drill hands the soldier a pool of points (rolled from his dev stars) that is spread at
 ## random over the group's stats (max MAX_STAT_GAIN per stat, 99 max). Drills respect the
 ## group caps: a capped group can't be drilled and points stop landing at the cap. The
-## Durability drill (no cap) is the only way to raise Injury/Toughness.
+## Durability drill (no cap) is the only way to raise Injury/Toughness. Each drill also has a small,
+## age-scaled chance (DEV_UP_CHANCE) to earn the soldier a dev star (at most one star change a season).
 
 const DRILLS := {
 	Stats.ACCURACY: {"name": "Marksmanship Range", "blurb": "Live-fire lanes at every distance."},
@@ -15,8 +16,11 @@ const DRILLS := {
 	Stats.OBJECTIVE: {"name": "Hill Assault", "blurb": "Capture, hold and retake reps on a live point."},
 	Stats.DURABILITY: {"name": "Iron Conditioning", "blurb": "Prehab, contact work and pain tolerance."},
 }
-## Point pool [min, max] per potential grade (F..A).
-const POINT_POOLS := [[2, 4], [3, 6], [5, 8], [7, 10], [9, 13]]
+## Point pool [min, max] per dev star (1..4).
+const POINT_POOLS := [[3, 6], [5, 8], [7, 10], [9, 13]]
+## Base chance a drill earns a dev star, scaled by age (DEV_UP_AGE: [max age, factor]).
+const DEV_UP_CHANCE := 0.04
+const DEV_UP_AGE := [[22, 1.25], [26, 1.0], [30, 0.6], [99, 0.3]]
 const MAX_STAT_GAIN := 4
 
 var year := 0
@@ -36,8 +40,18 @@ static func drill_name(group: StringName) -> String:
 	return DRILLS[group]["name"]
 
 
-static func pool_range(potential: int) -> Array:
-	return POINT_POOLS[clampi(potential, 0, POINT_POOLS.size() - 1)]
+static func pool_range(dev: int) -> Array:
+	return POINT_POOLS[clampi(dev, Soldier.DEV_MIN, Soldier.DEV_MAX) - Soldier.DEV_MIN]
+
+
+## Chance a drill earns `s` a dev star this camp (0 if maxed or his stars already moved this year).
+func dev_up_chance(s: Soldier) -> float:
+	if s.dev >= Soldier.DEV_MAX or s.dev_changed_in(year):
+		return 0.0
+	for band in DEV_UP_AGE:
+		if s.age <= band[0]:
+			return DEV_UP_CHANCE * band[1]
+	return 0.0
 
 
 func team_results(team: Team) -> Dictionary:
@@ -81,7 +95,7 @@ func check(team: Team, group: StringName, s: Soldier) -> String:
 func run(team: Team, group: StringName, s: Soldier, rng: RandomNumberGenerator) -> Dictionary:
 	if check(team, group, s) != "":
 		return {}
-	var pool: Array = pool_range(s.potential)
+	var pool: Array = pool_range(s.dev)
 	var rolled := rng.randi_range(pool[0], pool[1])
 	var points := 0
 	var capped := s.group_caps.has(group)
@@ -109,9 +123,15 @@ func run(team: Team, group: StringName, s: Soldier, rng: RandomNumberGenerator) 
 			continue
 		gains[pick] += 1
 		points += 1
-	s.log_progress("Training camp: %s" % drill_name(group), gains, ovr_before)
+	var dev_from := s.dev
+	var dev_up := rng.randf() < dev_up_chance(s)
+	if dev_up:
+		s.change_dev(1, year)
+		s.log_progress("Training camp: %s" % drill_name(group), gains, ovr_before, dev_from, s.dev)
+	else:
+		s.log_progress("Training camp: %s" % drill_name(group), gains, ovr_before)
 	var res := {"soldier": s, "group": group, "gains": gains, "before": before, "points": points, "rolled": rolled,
-		"ovr_before": ovr_before, "ovr_after": s.best_ovr()}
+		"ovr_before": ovr_before, "ovr_after": s.best_ovr(), "dev_up": dev_up, "dev_from": dev_from, "dev_to": s.dev}
 	if not results.has(team):
 		results[team] = {}
 	results[team][group] = res
@@ -120,7 +140,7 @@ func run(team: Team, group: StringName, s: Soldier, rng: RandomNumberGenerator) 
 
 
 ## AI camp: each drill goes to the healthy soldier who'd gain the most OVR from it at his
-## position, preferring young high-potential players.
+## position, preferring young players with more dev stars and ceiling room.
 func ai_run(team: Team, rng: RandomNumberGenerator) -> void:
 	for g in DRILLS:
 		if has_run(team, g):
@@ -132,7 +152,7 @@ func ai_run(team: Team, rng: RandomNumberGenerator) -> void:
 				continue
 			var slot := team.slot_of(s)
 			var role := team.scheme.role_for_slot(slot) if slot != &"" else Scheme.best_role(s.stats)
-			var v := Progression.group_value(role, g) * 10.0 + s.potential * 2.0 - maxf(0.0, s.age - 26.0) + rng.randf()
+			var v := Progression.group_value(role, g) * 10.0 + s.dev * 2.0 + clampf(s.potential_ovr() - s.best_ovr(), 0.0, 15.0) * 0.2 - maxf(0.0, s.age - 26.0) + rng.randf()
 			if team.starters().has(s):
 				v += 3.0
 			if v > best_v:

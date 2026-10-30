@@ -44,12 +44,13 @@ static func contract_text(c: Contract) -> String:
 	return "%s x %d yr%s" % [money(c.salary), c.years, "" if c.years == 1 else "s"]
 
 
-## Fair yearly salary for a soldier: MARKET_CURVE by OVR, a premium for young high-potential
-## players and a discount for players past 30.
+## Fair yearly salary for a soldier: MARKET_CURVE by OVR, a premium for young players with room
+## to grow (ceiling over his OVR) and more dev stars, and a discount for players past 30.
 static func market_value(s: Soldier) -> int:
 	var v := curve_salary(s.best_ovr())
 	var youth := clampf((30.0 - s.age) / 8.0, 0.0, 1.0)
-	v *= 1.0 + 0.12 * (s.potential - 2) * youth
+	var upside := float(s.potential_ovr() - s.best_ovr())
+	v *= 1.0 + (0.012 * clampf(upside - 6.0, -6.0, 14.0) + 0.06 * (s.dev - 2)) * youth
 	if s.age > 30:
 		v *= maxf(0.5, 1.0 - 0.08 * (s.age - 30))
 	return _round_salary(v)

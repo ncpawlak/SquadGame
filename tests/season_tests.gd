@@ -488,20 +488,24 @@ func test_season_review_and_aging() -> void:
 	var ages := {}
 	for t in s.league.teams:
 		for so in t.roster:
-			check(so.potential >= 0 and so.potential <= Soldier.POTENTIAL_A, "grade in range")
+			check(so.dev >= Soldier.DEV_MIN and so.dev <= Soldier.DEV_MAX, "stars in range")
+			if so.best_ovr() >= 85:
+				check(so.potential_grade() >= 2, "%s (%d OVR) potential C+ (%s)" % [so.full_name(), so.best_ovr(), so.potential_letter()])
 	s.sim_to_end_of_season()
 	var rev := s.review
 	check(rev != null and rev.year == 2026, "review created at season end")
 	check(s.review_history.size() == 1, "review stored in history")
 	check(rev.awards.size() >= 4 and rev.awards[0]["award"] == "Season MVP", "MVP + position awards (%d)" % rev.awards.size())
 	check(rev.all_league.size() == SeasonReview.ALL_LEAGUE_ROLES.size(), "All-League team of 5")
-	for c in rev.potential_changes:
-		check(absi(c["to"] - c["from"]) <= SeasonReview.MAX_GRADE_CHANGE, "grade change clamped")
-		check(c["soldier"].potential == c["to"], "grade applied")
+	var ups := 0
+	for c in rev.dev_changes:
+		check(absi(c["to"] - c["from"]) == 1, "star change is +/-1")
+		check(c["soldier"].dev == c["to"] and c["soldier"].dev_changed_in(rev.year), "stars applied")
 		check(not c["reasons"].is_empty(), "change has reasons")
+		ups += 1 if c["to"] > c["from"] else 0
+	check(ups <= 40, "star gains stay rare (%d)" % ups)
 	var mvp: Soldier = rev.awards[0]["soldier"]
-	var mvp_change := rev.potential_changes.filter(func(c): return c["soldier"] == mvp)
-	check(mvp.potential == Soldier.POTENTIAL_A or (not mvp_change.is_empty() and mvp_change[0]["to"] > mvp_change[0]["from"]), "MVP's grade rises (or is already A)")
+	check(SeasonReview.gain_chance(mvp, {"Season MVP": SeasonReview.GAIN_CHANCE["Season MVP"]}) > 0.1 or mvp.dev == Soldier.DEV_MAX, "MVP has a real shot at a star")
 	s.finish_draft()
 	for t in s.league.teams:
 		for so in t.roster:
@@ -943,14 +947,14 @@ func test_standout_prospects() -> void:
 			if p.standout == &"generational":
 				gen += 1
 				check(p.soldier.ovr_at_role(p.listed_role) >= Draft.GENERATIONAL_OVR[0], "generational is a mid-70s starter (%d)" % p.soldier.ovr_at_role(p.listed_role))
-				check(p.soldier.potential == Soldier.POTENTIAL_A, "generational has A potential")
+				check(p.soldier.potential_grade() == Soldier.POTENTIAL_A and p.soldier.dev == Soldier.DEV_MAX, "generational: A potential, 4 stars")
 				check(Draft.standout_label(p) == "GENERATIONAL", "generational label")
 			elif p.standout == &"blue_chip":
 				blue += 1
 				blue_vals.append(v)
 				var ovr := p.soldier.ovr_at_role(p.listed_role)
 				check(ovr >= Draft.BLUE_CHIP_OVR[0] and ovr <= Draft.BLUE_CHIP_OVR[1] + 2, "blue chip is a day-one starter (%d)" % ovr)
-				check(p.soldier.potential >= Draft.BLUE_CHIP_MIN_POTENTIAL, "blue chip has B/A potential")
+				check(p.soldier.potential_grade() >= 3 and p.soldier.dev >= Draft.BLUE_CHIP_MIN_DEV, "blue chip: B/A potential, 2+ stars")
 				check(not p.phenom, "blue chip isn't also a phenom")
 			elif p.standout == &"specialist":
 				spec += 1
@@ -1085,8 +1089,8 @@ func test_training_camp_and_offseason_xp() -> void:
 	var before := a.stats.duplicate()
 	var res := s.run_drill(Stats.PHYSICALITY, a)
 	check(not res.is_empty(), "drill runs")
-	var pool := Camp.pool_range(a.potential)
-	check(res["points"] >= pool[0] and res["points"] <= pool[1], "points from the potential pool")
+	var pool := Camp.pool_range(a.dev)
+	check(res["points"] >= pool[0] and res["points"] <= pool[1] or res.get("dev_up", false), "points from the dev pool")
 	var total := 0
 	for st in Stats.ALL:
 		var g: int = a.stats[st] - before[st]
@@ -1126,13 +1130,27 @@ func test_training_camp_and_offseason_xp() -> void:
 		var t := Team.new()
 		var f := PlayerGenerator.generate(rng, 1, Scheme.Role.FLEX, 50.0, 24)
 		var aa := PlayerGenerator.generate(rng, 2, Scheme.Role.FLEX, 50.0, 24)
-		f.potential = 0
-		aa.potential = Soldier.POTENTIAL_A
+		f.dev = Soldier.DEV_MIN
+		aa.dev = Soldier.DEV_MAX
+		for g in Stats.UPGRADABLE_GROUPS:
+			f.group_caps[g] = 99
+			aa.group_caps[g] = 99
 		t.roster.append(f)
 		t.roster.append(aa)
 		lo += c.run(t, Stats.ACCURACY, f, rng)["points"]
 		hi += c.run(t, Stats.HANDLING, aa, rng)["points"]
-	check(hi > lo * 2, "A potential gets far bigger pools (%d vs %d)" % [hi, lo])
+	check(hi > lo * 2, "4 stars get far bigger pools (%d vs %d)" % [hi, lo])
+	# Drill star chance: young > old, none once maxed or already changed this year.
+	var cc := Camp.make(2026)
+	var kid := PlayerGenerator.generate(rng, 3, Scheme.Role.FLEX, 50.0, 21)
+	kid.dev = 2
+	var vet := PlayerGenerator.generate(rng, 4, Scheme.Role.FLEX, 50.0, 32)
+	vet.dev = 2
+	check(cc.dev_up_chance(kid) > cc.dev_up_chance(vet) and cc.dev_up_chance(vet) > 0.0, "younger players earn camp stars more often")
+	kid.change_dev(1, 2026)
+	check(cc.dev_up_chance(kid) == 0.0, "one star change a season")
+	vet.dev = Soldier.DEV_MAX
+	check(cc.dev_up_chance(vet) == 0.0, "no star past 4")
 	var y := s.year
 	s.start_next_season()
 	check(s.year == y + 1 and s.past_drafts.size() == 1 and s.past_drafts[0].year == y, "draft kept for the recap")
@@ -1382,7 +1400,7 @@ func test_trade_need_factor() -> void:
 	rng.seed = 3
 	var stud := PlayerGenerator.generate(rng, 9001, Scheme.Role.FLEX, 95.0, 25)
 	var scrub := PlayerGenerator.generate(rng, 9002, Scheme.Role.FLEX, 50.0, 29)
-	scrub.potential = 0
+	scrub.dev = Soldier.DEV_MIN
 	check(is_equal_approx(s.trades.need_factor(s, t, stud), 1.0), "a would-be starter is fully valued")
 	check(s.trades.need_factor(s, t, scrub) < 0.85, "a buried, low-potential vet is discounted (%.2f)" % s.trades.need_factor(s, t, scrub))
 	check(s.trades.player_value(s, scrub, t, false) < s.trades.player_value(s, scrub, t, true), "receiving a buried player is worth less than giving him")
@@ -1616,7 +1634,7 @@ func test_camp_respects_caps() -> void:
 		var c := Camp.make(2026)
 		var t := Team.new()
 		var so := PlayerGenerator.generate(rng, i + 1, Scheme.Role.FLEX, 60.0, 23)
-		so.potential = Soldier.POTENTIAL_A
+		so.dev = Soldier.DEV_MAX
 		t.roster.append(so)
 		var r0 := so.group_rating(Stats.PHYSICALITY)
 		so.group_caps[Stats.PHYSICALITY] = r0
@@ -2258,10 +2276,10 @@ func test_keep_value_protects_prospects() -> void:
 	var t := Team.new()
 	t.roster = PlayerGenerator.generate_roster(rng, 1, 72.0)
 	var kid := PlayerGenerator.generate(rng, 100, Scheme.Role.FLEX, 68.0, 20)
-	kid.potential = Soldier.POTENTIAL_A
+	kid.dev = Soldier.DEV_MAX
 	var vet := PlayerGenerator.generate(rng, 101, Scheme.Role.FLEX, 68.0, 29)
-	vet.potential = 2
+	vet.dev = 2
 	kid.stats = vet.stats.duplicate()
 	t.roster.append(kid)
 	t.roster.append(vet)
-	check(t.keep_value(kid) > t.keep_value(vet), "young A-potential is kept over a late-20s C (%.1f vs %.1f; ovr %d/%d pot %d/%d role %d/%d)" % [t.keep_value(kid), t.keep_value(vet), kid.best_ovr(), vet.best_ovr(), kid.potential_ovr(), vet.potential_ovr(), Scheme.best_role(kid.stats), Scheme.best_role(vet.stats)])
+	check(t.keep_value(kid) > t.keep_value(vet), "young 4-star is kept over a late-20s 2-star (%.1f vs %.1f; ovr %d/%d pot %d/%d role %d/%d)" % [t.keep_value(kid), t.keep_value(vet), kid.best_ovr(), vet.best_ovr(), kid.potential_ovr(), vet.potential_ovr(), Scheme.best_role(kid.stats), Scheme.best_role(vet.stats)])

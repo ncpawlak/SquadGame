@@ -55,11 +55,14 @@ const TIER_NAMES := {
 }
 const PROSPECT_QUALITY := 58.0
 const PROSPECT_QUALITY_SD := 6.0
-## Blue-chippers per class [min, max], their OVR at the listed position [min, max] and minimum
-## potential. They are day-one starters.
+## Blue-chippers per class [min, max], their OVR at the listed position [min, max], minimum dev
+## stars and minimum ceiling (B Potential). They are day-one starters.
 const BLUE_CHIPS := [3, 6]
 const BLUE_CHIP_OVR := [68, 72]
-const BLUE_CHIP_MIN_POTENTIAL := 3
+const BLUE_CHIP_MIN_DEV := 2
+const BLUE_CHIP_MIN_CEILING: int = Soldier.POTENTIAL_CUTOFFS[2]
+## Ceiling promised to generational talents and phenoms (A Potential).
+const ELITE_CEILING: int = Soldier.POTENTIAL_CUTOFFS[3]
 ## Chance a class has a generational talent (one per class at most), and his OVR [min, max].
 const GENERATIONAL_CHANCE := 0.18
 const GENERATIONAL_OVR := [74, 77]
@@ -262,8 +265,9 @@ func _make_blue_chip(p: Prospect, generational := false) -> void:
 		for st in Stats.ALL:
 			if st != Stats.INJURY and st != Stats.TOUGHNESS:
 				s.stats[st] = Stats.clamp_rating(s.stats[st] + 1)
-	s.potential = Soldier.POTENTIAL_A if generational else maxi(s.potential, _rng.randi_range(BLUE_CHIP_MIN_POTENTIAL, Soldier.POTENTIAL_A))
+	s.dev = Soldier.DEV_MAX if generational else maxi(s.dev, _rng.randi_range(BLUE_CHIP_MIN_DEV, Soldier.DEV_MAX))
 	PlayerGenerator.roll_caps(s, _rng)
+	PlayerGenerator.raise_ceiling(s, ELITE_CEILING if generational else BLUE_CHIP_MIN_CEILING)
 
 
 func _make_specialist(p: Prospect) -> void:
@@ -443,8 +447,9 @@ func _make_phenom(p: Prospect) -> void:
 		if st == Stats.INJURY or st == Stats.TOUGHNESS:
 			continue
 		s.stats[st] = maxi(s.stats[st], _rng.randi_range(PHENOM_STAT_MIN, PHENOM_STAT_MAX))
-	s.potential = Soldier.POTENTIAL_A if _rng.randf() < 0.7 else Soldier.POTENTIAL_A - 1
+	s.dev = Soldier.DEV_MAX if _rng.randf() < 0.7 else Soldier.DEV_MAX - 1
 	PlayerGenerator.roll_caps(s, _rng, PHENOM_EXTRA_HEADROOM)
+	PlayerGenerator.raise_ceiling(s, ELITE_CEILING)
 
 
 # --- tiers -------------------------------------------------------------------------

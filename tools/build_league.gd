@@ -18,7 +18,7 @@ const SLOTS := [
 	[Scheme.Role.FRONTMAN, -4], [Scheme.Role.FLEX, -4], [Scheme.Role.CENTER, -5], [Scheme.Role.FLEX, -5],
 ]
 
-## abbrev -> {age (mean), spread (offset multiplier), pot (chance of +1 potential), pay (salary
+## abbrev -> {age (mean), spread (offset multiplier), pot (chance of +1 dev star), pay (salary
 ## multiplier), groups (stat leanings by group)}.
 const STYLE := {
 	"NYE": {"age": 28, "spread": 1.2, "pot": 0.0, "pay": 1.18, "groups": {&"accuracy": 2, &"handling": 2}},
@@ -43,19 +43,19 @@ const STYLE := {
 	"LRK": {"age": 23, "spread": 0.9, "pot": 0.55, "pay": 0.85, "groups": {&"objective": 1}},
 }
 
-## Story players: [team, slot, first, last, callsign, age, ovr, potential, salary $K (0 = market),
+## Story players: [team, slot, first, last, callsign, age, ovr, dev stars, salary $K (0 = market),
 ## years, draft_year, dna overrides].
 const STORIES := [
-	["DET", 1, "Marcus", "Hale", "Anvil", 35, 87, 0, 13500, 1, 0, {"winning": 97, "loyalty": 94, "temperament": 85}],
+	["DET", 1, "Marcus", "Hale", "Anvil", 35, 87, 2, 13500, 1, 0, {"winning": 97, "loyalty": 94, "temperament": 85}],
 	["BKN", 2, "Jalen", "Brooks", "Prodigy", 20, 76, 4, 4800, 3, 2025, {"playing_time": 80}],
 	["ORL", 0, "Mateo", "Rivera", "Spark", 20, 71, 4, 4200, 3, 2025, {"money": 70}],
-	["NYE", 0, "Andre", "Mercer", "Kingpin", 28, 92, 2, 20000, 4, 0, {"money": 92}],
+	["NYE", 0, "Andre", "Mercer", "Kingpin", 28, 92, 3, 20000, 4, 0, {"money": 92}],
 	["NYE", 1, "Viktor", "Thorne", "Czar", 27, 89, 2, 19500, 3, 0, {"money": 85}],
 	["LAS", 2, "Dante", "Cruz", "Hollywood", 26, 91, 3, 20000, 4, 0, {"money": 90, "temperament": 22}],
-	["BOS", 1, "Silas", "Brennan", "Professor", 33, 86, 1, 12500, 2, 0, {"winning": 92}],
+	["BOS", 1, "Silas", "Brennan", "Professor", 33, 86, 2, 12500, 2, 0, {"winning": 92}],
 	["SEA", 1, "Kenji", "Ueda", "Oracle", 23, 82, 4, 8000, 4, 0, {}],
 	["ORL", 5, "Bryce", "Kendall", "Payday", 31, 67, 1, 12500, 3, 0, {"money": 95}],
-	["ORL", 6, "Grant", "Holloway", "Ledger", 32, 65, 0, 11000, 2, 0, {"money": 90, "security": 85}],
+	["ORL", 6, "Grant", "Holloway", "Ledger", 32, 65, 1, 11000, 2, 0, {"money": 90, "security": 85}],
 ]
 
 var rng := RandomNumberGenerator.new()
@@ -216,13 +216,13 @@ func _build_roster(t: Team, row: Array) -> void:
 		else:
 			s = _make(role, roundi(targets[i]), ages[i], style["groups"])
 			if rng.randf() < float(style["pot"]):
-				s.potential = mini(Soldier.POTENTIAL_A, s.potential + 1)
+				s.dev = mini(Soldier.DEV_MAX, s.dev + 1)
 				PlayerGenerator.roll_caps(s, rng)
 			var r := rng.randf()
 			s.home_state = t.home_state if r < 0.25 else (LeagueData.random_state(rng, t.division) if r < 0.55 else LeagueData.random_state(rng))
 			_contract(s, float(style["pay"]))
 		t.roster.append(s)
-	_set_potentials(t, target, story_slots)
+	_set_devs(t, target, story_slots)
 	# Keep everyone under the cap (the big spenders sit just below it).
 	var total := 0
 	for s in t.roster:
@@ -235,32 +235,52 @@ func _build_roster(t: Team, row: Array) -> void:
 	t.auto_lineup()
 
 
-## Most players grade C or lower: each team carries 2-4 A/B talents (better teams more),
-## favouring the youngest and best. Story players keep their authored grades.
-func _set_potentials(t: Team, target: int, story_slots: Dictionary) -> void:
+## Most players have 1-2 dev stars: each team carries 2-4 3-4 star talents (better teams more),
+## favouring the youngest and best. Story players keep their authored stars. Then the fixed
+## floors: proven vets (STAR_FLOORS) never sit below their tier and promising rookies (rookie
+## deal, 3+ stars) stay 3-4 stars.
+func _set_devs(t: Team, target: int, story_slots: Dictionary) -> void:
 	var want := clampi(2 + roundi((target - 65) / 10.0), 2, 4)
 	var stories: Array = story_slots.keys().map(func(i): return t.roster[i])
-	var have := t.roster.filter(func(s: Soldier): return s.potential >= 3).size()
+	var have := t.roster.filter(func(s: Soldier): return s.dev >= 3).size()
 	var pool: Array = t.roster.filter(func(s: Soldier): return not stories.has(s))
-	var value := func(s: Soldier) -> float: return s.best_ovr() * 0.3 - s.age * 1.5 + s.potential
+	var value := func(s: Soldier) -> float: return s.best_ovr() * 0.3 - s.age * 1.5 + s.dev
 	pool.sort_custom(func(a: Soldier, b: Soldier): return value.call(a) > value.call(b))
 	# Too many: demote the least promising A/B players.
 	for k in range(pool.size() - 1, -1, -1):
 		if have <= want:
 			break
 		var s: Soldier = pool[k]
-		if s.potential >= 3:
-			s.potential = 3 - 1 - (1 if rng.randf() < 0.3 else 0)
+		if s.dev >= 3:
+			s.dev = 2 - (1 if rng.randf() < 0.3 else 0)
 			PlayerGenerator.roll_caps(s, rng)
 			have -= 1
 	# Too few: promote the most promising.
 	for s: Soldier in pool:
 		if have >= want:
 			break
-		if s.potential < 3:
-			s.potential = 3 if rng.randf() < 0.75 else Soldier.POTENTIAL_A
+		if s.dev < 3:
+			s.dev = 3 if rng.randf() < 0.75 else Soldier.DEV_MAX
 			PlayerGenerator.roll_caps(s, rng)
 			have += 1
+	for s: Soldier in t.roster:
+		s.dev = star_floor(s)
+
+
+## Minimum dev stars by OVR: [min OVR, stars]. A proven star always reads as a 2-3 star talent.
+const STAR_FLOORS := [[90, 3], [85, 2]]
+
+
+## His stars after the fixed floors (used here and by the one-time league.json conversion).
+static func star_floor(s: Soldier) -> int:
+	var dev := s.dev
+	for f in STAR_FLOORS:
+		if s.best_ovr() >= f[0]:
+			dev = maxi(dev, f[1])
+			break
+	if s.contract != null and s.contract.rookie and s.potential_grade() >= 3:
+		dev = maxi(dev, 3)
+	return dev
 
 
 ## Highest OVR a non-story player of this age starts at: around 60-66 through 21, then
@@ -285,7 +305,7 @@ func _contract(s: Soldier, pay: float) -> void:
 	s.contract = Contract.make(salary, yrs, YEAR - rng.randi_range(0, 2))
 
 
-func _make(role: Scheme.Role, ovr: int, age: int, groups: Dictionary, potential := -1) -> Soldier:
+func _make(role: Scheme.Role, ovr: int, age: int, groups: Dictionary, dev := -1) -> Soldier:
 	var s := PlayerGenerator.generate(rng, next_id, role, float(ovr) - 4.0, age)
 	next_id += 1
 	while used_names.has(s.full_name()):
@@ -293,8 +313,8 @@ func _make(role: Scheme.Role, ovr: int, age: int, groups: Dictionary, potential 
 		s.last_name = PlayerGenerator.LAST_NAMES[rng.randi_range(0, PlayerGenerator.LAST_NAMES.size() - 1)]
 	used_names[s.full_name()] = true
 	_shape(s, role, ovr, groups)
-	if potential >= 0:
-		s.potential = potential
+	if dev >= 0:
+		s.dev = dev
 	PlayerGenerator.roll_caps(s, rng)
 	s.look = Look.generate(s.id, s.age, Scheme.best_role(s.stats))
 	s.dna = Dna.generate(s.id, s.age)
@@ -355,7 +375,7 @@ func _dict(s: Soldier, team: String) -> Dictionary:
 	for k in Dna.MOTIVATIONS + [&"temperament", &"savvy"]:
 		dna[String(k)] = s.get_dna().value(k)
 	var d := {"id": s.id, "team": team, "first": s.first_name, "last": s.last_name, "callsign": s.callsign,
-		"age": s.age, "state": s.home_state, "potential": s.potential, "draft_year": s.draft_year,
+		"age": s.age, "state": s.home_state, "dev": s.dev, "draft_year": s.draft_year,
 		"stats": stats, "caps": caps, "dna": dna}
 	if s.contract != null:
 		d["salary"] = s.contract.salary

@@ -2845,7 +2845,7 @@ func _awards_blurb() -> String:
 	if season.review != null and not season.review.awards.is_empty():
 		var mvp: Dictionary = season.review.awards[0]
 		return "%d MVP:\n[color=white]%s[/color] (%s)" % [season.review.year, UiKit.esc(mvp["soldier"].full_name()), mvp["team"].abbrev]
-	return "MVP race, position awards, potential changes and aging."
+	return "MVP race, position awards, dev star changes and aging."
 
 
 func _playoff_blurb() -> String:

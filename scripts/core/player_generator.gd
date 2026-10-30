@@ -70,25 +70,28 @@ static func generate(rng: RandomNumberGenerator, id: int, role: Scheme.Role, qua
 		if stat == Stats.INJURY:
 			base = rng.randf_range(70.0, 95.0)
 		s.stats[stat] = Stats.clamp_rating(base + rng.randfn(0.0, 6.0))
-	s.potential = roll_potential(rng, s.age)
+	s.dev = roll_dev(rng, s.age)
 	roll_caps(s, rng)
 	s.look = Look.generate(s.id, s.age, role)
 	return s
 
 
-## Chance weights for F, D, C, B, A by age band: young players skew high.
-const POTENTIAL_WEIGHTS := [
-	[22, [15, 32, 40, 10, 3]],
-	[26, [18, 32, 37, 10, 3]],
-	[30, [30, 36, 28, 5, 1]],
-	[99, [50, 35, 13, 2, 0]],
+## Chance weights for 1-4 dev stars by age band: young players skew a little higher; 3 and 4
+## stars stay rare (about 15% / 5% league-wide).
+const DEV_WEIGHTS := [
+	[22, [34, 42, 17, 7]],
+	[26, [38, 42, 15, 5]],
+	[30, [44, 39, 13, 4]],
+	[99, [50, 36, 11, 3]],
 ]
-## Cap headroom multiplier per potential grade (F..A).
-const POTENTIAL_HEADROOM := [0.4, 0.7, 1.0, 1.35, 1.7]
+## Cap headroom multiplier per dev star (1..4). Kept loose on purpose: a per-player ceiling roll
+## (CEILING_ROLL) also scales it, so a 1-2 star player can still have a high ceiling (see #33).
+const DEV_HEADROOM := [0.8, 1.0, 1.25, 1.5]
+const CEILING_ROLL := [0.5, 1.5]
 
 
-static func roll_potential(rng: RandomNumberGenerator, age: int) -> int:
-	for band in POTENTIAL_WEIGHTS:
+static func roll_dev(rng: RandomNumberGenerator, age: int) -> int:
+	for band in DEV_WEIGHTS:
 		if age <= band[0]:
 			var weights: Array = band[1]
 			var total := 0
@@ -98,8 +101,8 @@ static func roll_potential(rng: RandomNumberGenerator, age: int) -> int:
 			for i in weights.size():
 				roll -= weights[i]
 				if roll <= 0:
-					return i
-	return 0
+					return Soldier.DEV_MIN + i
+	return Soldier.DEV_MIN
 
 
 ## Highest cap allowed outside a soldier's top ELITE_GROUPS groups: everyone keeps a hole or two.
@@ -107,14 +110,27 @@ const NON_ELITE_CAP := 84
 const ELITE_GROUPS := 2
 
 
-## Rolls every group cap: age-based headroom x the potential multiplier x a random per-group
-## factor, so higher potential means higher caps overall but which groups get them is random.
+## Rolls every group cap: age-based headroom x the dev multiplier x a per-player ceiling roll x a
+## random per-group factor, so faster developers tend to have more room but a slow developer can
+## still have a high ceiling, and which groups get the room is random.
 ## Only the two highest caps may go past NON_ELITE_CAP (a group already above it keeps its rating).
 static func roll_caps(s: Soldier, rng: RandomNumberGenerator, extra := 0) -> void:
+	var mult: float = DEV_HEADROOM[clampi(s.dev, Soldier.DEV_MIN, Soldier.DEV_MAX) - Soldier.DEV_MIN] * rng.randf_range(CEILING_ROLL[0], CEILING_ROLL[1])
 	for g in Stats.UPGRADABLE_GROUPS:
-		var room: float = float(roll_group_headroom(rng, s.age, g)) * POTENTIAL_HEADROOM[s.potential] * rng.randf_range(0.3, 1.7)
+		var room: float = float(roll_group_headroom(rng, s.age, g)) * mult * rng.randf_range(0.3, 1.7)
 		s.group_caps[g] = mini(Stats.MAX_RATING, s.group_rating(g) + roundi(room) + extra)
 	limit_elite_caps(s)
+
+
+## Raises caps (top groups first, every group by one per pass) until his ceiling reaches
+## `min_ceiling` or nothing can move. For draft standouts promised a high Potential grade.
+static func raise_ceiling(s: Soldier, min_ceiling: int) -> void:
+	for i in 40:
+		if s.potential_ovr() >= min_ceiling:
+			return
+		for g in Stats.UPGRADABLE_GROUPS:
+			s.group_caps[g] = mini(Stats.MAX_RATING, s.group_cap(g) + 1)
+		limit_elite_caps(s)
 
 
 ## Holds every group outside the top ELITE_GROUPS caps to NON_ELITE_CAP (or its current rating).

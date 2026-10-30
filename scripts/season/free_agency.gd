@@ -241,7 +241,7 @@ func ai_offers(season: Season, rng: RandomNumberGenerator, in_season := false) -
 static func _ai_value(s: Soldier, weak_role: int) -> float:
 	var v := float(s.best_ovr()) + (3.0 if Scheme.best_role(s.stats) == weak_role else 0.0)
 	if s.age <= 25:
-		v += 0.8 * s.potential
+		v += 0.08 * clampf(s.potential_ovr() - s.best_ovr(), 0.0, 20.0) + 0.5 * (s.dev - 1)
 	if s.age >= 32:
 		v -= 2.0 * (s.age - 31)
 	return v

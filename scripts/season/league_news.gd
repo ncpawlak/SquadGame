@@ -293,6 +293,50 @@ func free_agency_opens(season: Season) -> void:
 				s.full_name(), s.best_ovr(), s.age, t.nickname])
 
 
+## Dev-star changes from the season review (SeasonReview.dev_changes): every change on the
+## user's team, plus the biggest names league-wide (OFFSEASON_PER_KIND of each direction, best first).
+func dev_changes(season: Season, changes: Array) -> void:
+	var sorted := changes.duplicate()
+	sorted.sort_custom(func(a, b): return _dev_rank(a["soldier"]) > _dev_rank(b["soldier"]))
+	for c in sorted:
+		var s: Soldier = c["soldier"]
+		var t: Team = c["team"]
+		var up: bool = int(c["to"]) > int(c["from"])
+		var kind := "dev_up" if up else "dev_down"
+		var mine := t != null and t.user_controlled
+		if not mine and not _year_room(season, kind):
+			continue
+		if not _tag(s, kind, season.year):
+			continue
+		var why := ", ".join((c["reasons"] as Array).map(func(r): return String(r).to_lower()))
+		if up:
+			_add(season, "Offseason", kind, [t.abbrev] if t != null else [], s.id,
+				"%s earns a %d-star rating" % [s.display_name(), int(c["to"])],
+				"The staff now rate %s (%d OVR, age %d) a %s developer after %s. He should close in on his ceiling faster." % [
+					s.full_name(), s.best_ovr(), s.age, Soldier.dev_stars(int(c["to"])), why])
+		else:
+			_add(season, "Offseason", kind, [t.abbrev] if t != null else [], s.id,
+				"%s drops to %d star%s" % [s.display_name(), int(c["to"]), "" if int(c["to"]) == 1 else "s"],
+				"%s (%d OVR, age %d) slips to a %s developer (%s). His ceiling hasn't moved, but he'll grow toward it slower." % [
+					s.full_name(), s.best_ovr(), s.age, Soldier.dev_stars(int(c["to"])), why])
+
+
+## A training camp drill earned `s` a dev star.
+func camp_star(season: Season, team: Team, s: Soldier, drill: String) -> void:
+	if not team.user_controlled and not _year_room(season, "dev_up"):
+		return
+	if not _tag(s, "dev_up", season.year):
+		return
+	_add(season, _offseason_when(season), "dev_up", [team.abbrev], s.id,
+		"%s turns heads at camp" % s.display_name(),
+		"%s (%d OVR, age %d) stood out at the %s and the staff bumped him to a %s developer." % [
+			s.full_name(), s.best_ovr(), s.age, drill, Soldier.dev_stars(s.dev)])
+
+
+static func _dev_rank(s: Soldier) -> int:
+	return maxi(s.best_ovr(), s.potential_ovr())
+
+
 ## An AI team releases `s` (call before his contract is cleared). Only stars make the wire.
 func release(season: Season, team: Team, s: Soldier) -> void:
 	if team.user_controlled or s.contract == null or s.best_ovr() < STAR_CUT_OVR:

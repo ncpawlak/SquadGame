@@ -2,8 +2,8 @@ class_name Progression
 extends RefCounted
 ## XP -> skill points (SP), spent on stat GROUPS (MLB The Show / CFB27 style).
 ## - XP comes from matches (performance-based) and weekly training (scaled by intensity).
-## - XP gain scales with age AND potential (AGE_POTENTIAL_XP): a young A-potential soldier
-##   grows several OVR a season, a veteran barely moves; age decline still applies on top.
+## - XP gain scales with age AND dev stars (AGE_DEV_XP): a young 4-star soldier grows several
+##   OVR a season, a veteran barely moves; age decline still applies on top.
 ## - Every xp_to_next() XP grants SKILL_POINTS_PER_LEVEL SP (levels are internal, not shown).
 ## - Upgrading a group raises its rating (the average of its stats) by 1: the group's N stats
 ##   receive N points, handed out one at a time at random (max +2 per stat per upgrade, 99 max;
@@ -20,15 +20,15 @@ const MATCH_IMPACT_XP_SCALE := 0.25
 const MVP_XP := 75.0
 
 
-## XP multiplier by age band (max age of the band) then potential grade (F..A). Calibrated
-## for season OVR gains of roughly: 19-22 A +5-7 / B +3-4 / C +1-2 / D-F 0-1; 23-26 A +3-4 /
-## B +2-3 / C +1; 27-30 A +1-2 / B +1; 31-33 A +1-3 / B 0-1; 34+ A 0-1.
-const AGE_POTENTIAL_XP := [
-	[22, [0.2, 0.3, 0.75, 2.6, 7.5]],
-	[26, [0.1, 0.15, 0.5, 1.7, 2.5]],
-	[30, [0.05, 0.1, 0.2, 0.5, 1.0]],
-	[33, [0.05, 0.05, 0.1, 0.25, 0.5]],
-	[99, [0.05, 0.05, 0.05, 0.1, 0.25]],
+## XP multiplier by age band (max age of the band) then dev stars (1..4). Calibrated for season
+## OVR gains of roughly: 19-22 4* +5-7 / 3* +3-4 / 2* +1-2 / 1* 0-1; 23-26 4* +3-4 / 3* +2-3 /
+## 2* +1; 27-30 4* +1-2 / 3* +1; 31-33 4* +1-3 / 3* 0-1; 34+ 4* 0-1. Growth still stops at the caps.
+const AGE_DEV_XP := [
+	[22, [0.25, 0.75, 2.6, 7.5]],
+	[26, [0.12, 0.5, 1.7, 2.5]],
+	[30, [0.07, 0.2, 0.5, 1.0]],
+	[33, [0.05, 0.1, 0.25, 0.5]],
+	[99, [0.05, 0.05, 0.1, 0.25]],
 ]
 
 
@@ -37,11 +37,15 @@ static func xp_to_next(level: int) -> int:
 
 
 static func xp_multiplier(soldier: Soldier) -> float:
-	var grade := clampi(soldier.potential, 0, 4)
-	for band in AGE_POTENTIAL_XP:
-		if soldier.age <= band[0]:
-			return band[1][grade]
-	return AGE_POTENTIAL_XP[-1][1][grade]
+	return dev_xp_multiplier(soldier.age, soldier.dev)
+
+
+static func dev_xp_multiplier(age: int, dev: int) -> float:
+	var i := clampi(dev, Soldier.DEV_MIN, Soldier.DEV_MAX) - Soldier.DEV_MIN
+	for band in AGE_DEV_XP:
+		if age <= band[0]:
+			return band[1][i]
+	return AGE_DEV_XP[-1][1][i]
 
 
 ## Progress toward the next batch of skill points: [xp, needed].
@@ -66,7 +70,7 @@ static func upgrade_cost(soldier: Soldier, group: StringName) -> int:
 	return group_cost(soldier.group_rating(group))
 
 
-## Adds XP (after the potential multiplier). Returns a report: { xp, levels, points }.
+## Adds XP (after the dev multiplier). Returns a report: { xp, levels, points }.
 static func gain_xp(soldier: Soldier, base_xp: float) -> Dictionary:
 	var amount := roundi(base_xp * xp_multiplier(soldier))
 	var report := {"xp": amount, "levels": 0, "points": 0}
