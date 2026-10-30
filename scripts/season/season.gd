@@ -464,20 +464,50 @@ func sync_team_statics() -> void:
 func sim_week() -> Array:
 	if phase == PHASE_OFFSEASON:
 		return []
+	for m in begin_week():
+		play_week_match(m)
+	return finish_week()
+
+
+## Fixtures of the week in progress (between begin_week and finish_week).
+var _week_matches: Array = []
+
+
+## Step 1 of sim_week (split so the UI can show progress between steps): prepares the week
+## and returns its fixtures. Follow with play_week_match for each, then finish_week.
+func begin_week() -> Array:
+	if phase == PHASE_OFFSEASON:
+		return []
 	sync_team_statics()
 	prepare_week()
 	_stamp_log()
 	_week_prepared = false
-	var played := matches_for_week(week)
+	_week_matches = matches_for_week(week)
+	return _week_matches
+
+
+## Step 2 of sim_week: plays one fixture (unless it was watched live) and awards its XP.
+func play_week_match(m: ScheduledMatch) -> void:
+	if not m.is_played():
+		m.play()
+		Progression.award_match_xp(m.result, year)
+	elif m.needs_xp:
+		Progression.award_match_xp(m.result, year)
+	m.needs_xp = false
+
+
+## Step 3 of sim_week: injuries, morale, news, awards and trades, then advances the week.
+## Returns the week's fixtures.
+func finish_week() -> Array:
+	if phase == PHASE_OFFSEASON:
+		return []
+	var played := _week_matches
+	_week_matches = []
+	for m in played:
+		play_week_match(m)
 	var played_ids := {}
 	var playing_teams := {}
 	for m in played:
-		if not m.is_played():
-			m.play()
-			Progression.award_match_xp(m.result, year)
-		elif m.needs_xp:
-			Progression.award_match_xp(m.result, year)
-		m.needs_xp = false
 		for t: Team in [m.home, m.away]:
 			playing_teams[t] = true
 			for so in t.starters():

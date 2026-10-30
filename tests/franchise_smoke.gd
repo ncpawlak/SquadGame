@@ -13,6 +13,9 @@ func _init() -> void:
 	app.show_team_select()
 	await process_frame
 	app.start_franchise(4242, 2)
+	_check(app.screen is LoadingScreen, "new franchise shows the loading screen")
+	while not (app.screen is Control and app.screen.has_method("advance")):
+		await process_frame
 	await process_frame
 	var hub = app.screen
 	_check(hub.season.user_team() == hub.season.league.teams[2], "picked team is user team")
@@ -123,6 +126,7 @@ func _init() -> void:
 	while hub.season.phase != Season.PHASE_OFFSEASON and guard < 50:
 		hub.advance()
 		await process_frame
+		await _wait_loading(hub)
 		guard += 1
 		if hub._on_matchup_page():
 			saw_matchup = true
@@ -138,6 +142,8 @@ func _init() -> void:
 				hub.viewer.sim_to_end()
 				hub.viewer.finished.emit(hub.viewer.engine.result())
 				await process_frame
+				_check(hub.simming and _find_loading(hub) != null and not hub._root.visible, "loading screen after the watched match")
+				await _wait_loading(hub)
 				_check(hub.viewer == null and hub._root.visible, "viewer closed back to the hub")
 				_check(m.is_played() and hub.season.week == wk + 1, "watched match recorded, week advanced")
 		if guard == 3:
@@ -284,6 +290,8 @@ func _init() -> void:
 	_check(hub.season.offseason_stage == Season.OFF_CAMP and hub.season.year == 2026, "unused drills warning holds the season")
 	hub.advance()  # start next season
 	await process_frame
+	_check(hub.simming and _find_loading(hub) != null, "loading screen for the new season")
+	await _wait_loading(hub)
 	for t in hub.season.league.teams:
 		if t != user:
 			_check(hub.season.camp.drills_left(t) < Camp.DRILLS.size(), "AI %s ran camp drills" % t.abbrev)
@@ -301,6 +309,20 @@ func _init() -> void:
 
 	print("Franchise smoke: ", "PASS" if ok else "FAIL")
 	quit(0 if ok else 1)
+
+
+func _wait_loading(hub) -> void:
+	while hub.simming:
+		await process_frame
+	await process_frame
+	_check(_find_loading(hub) == null or _find_loading(hub).is_queued_for_deletion(), "loading screen removed")
+
+
+func _find_loading(hub) -> LoadingScreen:
+	for c in hub.get_children():
+		if c is LoadingScreen and not c.is_queued_for_deletion():
+			return c
+	return null
 
 
 func _visit_pages(hub, phase: String) -> void:
