@@ -147,7 +147,7 @@ func show_team_select() -> void:
 			var show := func(): _fill_team_pane(pane, preview, t, rank, ranked.size())
 			b.mouse_entered.connect(show)
 			b.focus_entered.connect(show)
-			b.pressed.connect(func(): start_franchise(preview_seed, idx))
+			b.pressed.connect(func(): start_franchise(preview_seed, idx, t))
 			line.add_child(b)
 			if first == null:
 				first = b
@@ -380,10 +380,39 @@ func show_load_menu() -> void:
 	_set_screen(root)
 
 
-func start_franchise(seed_value: int, team_index: int) -> void:
+## `team` (the team-select preview's copy) only colours the loading screen.
+func start_franchise(seed_value: int, team_index: int, team: Team = null) -> void:
+	var ls := LoadingScreen.make(team, "New Franchise")
+	_set_screen(ls)
+	await ls.step("Generating the league: rosters, contracts, scouting & schedule", 0.0, 1.0)
 	season = Season.new_franchise(seed_value, team_index, 2026, true)
+	await ls.step("Opening training camp", 0.9, 1.0)
 	preview_seed = 0
 	show_hub()
+
+
+## Loads a save slot behind a loading screen (shown over the current screen; kept on failure).
+func load_franchise(slot: int) -> void:
+	var info := SaveSystem.slot_info(slot)
+	var ls := LoadingScreen.make(null, "Loading %s" % String(info.get("team", "franchise")), String(info.get("abbrev", "")))
+	add_child(ls)
+	if screen:
+		screen.visible = false
+		screen.process_mode = Node.PROCESS_MODE_DISABLED
+	await ls.step("Reading save file", 0.0, 1.0)
+	var loaded := SaveSystem.load_slot(slot)
+	if loaded == null:
+		ls.queue_free()
+		if screen:
+			screen.visible = true
+			screen.process_mode = Node.PROCESS_MODE_INHERIT
+		toast("Could not load that save.")
+		return
+	await ls.step("Opening your front office", 0.9, 1.0)
+	season = loaded
+	show_hub()
+	ls.queue_free()
+	toast("Loaded %s %d." % [loaded.user_team().name, loaded.year])
 
 
 func show_hub() -> void:
