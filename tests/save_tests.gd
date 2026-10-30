@@ -18,6 +18,7 @@ func _init() -> void:
 		"test_history_round_trip",
 		"test_retired_callsigns_round_trip",
 		"test_hall_of_fame_round_trip",
+		"test_load_repairs_callsigns",
 		"test_slot_api",
 		"test_legacy_potential_migrates",
 	]
@@ -299,6 +300,27 @@ func test_hall_of_fame_round_trip() -> void:
 	check(HallOfFame.is_member(s2, e["soldier"]) and e["soldier"].id == so.id, "the member is the loaded soldier")
 	var old := SaveSystem.from_text(SaveSystem.to_text(Season.new_franchise(328)))
 	check(old != null and old.hall_of_fame.is_empty(), "a save with no Hall loads empty")
+
+
+func test_load_repairs_callsigns() -> void:
+	var s := Season.new_franchise(329)
+	var a := s.league.teams[0].roster[0]
+	var b := s.league.teams[1].roster[0]
+	b.callsign = a.callsign
+	var c := s.league.teams[2].roster[0]
+	s.league.retired_callsigns.append({"callsign": c.callsign, "soldier": c, "team": s.league.teams[2], "year": 2030, "seasons": 7, "honors": []})
+	var s2 := SaveSystem.from_text(SaveSystem.to_text(s))
+	check(s2 != null, "from_text returned null")
+	if s2 == null:
+		return
+	var seen := {}
+	var retired := s2.league.reserved_callsigns()
+	var pool: Array = s2.league.all_soldiers()
+	pool.append_array(s2.league.free_agents)
+	for so: Soldier in pool:
+		check(not seen.has(so.callsign.to_lower()), "callsign %s is still worn twice after load" % so.callsign)
+		check(not retired.has(so.callsign.to_lower()), "%s still wears a retired callsign after load" % so.callsign)
+		seen[so.callsign.to_lower()] = true
 
 
 func test_slot_api() -> void:

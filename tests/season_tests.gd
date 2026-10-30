@@ -68,6 +68,7 @@ func _init() -> void:
 		"test_records",
 		"test_retired_callsigns",
 		"test_hall_of_fame",
+		"test_callsign_uniqueness",
 	]
 	# Legacy tests run on a generated 5-team single-division league (fast); the expansion
 	# tests switch to the fixed 20-team league themselves.
@@ -1913,6 +1914,65 @@ func test_hall_of_fame() -> void:
 	var strict := _fixed(76, 1)
 	_hall_pool(strict, HallOfFame.WAIT_SEASONS)
 	check(HallOfFame.run(strict, 1000.0).is_empty(), "nobody below the bar is inducted")
+
+
+## Lower-cased callsigns of every active soldier; fails the test on a blank or repeated one or one
+## on the retired list.
+func _check_callsigns(s: Season, when: String) -> void:
+	var seen := {}
+	var retired := s.league.reserved_callsigns()
+	var pool: Array = s.league.all_soldiers()
+	pool.append_array(s.league.free_agents)
+	for so: Soldier in pool:
+		var key := so.callsign.to_lower()
+		check(key != "", "%s: %s has no callsign" % [when, so.full_name()])
+		check(not seen.has(key), "%s: callsign %s is worn by two soldiers" % [when, so.callsign])
+		check(not retired.has(key), "%s: %s wears a retired or reserved callsign" % [when, so.callsign])
+		seen[key] = true
+
+
+func test_callsign_uniqueness() -> void:
+	var s := _fixed(77, 1)
+	_check_callsigns(s, "new league")
+	for season_no in 2:
+		s.sim_to_end_of_season()
+		while s.offseason_stage != Season.OFF_DONE:
+			s.advance_offseason()
+			_check_callsigns(s, "offseason step %s" % s.offseason_stage)
+		s.start_next_season()
+		_check_callsigns(s, "season %d" % s.year)
+		var rookies := 0
+		for so: Soldier in s.league.all_soldiers():
+			if so.draft_year == s.year - 1:
+				rookies += 1
+		check(rookies > 0, "the draft class made the rosters (%d)" % rookies)
+
+	# A retiree's callsign goes back into circulation...
+	var team: Team = s.league.teams[0]
+	var gone := team.roster[0]
+	var sign := gone.callsign
+	team.release(gone)
+	gone.retired_year = s.year
+	check(not s.league.taken_callsigns().has(sign.to_lower()), "a retired soldier's callsign is free again")
+	var heir := s.league.teams[1].roster[0]
+	heir.callsign = sign
+	s.league.ensure_callsigns()
+	check(heir.callsign == sign, "...and a new soldier can wear it")
+	# ...unless the callsign itself is retired.
+	var banner := s.league.teams[1].roster[1]
+	s.league.retired_callsigns.append({"callsign": banner.callsign, "soldier": banner, "team": s.league.teams[1], "year": s.year, "seasons": 7, "honors": []})
+	var banned := banner.callsign
+	var other := s.league.teams[2].roster[0]
+	other.callsign = ""
+	s.league.teams[1].release(banner)
+	var fresh_taken := s.league.taken_callsigns()
+	check(fresh_taken.has(banned.to_lower()), "a retired callsign stays out of circulation after its owner leaves")
+	for i in 40:
+		other.callsign = ""
+		s.league.give_callsign(other)
+		check(other.callsign.to_lower() != banned.to_lower(), "a new soldier is never given a retired callsign")
+		other.id += 1  # a different start in the pool each time
+	_check_callsigns(s, "after the checks")
 
 
 func test_newsroom() -> void:
