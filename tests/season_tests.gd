@@ -65,6 +65,7 @@ func _init() -> void:
 		"test_relationships",
 		"test_newsroom",
 		"test_season_history",
+		"test_records",
 	]
 	# Legacy tests run on a generated 5-team single-division league (fast); the expansion
 	# tests switch to the fixed 20-team league themselves.
@@ -1703,6 +1704,55 @@ func test_season_history() -> void:
 	check(s.history.size() == 2 and s.history[1].year == snap_year + 1, "second season adds a second snapshot")
 	s.ensure_history()
 	check(s.history.size() == 2, "ensure_history does not duplicate a season already recorded")
+
+
+func test_records() -> void:
+	var s := _fixed(72, 1)
+	s.sim_to_end_of_season()
+	while s.offseason_stage != Season.OFF_DONE:
+		s.advance_offseason()
+	s.start_next_season()
+	s.sim_to_end_of_season()
+	var kills: Dictionary = Records.PLAYER_STATS[0]
+	var kd: Dictionary = Records.PLAYER_STATS[-1]
+	var everyone := Records.soldiers(s)
+	for r in s.retirements:
+		check(everyone.has(r["soldier"]), "retired soldiers are in the record pool")
+	var best := 0
+	var best_career := 0
+	for so: Soldier in everyone:
+		best_career = maxi(best_career, int(so.career["kills"]))
+		for y in so.season_lines:
+			best = maxi(best, int(so.season_lines[y]["kills"]))
+	var seasons := Records.player_seasons(s, kills)
+	check(not seasons.is_empty() and seasons[0]["value"] == best, "season kills record is the best line (%s vs %d)" % [seasons[0]["value"] if not seasons.is_empty() else "-", best])
+	check(seasons.size() <= Records.TOP_N, "top list is capped")
+	for i in range(1, seasons.size()):
+		check(seasons[i - 1]["value"] >= seasons[i]["value"], "season list is sorted best first")
+	var careers := Records.player_careers(s, kills)
+	check(not careers.is_empty() and careers[0]["value"] == best_career, "career kills record is the best career")
+	check(careers[0]["first"] <= careers[0]["last"] and careers[0]["first"] > 0, "career span is set")
+	for row in Records.player_seasons(s, kd):
+		check(int(row["soldier"].season_lines[row["year"]]["matches"]) >= Records.MIN_MATCHES_SEASON, "kd record needs a minimum of matches")
+	var team := s.user_team()
+	for row in Records.player_seasons(s, kills, team.abbrev):
+		check(row["team"] == team.abbrev, "franchise season records only count that team")
+	for row in Records.player_careers(s, kills, team.abbrev):
+		var with_team := 0
+		for y in row["soldier"].season_lines:
+			if row["soldier"].season_lines[y]["team"] == team.abbrev:
+				with_team += int(row["soldier"].season_lines[y]["kills"])
+		check(int(row["value"]) == with_team and row["value"] <= row["soldier"].career["kills"], "franchise career is the sum of that team's seasons")
+	var wins: Dictionary = Records.TEAM_STATS[0]
+	var most := 0
+	for snap: SeasonSnapshot in s.history:
+		for r in snap.standings:
+			most = maxi(most, int(r["wins"]))
+	var tw := Records.team_seasons(s, wins)
+	check(not tw.is_empty() and tw[0]["value"] == most, "team wins record matches the history")
+	for row in Records.team_seasons(s, wins, team.abbrev):
+		check(row["team"] == team, "franchise team records only list that team")
+	check(Records.format_value(kd, 1.234) == "1.23" and Records.format_value(kills, 41.0) == "41", "values format by kind")
 
 
 func test_newsroom() -> void:
