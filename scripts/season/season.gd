@@ -95,6 +95,8 @@ var fa := FreeAgency.new()
 var relationships := Relationships.new()
 ## Divisional and team-specific rivalries: heat, head-to-head records and emergent rivalries.
 var rivalries := Rivalries.new()
+## Team market (a fixed rating) and the buzz that moves with results.
+var market := Market.new()
 var trades := Trades.new()
 ## Signings from the most recent resolution (free-agency day or week).
 var last_signings: Array = []
@@ -530,6 +532,7 @@ func finish_week() -> Array:
 	rivalries.record_week(self, played)
 	var news_week := week
 	_advance()
+	market.week(self, played, news_week)
 	news.week_stories(self, played, news_week)
 	if phase == PHASE_OFFSEASON:
 		newsroom.publish_wrap(self, news_week)
@@ -796,6 +799,7 @@ func advance_offseason() -> Array:
 	var label := _step
 	var signed := _advance_offseason_step()
 	_step = ""
+	market.tick(self, label)
 	newsroom.publish_offseason(self, label)
 	return signed
 
@@ -1101,6 +1105,7 @@ func _begin_season() -> void:
 	league.next_soldier_id += Draft.CLASS_SIZE
 	draft.scout_points = Draft.POINTS_PER_WEEK
 	league.ensure_callsigns()
+	market.begin_season(self)
 	news.begin_season(self)
 	newsroom.publish_preseason(self)
 	_stamp_log()

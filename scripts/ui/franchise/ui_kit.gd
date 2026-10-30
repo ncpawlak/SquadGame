@@ -784,3 +784,42 @@ static func _hook_pop(b: Control) -> void:
 	if b is BaseButton:
 		(b as BaseButton).button_down.connect(func(): to.call(0.97, 0.06))
 		(b as BaseButton).button_up.connect(func(): up.call(true))
+
+
+## Colour of a buzz band (Ice Cold .. Electric).
+const BUZZ_COLORS := [Color("#38bdf8"), Color("#7dd3fc"), Color("#94a3b8"), Color("#fbbf24"), Color("#f97316"), Color("#e879f9")]
+
+
+static func buzz_color(value: float) -> Color:
+	return BUZZ_COLORS[Market.band_of(value)]
+
+
+## Two meter rows for a team: its market (fixed) and its buzz (moves). `bar_width` sizes the bars.
+static func market_meters(team: Team, size := 14, bar_width := 150) -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 2)
+	var rows := [
+		["MARKET", Market.market_text(team), float(team.market_rating) / 100.0, Color(1, 1, 1, 0.8),
+			"The size and money of the city. Fixed: a team can be bad and the market is still big."],
+		["BUZZ", Market.buzz_text(team), team.buzz / 100.0, buzz_color(team.buzz),
+			"How much the city cares right now. Results, rivalries, streaks and big signings move it, but never fast; it also drifts back to a resting level that is higher in a big market."],
+	]
+	for r in rows:
+		var hb := HBoxContainer.new()
+		hb.add_theme_constant_override("separation", 10)
+		hb.tooltip_text = r[4]
+		var tag := label(r[0], size - 2, MUTED)
+		tag.custom_minimum_size.x = 56
+		hb.add_child(tag)
+		hb.add_child(label(String(r[1]).to_upper(), size, r[3]))
+		var bar := ProgressBar.new()
+		bar.custom_minimum_size = Vector2(bar_width, 7)
+		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		bar.show_percentage = false
+		bar.max_value = 1.0
+		bar.value = r[2]
+		bar.add_theme_stylebox_override("background", flat(Color(1, 1, 1, 0.12), 3))
+		bar.add_theme_stylebox_override("fill", flat(r[3] if r[0] == "BUZZ" else ACCENT, 3))
+		hb.add_child(bar)
+		box.add_child(hb)
+	return box

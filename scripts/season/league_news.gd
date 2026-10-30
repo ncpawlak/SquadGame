@@ -24,8 +24,8 @@ extends RefCounted
 ##   surprise_cut     an AI team releases a STAR_CUT_OVR+ player ranked in its top STAR_CUT_RANK.
 ##   draft_*          #1 pick, a generational talent who slid, steals, reaches and the best haul.
 ##   retired          a legend (LEGEND_OVR+ or an award winner) retires.
-## Per-player stories fire once (a season for seasonal ones, a career for the rest; tracked in
-## Soldier.news_tags), and at most MAX_PER_KIND of a kind run in one week.
+## Buzz stories (see Market): buzz_up / buzz_down when a team's buzz crosses into a new band, buzz_leader
+## for the week's biggest earner. Every story also adds heat for the teams it names (Market.STORY_POINTS).
 
 const MAX_ITEMS := 600
 const MAX_PER_KIND := 3
@@ -370,6 +370,34 @@ func draft_stories(season: Season) -> void:
 			"With %d picks, the %s took the most talent of any team in the %d class." % [count[best], best.nickname, season.draft.year])
 
 
+## A team's buzz crossed into a new band (see Market).
+func buzz_band(season: Season, when: String, t: Team, up: bool) -> void:
+	var band := Market.band_name(t.buzz)
+	if up:
+		_add(season, when, "buzz_up", [t.abbrev], 0,
+			"%s are heating up: now %s" % [t.name, band],
+			"The %s have the %s talking. Buzz around the club has climbed to %s (%d), and the %s crowds are noticing." % [
+				t.nickname, t.city, band, roundi(t.buzz), Market.market_name(t).to_lower()])
+	else:
+		_add(season, when, "buzz_down", [t.abbrev], 0,
+			"%s are cooling off: now %s" % [t.name, band],
+			"Interest in the %s is slipping. Buzz has dropped to %s (%d), and %s will need results to win the city back." % [
+				t.nickname, band, roundi(t.buzz), t.city])
+
+
+## The week's hottest team: the club that earned the most buzz.
+func buzz_leader(season: Season, when: String, t: Team, gain: float) -> void:
+	var why := ""
+	for e in Market.log_for(t, season.year):
+		if e["when"] == when and float(e["amount"]) > 0.0:
+			why = String(e["label"]).substr(0, 1).to_lower() + String(e["label"]).substr(1)
+			break
+	_add(season, when, "buzz_leader", [t.abbrev], 0,
+		"%s are the talk of the league" % t.name,
+		"The %s earned %d buzz points this week%s and sit at %s." % [
+			t.nickname, roundi(gain), (", led by %s," % why) if why != "" else "", Market.buzz_text(t)])
+
+
 func _offseason_when(season: Season) -> String:
 	return season.step_label() if season.phase == Season.PHASE_OFFSEASON else season.week_label(season.week)
 
@@ -539,5 +567,6 @@ func _add(season: Season, when: String, kind: String, teams: Array, soldier_id: 
 	items.append({"year": season.year, "when": when, "kind": kind, "headline": headline, "body": body,
 		"teams": teams, "soldier_id": soldier_id})
 	_counts[kind] = int(_counts.get(kind, 0)) + 1
+	season.market.story(season, kind, teams, headline)
 	if items.size() > MAX_ITEMS:
 		items = items.slice(items.size() - MAX_ITEMS)

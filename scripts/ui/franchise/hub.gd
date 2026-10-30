@@ -627,6 +627,7 @@ func _build_header() -> void:
 		where = "%s in the %s   ·   %s in the league" % [UiKit.ordinal(drank), div, UiKit.ordinal(rank)]
 	info.add_child(UiKit.label("%s   ·   %s   ·   Team OVR %d" % [
 		season.record_text(team), where, team.team_ovr()], 16, Color(1, 1, 1, 0.72)))
+	info.add_child(UiKit.market_meters(team))
 	hb.add_child(_score_bug())
 
 

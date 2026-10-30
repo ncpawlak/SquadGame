@@ -84,6 +84,25 @@ static func press_for(team: Team) -> Array:
 	return ["%s Daily Wire" % place, _PRESS_WRITERS[absi(hash(team.abbrev)) % _PRESS_WRITERS.size()]]
 
 
+## Market rating by abbrev (1-100, fixed: the size of a team's city and its money; see Market). Teams not
+## listed rate 50.
+const MARKET_RATINGS := {
+	"NYE": 98, "LAS": 92,
+	"CHI": 78, "BOS": 74, "DET": 66,
+	"SEA": 58, "MIA": 56, "ATL": 55, "SDV": 52, "DEN": 50, "BKN": 46,
+	"STL": 40, "CHA": 38, "IND": 36, "ORL": 34, "NSH": 32, "ARL": 30,
+	"REN": 18, "LOU": 14, "LRK": 8,
+}
+
+## Opening buzz by abbrev (0-100), from each backstory; every new franchise starts the same. Teams not
+## listed start at their market's resting buzz.
+const START_BUZZ := {
+	"DET": 75, "NYE": 77, "LAS": 68, "SEA": 62, "CHI": 60,
+	"CHA": 58, "BOS": 58, "ARL": 56,
+	"SDV": 52, "BKN": 52, "REN": 50, "ATL": 50, "IND": 50, "STL": 48, "NSH": 48,
+	"MIA": 38, "LRK": 36, "DEN": 36, "LOU": 34, "ORL": 32,
+}
+
 ## Every state (and DC) belongs to one division's region (hometown pull, region scouting).
 const STATE_REGION := {
 	"ME": "East", "NH": "East", "VT": "East", "MA": "East", "RI": "East", "CT": "East", "NY": "East",

@@ -58,6 +58,7 @@ func _init() -> void:
 		"test_league_news",
 		"test_offseason_news",
 		"test_rivalries",
+		"test_market",
 		"test_match_form_upsets",
 		"test_schemes",
 		"test_keep_value_protects_prospects",
@@ -1671,6 +1672,7 @@ func test_newsroom() -> void:
 	var press := LeagueData.press_for(s.user_team())
 	var ledes := {}
 	var kinds := {}
+	var mood_lines := 0
 	for i in nr.count():
 		var a: Dictionary = nr.issue(i)
 		kinds[a["kind"]] = true
@@ -1687,8 +1689,16 @@ func test_newsroom() -> void:
 		var lede: String = a["body"][0]
 		check(not ledes.has(lede), "issue %d repeats an earlier lede" % i)
 		ledes[lede] = true
+		if a["kind"] in [Newsroom.KIND_GAME, Newsroom.KIND_BYE, Newsroom.KIND_WRAP, Newsroom.KIND_PRESEASON]:
+			check((a["sidebar"] as Array).any(func(b): return b["title"] == "Market & Buzz"), "issue %d has the market and buzz box" % i)
+		if a["kind"] in [Newsroom.KIND_WRAP, Newsroom.KIND_PRESEASON]:
+			check((a["body"] as Array).any(func(p): return String(p).to_lower().contains("buzz")), "the %s issue talks about buzz" % a["kind"])
+		for p in a["body"]:
+			if String(p).to_lower().contains("buzz"):
+				mood_lines += 1
 	for k in [Newsroom.KIND_GAME, Newsroom.KIND_WRAP, Newsroom.KIND_RESIGN, Newsroom.KIND_FA, Newsroom.KIND_DRAFT, Newsroom.KIND_CAMP, Newsroom.KIND_PRESEASON]:
 		check(kinds.has(k), "a %s issue was written" % k)
+	check(mood_lines >= 3, "the paper covers the city's mood (%d mentions)" % mood_lines)
 	check(nr._s == null and nr._us == null and nr._f.is_empty(), "working state cleared after writing")
 	check(nr.unread() == nr.count(), "everything starts unread")
 	nr.mark_read(nr.count() - 1)
@@ -2002,6 +2012,150 @@ func test_rivalries() -> void:
 	var loaded := SaveSystem.from_text(SaveSystem.to_text(s2))
 	check(loaded != null and str(loaded.rivalries.records) == str(s2.rivalries.records), "records survive a save")
 	check(loaded != null and loaded.rivalries.heat == s2.rivalries.heat, "heat survives a save")
+
+
+func test_market() -> void:
+	var s := _fixed(91)
+	var mk := s.market
+	var by := func(ab: String) -> Team: return s.league.team_by_abbrev(ab)
+	# Fixed ratings and opening buzz come from the tables, the same for every new franchise.
+	var tiers := {}
+	for t: Team in s.league.teams:
+		check(t.market_rating == int(LeagueData.MARKET_RATINGS[t.abbrev]), "%s rating" % t.abbrev)
+		check(is_equal_approx(t.buzz, float(LeagueData.START_BUZZ[t.abbrev])), "%s opening buzz" % t.abbrev)
+		check(is_zero_approx(t.heat), "%s starts with no heat" % t.abbrev)
+		var tier := Market.tier_of(t.market_rating)
+		tiers[tier] = int(tiers.get(tier, 0)) + 1
+	check(tiers == {5: 2, 4: 3, 3: 6, 2: 6, 1: 3}, "tier spread %s" % [tiers])
+	check(Market.market_name(by.call("DET")) == "Metropolis" and Market.market_name(by.call("MIA")) == "Major Market" and Market.market_name(by.call("ARL")) == "Regional Market", "DET metropolis, MIA major, ARL regional")
+	check(by.call("NYE").buzz == 77.0 and by.call("DET").buzz == 75.0 and Market.band_name(75.0) == "Hot", "NYE and DET open hot")
+	var other := _fixed(93, 4)
+	check(by.call("SEA").buzz == other.league.team_by_abbrev("SEA").buzz, "every franchise starts the same")
+	check((mk.titles["DET"] as Array) == [2025], "Detroit open as the defending champions")
+	# Scales.
+	check(Market.band_name(0.0) == "Ice Cold" and Market.band_name(19.9) == "Ice Cold" and Market.band_name(20.0) == "Cooling" and Market.band_name(40.0) == "Steady", "band edges")
+	check(Market.band_name(60.0) == "Warm" and Market.band_name(75.0) == "Hot" and Market.band_name(90.0) == "Electric" and Market.band_name(100.0) == "Electric", "upper bands")
+	check(Market.tier_of(1) == 1 and Market.tier_of(20) == 1 and Market.tier_of(21) == 2 and Market.tier_of(81) == 5 and Market.tier_of(100) == 5, "tier edges")
+	check(Market.baseline(by.call("NYE")) > Market.baseline(by.call("LRK")) and Market.baseline(by.call("LRK")) > 40.0 and Market.baseline(by.call("NYE")) < 56.0, "a bigger market rests hotter")
+	# Heat is a reservoir: buzz absorbs at most WEEK_CAP a step, and nothing moves it directly.
+	var sea: Team = by.call("SEA")
+	var buzz0 := sea.buzz
+	mk.award(s, sea, "Test", "big night", 30.0)
+	check(is_equal_approx(sea.buzz, buzz0) and is_equal_approx(sea.heat, 30.0), "an award adds heat, not buzz")
+	mk.tick(s, "Test")
+	check(sea.buzz - buzz0 <= Market.WEEK_CAP + 0.01 and sea.buzz > buzz0 + 2.0, "one step absorbs at most the weekly cap (%.2f)" % (sea.buzz - buzz0))
+	check(sea.heat < 30.0 and sea.heat > 25.0, "the rest of the heat waits (%.1f)" % sea.heat)
+	check(Market.trend(sea) == &"up", "unabsorbed heat shows as rising")
+	for i in 40:
+		mk.tick(s, "Test")
+	check(sea.buzz >= 0.0 and sea.buzz <= 100.0 and absf(sea.heat) < 0.6, "heat drains and buzz stays in range")
+	mk.award(s, sea, "Test", "huge", 500.0)
+	check(is_equal_approx(sea.heat, Market.HEAT_MAX), "heat is capped")
+	# No hot-to-cold in a few weeks: twelve straight losses cannot cross the whole meter.
+	var den: Team = by.call("NYE")
+	den.buzz = 80.0
+	den.heat = 0.0
+	var worst := 0.0
+	for i in 12:
+		var from := den.buzz
+		mk.award(s, den, "Test", "loss", -6.0)
+		mk.tick(s, "Test")
+		worst = maxf(worst, from - den.buzz)
+	check(worst <= Market.WEEK_CAP + Market.DECAY * 100.0 * 0.4, "never drops faster than the cap (%.2f in a week)" % worst)
+	check(den.buzz > 30.0 and den.buzz < 80.0, "twelve straight bad weeks cool a hot team, but not to ice (%.1f)" % den.buzz)
+	# A quiet team drifts back to its resting level, higher in a big market.
+	var lou: Team = by.call("LOU")
+	lou.buzz = 90.0
+	lou.heat = 0.0
+	for i in 120:
+		mk.tick(s, "Test")
+	check(absf(lou.buzz - Market.baseline(lou)) < 4.0, "buzz settles at the market's resting level (%.1f vs %.1f)" % [lou.buzz, Market.baseline(lou)])
+	# Match points: wins, losses, upsets, streaks. Ratings never change.
+	var atl: Team = by.call("ATL")
+	var log0 := Market.log_for(atl, s.year).size()
+	var sum := func(t: Team) -> float:
+		var tot := 0.0
+		for e in Market.log_for(t, s.year):
+			tot += float(e["amount"])
+		return tot
+	var seattle: Team = by.call("SEA")
+	seattle.market_log = []
+	for opp in ["ATL", "MIA", "STL"]:
+		mk.week(s, [_meeting(seattle, by.call(opp), 2, 0, &"regular", 1)], 1)
+	check(is_equal_approx(sum.call(seattle), 3.0 * Market.WIN + Market.WIN_STREAKS[3]), "three wins plus the 3-game streak bonus (%.1f)" % sum.call(seattle))
+	var lrk: Team = by.call("LRK")
+	lrk.market_log = []
+	for opp in ["ATL", "MIA", "DEN", "SEA"]:
+		mk.week(s, [_meeting(by.call(opp), lrk, 2, 0, &"regular", 1)], 1)
+	check(is_equal_approx(sum.call(lrk), 4.0 * Market.LOSS + Market.LOSS_STREAK_POINTS), "four straight losses cost points, once for the streak (%.2f)" % sum.call(lrk))
+	var reno: Team = by.call("REN")
+	reno.market_log = []
+	mk.week(s, [_meeting(reno, by.call("NYE"), 2, 1, &"regular", 1)], 1)
+	check(is_equal_approx(sum.call(reno), Market.WIN + Market.UPSET), "an upset over a bigger market (%.1f)" % sum.call(reno))
+	var bos: Team = by.call("BOS")
+	var det: Team = by.call("DET")
+	det.market_log = []
+	bos.market_log = []
+	mk.week(s, [_meeting(det, bos, 2, 1, &"regular", 2)], 2)
+	check(sum.call(det) > Market.WIN + 1.0, "a rivalry win pays extra")
+	check(sum.call(bos) < Market.LOSS, "a rivalry loss costs extra")
+	check(by.call("NYE").market_rating == 98 and det.market_rating == 66, "ratings never change")
+	check(atl.market_log.size() > log0, "results are logged")
+	# Stories add heat, capped per team and kind each year.
+	var cha: Team = by.call("CHA")
+	cha.heat = 0.0
+	for i in 4:
+		mk.story(s, "mega_deal", [cha.abbrev], "Test deal")
+	check(is_equal_approx(cha.heat, 2.0 * Market.STORY_CAP), "a story kind counts twice a year (%.1f)" % cha.heat)
+	# Band stories: a clear crossing writes one, hovering on the line writes none.
+	var ind: Team = by.call("IND")
+	ind.buzz = 59.0
+	ind.heat = 0.0
+	mk.announced[ind.abbrev] = Market.band_of(59.0)
+	var ind_stories := func() -> int:
+		return s.news.items.filter(func(it): return (it["teams"] as Array).has("IND") and String(it["kind"]).begins_with("buzz_")).size()
+	var wire: int = ind_stories.call()
+	ind.buzz = 60.2
+	mk.tick(s, "Test")
+	check(ind_stories.call() == wire, "just over the line is quiet")
+	ind.buzz = 63.5
+	mk.tick(s, "Test")
+	check(ind_stories.call() == wire + 1 and s.news.items.filter(func(it): return it["kind"] == "buzz_up" and (it["teams"] as Array).has("IND")).size() == 1, "a clear crossing makes the wire")
+	ind.buzz = 62.0
+	mk.tick(s, "Test")
+	ind.buzz = 60.4
+	mk.tick(s, "Test")
+	check(ind_stories.call() == wire + 1, "drifting back across the line stays quiet")
+	ind.buzz = 55.0
+	mk.tick(s, "Test")
+	check(ind_stories.call() == wire + 2 and s.news.items.filter(func(it): return it["kind"] == "buzz_down" and (it["teams"] as Array).has("IND")).size() == 1, "a clear drop makes the wire")
+	# A real season: buzz stays in range, the title is logged, stories run.
+	var s2 := _fixed(92)
+	s2.sim_to_end_of_regular_season()
+	for t: Team in s2.league.teams:
+		check(t.buzz >= 0.0 and t.buzz <= 100.0 and t.market_rating == int(LeagueData.MARKET_RATINGS[t.abbrev]), "%s buzz in range, rating fixed" % t.abbrev)
+	check(s2.league.teams.any(func(t: Team): return not is_equal_approx(t.buzz, float(LeagueData.START_BUZZ[t.abbrev]))), "buzz moved")
+	s2.sim_to_end_of_season()
+	var champ_log := Market.log_for(s2.champion, s2.year).filter(func(e): return String(e["label"]).begins_with("Won the"))
+	check(champ_log.size() == 1, "the champion's title is logged")
+	check((s2.market.titles[s2.champion.abbrev] as Array).has(s2.year), "title history")
+	check(s2.news.items.any(func(it): return it["kind"] == "buzz_leader"), "a weekly leader story ran")
+	var year_total := 0.0
+	for t: Team in s2.league.teams:
+		for e in Market.log_for(t, s2.year):
+			year_total += float(e["amount"])
+	check(absf(year_total) < 1.0, "attention is relative: the league's yearly points net to about zero (%.2f)" % year_total)
+	for t: Team in s2.league.teams:
+		check(t.buzz >= 0.0 and t.buzz <= 100.0 and absf(t.heat) <= Market.HEAT_MAX, "%s buzz %.1f heat %.1f in range" % [t.abbrev, t.buzz, t.heat])
+	# Saves keep markets, and an older save without them is seeded from the tables.
+	var loaded := SaveSystem.from_text(SaveSystem.to_text(s2))
+	check(loaded != null and is_equal_approx(loaded.league.teams[0].buzz, s2.league.teams[0].buzz) and is_equal_approx(loaded.league.teams[0].heat, s2.league.teams[0].heat), "buzz survives a save")
+	check(loaded != null and str(loaded.market.titles) == str(s2.market.titles) and str(loaded.market.announced) == str(s2.market.announced), "market state survives a save")
+	if loaded != null:
+		loaded.market.seeded = false
+		loaded.league.teams[0].market_rating = 1
+		loaded.market.ensure(loaded)
+		check(loaded.league.teams[0].market_rating == int(LeagueData.MARKET_RATINGS[loaded.league.teams[0].abbrev]), "an older save is seeded from the tables")
 
 
 func test_match_form_upsets() -> void:
