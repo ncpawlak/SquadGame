@@ -7,6 +7,8 @@ var match_seed: int
 ## The weather it was played in (Weather.CLEAR, RAIN or SNOW; level 0 = clear, 1 light, 2 inclement).
 var weather_kind: StringName = Weather.CLEAR
 var weather_level := 0
+## Rating points the home crowd added to the home squad (0 when there was no crowd effect).
+var crowd := 0.0
 var teams: Array[Team] = []
 ## Games won by each side.
 var score: Array[int] = [0, 0]

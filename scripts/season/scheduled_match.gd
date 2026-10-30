@@ -83,14 +83,14 @@ func shown_weather() -> Weather:
 
 
 func play() -> MatchResult:
-	result = MatchEngine.simulate(home, away, match_seed, field(), weather())
+	result = MatchEngine.simulate(home, away, match_seed, field(), weather(), Market.crowd_edge(home))
 	return result
 
 
 ## A steppable engine for this fixture, for the live viewer. Assign its result via `set_live_result`.
 func live_engine() -> MatchEngine:
 	var e := MatchEngine.new()
-	e.start(home, away, match_seed, field(), weather())
+	e.start(home, away, match_seed, field(), weather(), Market.crowd_edge(home))
 	return e
 
 

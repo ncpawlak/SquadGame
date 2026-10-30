@@ -60,6 +60,8 @@ func _init() -> void:
 		"test_rivalries",
 		"test_market",
 		"test_revenue",
+		"test_home_crowd",
+		"test_team_appeal",
 		"test_match_form_upsets",
 		"test_schemes",
 		"test_keep_value_protects_prospects",
@@ -2280,6 +2282,126 @@ func test_revenue() -> void:
 	var s3 := _fixed(97)
 	var hot: Team = s3.league.team_by_abbrev("NYE")
 	check(float(s3.revenue.deals["NYE"]) > Revenue.market_part(hot.market_rating) * Revenue.SPONSOR_SHARE, "a hot club signs a bigger sponsor deal")
+
+
+func test_home_crowd() -> void:
+	var s := _fixed(98)
+	var a: Team = s.league.team_by_abbrev("SEA")
+	var b: Team = s.league.team_by_abbrev("DEN")
+	# The edge: nothing at a cold stadium, the full amount at Electric, never more than about one OVR point.
+	a.buzz = 20.0
+	check(is_zero_approx(Market.crowd_edge(a)), "a cold stadium gives no edge")
+	a.buzz = Market.CROWD_FLOOR
+	check(is_zero_approx(Market.crowd_edge(a)), "nothing at the floor")
+	a.buzz = 70.0
+	var mid := Market.crowd_edge(a)
+	a.buzz = 100.0
+	check(is_equal_approx(Market.crowd_edge(a), Market.CROWD_MAX) and mid > 0.0 and mid < Market.CROWD_MAX, "the edge grows with buzz up to the maximum")
+	check(Market.CROWD_MAX <= 1.5, "the crowd stays a small edge beside match-day form")
+	# It adds rating points to the home squad only, and does not disturb the match's randomness.
+	var e0 := MatchEngine.new()
+	e0.start(a, b, 4242, null, null, 0.0)
+	var e1 := MatchEngine.new()
+	e1.start(a, b, 4242, null, null, 1.0)
+	check(is_equal_approx(e1.team_form[0] - e0.team_form[0], 1.0) and is_equal_approx(e1.team_form[1], e0.team_form[1]), "the home squad gains the edge, the visitors nothing")
+	check(is_equal_approx(e1.result().crowd, 1.0) and is_zero_approx(e0.result().crowd), "the result records the crowd")
+	var r_a := MatchEngine.simulate(a, b, 777, null, null, 0.5)
+	var r_b := MatchEngine.simulate(a, b, 777, null, null, 0.5)
+	check(r_a.winner() == r_b.winner() and r_a.score == r_b.score, "a match with a crowd is deterministic")
+	check(is_equal_approx(MatchEngine.simulate(a, b, 777).crowd, 0.0), "no crowd by default")
+	# Fixtures use the home team's live buzz.
+	var m: ScheduledMatch = s.matches_for_week(1)[0]
+	m.home.buzz = 100.0
+	check(is_equal_approx(m.play().crowd, Market.CROWD_MAX), "a hot home club brings the full crowd")
+	var m2: ScheduledMatch = s.matches_for_week(2)[0]
+	m2.home.buzz = 10.0
+	check(is_zero_approx(m2.play().crowd), "a cold home club brings none")
+	# Over many matches the crowd helps the home side, but only a little.
+	var lift_a := 0
+	var lift_b := 0
+	for i in 40:
+		if MatchEngine.simulate(a, b, 9000 + i, null, null, 4.0).winner() == a:
+			lift_a += 1
+		if MatchEngine.simulate(a, b, 9000 + i, null, null, 0.0).winner() == a:
+			lift_b += 1
+	check(lift_a >= lift_b - 6, "an exaggerated crowd does not hurt the home side (%d vs %d)" % [lift_a, lift_b])
+
+
+func test_team_appeal() -> void:
+	var s := _fixed(99)
+	var by := func(ab: String) -> Team: return s.league.team_by_abbrev(ab)
+	var nye: Team = by.call("NYE")
+	var lrk: Team = by.call("LRK")
+	var fa := PlayerGenerator.generate(RandomNumberGenerator.new(), 90001, Scheme.Role.FLEX, 70.0, 27)
+	var dna := Dna.new()
+	for k in Dna.MOTIVATIONS:
+		dna.set(k, 1)
+	fa.dna = dna
+	fa.home_state = ""
+	# Read-only: scoring changes nothing.
+	var cash0 := s.revenue.cash_of(nye)
+	var buzz0 := nye.buzz
+	TeamAppeal.score(fa, nye, s)
+	check(is_equal_approx(s.revenue.cash_of(nye), cash0) and is_equal_approx(nye.buzz, buzz0), "appeal is read-only")
+	# Someone who cares about nothing is neutral; the score stays within 0..100.
+	check(absf(TeamAppeal.score(fa, nye, s) - TeamAppeal.score(fa, lrk, s)) < 6.0, "a soldier with no motivations barely tells clubs apart")
+	for t: Team in s.league.teams:
+		var sc := TeamAppeal.score(fa, t, s)
+		check(sc >= 0.0 and sc <= 100.0, "%s score in range" % t.abbrev)
+	# Money: the big market wins.
+	dna.money = 99
+	check(TeamAppeal.score(fa, nye, s) > TeamAppeal.score(fa, lrk, s) + 10.0, "a money-minded soldier prefers the bigger market")
+	dna.money = 1
+	# Winning: a stronger, hotter club wins.
+	dna.winning = 99
+	var best: Team = s.league.teams[0]
+	var worst: Team = s.league.teams[0]
+	for t: Team in s.league.teams:
+		if t.team_ovr() > best.team_ovr():
+			best = t
+		if t.team_ovr() < worst.team_ovr():
+			worst = t
+	best.buzz = 80.0
+	worst.buzz = 25.0
+	check(TeamAppeal.score(fa, best, s) > TeamAppeal.score(fa, worst, s) + 10.0, "a winner prefers the contender")
+	dna.winning = 1
+	# Hometown: his own state's club beats a far one.
+	dna.hometown = 99
+	var home_team: Team = by.call("DET")
+	fa.home_state = home_team.home_state
+	var far: Team = s.league.teams.filter(func(t: Team): return LeagueData.region_of(t.home_state) != LeagueData.region_of(home_team.home_state))[0]
+	check(TeamAppeal.score(fa, home_team, s) > TeamAppeal.score(fa, far, s) + 10.0, "a homesick soldier prefers the club near home")
+	dna.hometown = 1
+	fa.home_state = ""
+	# Playing time: he would start for a thin club and sit for a deep one.
+	var thin: Team = worst
+	var deep: Team = best
+	var mid := PlayerGenerator.generate(RandomNumberGenerator.new(), 90002, Scheme.Role.FLEX, 70.0, 27)
+	mid.dna = dna
+	dna.playing_time = 99
+	var pt := func(t: Team) -> float:
+		for r in TeamAppeal.breakdown(mid, t, s):
+			if r["key"] == &"playing_time":
+				return float(r["value"])
+		return -1.0
+	check(float(pt.call(thin)) >= float(pt.call(deep)), "he would start more readily for the thinner roster")
+	dna.playing_time = 1
+	# Loyalty: his own club beats strangers.
+	dna.loyalty = 99
+	var mine: Team = by.call("SEA")
+	var other: Team = by.call("DEN")
+	fa.former_team = mine.abbrev
+	check(TeamAppeal.score(fa, mine, s) > TeamAppeal.score(fa, other, s) + 10.0, "a loyal soldier prefers his old club")
+	# The breakdown explains the score.
+	dna.loyalty = 50
+	var rows := TeamAppeal.breakdown(fa, nye, s)
+	check(rows.size() == Dna.MOTIVATIONS.size(), "a row per motivation")
+	var total := 50.0
+	for r in rows:
+		total += float(r["points"])
+		check(float(r["value"]) >= 0.0 and float(r["value"]) <= 1.0 and String(r["text"]) != "", "row %s has a value and a reason" % r["key"])
+	check(is_equal_approx(clampf(total, 0.0, 100.0), TeamAppeal.score(fa, nye, s)), "the rows add up to the score")
+	check(TeamAppeal.reasons(fa, nye, s, 2).size() == 2, "the top reasons come back")
 
 
 func test_match_form_upsets() -> void:

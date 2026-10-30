@@ -38,6 +38,11 @@ const HEADROOM_MIN := 0.25
 ## Entries kept in a team's log (about three seasons).
 const LOG_MAX := 240
 
+## Home crowd: the home squad's rating points at a given buzz. Nothing at CROWD_FLOOR buzz or below, the full
+## CROWD_MAX at buzz 100 (about one OVR point, small beside match-day form). Set CROWD_MAX to 0 to switch it off.
+const CROWD_MAX := 1.0
+const CROWD_FLOOR := 40.0
+
 # In-season points.
 const WIN := 1.0
 const LOSS := -0.75
@@ -132,6 +137,11 @@ static func band_of(value: float) -> int:
 
 static func band_name(value: float) -> String:
 	return BAND_NAMES[band_of(value)]
+
+
+## Rating points the home crowd adds to `team`'s squad at its current buzz.
+static func crowd_edge(team: Team) -> float:
+	return CROWD_MAX * clampf((team.buzz - CROWD_FLOOR) / (100.0 - CROWD_FLOOR), 0.0, 1.0)
 
 
 ## Where a team's buzz settles with no news: higher in a bigger market.

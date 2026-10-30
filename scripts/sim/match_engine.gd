@@ -197,6 +197,8 @@ var _everyone: Array = []
 var _arena_score: Array[float] = [0.0, 0.0]
 var _game_over := false
 var _game: Dictionary = {}
+## Rating points the home crowd adds to the home squad (see Market.crowd_edge), set by start().
+var crowd := 0.0
 ## The field this match is played on (set by start()).
 var arena: ArenaMap
 ## The weather it is played in (clear unless start() is given some).
@@ -209,9 +211,9 @@ var _clutch_candidate: Combatant = null
 var _scheme_edge: Array = [[0.0, 0.0], [0.0, 0.0]]
 
 
-static func simulate(team_a: Team, team_b: Team, seed_value: int, field: ArenaMap = null, wx: Weather = null) -> MatchResult:
+static func simulate(team_a: Team, team_b: Team, seed_value: int, field: ArenaMap = null, wx: Weather = null, crowd_edge := 0.0) -> MatchResult:
 	var engine := MatchEngine.new()
-	engine.start(team_a, team_b, seed_value, field, wx)
+	engine.start(team_a, team_b, seed_value, field, wx, crowd_edge)
 	while engine.step():
 		pass
 	return engine.result()
@@ -266,7 +268,7 @@ func hill_state() -> int:
 
 ## `field` is the home team's field (team_a is home); the legacy field when omitted. `wx` is the
 ## match weather (clear when omitted).
-func start(team_a: Team, team_b: Team, seed_value: int, field: ArenaMap = null, wx: Weather = null) -> void:
+func start(team_a: Team, team_b: Team, seed_value: int, field: ArenaMap = null, wx: Weather = null, crowd_edge := 0.0) -> void:
 	arena = field if field != null else ArenaMap.legacy()
 	arena.ensure_built()
 	weather = wx if wx != null else Weather.clear()
@@ -278,6 +280,9 @@ func start(team_a: Team, team_b: Team, seed_value: int, field: ArenaMap = null, 
 	_result.weather_level = weather.level
 	_result.teams = [team_a, team_b]
 	team_form = [_roll_form(TEAM_FORM_SD), _roll_form(TEAM_FORM_SD)]
+	crowd = crowd_edge
+	team_form[0] += crowd
+	_result.crowd = crowd
 	squads = [_build_squad(team_a, 0), _build_squad(team_b, 1)]
 	_everyone = squads[0] + squads[1]
 	_scheme_edge = [
