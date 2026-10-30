@@ -3,7 +3,7 @@ extends RefCounted
 ## The Legacy page: league history in tabs (champions, awards). Built by the hub like the other
 ## detail pages; reads Season.history and Season.review_history fresh every time.
 
-const TABS := [["champions", "Champions"], ["awards", "Awards"], ["records", "Records"], ["callsigns", "Callsigns"]]
+const TABS := [["champions", "Champions"], ["awards", "Awards"], ["records", "Records"], ["callsigns", "Callsigns"], ["hall", "Hall of Fame"]]
 
 var hub: Control  # hub.gd
 var pages: FranchisePages
@@ -36,6 +36,8 @@ func legacy() -> Control:
 			v.add_child(_records())
 		"callsigns":
 			v.add_child(_callsigns())
+		"hall":
+			v.add_child(_hall())
 		_:
 			v.add_child(_champions())
 	return v
@@ -353,3 +355,45 @@ func banner_row(team: Team) -> Control:
 	var l := UiKit.label("RETIRED CALLSIGNS   " + "   -   ".join(parts), 14, UiKit.MUTED)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	return l
+
+
+# --- hall of fame ---------------------------------------------------------------------
+
+func _hall() -> Control:
+	var s := _season()
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	var rule := "Retired soldiers are scored on their careers (production against the rest of the league, awards, titles and their best season). %d seasons after retiring the best of them above the bar are inducted, at most %d a year. An inducted callsign is retired too." % [
+		HallOfFame.WAIT_SEASONS, HallOfFame.CLASS_MAX]
+	var note := UiKit.label(rule, 13, UiKit.MUTED)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(note)
+	if s.hall_of_fame.is_empty():
+		v.add_child(UiKit.label("Nobody has been inducted yet.", 15, UiKit.MUTED))
+		return v
+	var years: Array = []
+	for e in s.hall_of_fame:
+		if not years.has(e["year"]):
+			years.append(e["year"])
+	years.sort()
+	years.reverse()
+	for y in years:
+		var members: Array = HallOfFame.class_of(s, y)
+		v.add_child(pages._section("CLASS OF %d" % y))
+		var rows: Array = []
+		var hl := {}
+		for i in members.size():
+			var e: Dictionary = members[i]
+			var so: Soldier = e["soldier"]
+			var first := 0
+			var last := 0
+			for year in so.season_lines:
+				first = int(year) if first == 0 else mini(first, int(year))
+				last = maxi(last, int(year))
+			var span := "" if first == 0 else (str(first) if first == last else "%d-%d" % [first, last])
+			rows.append([so.full_name(), "\"%s\"" % so.callsign.to_upper() if so.callsign != "" else "-", e["club"] if e["club"] != null else "-", span, e["honors"].size(), "%.1f" % e["score"]])
+			if e["club"] != null and e["club"].user_controlled:
+				hl[i] = UiKit.MINE
+		v.add_child(UiKit.table(["SOLDIER", "CALLSIGN", "CLUB", "CAREER", "HONORS", "SCORE"], rows, [230, 150, 230, 110, 90, 80], hl, {},
+			func(i: int): pages.open_player(members[i]["soldier"])))
+	return v

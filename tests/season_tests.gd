@@ -67,6 +67,7 @@ func _init() -> void:
 		"test_season_history",
 		"test_records",
 		"test_retired_callsigns",
+		"test_hall_of_fame",
 	]
 	# Legacy tests run on a generated 5-team single-division league (fast); the expansion
 	# tests switch to the fixed 20-team league themselves.
@@ -1832,6 +1833,86 @@ func test_retired_callsigns() -> void:
 	RetiredCallsigns.process(s, [{"soldier": mine}])
 	RetiredCallsigns.resolve_all(s)
 	check(s.league.callsign_proposals.is_empty() and s.league.retired_callsigns.size() == 2, "open proposals are honoured when the season starts")
+
+
+## Twenty-four AI-club soldiers with careers that grow with their index (0 weakest). All of them
+## are put on the retirement list `ago` seasons back and released.
+func _hall_pool(s: Season, ago: int) -> Array:
+	var user := s.user_team()
+	var pool: Array = []
+	for t in s.league.teams:
+		if t != user:
+			pool.append_array(t.roster)
+	pool = pool.slice(0, 24)
+	for i in pool.size():
+		var so: Soldier = pool[i]
+		var k := i + 1
+		var club := s.league.team_of(so)
+		so.career = {"matches": 60, "rounds": 120, "kills": 50 * k, "deaths": 50, "assists": 20 * k, "damage": 400 * k, "saves": 0,
+			"headshots": 0, "shots": 0, "hits": 0, "mvps": k, "clutches": k, "games": 0, "wipes": 0, "hill_s": 0, "caps": 0}
+		so.season_lines = {2000: {"team": club.abbrev, "matches": 20, "kills": 5 * k, "deaths": 10}}
+		club.release(so)
+		s.retirements.append({"soldier": so, "year": s.year - ago, "team": club})
+	return pool
+
+
+func test_hall_of_fame() -> void:
+	var s := _fixed(74, 1)
+	var user := s.user_team()
+	var pool := _hall_pool(s, HallOfFame.WAIT_SEASONS)
+	var ctx := HallOfFame.context(s)
+	var low := HallOfFame.breakdown(s, ctx, pool[2])
+	var mid := HallOfFame.breakdown(s, ctx, pool[12])
+	var star := HallOfFame.breakdown(s, ctx, pool[23])
+	check(low["score"] < mid["score"] and mid["score"] < star["score"], "a bigger career scores higher (%.1f < %.1f < %.1f)" % [low["score"], mid["score"], star["score"]])
+	check(is_equal_approx(star["score"], star["production"] + star["awards"] + star["titles"] + star["peak"]), "the score is the sum of its parts")
+	check(star["production"] <= HallOfFame.PRODUCTION_POINTS and star["peak"] <= HallOfFame.PEAK_POINTS, "production and peak stay within their points")
+	var green: Soldier = pool[0]
+	green.career["matches"] = HallOfFame.MIN_MATCHES - 1
+	check(HallOfFame.breakdown(s, ctx, green)["score"] == 0.0, "a short career is not scored")
+
+	# Awards are capped, titles need a real season with the champion.
+	var decorated: Soldier = pool[23]
+	for i in 20:
+		var rev := SeasonReview.new()
+		rev.year = 1980 + i
+		rev.awards.append({"award": RetiredCallsigns.MVP_AWARD, "soldier": decorated, "team": null, "line": ""})
+		s.review_history.append(rev)
+	var champ: Team = s.league.team_by_abbrev(decorated.season_lines[2000]["team"])
+	var snap := SeasonSnapshot.new()
+	snap.year = 2000
+	snap.champion = champ
+	s.history.append(snap)
+	var b := HallOfFame.breakdown(s, HallOfFame.context(s), decorated)
+	check(b["awards"] == HallOfFame.AWARDS_CAP and b["honors"].size() == 20, "awards are capped (%s, %d honors)" % [b["awards"], b["honors"].size()])
+	check(b["titles_won"] == 1 and b["titles"] == HallOfFame.TITLE_POINTS, "a title season with the champion counts")
+	s.review_history.clear()
+	s.history.clear()
+
+	# The vote: only those whose wait has ended, best first, capped, once.
+	check(HallOfFame.candidates(s).size() == 24, "everyone who retired WAIT seasons ago is a candidate")
+	pool[22].season_lines[2000]["team"] = user.abbrev
+	var cls := HallOfFame.run(s, 0.0)
+	check(cls.size() == HallOfFame.CLASS_MAX, "the class is capped (%d)" % cls.size())
+	check(cls[0]["soldier"] == pool[23] and cls[1]["soldier"] == pool[22] and cls[2]["soldier"] == pool[21], "the best scores go in, best first")
+	check(cls[0]["score"] >= cls[1]["score"] and cls[1]["score"] >= cls[2]["score"], "the class is sorted by score")
+	check(s.hall_of_fame.size() == 3 and HallOfFame.is_member(s, pool[23]) and not HallOfFame.is_member(s, pool[20]), "members are recorded")
+	check(HallOfFame.class_of(s, s.year).size() == 3 and HallOfFame.entry_of(s, pool[23])["year"] == s.year, "the class and entry are found by year and soldier")
+	check(HallOfFame.run(s, 0.0).size() == HallOfFame.CLASS_MAX and s.hall_of_fame.size() == 6, "the next vote takes the next best, never the same soldier twice")
+	var again := HallOfFame.candidates(s)
+	check(again.size() == 18 and not again.has(pool[23]), "inducted soldiers are no longer candidates")
+
+	# An inductee's callsign is retired too: at once for an AI club, as a proposal for yours.
+	var ai_sign := String(pool[23].callsign)
+	check(RetiredCallsigns.is_retired(s.league, ai_sign), "an AI club inductee's callsign is retired")
+	check(s.league.callsign_proposals.any(func(e): return e["soldier"] == pool[22]), "your club's inductee's callsign waits for your answer")
+
+	var fresh := _fixed(75, 1)
+	var late := _hall_pool(fresh, HallOfFame.WAIT_SEASONS - 1)
+	check(HallOfFame.candidates(fresh).is_empty() and HallOfFame.run(fresh, 0.0).is_empty(), "nobody is voted on before the wait is over (%d)" % late.size())
+	var strict := _fixed(76, 1)
+	_hall_pool(strict, HallOfFame.WAIT_SEASONS)
+	check(HallOfFame.run(strict, 1000.0).is_empty(), "nobody below the bar is inducted")
 
 
 func test_newsroom() -> void:

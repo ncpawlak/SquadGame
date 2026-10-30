@@ -43,17 +43,24 @@ static func honors_of(season: Season, s: Soldier) -> Array:
 	return out
 
 
-## The entry to retire `s`'s callsign with, or {} if he does not qualify.
-static func make_entry(season: Season, s: Soldier) -> Dictionary:
+## The entry to retire `s`'s callsign with, or {} if he does not qualify. `via_hall`: he was just
+## inducted into the Hall of Fame, which qualifies him on its own (if nobody wears the callsign now).
+static func make_entry(season: Season, s: Soldier, via_hall := false) -> Dictionary:
 	if s.callsign == "" or is_retired(season.league, s.callsign):
 		return {}
 	var club := club_of(season, s)
-	if club.is_empty() or club["seasons"] < MIN_SEASONS_WITH_CLUB:
+	if club.is_empty():
 		return {}
 	var honors := honors_of(season, s)
-	var has_mvp := honors.any(func(h: String): return h.ends_with(MVP_AWARD))
-	if not has_mvp and honors.size() < MIN_HONORS:
-		return {}
+	if via_hall:
+		if season.league.taken_callsigns(s).has(s.callsign.to_lower()):
+			return {}
+	else:
+		if club["seasons"] < MIN_SEASONS_WITH_CLUB:
+			return {}
+		var has_mvp := honors.any(func(h: String): return h.ends_with(MVP_AWARD))
+		if not has_mvp and honors.size() < MIN_HONORS:
+			return {}
 	return {"callsign": s.callsign, "soldier": s, "team": club["team"], "year": season.year,
 		"seasons": club["seasons"], "honors": honors}
 
@@ -69,13 +76,18 @@ static func is_retired(league: League, callsign: String) -> bool:
 ## qualifying callsigns at once; the user's club gets a proposal to answer.
 static func process(season: Season, records: Array) -> void:
 	for rec in records:
-		var entry := make_entry(season, rec["soldier"])
-		if entry.is_empty():
-			continue
-		if entry["team"].user_controlled:
-			season.league.callsign_proposals.append(entry)
-		else:
-			season.league.retired_callsigns.append(entry)
+		propose(season, make_entry(season, rec["soldier"]))
+
+
+## Retires an entry's callsign if its club is an AI club; the user's club is asked first.
+## An empty entry (not qualified) does nothing.
+static func propose(season: Season, entry: Dictionary) -> void:
+	if entry.is_empty():
+		return
+	if entry["team"].user_controlled:
+		season.league.callsign_proposals.append(entry)
+	else:
+		season.league.retired_callsigns.append(entry)
 
 
 ## The user's answer to a proposal: retire the callsign, or let it go back into circulation.
