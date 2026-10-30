@@ -20,6 +20,7 @@ func _init() -> void:
 		"test_looks",
 		"test_match_is_deterministic",
 		"test_live_engine_matches_sim",
+		"test_spawn_zone_is_safe",
 		"test_team_fields",
 		"test_weather",
 		"test_different_seeds_vary",
@@ -317,6 +318,35 @@ func test_live_engine_matches_sim() -> void:
 	for squad in e.squads:
 		for c in squad:
 			check(ArenaMap.in_bounds(c.pos), "stays inside the arena")
+
+
+## Nobody may fire on a soldier standing in his own spawn zone.
+func test_spawn_zone_is_safe() -> void:
+	check(ArenaMap.in_spawn_zone(0, Vector2(-ArenaMap.START_X - 1.0, 0.0)), "left end is team 0's spawn")
+	check(not ArenaMap.in_spawn_zone(1, Vector2(-ArenaMap.START_X - 1.0, 0.0)), "left end is not team 1's spawn")
+	check(ArenaMap.in_spawn_zone(1, Vector2(ArenaMap.START_X + 1.0, 0.0)), "right end is team 1's spawn")
+	check(not ArenaMap.in_spawn_zone(0, Vector2.ZERO) and not ArenaMap.in_spawn_zone(1, Vector2.ZERO), "the middle is open")
+	var league := League.generate(7)
+	for seed in [777, 31, 4242]:
+		var e := MatchEngine.new()
+		e.start(league.teams[0], league.teams[1], seed)
+		e.record = true
+		var where := {}
+		var shots := 0
+		var more := true
+		while more:
+			for squad in e.squads:
+				for c in squad:
+					where[c.soldier.id] = c
+			more = e.step()
+			for ev in e.visual_events:
+				if ev["t"] != "shot":
+					continue
+				shots += 1
+				var victim: MatchEngine.Combatant = where[ev["target"]]
+				check(not ArenaMap.in_spawn_zone(victim.team, ev["to"]), "seed %d: shot fired into a spawn zone" % seed)
+			e.visual_events.clear()
+		check(shots > 50, "seed %d: shooting still happens (%d)" % [seed, shots])
 
 
 ## Authored home fields: symmetric, schemes can spawn and hold on them, the flank is walkable,
@@ -785,7 +815,8 @@ func test_match_awards_xp() -> void:
 	var before := {}
 	for s in a.starters() + b.starters():
 		before[s.id] = s.level * 100000 + s.xp
-	var r := MatchEngine.simulate(a, b, 1)
+	# Age/potential multipliers dominate xp here, so this seed must be one the high-xp side (team 1) wins.
+	var r := MatchEngine.simulate(a, b, 2)
 	var reports := Progression.award_match_xp(r)
 	check(reports.size() == 10, "all 10 starters get xp")
 	for s in a.starters() + b.starters():

@@ -165,6 +165,10 @@ class Combatant:
 	func flanked() -> bool:
 		return role == Scheme.Role.FLEX and flank_progress >= 1.0
 
+	## In his own spawn zone, where nobody may fire on him.
+	func spawn_safe() -> bool:
+		return ArenaMap.in_spawn_zone(team, pos)
+
 	func on_point() -> bool:
 		return alive and ArenaMap.on_hill(pos)
 
@@ -639,12 +643,21 @@ func _update_vision() -> void:
 	for c: Combatant in _everyone:
 		c.visible.clear()
 	var max_d2 := MAX_ENGAGE_DISTANCE * MAX_ENGAGE_DISTANCE
+	# Soldiers in their own spawn zone are off limits: they never show up as targets.
 	for a: Combatant in squads[0]:
 		if not a.alive:
 			continue
+		var a_safe := a.spawn_safe()
 		for b: Combatant in squads[1]:
-			if b.alive and a.pos.distance_squared_to(b.pos) <= max_d2 and arena.line_of_sight(a.pos, b.pos):
+			if not b.alive:
+				continue
+			var b_safe := b.spawn_safe()
+			if (a_safe and b_safe) or a.pos.distance_squared_to(b.pos) > max_d2 \
+					or not arena.line_of_sight(a.pos, b.pos):
+				continue
+			if not b_safe:
 				a.visible.append(b)
+			if not a_safe:
 				b.visible.append(a)
 	for c: Combatant in _everyone:
 		if not c.visible.is_empty():
@@ -684,7 +697,7 @@ func _goal(c: Combatant, enemies: Array) -> Vector2:
 		var nearest: Combatant = null
 		var best := INF
 		for e: Combatant in enemies:
-			if e.alive:
+			if e.alive and not e.spawn_safe():
 				var d := c.pos.distance_squared_to(e.pos)
 				if d < best:
 					best = d
@@ -795,7 +808,7 @@ func _pick_target(c: Combatant, allies: Array) -> Combatant:
 	var candidates: Array = []
 	var weights: Array[float] = []
 	for e: Combatant in c.visible:
-		if not e.alive:
+		if not e.alive or e.spawn_safe():
 			continue
 		var w := e.behaviour("exposure")
 		# Aware soldiers finish off wounded enemies.
