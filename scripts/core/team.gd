@@ -39,6 +39,12 @@ var user_controlled := false
 var dead_money: Dictionary = {}
 ## Season year -> salary-floor penalty charged for it (also booked into next year's dead money).
 var floor_penalties: Dictionary = {}
+## Market (see Market): a fixed rating 1-100 (the city's size and money), the buzz meter 0-100 that moves,
+## the heat not yet absorbed into buzz, and the recent points log [{year, when, label, amount}].
+var market_rating := 50
+var buzz := 45.0
+var heat := 0.0
+var market_log: Array = []
 
 
 func starters() -> Array[Soldier]:

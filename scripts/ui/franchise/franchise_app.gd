@@ -289,6 +289,7 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 	id_col.add_child(UiKit.label("%s Division  ·  %s" % [t.division, LeagueData.state_name(t.home_state)], 15, Color(1, 1, 1, 0.7)))
 	id_col.add_child(UiKit.rich("[font_size=46][color=%s]%d[/color][/font_size] OVR   [color=#8b97ab]preseason #%d of %d[/color]" % [
 		UiKit.hex(UiKit.ovr_color(t.team_ovr())), t.team_ovr(), rank, count], 16))
+	id_col.add_child(UiKit.market_meters(t, 13, 80))
 	var space := Contracts.cap_space(t, preview.cap_year())
 	id_col.add_child(UiKit.rich("Cap space [color=%s]%s[/color]   -   avg age [color=white]%.1f[/color]" % [
 		"#22c55e" if space >= 0 else "#ef4444", Contracts.money(space), _avg_age(t)], 15))

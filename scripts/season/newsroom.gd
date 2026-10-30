@@ -20,6 +20,8 @@ extends RefCounted
 ##    grade, angles: [String]}
 
 const MAX_ISSUES := 400
+## Buzz must move this far (or change band) since the paper last mentioned it to earn a paragraph.
+const BUZZ_NOTE := 4.0
 ## A phrase choice stays off-limits for this many later uses of its slot (capped by the options).
 const PHRASE_MEMORY := 6
 
@@ -195,6 +197,9 @@ func _close(art: Dictionary) -> void:
 	for r in art["roundup"]:
 		r["text"] = _polish(r["text"])
 	memory["rank"] = _rank_of(_us)
+	memory["buzz"] = _us.buzz
+	if not memory.has("buzz_said"):
+		memory["buzz_said"] = _us.buzz
 	if not (art["angles"] as Array).is_empty():
 		memory["lede"] = art["angles"][0]
 	issues.append(art)
@@ -756,6 +761,7 @@ func _game_article(m: ScheduledMatch, wk: int) -> Dictionary:
 		quote = sp[1]
 	body.append(_secondary(g, order, lede))
 	body.append(_standings_para(wk))
+	body.append(_buzz_para())
 	body.append(_preview_para(wk))
 	art["body"] = body
 	art["pull_quote"] = quote
@@ -1433,7 +1439,139 @@ func _box_sidebar(g: Dictionary) -> Array:
 	for r in _div_rows(_us).slice(0, 6):
 		table.append(["%s %s" % [r.team.abbrev, "*" if r.team == _us else ""], "%d-%d" % [r.wins, r.losses]])
 	return [{"title": "%s %s %s" % [_us.abbrev, _f["gs"], g["them"].abbrev], "rows": games},
-		{"title": "Box (K-D-A)", "rows": box}, {"title": _division(_us), "rows": table}]
+		{"title": "Box (K-D-A)", "rows": box}, {"title": _division(_us), "rows": table}, _buzz_box()]
+
+
+## The biggest logged event that moved `t`'s buzz in `when` ("" if none), first letter lower-cased.
+## `sign` is 1 for a gain, -1 for a drop.
+func _buzz_cause(t: Team, when: String, sign: int) -> String:
+	var best: Dictionary = {}
+	for e in Market.log_for(t, _s.year):
+		var a := float(e["amount"])
+		if e["when"] != when or signf(a) != float(sign) or String(e["label"]).begins_with("League average"):
+			continue
+		if best.is_empty() or absf(a) > absf(float(best["amount"])):
+			best = e
+	if best.is_empty():
+		return ""
+	return _lc_first(String(best["label"]))
+
+
+static func _lc_first(t: String) -> String:
+	return t.substr(0, 1).to_lower() + t.substr(1)
+
+
+## The city's mood, when buzz around the club has moved enough since the paper last wrote about it to be
+## worth a line (a new band, or four points either way), so a slow drift is covered too.
+func _buzz_para() -> String:
+	if not memory.has("buzz_said"):
+		return ""
+	var now := _us.buzz
+	var said := float(memory["buzz_said"])
+	var d := now - said
+	if Market.band_of(now) == Market.band_of(said) and absf(d) < BUZZ_NOTE:
+		return ""
+	memory["buzz_said"] = now
+	var up := d > 0.0
+	var ex := {"band": Market.band_name(now), "b": str(roundi(now)), "d": str(absi(roundi(d))),
+		"mkt": Market.market_name(_us).to_lower()}
+	var out: Array = []
+	if up:
+		out.append(_g("bz_up", [
+			"The city is paying attention. Buzz around the {us_nick} has climbed to {band} ({b}), up {d} points in recent weeks.",
+			"The {us_nick} are getting louder in {us_city}: buzz is up {d} to {b}, which now reads {band}."], ex))
+	else:
+		out.append(_g("bz_dn", [
+			"The mood in {us_city} is cooling. Buzz around the {us_nick} has slipped to {band} ({b}), down {d} points in recent weeks.",
+			"{us_city} is losing interest: buzz is down {d} to {b}, and the club now reads {band}."], ex))
+	var why := _buzz_cause(_us, _f["when"], 1 if up else -1)
+	if why != "":
+		out.append(_g("bz_why", ["The biggest swing: {why}.", "A lot of it came from one thing: {why}."], {"why": why}))
+	var tier := Market.tier_of(_us.market_rating)
+	if up and Market.band_of(now) >= 4 and tier <= 2:
+		out.append(_g("bz_small", ["It is rare for a {mkt} to get this loud.", "Not many {mkt} clubs ever feel this much attention."], ex))
+	elif not up and Market.band_of(now) <= 1 and tier >= 4:
+		out.append(_g("bz_big", ["In a {mkt}, a cold stretch does not go unnoticed.", "A {mkt} has little patience for a club this quiet."], ex))
+	return _cap_first(_para(out))
+
+
+## The year in the city: where buzz started, where it ended, what moved it.
+func _buzz_year_para() -> String:
+	memory["buzz_said"] = _us.buzz
+	var start := float(_s.market.start_buzz.get(_us.abbrev, _us.buzz))
+	var now := _us.buzz
+	var ex := {"band": Market.band_name(now), "b": str(roundi(now)), "band0": Market.band_name(start), "b0": str(roundi(start)),
+		"d": str(absi(roundi(now - start)))}
+	var out: Array = []
+	if absf(now - start) < 3.0:
+		out.append(_g("by_flat", ["Around {us_city}, interest held steady all year: buzz began at {band0} ({b0}) and ends at {band} ({b}).",
+			"The city's mood barely moved. Buzz around the {us_nick} started {band0} and finishes {band}."], ex))
+	elif now > start:
+		out.append(_g("by_up", ["It was a year the city noticed. Buzz around the {us_nick} grew from {band0} ({b0}) to {band} ({b}).",
+			"Interest in {us_city} is up {d} points, from {band0} to {band}."], ex))
+	else:
+		out.append(_g("by_dn", ["{us_city} cooled on the {us_nick} this year: buzz fell from {band0} ({b0}) to {band} ({b}).",
+			"Interest is down {d} points, from {band0} to {band}, and the club will have to win the city back."], ex))
+	var ups: Array = Market.drivers(_us, _s.year, 1, 2).map(func(e): return _lc_first(String(e["label"])))
+	var downs: Array = Market.drivers(_us, _s.year, -1, 1).map(func(e): return _lc_first(String(e["label"])))
+	if not ups.is_empty():
+		out.append(_g("by_ups", ["What helped most: {list}.", "The biggest boosts: {list}."], {"list": _join_and(ups)}))
+	if not downs.is_empty():
+		out.append(_g("by_downs", ["What hurt most: {list}.", "The biggest drag: {list}."], {"list": _join_and(downs)}))
+	return _cap_first(_para(out))
+
+
+## Preview line: how loud the city is going in, for a market this size.
+func _buzz_pre_para() -> String:
+	memory["buzz_said"] = _us.buzz
+	var band := Market.band_of(_us.buzz)
+	var ex := {"band": Market.band_name(_us.buzz), "b": str(roundi(_us.buzz)), "mkt": Market.market_name(_us).to_lower()}
+	if band >= 4:
+		return _g("bp_hot", ["{us_city} is buzzing: interest sits at {band} ({b}) in a {mkt}, and the expectations come with it.",
+			"The city is loud going in. Buzz is {band} ({b}), and a {mkt} wants results."], ex)
+	if band <= 1:
+		return _g("bp_cold", ["Interest in {us_city} is thin: buzz sits at {band} ({b}), and winning is the only way to bring a {mkt} back.",
+			"The {us_nick} open {band} ({b}) in a {mkt}. The fans have to be won back."], ex)
+	return _g("bp_mid", ["Buzz around the {us_nick} sits at {band} ({b}) in a {mkt}: not loud, not quiet.",
+		"{us_city} is watching, without much noise yet. Buzz is {band} ({b})."], ex)
+
+
+## Sidebar box: the club's market and buzz (with the season's start in the review).
+func _buzz_box(year := false) -> Dictionary:
+	var rows: Array = [["Market", Market.market_name(_us)], ["Buzz", "%s %d" % [Market.band_name(_us.buzz), roundi(_us.buzz)]]]
+	if year:
+		var start := float(_s.market.start_buzz.get(_us.abbrev, _us.buzz))
+		rows.append(["Season start", "%s %d" % [Market.band_name(start), roundi(start)]])
+	elif memory.has("buzz"):
+		rows.append(["Since last issue", "%+d" % roundi(_us.buzz - float(memory["buzz"]))])
+	rows.append(["Resting level", str(roundi(Market.baseline(_us)))])
+	return {"title": "Market & Buzz", "rows": rows}
+
+
+## Around the league: the week's buzz leader (or a team clearly heating up or cooling off).
+func _buzz_watch(wk: int) -> Dictionary:
+	var when := _s.week_label(wk)
+	var pick: Dictionary = {}
+	for i in range(_s.news.items.size() - 1, -1, -1):
+		var it: Dictionary = _s.news.items[i]
+		if it["year"] != _s.year or it["when"] != when or not String(it["kind"]).begins_with("buzz_") or (it["teams"] as Array).has(_us.abbrev):
+			continue
+		if pick.is_empty() or (it["kind"] == "buzz_leader" and pick["kind"] != "buzz_leader"):
+			pick = it
+	if pick.is_empty():
+		return {}
+	var t := _s.league.team_by_abbrev(pick["teams"][0])
+	if t == null:
+		return {}
+	var ex := {"t": _nick(t), "band": Market.band_name(t.buzz), "b": str(roundi(t.buzz))}
+	if pick["kind"] == "buzz_down":
+		return {"head": "Cooling Off", "text": _g("r_buzz_dn", ["Interest in the {t} is slipping: buzz is down to {band} ({b}).",
+			"The {t} are losing the room. Buzz has fallen to {band} ({b})."], ex)}
+	var why := _buzz_cause(t, when, 1)
+	var text := _g("r_buzz", ["The {t} are the talk of the league: buzz is {band} ({b}).", "Nobody is louder than the {t} right now, at {band} ({b})."], ex)
+	if why != "":
+		text += " " + _g("r_buzz_why", ["The biggest swing: {why}.", "It started with {why}."], {"why": why})
+	return {"head": "Buzz Watch", "text": text}
 
 
 ## Around the league this week, in the paper's voice.
@@ -1447,6 +1585,9 @@ func _roundup(wk: int) -> Array:
 			"{who} of the {tm} went {k}-{d} with {a}, the best line in the league this week.",
 			"Nobody was better than {who}: {k} kills, {dd}, {a} for the {tm}."],
 			{"who": s.display_name(), "tm": _nick(pow["team"]), "k": str(int(ln["kills"])), "d": str(int(ln["deaths"])), "dd": _plural(int(ln["deaths"]), "death"), "a": _plural(int(ln["assists"]), "assist")})})
+	var watch := _buzz_watch(wk)
+	if not watch.is_empty():
+		out.append(watch)
 	var upsets: Array = []
 	for m in _s.matches_for_week(wk):
 		if not m.is_played() or m.involves(_us):
@@ -1687,6 +1828,7 @@ func _bye_article(wk: int) -> Dictionary:
 	if row != null:
 		var leader: StandingRow = drows[0] if not drows.is_empty() else row
 		body.append(_standings_para(wk) if leader != null else "")
+	body.append(_buzz_para())
 	var star := _team_star(_us)
 	if star != null:
 		var q := _quote(star, "bye", {})
@@ -1694,7 +1836,7 @@ func _bye_article(wk: int) -> Dictionary:
 		art["pull_quote"] = {"text": q, "who": star.display_name(), "team": _us.abbrev}
 	body.append(_preview_para(wk))
 	art["body"] = body
-	art["sidebar"] = [{"title": _division(_us), "rows": drows.slice(0, 6).map(func(r): return [r.team.abbrev, "%d-%d" % [r.wins, r.losses]])}]
+	art["sidebar"] = [{"title": _division(_us), "rows": drows.slice(0, 6).map(func(r): return [r.team.abbrev, "%d-%d" % [r.wins, r.losses]])}, _buzz_box()]
 	art["roundup"] = _roundup(wk)
 	return art
 
@@ -1862,6 +2004,7 @@ func _wrap_article(wk: int) -> Dictionary:
 		body.append(_g("w_ret", ["{who} is retiring at {age} after {m} career matches and {k} kills. {reason}",
 			"And {who} is hanging it up at {age}, {k} kills over {m} matches. {reason}"],
 			{"who": _who_role(s), "age": str(int(r["age"])), "m": str(int(r["matches"])), "k": str(int(r["kills"])), "reason": _cap_first(String(r.get("reason", "")))}))
+	body.append(_buzz_year_para())
 	body.append(_offseason_look())
 	if star != null:
 		var q := _quote(star, "season_good" if good else "season_bad", {})
@@ -1871,6 +2014,7 @@ func _wrap_article(wk: int) -> Dictionary:
 	var side: Array = []
 	if _s.review != null:
 		side.append({"title": "Awards", "rows": _s.review.awards.map(func(a): return [a["award"], "%s (%s)" % [a["soldier"].short_name(), a["team"].abbrev]])})
+	side.append(_buzz_box(true))
 	art["sidebar"] = side
 	var finish := "missed the playoffs"
 	if champ == _us:
@@ -2406,6 +2550,7 @@ func _preseason_article() -> Dictionary:
 		body.append(_g("pr_vet", ["Watch {who}, {age} and in the last year of his deal. This could be the last ride.", "{who} is {age} and playing out his contract."],
 			{"who": _who_role(vets[0]), "age": str(vets[0].age)}))
 	body.append(_g("pr_scheme", ["They'll run the {us_scheme}.", "The plan is the {us_scheme}."]) + " " + String(Scheme.BLURBS.get(_us.scheme.id, "")))
+	body.append(_buzz_pre_para())
 	body.append(_preview_para(1))
 	var q_s: Soldier = star[0] if not star.is_empty() else null
 	if q_s != null:
@@ -2413,5 +2558,5 @@ func _preseason_article() -> Dictionary:
 		body.append("\"%s\" %s said." % [q, q_s.last_name])
 		art["pull_quote"] = {"text": q, "who": q_s.display_name(), "team": _us.abbrev}
 	art["body"] = body
-	art["sidebar"] = [{"title": "Power Ratings", "rows": teams.slice(0, 8).map(func(t): return [t.abbrev, str(t.team_ovr())])}]
+	art["sidebar"] = [{"title": "Power Ratings", "rows": teams.slice(0, 8).map(func(t): return [t.abbrev, str(t.team_ovr())])}, _buzz_box()]
 	return art
