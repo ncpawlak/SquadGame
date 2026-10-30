@@ -27,7 +27,7 @@ var _scroll: ScrollContainer
 var _root: VBoxContainer
 ## Live match viewer overlay while watching the user's match (hub root hidden meanwhile).
 var viewer: MatchViewer = null
-## True while Sim To is running (input to advance is ignored).
+## True while a loading screen is up (week sims, Sim To, new season); hub input is ignored.
 var simming := false
 
 
@@ -134,7 +134,7 @@ func _apply_team_theme() -> void:
 
 
 func cycle_tab(dir: int) -> void:
-	if viewer:
+	if viewer or simming:
 		return
 	select_tab(wrapi(tab_index + dir, 0, TABS.size()))
 
@@ -184,6 +184,8 @@ func go_back() -> bool:
 	if viewer:
 		viewer.toggle_pause()
 		return true
+	if simming:
+		return true
 	if page_stack.is_empty():
 		return false
 	page_stack.pop_back()
@@ -196,6 +198,8 @@ func coming_soon(title: String, bullets: Array) -> void:
 
 
 func advance() -> void:
+	if simming:
+		return
 	if season.phase == Season.PHASE_OFFSEASON:
 		_advance_offseason()
 		return
@@ -247,13 +251,50 @@ func _on_viewer_finished(r: MatchResult, m: ScheduledMatch) -> void:
 	sim_week()
 
 
+## Shows the loading screen over the hub (hub hidden so focus can't wander behind it) and
+## blocks input until _end_loading.
+func _begin_loading(title: String) -> LoadingScreen:
+	simming = true
+	var ls := LoadingScreen.make(season.user_team(), title)
+	add_child(ls)
+	_root.visible = false
+	return ls
+
+
+func _end_loading(ls: LoadingScreen) -> void:
+	ls.queue_free()
+	_root.visible = true
+	simming = false
+
+
+## Plays the current week step by step on `ls`, mapping its progress onto [base, base + span]
+## of `total`. Returns the week's fixtures.
+func _sim_week_steps(ls: LoadingScreen, base: float, span: float, total: float, prefix := "") -> Array:
+	if season.phase == Season.PHASE_OFFSEASON:
+		return []
+	var label := season.week_label(season.week)
+	await ls.step(prefix + "Preparing %s: training, lineups & free-agent bids" % label, base, total)
+	var matches: Array = season.begin_week()
+	var units := matches.size() + 2.0
+	for i in matches.size():
+		var m: ScheduledMatch = matches[i]
+		var what := ("Recording your result: %s vs %s" if m.is_played() else "Playing %s vs %s") % [m.home.abbrev, m.away.abbrev]
+		await ls.step(prefix + "%s  (match %d of %d)" % [what, i + 1, matches.size()], base + span * (i + 1) / units, total)
+		season.play_week_match(m)
+	await ls.step(prefix + "Wrapping up: injuries, morale, news & trades", base + span * (units - 1) / units, total)
+	return season.finish_week()
+
+
 ## Sim the rest of the week (the user's match too, unless it was already watched) and show results.
 func sim_week() -> void:
-	if _roster_blocked():
+	if simming or _roster_blocked():
 		return
 	var label := season.week_label(season.week)
-	var played: Array = season.sim_week()
+	var ls := _begin_loading(label)
+	var played: Array = await _sim_week_steps(ls, 0.0, 0.92, 1.0)
+	await ls.step("Saving franchise", 0.92, 1.0)
 	_autosave()
+	_end_loading(ls)
 	page_stack.clear()
 	_build_header()
 	_build_tabs()
@@ -329,8 +370,12 @@ func _advance_offseason() -> void:
 				app.toast("%d camp drill%s unused. Advance again to skip them and start the season." % [
 					season.camp.drills_left(user), "" if season.camp.drills_left(user) == 1 else "s"])
 				return
+			var ls := _begin_loading("%d Season" % (season.year + 1))
+			await ls.step("Closing the offseason: last free-agent calls, aging & retirements, new schedule", 0.0, 1.0)
 			season.start_next_season()
+			await ls.step("Saving franchise", 0.85, 1.0)
 			_autosave()
+			_end_loading(ls)
 			page_stack.clear()
 			tab_index = 0
 			refresh()
@@ -353,38 +398,9 @@ func sim_to_targets() -> Array:
 
 ## Sims week after week (the user's matches included) until `target`. Stops early when the
 ## user's roster isn't legal to play.
-## Full-screen "Simming..." overlay with a progress bar (meta: bar, label). Blocks input.
-func _progress_overlay() -> Control:
-	var dim := ColorRect.new()
-	dim.color = Color(0, 0, 0, 0.7)
-	dim.mouse_filter = Control.MOUSE_FILTER_STOP
-	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	dim.add_child(center)
-	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", UiKit.flat(UiKit.PANEL, 10))
-	center.add_child(panel)
-	var m := MarginContainer.new()
-	for side in ["left", "right", "top", "bottom"]:
-		m.add_theme_constant_override("margin_" + side, 28)
-	panel.add_child(m)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 14)
-	m.add_child(v)
-	var label := UiKit.label("Simming...", 22, Color.WHITE)
-	v.add_child(label)
-	var bar := ProgressBar.new()
-	bar.custom_minimum_size = Vector2(520, 28)
-	bar.show_percentage = true
-	v.add_child(bar)
-	dim.set_meta("bar", bar)
-	dim.set_meta("label", label)
-	add_child(dim)
-	return dim
-
-
 func sim_to(target: StringName) -> void:
+	if simming:
+		return
 	if target == &"week":
 		sim_week()
 		return
@@ -396,36 +412,35 @@ func sim_to(target: StringName) -> void:
 				return season.phase == Season.PHASE_REGULAR
 		return season.phase != Season.PHASE_OFFSEASON
 	var end_week := season.total_weeks()
+	var title := "Simming to the Final"
 	match target:
 		&"deadline":
 			end_week = Trades.DEADLINE_WEEK - 1
+			title = "Simming to the trade deadline"
 		&"regular":
 			end_week = season.regular_weeks
+			title = "Simming the regular season"
 	var start_week := season.week
-	var overlay := _progress_overlay()
-	var bar: ProgressBar = overlay.get_meta("bar")
-	var label: Label = overlay.get_meta("label")
-	bar.max_value = maxi(1, end_week - start_week + 1)
+	var n_weeks := maxi(1, end_week - start_week + 1)
+	# Each week is one unit; the final half unit is the save.
+	var total := n_weeks + 0.5
+	var ls := _begin_loading(title)
 	var weeks := 0
-	simming = true
 	var blocked := false
 	while keep_going.call():
 		if _roster_blocked():
 			blocked = true
 			break
-		label.text = "Simming %s...  (%d of %d)" % [season.week_label(season.week), weeks + 1, int(bar.max_value)]
-		bar.value = weeks
-		# Two frames so the overlay actually draws before the (blocking) week runs.
-		await get_tree().process_frame
-		await get_tree().process_frame
-		season.sim_week()
+		var prefix := "%s (%d of %d)  -  " % [season.week_label(season.week), weeks + 1, n_weeks]
+		await _sim_week_steps(ls, weeks, 1.0, total, prefix)
 		weeks += 1
-	simming = false
-	overlay.queue_free()
 	if blocked:
+		_end_loading(ls)
 		_build_header()
 		return
+	await ls.step("Saving franchise", total - 0.5, total)
 	_autosave()
+	_end_loading(ls)
 	page_stack.clear()
 	tab_index = 0
 	refresh()

@@ -2828,13 +2828,7 @@ static func save_slot_tile(slot: int, saving: bool, app: Node, refresh: Callable
 		elif info.is_empty():
 			app.toast("That slot is empty.")
 		else:
-			var loaded := SaveSystem.load_slot(slot)
-			if loaded == null:
-				app.toast("Could not load that save.")
-				return
-			app.season = loaded
-			app.show_hub()
-			app.toast("Loaded %s %d." % [loaded.user_team().name, loaded.year])
+			app.load_franchise(slot)
 	var t := UiKit.tile(name, body, Vector2(720, 96), UiKit.ACCENT if not info.is_empty() else UiKit.MUTED, cb)
 	if saving or not info.is_empty():
 		return t

@@ -70,8 +70,12 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   (year + phase), a gradient backdrop with your logo watermarked, and short fade/slide transitions between pages.
   The title screen uses the default gold. Matchup, recap and player-card headers use the teams' colour banners.
 - **Header**: team banner only (the Play button moved to Home). **Sim To** (next to Play in the week card) sims ahead to the next week, the trade deadline, the end of
-  the regular season or the end of the season, stopping early if your roster needs fixing. A progress overlay
-  shows each week as it sims.
+  the regular season or the end of the season, stopping early if your roster needs fixing.
+- **Loading screen** (`scripts/ui/franchise/loading_screen.gd`): anything that isn't instant - simming a week (Sim,
+  Play/Advance, or Continue to Results after watching), Sim To, starting the next season, starting a new franchise
+  and loading a save - shows a full-screen loading screen in your team's colours with your logo, a progress bar and
+  what it's working on (preparing the week, each match being played, wrapping up injuries/news/trades, saving).
+  `Season.sim_week` is split into `begin_week` / `play_week_match` / `finish_week` so the bar moves per match.
 - **Home layout**: **This Week** to-dos on the left (Roster Cuts / Spots Open, Trade Offers, Re-sign whenever the
   re-sign window is open, Draft Room, Free Agency, Training Camp, Weekly Training, Upgrade Players (only when someone
   can level up), Weekly News (the latest issue and how many are unread; checked off once read), Scout (in season),
@@ -110,7 +114,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   bracket in the playoffs. Ties: match W/L, then head-to-head, then game differential (games won − lost across the best-of-3
   matches), then TDM point differential.
 - **Match day**: Play Week opens a matchup screen (both starting fives, OVRs; click a soldier for his player card) with **Watch** and **Sim**.
-  Sim plays it instantly. Watch opens the live viewer (`scripts/ui/franchise/match_viewer.gd`): a top-down
+  Sim plays the week behind the loading screen. Watch opens the live viewer (`scripts/ui/franchise/match_viewer.gd`): a top-down
   tactical map with walls (block movement and sight), crates (low cover) and the hill; soldiers are circles in team
   colours with their callsign, moving and fighting in real time. Shots draw a tracer + muzzle flash and a pop-up
   (MISS / HIT / HEADSHOT / KILL / RELOAD). Scoreboard on top (TDM points, KOTH hold clocks with the hill tinted by
