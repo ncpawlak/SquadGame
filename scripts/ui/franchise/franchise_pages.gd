@@ -1639,6 +1639,8 @@ func _player_contract(s: Soldier, team: Team) -> Control:
 			["CAP SHARE", "%.1f%%" % (100.0 * c.salary / Contracts.SALARY_CAP)]]:
 		facts.add_child(_fact_box(item[0], item[1]))
 	v.add_child(facts)
+	if s.has_extension():
+		v.add_child(UiKit.rich("[color=%s]EXTENSION AGREED[/color]   %s, starting %d" % [UiKit.hex(UiKit.GOOD), _ext_text(s), season.year + 1], 16))
 	var effect := Morale.contract_effect(s)
 	v.add_child(UiKit.label("Contract morale: %s" % ("feels underpaid (morale drops weekly)" if effect < 0.0 else ("happy with his pay" if effect > 0.0 else
 		("rookie deal (no effect)" if c.rookie else "neutral"))), 15, UiKit.BAD if effect < 0.0 else (UiKit.GOOD if effect > 0.0 else UiKit.MUTED)))
@@ -1648,6 +1650,8 @@ func _player_contract(s: Soldier, team: Team) -> Control:
 	var actions := _row(12)
 	if c.is_expiring() and season.can_resign():
 		actions.add_child(UiKit.button("Re-sign", hub.open_resign, 16))
+	if season.extension_error(team, s) == "":
+		actions.add_child(UiKit.action_button("Negotiate Extension", func(): open_negotiation(s), 16))
 	var min_roster := team.scheme.slot_ids().size()
 	var confirming := _confirm_release == s
 	var rel := UiKit.button(("Confirm release: %s dead money" % Contracts.money(dm)) if confirming else "Release", func():
@@ -4898,7 +4902,7 @@ func contracts() -> Control:
 		var committed := Contracts.payroll(user, cy, k)
 		var under := 0
 		for so in user.roster:
-			if so.contract != null and so.contract.years > k:
+			if (so.contract != null and so.contract.years > k) or Contracts.extension_covers(so, k):
 				under += 1
 		rows.append([yr, under, Contracts.money(int(user.dead_money.get(yr, 0))), Contracts.money(int(user.bonus_money.get(yr, 0))), Contracts.money(committed), Contracts.money(Contracts.SALARY_CAP - committed)])
 		colors[k] = {5: UiKit.GOOD if committed <= Contracts.SALARY_CAP else UiKit.BAD}
@@ -4937,6 +4941,8 @@ func _contract_row(team: Team, so: Soldier) -> Control:
 		tags.append("%s bonus" % Contracts.money(c.bonus))
 	if not so.keep_promise.is_empty():
 		tags.append("keep %s" % so.keep_promise["name"])
+	if so.has_extension():
+		tags.append("ext " + _ext_text(so))
 	hb.add_child(_two_lines(so.display_name(), Color.WHITE, "  -  ".join(tags), 240))
 	hb.add_child(_big_cell(str(so.age), UiKit.TEXT, 50, 18))
 	hb.add_child(_big_cell(str(o), UiKit.ovr_color(o), 60, 20))
@@ -4961,8 +4967,10 @@ func resign() -> Control:
 	var expiring := Contracts.expiring(user)
 	if s.phase != Season.PHASE_OFFSEASON:
 		v.add_child(UiKit.label("Re-signing opens after the Final.", 22, Color.WHITE))
-		var upcoming: Array = user.roster.filter(func(x: Soldier): return x.contract != null and x.contract.years == 1)
+		var upcoming: Array = user.roster.filter(func(x: Soldier): return x.contract != null and x.contract.years == 1 and not x.has_extension())
 		v.add_child(UiKit.label("Contracts ending this season: %s" % (", ".join(PackedStringArray(upcoming.map(func(x: Soldier): return x.full_name()))) if not upcoming.is_empty() else "none"), 16, UiKit.MUTED))
+		if s.extension_open():
+			v.add_child(UiKit.button("Extend them now", func(): hub.open_extensions(), 15))
 		return v
 	var holds := 0
 	for x in expiring:
@@ -5017,7 +5025,7 @@ func resign() -> Control:
 		nb.disabled = not s.can_resign()
 		row.add_child(nb)
 		v.add_child(row)
-	var done: Array = s.resign_log.filter(func(r): return r["year"] == s.year)
+	var done: Array = s.resign_log.filter(func(r): return r["year"] == s.year and not r.get("extension", false))
 	if not done.is_empty():
 		v.add_child(_section("RE-SIGNED THIS OFFSEASON  -  league-wide"))
 		var rows: Array = []
@@ -5029,6 +5037,88 @@ func resign() -> Control:
 					"  +keep" if r.get("keep", false) else ""]])
 			targets.append(r["soldier"])
 		v.add_child(_soldier_table(["TEAM", "SOLDIER", "AGE", "OVR", "DEAL"], rows, [70, 220, 50, 50, 200], targets))
+	return v
+
+
+## "$4.20M x 3 + $1.00M bonus + NTC" for an agreed extension.
+func _ext_text(so: Soldier) -> String:
+	return "%s x %d%s%s" % [Contracts.money(so.ext_salary), so.ext_years,
+		" + %s bonus" % Contracts.money(so.ext_bonus) if so.ext_bonus > 0 else "", " + NTC" if so.ext_no_trade else ""]
+
+
+## In-season extensions: the user's players in their last contract year, their ask and where
+## talks stand.
+func extensions() -> Control:
+	var s := _season()
+	var user := s.user_team()
+	var v := _vbox(12)
+	var list := s.extension_candidates(user)
+	var ny := s.year + 1
+	if not s.extension_open():
+		v.add_child(UiKit.label("Extensions are negotiated during the regular season.", 22, Color.WHITE))
+		v.add_child(UiKit.label("The window closes when the playoffs start. Expiring players can still be re-signed after the Final.", 16, UiKit.MUTED))
+		if s.can_resign():
+			v.add_child(UiKit.button("Go to Re-sign Players", func(): hub.open_resign(), 15))
+		return v
+	v.add_child(UiKit.rich("[font_size=22][color=white]EXTENSION WINDOW OPEN[/color][/font_size]   %d cap space (with agreed extensions): [color=white]%s[/color]" % [
+		ny, Contracts.money(Contracts.next_cap_space(user, s.year))], 16))
+	var help := UiKit.label("Lock up players in the last year of their deal before they reach the re-sign window. Talks work like re-signing, but the new deal starts in %d and must fit under that season's cap. Two extra arguments: Lock in now (security-minded players like certainty) and Test the market (a gamble with money-minded or savvy players). Sleep on it pauses talks until next week. If he walks, talks are off until after the Final, and he'll open re-sign talks less patient and asking more. The window closes at the playoffs." % ny, 14, UiKit.MUTED)
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(help)
+	if list.is_empty():
+		v.add_child(UiKit.label("Nobody on your roster is in the last year of his deal.", 16, UiKit.MUTED))
+	for so in list:
+		var ref: Soldier = so
+		var row := _row(10)
+		row.add_child(Portrait.new(so, 44, user.color, user))
+		var info := UiKit.button("%s   -   age %d   -   OVR %d   -   POT %s   -   %s   -   %s now" % [so.display_name(), so.age, so.best_ovr(), pot_dev_text(so),
+			Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], Contracts.money(so.contract.salary)], func(): open_player(ref, 2), 15)
+		info.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		info.custom_minimum_size.x = 560
+		row.add_child(info)
+		var dna := UiKit.label(so.get_dna().headline(), 14, UiKit.INFO)
+		dna.custom_minimum_size.x = 210
+		row.add_child(dna)
+		var n: Negotiation = s.negotiations.get(so.id)
+		if n != null and (not n.extension or n.team != user):
+			n = null
+		if n != null:
+			n.wake()
+		var status := ""
+		var col := UiKit.TEXT
+		if so.has_extension():
+			status = "AGREED  %s from %d" % [_ext_text(so), ny]
+			col = UiKit.GOOD
+		elif so.ext_walked_year == s.year:
+			status = "WALKED  -  re-sign talks after the Final"
+			col = UiKit.BAD
+		elif n != null and n.is_resting():
+			status = "SLEEPING ON IT  -  back next week"
+			col = UiKit.ACCENT
+		else:
+			var yrs := Contracts.preferred_years(so)
+			var ask := n.demand(yrs) if n != null else Contracts.resign_asking(so, yrs)
+			status = "%s  -  asks ~%s x %d" % ["TALKS OPEN" if n != null else "NOT STARTED", Contracts.money(ask), yrs]
+			col = Color.WHITE
+		var sl := UiKit.label(status, 16, col)
+		sl.custom_minimum_size.x = 380
+		row.add_child(sl)
+		var nb := UiKit.action_button("Negotiate", func(): open_negotiation(ref), 15)
+		nb.disabled = s.extension_error(user, so) != "" and n == null
+		row.add_child(nb)
+		v.add_child(row)
+	var done: Array = s.resign_log.filter(func(r): return r["year"] == s.year and r.get("extension", false))
+	if not done.is_empty():
+		v.add_child(_section("EXTENSIONS THIS SEASON  -  league-wide"))
+		var rows: Array = []
+		var targets: Array = []
+		for r in done:
+			rows.append([r["team"].abbrev, r["soldier"].full_name(), r["soldier"].age, r["soldier"].best_ovr(),
+				"%s x %d%s%s%s%s" % [Contracts.money(r["salary"]), r["years"], "  +promise" if r.get("promise", false) else "",
+					"  +%s bonus" % Contracts.money(r["bonus"]) if int(r.get("bonus", 0)) > 0 else "", "  +NTC" if r.get("no_trade", false) else "",
+					"  +keep" if r.get("keep", false) else ""]])
+			targets.append(r["soldier"])
+		v.add_child(_soldier_table(["TEAM", "SOLDIER", "AGE", "OVR", "EXTENSION"], rows, [70, 220, 50, 50, 240], targets))
 	return v
 
 
@@ -5070,7 +5160,7 @@ func negotiate() -> Control:
 	var user := season.user_team()
 	var s := _neg_soldier
 	var v := _vbox(12)
-	var n: Negotiation = season.negotiations.get(s.id) if s != null else null
+	var n: Negotiation = season.negotiation(user, s) if s != null else null
 	if n == null:
 		v.add_child(UiKit.label("No talks in progress.", 18, UiKit.MUTED))
 		return v
@@ -5095,19 +5185,25 @@ func negotiate() -> Control:
 	head.add_child(UiKit.rich("[color=%s]%s[/color]   -   %s   -   %s%s%s" % [UiKit.hex(UiKit.INFO), d.headline(), d.temperament_label(), d.savvy_label(),
 		"   -   from %s%s" % [LeagueData.state_name(s.home_state), " (home club)" if home > 0.0 and s.home_state == user.home_state else (" (near home)" if home > 0.0 else "")] if s.home_state != "" else "",
 		"   -   bonds pull %d%%" % roundi(bonds * 100) if bonds > 0.0 else ""], 15))
-	head.add_child(UiKit.rich("Market value [color=white]%s[/color]   -   %d cap room for him (his hold freed): [color=white]%s[/color]   -   current deal %s" % [
-		Contracts.money(Contracts.market_value(s)), season.cap_year(), Contracts.money(Contracts.cap_space(user, season.cap_year()) + Contracts.cap_hold(s)),
-		Contracts.money(s.contract.salary) if s.contract != null else "-"], 15))
+	head.add_child(UiKit.rich("Market value [color=white]%s[/color]   -   %d cap room for him%s: [color=white]%s[/color]   -   current deal %s%s" % [
+		Contracts.money(Contracts.market_value(s)), n.deal_year(), "" if n.extension else " (his hold freed)", Contracts.money(n.cap_room()),
+		Contracts.money(s.contract.salary) if s.contract != null else "-",
+		"  (final year)  -  [color=%s]EXTENSION TALKS[/color]" % UiKit.hex(UiKit.INFO) if n.extension else ""], 15))
 	top.add_child(head)
 	v.add_child(top)
 	var state_col := UiKit.GOOD if n.state == Negotiation.SIGNED else (UiKit.BAD if n.state == Negotiation.WALKED else Color.WHITE)
 	var signed_text := ""
-	if n.state == Negotiation.SIGNED:
+	if n.state == Negotiation.SIGNED and n.extension:
+		signed_text = "EXTENDED  -  %s from %d" % [_ext_text(s), n.deal_year()]
+	elif n.state == Negotiation.SIGNED:
 		signed_text = "SIGNED  -  %s x %d%s%s" % [Contracts.money(s.contract.salary), s.contract.years,
 			"  +%s bonus" % Contracts.money(s.contract.bonus) if s.contract.bonus > 0 else "", "  +NTC" if s.contract.no_trade else ""]
 	var state_text: String = {Negotiation.OPEN: "HE WANTS  %s / yr  for %d yr%s" % [Contracts.money(want), _neg_years, "" if _neg_years == 1 else "s"],
 		Negotiation.SIGNED: signed_text,
-		Negotiation.WALKED: "TALKS BROKEN OFF  -  he's headed to free agency"}[n.state]
+		Negotiation.WALKED: "TALKS BROKEN OFF  -  re-sign talks open after the Final" if n.extension else "TALKS BROKEN OFF  -  he's headed to free agency"}[n.state]
+	if n.is_resting():
+		state_text = "SLEEPING ON IT  -  talks resume next week"
+		state_col = UiKit.ACCENT
 	v.add_child(UiKit.label(state_text, 26, state_col))
 	if not n.revealed.is_empty():
 		v.add_child(UiKit.label("His floor (%d yr%s): about %s - %s a year in cash.  He values: %s." % [n.revealed["years"], "" if n.revealed["years"] == 1 else "s",
@@ -5124,7 +5220,7 @@ func negotiate() -> Control:
 	var left := _vbox(10)
 	left.custom_minimum_size.x = 680
 	body.add_child(left)
-	if n.is_open():
+	if n.can_act():
 		left.add_child(_section("YOUR OFFER  -  every offer or argument costs patience"))
 		var step := maxi(50, roundi(want * 0.03 / 50.0) * 50)
 		left.add_child(_neg_stepper(Contracts.money(_neg_salary) + " / yr", func():
@@ -5143,7 +5239,7 @@ func negotiate() -> Control:
 			_neg_bonus = maxi(0, _neg_bonus - bstep)
 			rebuild.call(), func():
 			_neg_bonus = mini(Contracts.MAX_SALARY, _neg_bonus + bstep)
-			rebuild.call(), "+%s / yr to him  -  all of it counts on the %d cap" % [Contracts.money(roundi(n.term_value(&"bonus", _neg_years, terms))), season.cap_year()]))
+			rebuild.call(), "+%s / yr to him  -  all of it counts on the %d cap" % [Contracts.money(roundi(n.term_value(&"bonus", _neg_years, terms))), n.deal_year()]))
 		var ntc := _row(10)
 		ntc.add_child(_term_toggle("No-trade clause", _neg_ntc, func():
 			_neg_ntc = not _neg_ntc
@@ -5217,6 +5313,10 @@ func negotiate() -> Control:
 				left.add_child(UiKit.label("The numbers don't give you anything to argue with here.", 15, UiKit.MUTED))
 			for a in args:
 				left.add_child(_neg_argument_row(n, a, rebuild))
+	elif n.extension:
+		if n.is_resting():
+			left.add_child(UiKit.label("He's taking the week to think it over. Come back after the next match.", 16, UiKit.MUTED))
+		left.add_child(UiKit.button("Back to Extensions", func(): hub.replace("Extensions", extensions), 16))
 	else:
 		left.add_child(UiKit.button("Back to Re-sign Players", func(): hub.replace("Re-sign Players", resign), 16))
 	# --- right: conversation
@@ -5275,7 +5375,8 @@ func _neg_tactics(box: VBoxContainer, n: Negotiation, rebuild: Callable) -> void
 			func(): return n.ask(_neg_years)],
 		["Smooth it over", n.can_smooth(), "-%d patience, once. Rebuilds trust and undoes one misstep. Only after a backfire or insult, or with trust under %d." % [roundi(Negotiation.SMOOTH_COST), roundi(Negotiation.SMOOTH_TRUST_BELOW)],
 			func(): return n.smooth_over()],
-		["Sleep on it", n.can_sleep(), "Free, once. +%d patience, but his ask drifts %d%% of the way back to where it opened." % [roundi(Negotiation.SLEEP_PATIENCE), roundi(Negotiation.SLEEP_DRIFT * 100)],
+		["Sleep on it", n.can_sleep(), ("Free, once. He takes a week: talks resume after the next match with +%d patience, but his ask drifts %d%% of the way back to where it opened." if n.extension
+			else "Free, once. +%d patience, but his ask drifts %d%% of the way back to where it opened.") % [roundi(Negotiation.SLEEP_PATIENCE), roundi(Negotiation.SLEEP_DRIFT * 100)],
 			func(): return n.sleep_on_it()],
 	]
 	for t in rows:

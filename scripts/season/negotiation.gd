@@ -23,6 +23,13 @@ extends RefCounted
 ##   (repairs trust after a misstep), Sleep on it (patience back, but his demand drifts toward
 ##   where it opened) and Final offer (take it or leave it: he signs or walks).
 ## - Walkouts, insults and backfires are logged to Season.talks_log for storylines.
+##
+## Extension mode (Season.negotiation in the regular season, for a player in his last contract
+## year): the same talks, but the deal is checked against next season's cap and stored on the
+## soldier as a pending extension (Soldier.ext_*) that replaces his contract at the rollover.
+## Two extra arguments ("Lock in now", "Test the market"), Sleep on it pauses talks until next
+## week, and a walkout blocks talks until the re-sign window, where he opens with
+## EXT_WALK_PATIENCE less patience and EXT_WALK_DEMAND more demand.
 
 const MAX_PATIENCE := 100.0
 const ROUND_COST := 20.0
@@ -41,6 +48,10 @@ const SMOOTH_TRUST_BELOW := 45.0
 const SLEEP_PATIENCE := 25.0
 const SLEEP_DRIFT := 0.30
 const BACKFIRE_MULT := 1.03
+const EXT_WALK_PATIENCE := 20.0
+const EXT_WALK_DEMAND := 0.03
+## Extra patience lost when "Test the market" backfires (he might just do it).
+const TEST_MARKET_COST := 10.0
 
 const OPEN := &"open"
 const SIGNED := &"signed"
@@ -70,14 +81,19 @@ var smoothed := false
 var slept := false
 ## Backfires and insults not yet smoothed over.
 var missteps := 0
+## In-season extension talks (see the class notes).
+var extension := false
+## Extension mode: talks resume this week after Sleep on it (0 = not sleeping).
+var wake_week := 0
 var _args_cache: Array = []
 
 
-static func start(p_season: Season, p_team: Team, s: Soldier) -> Negotiation:
+static func start(p_season: Season, p_team: Team, s: Soldier, ext := false) -> Negotiation:
 	var n := Negotiation.new()
 	n.season = p_season
 	n.team = p_team
 	n.soldier = s
+	n.extension = ext
 	var d := s.get_dna()
 	var trust_t := (s.trust - Soldier.TRUST_NEUTRAL) / 50.0
 	var home := Dna.hometown_pull(s, p_team)
@@ -112,14 +128,16 @@ func bond_pull() -> float:
 
 
 ## The teammate a "keep the core" promise would cover: his strongest Familiar+ bond on the roster
-## who is under contract past this season (null if none).
+## who is under contract next season (null if none).
 func keep_target() -> Soldier:
 	if season.relationships == null:
 		return null
 	var best: Soldier = null
 	var best_pts := Relationships.LEVEL_POINTS[1] - 0.001
 	for o in team.roster:
-		if o == soldier or o.contract == null or o.contract.is_expiring():
+		if o == soldier or o.contract == null:
+			continue
+		if o.contract.is_expiring() or (extension and o.contract.years <= 1 and not o.has_extension()):
 			continue
 		var pts := season.relationships.points(soldier, o)
 		if pts > best_pts:
@@ -188,12 +206,52 @@ func is_open() -> bool:
 	return state == OPEN
 
 
+## Extension mode: he's sleeping on it until next week.
+func is_resting() -> bool:
+	return wake_week > 0 and season.week < wake_week
+
+
+## Talks are open and he's at the table.
+func can_act() -> bool:
+	return is_open() and not is_resting()
+
+
+func _closed_text() -> String:
+	return "He's sleeping on it. Talks resume next week." if is_open() else "Talks are over."
+
+
+## The season the new deal starts: next season for an extension, else the cap year.
+func deal_year() -> int:
+	return season.year + 1 if extension else season.cap_year()
+
+
+## Cap room for his new deal: next season's space for an extension, else this cap year's space
+## with his cap hold freed.
+func cap_room() -> int:
+	if extension:
+		return Contracts.next_cap_space(team, season.year)
+	return Contracts.cap_space(team, season.cap_year()) + Contracts.cap_hold(soldier)
+
+
+## Extension mode: a sleeping player comes back to the table once the week turns (patience back,
+## his ask drifts toward where it opened). Called by Season.negotiation.
+func wake() -> void:
+	if wake_week <= 0 or season.week < wake_week:
+		return
+	wake_week = 0
+	if not is_open():
+		return
+	patience = minf(MAX_PATIENCE, patience + SLEEP_PATIENCE)
+	demand_mult = maxf(floor_mult, demand_mult + (opening_mult - demand_mult) * SLEEP_DRIFT)
+	_say("him", "I've thought it over. My ask is %s." % Contracts.money(demand(Contracts.preferred_years(soldier))))
+
+
 # --- actions -------------------------------------------------------------------
 
 ## Why this offer can't be made ("" = it can).
 func offer_error(salary: int, years: int, terms := {}) -> String:
-	if not is_open():
-		return "Talks are over."
+	if not can_act():
+		return _closed_text()
 	if years < 1 or years > Contracts.MAX_YEARS:
 		return "Deals run 1-%d years." % Contracts.MAX_YEARS
 	if salary < Contracts.MIN_SALARY or salary > Contracts.MAX_SALARY:
@@ -201,15 +259,36 @@ func offer_error(salary: int, years: int, terms := {}) -> String:
 	var bonus := int(terms.get("bonus", 0))
 	if bonus < 0 or bonus > Contracts.MAX_SALARY:
 		return "Signing bonus must be %s - %s." % [Contracts.money(0), Contracts.money(Contracts.MAX_SALARY)]
-	if not Contracts.resign_fits(team, season.cap_year(), soldier, salary + bonus):
+	if extension:
+		if not Contracts.extension_fits(team, season.year, salary, bonus):
+			return "Not enough %d cap space (%s left next season%s)." % [deal_year(), Contracts.money(cap_room()),
+				"; the bonus counts on that year" if bonus > 0 else ""]
+	elif not Contracts.resign_fits(team, season.cap_year(), soldier, salary + bonus):
 		return "Not enough cap space (%s left, counting his %s cap hold%s)." % [
 			Contracts.money(Contracts.cap_space(team, season.cap_year()) + Contracts.cap_hold(soldier)), Contracts.money(Contracts.cap_hold(soldier)),
 			"; the bonus counts this year" if bonus > 0 else ""]
-	if has_term(terms, &"promise") and season.fa.promises_made(season, team) >= team.scheme.slot_ids().size():
-		return "You've already promised all %d starting spots." % team.scheme.slot_ids().size()
-	if has_term(terms, &"keep") and keep_target() == null:
-		return "He has no close teammate under contract to promise to keep."
+	if has_term(terms, &"promise"):
+		if extension and not soldier.promise.is_empty():
+			return "He already has a starter promise. It has to play out first."
+		if promises_out() >= team.scheme.slot_ids().size():
+			return "You've already promised all %d starting spots." % team.scheme.slot_ids().size()
+	if has_term(terms, &"keep"):
+		if keep_target() == null:
+			return "He has no close teammate under contract to promise to keep."
+		if extension and not soldier.keep_promise.is_empty():
+			return "He already has a keep-the-core promise. It has to play out first."
 	return ""
+
+
+## Starter promises `team` has out for the season this deal starts.
+func promises_out() -> int:
+	if not extension:
+		return season.fa.promises_made(season, team)
+	var n := 0
+	for so in team.roster:
+		if not so.promise.is_empty() and int(so.promise["year"]) == deal_year():
+			n += 1
+	return n
 
 
 ## Puts an offer on the table. Returns {ok: bool, result: "signed" | "countered" | "insulted" |
@@ -288,14 +367,14 @@ func offer_text(salary: int, years: int, terms := {}) -> String:
 # --- tactics -------------------------------------------------------------------
 
 func can_ask() -> bool:
-	return is_open() and revealed.is_empty()
+	return can_act() and revealed.is_empty()
 
 
 ## Ask what it'll take: a range around his floor (wider for savvy players) and the term he values
 ## most. Costs ASK_COST patience; once per talks.
 func ask(years: int) -> Dictionary:
 	if not can_ask():
-		return {"ok": false, "result": "error", "text": "You already asked." if is_open() else "Talks are over."}
+		return {"ok": false, "result": "error", "text": "You already asked." if can_act() else _closed_text()}
 	var d := soldier.get_dna()
 	_say("you", "Level with me. What's it going to take?")
 	patience -= ASK_COST
@@ -328,14 +407,14 @@ func favourite_term(years: int) -> StringName:
 
 
 func can_smooth() -> bool:
-	return is_open() and not smoothed and (soldier.trust < SMOOTH_TRUST_BELOW or missteps > 0)
+	return can_act() and not smoothed and (soldier.trust < SMOOTH_TRUST_BELOW or missteps > 0)
 
 
 ## Smooth it over: trust back (more with thick-skinned players) and one misstep's demand bump
 ## undone. Costs SMOOTH_COST patience; once per talks, after a misstep or with low trust.
 func smooth_over() -> Dictionary:
 	if not can_smooth():
-		return {"ok": false, "result": "error", "text": "There's nothing to smooth over." if is_open() and not smoothed else "You can only do that once."}
+		return {"ok": false, "result": "error", "text": _closed_text() if not can_act() else ("There's nothing to smooth over." if not smoothed else "You can only do that once.")}
 	var d := soldier.get_dna()
 	smoothed = true
 	_say("you", "Look, that came out wrong. I respect you, and I want you here.")
@@ -352,14 +431,20 @@ func smooth_over() -> Dictionary:
 
 
 func can_sleep() -> bool:
-	return is_open() and not slept
+	return can_act() and not slept
 
 
 ## Sleep on it: patience back, but his demand drifts SLEEP_DRIFT of the way back to where it opened.
+## In extension mode the break lasts until next week (see wake); nothing happens until then.
 func sleep_on_it() -> Dictionary:
 	if not can_sleep():
-		return {"ok": false, "result": "error", "text": "You already took a break." if is_open() else "Talks are over."}
+		return {"ok": false, "result": "error", "text": "You already took a break." if can_act() else _closed_text()}
 	slept = true
+	if extension:
+		wake_week = season.week + 1
+		_say("you", "Let's both take a week and think it over.")
+		_say("him", "Fine. Call me next week.")
+		return {"ok": true, "result": "slept", "text": _say_last()}
 	patience = minf(MAX_PATIENCE, patience + SLEEP_PATIENCE)
 	demand_mult = maxf(floor_mult, demand_mult + (opening_mult - demand_mult) * SLEEP_DRIFT)
 	_say("you", "Let's both sleep on it.")
@@ -395,8 +480,8 @@ func argument(id: StringName) -> Dictionary:
 ## cut (share of demand removed), text}.
 func use_argument(id: StringName) -> Dictionary:
 	var a := argument(id)
-	if not is_open():
-		return {"ok": false, "result": "error", "cut": 0.0, "text": "Talks are over."}
+	if not can_act():
+		return {"ok": false, "result": "error", "cut": 0.0, "text": _closed_text()}
 	if a.is_empty():
 		return {"ok": false, "result": "error", "cut": 0.0, "text": "You don't have the evidence for that."}
 	if a["used"]:
@@ -412,6 +497,8 @@ func use_argument(id: StringName) -> Dictionary:
 		soldier.add_trust(-6.0 - 6.0 * (1.0 - d.n(&"temperament")))
 		patience -= 15.0
 		demand_mult *= BACKFIRE_MULT
+		if id == &"test_market":
+			patience -= TEST_MARKET_COST
 		missteps += 1
 		_say("him", _backfire_line(id))
 		season.log_talk(soldier, team, &"backfired", "%s took offense in talks with %s: \"%s\"" % [soldier.full_name(), team.abbrev, a["title"]])
@@ -477,6 +564,12 @@ func _opening() -> void:
 		patience -= 25.0
 		demand_mult += 0.05
 		_say("him", "You promised I'd start and you benched me. Why should I believe anything you say now?")
+	if not extension and s.ext_walked_year == season.year:
+		patience -= EXT_WALK_PATIENCE
+		demand_mult += EXT_WALK_DEMAND
+		_say("him", "We already did this dance during the season. My number hasn't gotten any smaller.")
+	if extension:
+		_say("note", "Extension talks: the new deal starts in %d, after his current contract runs out." % deal_year())
 	var top := true
 	for so in team.roster:
 		if so != s and so.best_ovr() > s.best_ovr():
@@ -511,30 +604,44 @@ func _opening() -> void:
 
 func _sign(salary: int, years: int, terms: Dictionary) -> void:
 	var bonus := int(terms.get("bonus", 0))
-	soldier.contract = Contract.make(salary, years, season.year)
-	soldier.contract.bonus = bonus
-	soldier.contract.no_trade = has_term(terms, &"no_trade")
+	var no_trade := has_term(terms, &"no_trade")
+	var dy := deal_year()
+	if extension:
+		soldier.ext_salary = salary
+		soldier.ext_years = years
+		soldier.ext_bonus = bonus
+		soldier.ext_no_trade = no_trade
+	else:
+		soldier.contract = Contract.make(salary, years, season.year)
+		soldier.contract.bonus = bonus
+		soldier.contract.no_trade = no_trade
 	if bonus > 0:
-		var cy := season.cap_year()
-		team.bonus_money[cy] = int(team.bonus_money.get(cy, 0)) + bonus
+		team.bonus_money[dy] = int(team.bonus_money.get(dy, 0)) + bonus
 	soldier.morale = maxf(soldier.morale, 82.0)
 	soldier.add_trust(SIGN_TRUST)
 	var promise := has_term(terms, &"promise")
 	if promise:
-		soldier.promise = {"year": season.cap_year(), "team": team.abbrev, "games": 0, "started": 0}
+		soldier.promise = {"year": dy, "team": team.abbrev, "games": 0, "started": 0}
+	var keep := false
 	if has_term(terms, &"keep"):
 		var k := keep_target()
 		if k != null:
-			soldier.keep_promise = {"year": season.cap_year(), "team": team.abbrev, "id": k.id, "name": k.full_name()}
+			soldier.keep_promise = {"year": dy, "team": team.abbrev, "id": k.id, "name": k.full_name()}
+			keep = true
 	season.resign_log.append({"soldier": soldier, "team": team, "salary": salary, "years": years, "year": season.year,
-		"promise": promise, "bonus": bonus, "no_trade": soldier.contract.no_trade, "keep": not soldier.keep_promise.is_empty()})
-	season.news.resign(season, team, soldier, salary, years)
+		"promise": promise, "bonus": bonus, "no_trade": no_trade, "keep": keep, "extension": extension})
+	season.news.resign(season, team, soldier, salary, years, extension)
 	state = SIGNED
 
 
 func _walk() -> void:
 	state = WALKED
 	soldier.add_trust(WALK_TRUST)
+	if extension:
+		soldier.ext_walked_year = season.year
+		_say("him", "Forget it. We'll talk after the season, and it won't be cheaper.")
+		season.log_talk(soldier, team, &"walked", "%s broke off extension talks with %s." % [soldier.full_name(), team.abbrev])
+		return
 	_say("him", "We're done here. I'll take my chances in free agency.")
 	season.log_talk(soldier, team, &"walked", "%s broke off contract talks with %s." % [soldier.full_name(), team.abbrev])
 
@@ -577,7 +684,9 @@ func _concede_line(id: StringName) -> String:
 		&"young_core": "This group's going to be good for a long time. I see it.",
 		&"we_made_you": "You're right. I wasn't this player when I got here.",
 		&"build_around": "That means a lot. I'll help you build it.",
-		&"peaked": "Alright. I know what I am at this point."}
+		&"peaked": "Alright. I know what I am at this point.",
+		&"lock_in": "Getting it done now would take a weight off. I'll give a little.",
+		&"test_market": "Fine. Maybe the grass isn't greener out there."}
 	return "%s New ask: %s / yr." % [lines.get(id, "Fair point."), Contracts.money(demand(Contracts.preferred_years(soldier)))]
 
 
@@ -597,7 +706,9 @@ func _rebuttal_line(id: StringName) -> String:
 		&"young_core": "Kids are kids until they win something.",
 		&"we_made_you": "I put in the work. Not you.",
 		&"build_around": "Words are cheap. Show me in the offer.",
-		&"peaked": "I've still got another level in me."}
+		&"peaked": "I've still got another level in me.",
+		&"lock_in": "I'm not worried about getting hurt. I'll bet on myself.",
+		&"test_market": "Plenty of teams will be calling. Count on it."}
 	return lines.get(id, "I don't buy it.")
 
 
@@ -617,7 +728,9 @@ func _backfire_line(id: StringName) -> String:
 		&"young_core": "I'm not here to babysit.",
 		&"we_made_you": "You made me? I made myself.",
 		&"build_around": "Then pay me like the guy you build around.",
-		&"peaked": "Peaked? You've got some nerve."}
+		&"peaked": "Peaked? You've got some nerve.",
+		&"lock_in": "Rushing me isn't going to work.",
+		&"test_market": "You want me to test the market? Maybe I will."}
 	return "%s My price just went up." % lines.get(id, "That was out of line.")
 
 
@@ -733,7 +846,7 @@ func _build_arguments() -> Array:
 			"fit": 0.1 + 1.2 * d.n(&"winning")})
 
 	# Cap squeeze.
-	var space := Contracts.cap_space(team, season.cap_year()) + Contracts.cap_hold(soldier) - ask_now
+	var space := cap_room() - ask_now
 	var tight := Contracts.SALARY_CAP * 0.08
 	if space < tight:
 		out.append({"id": &"cap", "title": "Cap is tight", "tone": "soft",
@@ -829,6 +942,19 @@ func _build_arguments() -> Array:
 			"evidence": 1.0 if better == 0 else 0.7, "evidence_text": "#%d OVR on the roster (%d)." % [better + 1, s.best_ovr()],
 			"fit": 0.2 + 0.5 * d.n(&"playing_time") + 0.4 * d.n(&"money") + 0.2 * (1.0 - savvy_n)})
 
+	if extension:
+		# Certainty now vs the open market.
+		var weeks_left := maxi(0, season.regular_weeks - season.week)
+		out.append({"id": &"lock_in", "title": "Lock in now", "tone": "soft",
+			"pitch": "Sign now and it's done. No injury risk, no slump, no wondering what's out there.",
+			"evidence": clampf(0.35 + weeks_left / float(maxi(1, season.regular_weeks)) * 0.65, 0.35, 1.0),
+			"evidence_text": "%d regular-season week%s left for something to go wrong." % [weeks_left, "" if weeks_left == 1 else "s"],
+			"fit": 0.1 + 0.8 * d.n(&"security") + 0.4 * d.n(&"loyalty")})
+		out.append({"id": &"test_market", "title": "Test the market", "tone": "hard",
+			"pitch": "Go ahead and test free agency. See if anyone pays you more than this.",
+			"evidence": clampf(1.0 - (s.best_ovr() - 55) / 25.0, 0.2, 1.0),
+			"evidence_text": "OVR %d: %s." % [s.best_ovr(), "teams won't line up for him" if s.best_ovr() < 65 else "he'd have suitors"],
+			"fit": 0.2 + 0.8 * d.n(&"security") + 0.4 * d.n(&"loyalty") - 0.5 * d.n(&"money") - 0.5 * savvy_n})
 	for a in out:
 		a["group"] = SELL if a["tone"] == "soft" else HARDBALL
 	return out
