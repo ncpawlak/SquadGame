@@ -84,6 +84,8 @@ var review: SeasonReview = null
 var review_history: Array = []
 ## One SeasonSnapshot per finished season (champion, runner-up, final table, bracket), oldest first.
 var history: Array = []
+## Hall of Fame members, oldest induction first (see HallOfFame).
+var hall_of_fame: Array = []
 ## Who declined with age at the start of this season: Array of Aging.age_soldier reports.
 var aging_report: Array = []
 ## Current offseason stage (OFF_*; "" during the season) and free-agency day (1..FA_DAYS).
@@ -1153,6 +1155,7 @@ func _advance() -> void:
 		var retired := Retirement.run(self, retire_rng)
 		retirements.append_array(retired)
 		RetiredCallsigns.process(self, retired)
+		HallOfFame.run(self)
 		last_floor_penalties = Contracts.charge_floor(league, year)
 		news.end_season(self, last_floor_penalties)
 		news.dev_changes(self, review.dev_changes)

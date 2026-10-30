@@ -836,11 +836,9 @@ func _todo_tiles(team: Team) -> Array:
 			var rets := season.retirements_in(season.year)
 			out.append(_todo("Retirements", ("[color=white]%d[/color] soldier%s hung it up this year." % [rets.size(), "" if rets.size() == 1 else "s"]) if not rets.is_empty() else "Nobody retired this year.",
 				Color("#94a3b8"), open_retirements))
-			var hof := _todo("Hall of Fame", "Coming soon: this year's inductees.", UiKit.MUTED,
-				func(): coming_soon("Hall of Fame", ["This year's inductees", "Career numbers and honours", "The full Hall by class"]))
-			hof.modulate = Color(1, 1, 1, 0.6)
-			hof.set_meta("todo_done", true)
-			out.append(hof)
+			var hall_class := HallOfFame.class_of(season, season.year)
+			out.append(_todo("Hall of Fame", ("Class of %d: [color=white]%s[/color]" % [season.year, ", ".join(PackedStringArray(hall_class.map(func(e): return UiKit.esc(e["soldier"].short_name()))))]) if not hall_class.is_empty() else "No inductees this year.",
+				Color("#eab308"), open_hall, hall_class.is_empty()))
 		var proposals := season.league.callsign_proposals.size()
 		if proposals > 0:
 			out.append(_todo("Retired Callsigns", "[color=#f59e0b]%d callsign%s[/color] up for retirement.
@@ -1745,6 +1743,11 @@ func open_news(i := -1) -> void:
 
 func open_callsign_proposals() -> void:
 	open("Retired Callsigns", legacy_pages.callsign_proposals)
+
+
+func open_hall() -> void:
+	legacy_pages.tab = "hall"
+	open("Legacy", legacy_pages.legacy)
 
 
 func open_legacy() -> void:

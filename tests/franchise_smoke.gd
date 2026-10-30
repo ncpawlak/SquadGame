@@ -369,6 +369,21 @@ func _visit_pages(hub, phase: String) -> void:
 			if banner != null:
 				banner.free()
 			return c,
+		"legacy_hall": func():
+			hub.legacy_pages.tab = "hall"
+			return hub.legacy_pages.legacy(),
+		"legacy_hall_class": func():
+			var s: Season = hub.season
+			var so: Soldier = s.league.teams[1].roster[0]
+			var entry := {"soldier": so, "year": s.year, "score": 70.0, "club": s.league.teams[1], "honors": ["2030 Season MVP"]}
+			s.hall_of_fame.append(entry)
+			var c: Control = hub.legacy_pages.legacy()
+			p._player_tab = 4
+			var card: Control = p.player(so)
+			p._player_tab = 0
+			s.hall_of_fame.erase(entry)
+			card.free()
+			return c,
 		"legacy_season": func():
 			if hub.season.history.is_empty():
 				return Control.new()
