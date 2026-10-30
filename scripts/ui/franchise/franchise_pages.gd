@@ -5818,6 +5818,226 @@ func trade_log() -> Control:
 	return v
 
 
+# --- Weekly News --------------------------------------------------------------------
+
+const NEWS_MAIN_W := 820
+const NEWS_SIDE_W := 360
+const NEWS_INK := Color("#e8e4da")
+const NEWS_RULE := Color(1, 1, 1, 0.12)
+
+
+## Serif article text (Lora): body paragraphs, the dek and the pull quote.
+func _serif(text: String, size := 19, color := NEWS_INK, italic := false) -> RichTextLabel:
+	UiKit.install_fonts()
+	var r := RichTextLabel.new()
+	r.bbcode_enabled = true
+	r.fit_content = true
+	r.scroll_active = false
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	r.add_theme_font_override("normal_font", UiKit.font_serif_italic if italic else UiKit.font_serif)
+	r.add_theme_font_override("italics_font", UiKit.font_serif_italic)
+	r.add_theme_font_override("bold_font", UiKit.font_serif_bold)
+	for k in ["normal_font_size", "italics_font_size", "bold_font_size"]:
+		r.add_theme_font_size_override(k, size)
+	r.add_theme_color_override("default_color", color)
+	r.add_theme_constant_override("line_separation", int(size * 0.45))
+	r.text = text
+	return r
+
+
+func _news_rule(color := NEWS_RULE, height := 1) -> ColorRect:
+	var c := ColorRect.new()
+	c.color = color
+	c.custom_minimum_size = Vector2(0, height)
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return c
+
+
+static func _grade_color(g: String) -> Color:
+	match g.left(1):
+		"A":
+			return UiKit.GOOD
+		"B":
+			return UiKit.INFO
+		"C":
+			return UiKit.GOLD
+		"D", "F":
+			return UiKit.BAD
+	return UiKit.MUTED
+
+
+## One Weekly News issue laid out like a sports site's feature page: the paper's masthead, the
+## kicker, headline, dek and byline, the story in a serif column with the pull quote set in after
+## the second paragraph, a box-score/standings sidebar, the league roundup and issue navigation.
+func news_article(i: int) -> Control:
+	var nr := _season().newsroom
+	var a := nr.issue(i)
+	var outer := _row(0)
+	outer.alignment = BoxContainer.ALIGNMENT_CENTER
+	var v := _vbox(14)
+	v.name = "NewsArticle"
+	v.custom_minimum_size.x = NEWS_MAIN_W + NEWS_SIDE_W + 40
+	outer.add_child(v)
+	if a.is_empty():
+		v.add_child(UiKit.label("No issues yet. The first one comes out after your first week.", 17, UiKit.MUTED))
+		return outer
+	# Masthead.
+	var mast := _row(14)
+	var paper := UiKit.display(String(a["paper"]).to_upper(), 34, Color.WHITE, true)
+	mast.add_child(paper)
+	var sp := Control.new()
+	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mast.add_child(sp)
+	var stamp := UiKit.label("%d  -  %s  -  Issue %d" % [int(a["year"]), String(a["when"]), int(a["n"])], 15, UiKit.MUTED)
+	stamp.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	mast.add_child(stamp)
+	v.add_child(mast)
+	v.add_child(_news_rule(UiKit.ACCENT, 3))
+	# Head.
+	v.add_child(UiKit.display(String(a["section"]), 18, UiKit.ACCENT))
+	var head := UiKit.display(String(a["headline"]), 54, Color.WHITE, true)
+	head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	head.custom_minimum_size.x = NEWS_MAIN_W + NEWS_SIDE_W
+	v.add_child(head)
+	if String(a["dek"]) != "":
+		v.add_child(_serif(UiKit.esc(String(a["dek"])), 22, Color("#b8bfcc"), true))
+	var by := _row(14)
+	var byline := UiKit.rich("By [color=white]%s[/color]  [color=#8b97ab]|  %s staff writer[/color]" % [UiKit.esc(String(a["writer"])), UiKit.esc(String(a["paper"]))], 16)
+	byline.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	byline.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	by.add_child(byline)
+	if String(a["grade"]) != "":
+		var gp := UiKit.panel(_grade_color(String(a["grade"])).darkened(0.55), 4)
+		gp.add_child(UiKit.display("GRADE  %s" % a["grade"], 18, Color.WHITE))
+		by.add_child(gp)
+	v.add_child(by)
+	v.add_child(_news_rule())
+	# Story and sidebar.
+	var cols := _row(40)
+	var main := _vbox(18)
+	main.custom_minimum_size.x = NEWS_MAIN_W
+	var body: Array = a["body"]
+	var pq: Dictionary = a["pull_quote"]
+	for p in body.size():
+		var text := UiKit.esc(String(body[p]))
+		if p == 0:
+			text = "[b]%s[/b]  -  %s" % [UiKit.esc(String(a["dateline"])), text]
+		main.add_child(_serif(text))
+		if p == mini(1, body.size() - 1) and not pq.is_empty():
+			main.add_child(_news_pull_quote(pq))
+	var roundup: Array = a["roundup"]
+	if not roundup.is_empty():
+		main.add_child(_news_rule())
+		main.add_child(UiKit.display("AROUND THE LEAGUE", 22, Color.WHITE))
+		for r in roundup:
+			main.add_child(_serif("[b]%s.[/b] %s" % [UiKit.esc(String(r["head"])), UiKit.esc(String(r["text"]))], 17, Color("#cfd5df")))
+	cols.add_child(main)
+	var side := _vbox(16)
+	side.custom_minimum_size.x = NEWS_SIDE_W
+	for box in a["sidebar"]:
+		side.add_child(_news_box(box))
+	cols.add_child(side)
+	v.add_child(cols)
+	v.add_child(_news_rule())
+	v.add_child(_news_nav(i))
+	return outer
+
+
+func _news_pull_quote(pq: Dictionary) -> Control:
+	var row := _row(18)
+	var bar := ColorRect.new()
+	bar.color = UiKit.ACCENT
+	bar.custom_minimum_size = Vector2(5, 0)
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(bar)
+	var q := _vbox(8)
+	q.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	q.add_child(_serif("\u201c%s\u201d" % UiKit.esc(String(pq["text"])), 27, Color.WHITE, true))
+	q.add_child(UiKit.display(String(pq["who"]).to_upper(), 17, UiKit.ACCENT))
+	row.add_child(q)
+	var m := MarginContainer.new()
+	for side in ["top", "bottom"]:
+		m.add_theme_constant_override("margin_" + side, 10)
+	m.add_child(row)
+	return m
+
+
+## A sidebar box: title strip and label / value rows. "*" marks the user's club in a table.
+func _news_box(box: Dictionary) -> Control:
+	var p := UiKit.panel(Color(1, 1, 1, 0.04), 6)
+	var v := _vbox(6)
+	v.add_child(UiKit.display(String(box["title"]).to_upper(), 17, UiKit.ACCENT))
+	v.add_child(_news_rule())
+	for r in box["rows"]:
+		var row := _row(10)
+		var lab := String(r[0])
+		var ours := lab.ends_with("*")
+		var color := Color.WHITE if ours else NEWS_INK
+		var l := UiKit.label(lab.trim_suffix("*").strip_edges(), 15, color)
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		row.add_child(l)
+		var val := UiKit.label(String(r[1]).strip_edges(), 15, UiKit.ACCENT if ours else UiKit.MUTED)
+		val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(val)
+		v.add_child(row)
+	p.add_child(v)
+	return p
+
+
+## Older / All issues / Newer. Paging replaces the page so Back still returns to where he came from.
+func _news_nav(i: int) -> Control:
+	var nr := _season().newsroom
+	var row := _row(12)
+	var go := func(j: int) -> void:
+		nr.mark_read(j)
+		hub.replace("Weekly News", func(): return news_article(j))
+	var older := UiKit.button("<  Older", go.bind(i - 1), 16)
+	older.disabled = i <= 0
+	row.add_child(older)
+	var sp := Control.new()
+	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(sp)
+	row.add_child(UiKit.button("All Issues", func(): hub.open("News Archive", news_archive), 16))
+	var sp2 := Control.new()
+	sp2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(sp2)
+	var newer := UiKit.button("Newer  >", go.bind(i + 1), 16)
+	newer.disabled = i >= nr.count() - 1
+	row.add_child(newer)
+	return row
+
+
+## Every issue, newest first, grouped by season. Unread issues carry a NEW tag.
+func news_archive() -> Control:
+	var nr := _season().newsroom
+	var v := _vbox(8)
+	if nr.count() == 0:
+		v.add_child(UiKit.label("No issues yet. The first one comes out after your first week.", 17, UiKit.MUTED))
+		return v
+	var year := -1
+	for i in range(nr.count() - 1, -1, -1):
+		var a := nr.issue(i)
+		if int(a["year"]) != year:
+			year = int(a["year"])
+			v.add_child(_section("%d  -  %s" % [year, String(a["paper"])]))
+		var tag := "" if nr.is_read(i) else "[color=#38bdf8]NEW[/color]  "
+		var grade := ("   [color=%s]%s[/color]" % [UiKit.hex(_grade_color(String(a["grade"]))), a["grade"]]) if String(a["grade"]) != "" else ""
+		var idx := i
+		var b := UiKit.button("", func(): hub.open_news(idx), 16)
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.custom_minimum_size.y = 52
+		var r := UiKit.rich("%s[color=#8b97ab]%s[/color]   [color=white]%s[/color]%s" % [tag, UiKit.esc(String(a["when"])), UiKit.esc(String(a["headline"])), grade], 17)
+		r.set_anchors_preset(Control.PRESET_FULL_RECT)
+		r.offset_left = 14
+		r.offset_top = 14
+		r.autowrap_mode = TextServer.AUTOWRAP_OFF
+		b.add_child(r)
+		v.add_child(b)
+	return v
+
+
 var _recap_step := ""
 const RECAP_ROWS := 12
 

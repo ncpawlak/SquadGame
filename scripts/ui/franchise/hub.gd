@@ -859,6 +859,9 @@ func _todo_tiles(team: Team) -> Array:
 	if sp > 0:
 		out.append(_todo("Upgrade Players", "[color=#38bdf8]%d player%s[/color] can level up" % [sp, "" if sp == 1 else "s"],
 			UiKit.INFO, func(): open("Player Progression", pages.progression)))
+	var news_tile := _news_todo()
+	if news_tile != null:
+		out.append(news_tile)
 	if not off and not season.preseason_camp:
 		var pts := season.draft.scout_points
 		out.append(_todo("Scout", ("[color=#38bdf8]%d scout points[/color]\n%d of %d prospects scouted" % [pts, _scouted_count(), Draft.CLASS_SIZE]) if pts > 0
@@ -1689,6 +1692,30 @@ func open_free_agents() -> void:
 func open_offseason_recap() -> void:
 	pages._recap_step = ""
 	open("Offseason Recap", pages.offseason_recap)
+
+
+## Weekly News: the latest issue's headline from the club's paper; done once it has been read.
+func _news_todo() -> Button:
+	var nr := season.newsroom
+	if nr.count() == 0:
+		return null
+	var a := nr.latest()
+	var fresh := nr.unread()
+	var body := "[color=white]%s[/color]\n%s" % [UiKit.esc(String(a["headline"])), UiKit.esc(String(a["when"]))]
+	if fresh > 1:
+		body += "  -  [color=#38bdf8]%d new issues[/color]" % fresh
+	return _todo("Weekly News", body, Color("#e2e8f0"), func(): open_news(), fresh == 0)
+
+
+## Opens a Weekly News issue (index into newsroom.issues; -1 = the latest) and marks it read.
+func open_news(i := -1) -> void:
+	var nr := season.newsroom
+	if nr.count() == 0:
+		return
+	if i < 0 or i >= nr.count():
+		i = nr.count() - 1
+	nr.mark_read(i)
+	open("Weekly News", func(): return pages.news_article(i))
 
 
 func open_retirements() -> void:
@@ -2563,6 +2590,11 @@ func _personnel_strip() -> Control:
 		var top: Prospect = picks[0]
 		cards.append(_stat_card("Draft Recap", str(ours.size()), "%d PICKS MADE" % d.year, "#1: [color=white]%s[/color] (%s)" % [UiKit.esc(top.soldier.short_name()), top.drafted_by.abbrev]
 			+ ("\nYour first: %s" % UiKit.esc(ours[0].soldier.short_name()) if not ours.is_empty() else ""), UiKit.INFO, func(): open("Draft Recap", func(): return pages.draft_recap(d))))
+
+	var nr := season.newsroom
+	var la := nr.latest()
+	cards.append(_stat_card("Weekly News", str(nr.count()), "ISSUES", ("[color=white]%s[/color]\n%s" % [UiKit.esc(String(la["headline"])), UiKit.esc(String(la["paper"]))]) if not la.is_empty()
+		else "No issues yet", Color("#e2e8f0"), func(): open("News Archive", pages.news_archive), "NEW" if nr.unread() > 0 else ""))
 
 	cards.append(_soon_card("Negotiation", "Back-and-forth contract talks", ["Back-and-forth contract talks", "Signing bonuses, incentives and options", "Agent personalities and holdouts"]))
 	return _card_row("PersonnelMore", cards, 4)

@@ -33,6 +33,10 @@ static var font_body: Font
 static var font_bold: Font
 static var font_display: Font
 static var font_heavy: Font
+## Lora (OFL), the Weekly News body face: regular, italic and bold (a weight variation).
+static var font_serif: Font
+static var font_serif_italic: Font
+static var font_serif_bold: Font
 static var _theme: Theme
 
 
@@ -114,6 +118,15 @@ static func install_fonts() -> void:
 	font_bold = _font("Barlow-Bold", fb, font_body)
 	font_display = _font("BarlowCondensed-Bold", fb, font_body)
 	font_heavy = _font("BarlowCondensed-ExtraBold", fb, font_display)
+	font_serif = _font("Lora-Variable", fb, font_body)
+	font_serif_italic = _font("Lora-Italic-Variable", fb, font_serif)
+	if font_serif is FontFile:
+		var b := FontVariation.new()
+		b.base_font = font_serif
+		b.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("wght"): 700}
+		font_serif_bold = b
+	else:
+		font_serif_bold = font_bold
 	ThemeDB.fallback_font = font_body
 
 

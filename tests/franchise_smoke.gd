@@ -356,6 +356,10 @@ func _visit_pages(hub, phase: String) -> void:
 	if not hub.season.retirements.is_empty():
 		var r_s: Soldier = hub.season.retirements[0]["soldier"]
 		builders["retired_player"] = func(): return p.player(r_s)
+	builders["news_archive"] = p.news_archive
+	for ni in [0, hub.season.newsroom.count() - 1]:
+		var nii: int = ni
+		builders["news_article_%d" % nii] = func(): return p.news_article(nii)
 	p.retire_scope_team = false
 	for key in builders:
 		hub.open(key, builders[key])
