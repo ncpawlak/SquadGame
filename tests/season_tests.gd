@@ -43,6 +43,11 @@ func _init() -> void:
 		"test_dna_profiles",
 		"test_fa_dna_weights",
 		"test_resign_negotiation",
+		"test_negotiation_terms",
+		"test_keep_the_core",
+		"test_bond_pull_in_talks",
+		"test_negotiation_tactics",
+		"test_negotiation_arguments",
 		"test_starter_promises",
 		"test_trades",
 		"test_trade_need_factor",
@@ -1321,14 +1326,15 @@ func test_resign_negotiation() -> void:
 	r = _expiring_talks(82)
 	n = r[3]
 	so = r[2]
-	n.arguments().append({"id": &"test", "title": "Test", "pitch": "You're replaceable.", "evidence": 1.0, "evidence_text": "", "fit": 0.05, "tone": "hard", "used": false})
+	n.arguments().append({"id": &"test", "title": "Test", "pitch": "You're replaceable.", "evidence": 1.0, "evidence_text": "", "fit": 0.05, "tone": "hard", "group": Negotiation.HARDBALL, "used": false})
 	var before := n.demand(2)
 	var trust := so.trust
 	var bf := n.use_argument(&"test")
 	check(bf["result"] == "backfired" and n.demand(2) > before and so.trust < trust, "bad-fit argument backfires")
+	check(n.missteps == 1 and r[0].talks_log.any(func(e): return e["kind"] == &"backfired" and e["soldier"] == so), "backfire logged for storylines")
 	# A promise is worth money to a playing-time guy.
 	so.get_dna().playing_time = 90
-	check(n.demand(2, true) < n.demand(2) or n.demand(2) <= n.floor_salary(2), "promise lowers his demand")
+	check(n.required_salary(2, {"promise": true}) < n.required_salary(2) or n.required_salary(2) <= n.floor_salary(2), "promise lowers the salary he needs")
 	# Lowballing until he walks.
 	r = _expiring_talks(83)
 	s = r[0]
@@ -1350,6 +1356,157 @@ func test_resign_negotiation() -> void:
 	var late: Soldier = user.roster[0]
 	late.contract.years = 0
 	check(not s.can_resign() and s.negotiation(user, late) == null, "no new talks once the window closes")
+
+
+func test_negotiation_terms() -> void:
+	var r := _expiring_talks(84)
+	var s: Season = r[0]
+	var user: Team = r[1]
+	var so: Soldier = r[2]
+	var n: Negotiation = r[3]
+	var d := so.get_dna()
+	# Every term adds value; none can buy him under his floor in cash.
+	var base := n.required_salary(3)
+	check(n.term_value(&"no_trade", 3, {}) > 0.0, "a no-trade clause is worth something")
+	d.loyalty = 95
+	var loyal_ntc := n.term_value(&"no_trade", 3, {})
+	d.loyalty = 5
+	d.hometown = 5
+	check(loyal_ntc > n.term_value(&"no_trade", 3, {}), "loyal players value a no-trade clause more")
+	d.money = 95
+	var greedy := n.term_value(&"bonus", 3, {"bonus": 3000})
+	d.money = 5
+	check(greedy > n.term_value(&"bonus", 3, {"bonus": 3000}) and greedy > 1000.0, "money-driven players value a bonus above its cash")
+	var all := {"bonus": 1500, "no_trade": true, "promise": true}
+	var cheap := n.required_salary(3, all)
+	check(cheap <= base, "terms lower the salary he needs")
+	check(n.cash_per_year(cheap, 3, all) >= n.floor_salary(3) - 10, "terms never buy him below his floor")
+	check(not n.accepts(cheap - 100, 3, all), "just below the required salary doesn't sign")
+	# Signing books the bonus and the clause.
+	var cy := s.cap_year()
+	var before := Contracts.payroll(user, cy) - Contracts.cap_hold(so)
+	var res := n.accept(3, all)
+	check(res["result"] == "signed", "accepting with terms signs (%s)" % res["text"])
+	if res["result"] == "signed":
+		check(so.contract.bonus == 1500 and so.contract.no_trade and so.contract.salary == cheap, "contract carries the terms")
+		check(int(user.bonus_money.get(cy, 0)) >= 1500, "bonus booked on the cap year")
+		check(Contracts.payroll(user, cy) == before + cheap + 1500, "payroll counts salary plus bonus")
+		check(not so.promise.is_empty(), "starter promise tracked")
+		check(not Trades.tradeable(so), "no-trade clause blocks trades")
+		so.trade_request = true
+		check(Trades.tradeable(so), "a trade request waives the clause")
+		so.trade_request = false
+	# Bonus counts against this year's cap.
+	r = _expiring_talks(85)
+	n = r[3]
+	check(n.offer_error(Contracts.MIN_SALARY, 2, {"bonus": Contracts.SALARY_CAP}) != "", "bonus over the cap rejected")
+	check(n.offer_error(1000, 2, {"bonus": -5}) != "", "negative bonus rejected")
+
+
+func test_keep_the_core() -> void:
+	var r := _expiring_talks(86)
+	var s: Season = r[0]
+	var user: Team = r[1]
+	var so: Soldier = r[2]
+	var n: Negotiation = r[3]
+	var pal: Soldier = null
+	for o in user.roster:
+		if o != so and o.contract != null and not o.contract.is_expiring():
+			pal = o
+			break
+	check(pal != null, "a teammate under contract")
+	s.relationships.pairs[Relationships.key(so.id, pal.id)] = {"pts": 99.0, "m": 20, "d": 0.0}
+	check(n.keep_target() == pal and n.term_value(&"keep", 2, {}) > 0.0, "his closest teammate can be promised")
+	check(s.relationships.bond_pull(so, user) >= 0.5, "an Inseparable bond pulls him")
+	check(n.arguments().any(func(a): return a["id"] == &"teammates"), "teammates argument available with a strong bond")
+	var res := n.accept(2, {"keep": true})
+	check(res["result"] == "signed" and so.keep_promise.get("id", -1) == pal.id, "keep promise recorded")
+	var trust := so.trust
+	s.release_player(user, pal)
+	check(so.keep_promise.is_empty() and so.trust < trust, "cutting the teammate breaks the promise")
+	check(s.talks_log.any(func(e): return e["kind"] == &"keep_broken" and e["soldier"] == so), "broken keep promise logged")
+
+
+func test_bond_pull_in_talks() -> void:
+	var r := _expiring_talks(87)
+	var s: Season = r[0]
+	var user: Team = r[1]
+	var so: Soldier = r[2]
+	for k in s.relationships.pairs.keys():
+		if k.x == so.id or k.y == so.id:
+			s.relationships.pairs.erase(k)
+	s.negotiations.clear()
+	var lone := Negotiation.start(s, user, so)
+	for o in user.roster:
+		if o != so:
+			s.relationships.pairs[Relationships.key(so.id, o.id)] = {"pts": 85.0, "m": 20, "d": 0.0}
+	var bonded := Negotiation.start(s, user, so)
+	check(bonded.demand_mult < lone.demand_mult and bonded.floor_mult <= lone.floor_mult, "bonds soften his demand")
+	check(bonded.talk.any(func(t): return "close with" in t["text"]), "agent mentions his friends")
+	var other: Team = s.league.teams.filter(func(t: Team): return t != user)[0]
+	var fa_score := FreeAgency.score(user, so, 2000, 2) - FreeAgency.score(other, so, 2000, 2)
+	for k in s.relationships.pairs.keys():
+		if k.x == so.id or k.y == so.id:
+			s.relationships.pairs.erase(k)
+	check(fa_score > FreeAgency.score(user, so, 2000, 2) - FreeAgency.score(other, so, 2000, 2), "free agents lean toward bonded teammates")
+
+
+func test_negotiation_tactics() -> void:
+	var r := _expiring_talks(88)
+	var s: Season = r[0]
+	var so: Soldier = r[2]
+	var n: Negotiation = r[3]
+	var p := n.patience
+	var a := n.ask(2)
+	check(a["ok"] and not n.revealed.is_empty() and n.patience < p, "asking reveals his range")
+	check(int(n.revealed["low"]) <= n.floor_salary(2) and int(n.revealed["high"]) >= n.floor_salary(2), "range contains his floor")
+	check(not n.can_ask(), "only ask once")
+	check(not n.can_smooth() or so.trust < Negotiation.SMOOTH_TRUST_BELOW, "nothing to smooth over yet")
+	n.make_offer(Contracts.MIN_SALARY, 2)
+	if n.is_open() and n.missteps > 0:
+		var dm := n.demand_mult
+		var t := so.trust
+		check(n.smooth_over()["ok"] and so.trust > t and n.demand_mult <= dm, "smoothing over repairs a lowball")
+		check(not n.can_smooth(), "smooth over once")
+	n.patience = 30.0
+	var m := n.demand_mult
+	n.demand_mult = n.floor_mult
+	check(n.sleep_on_it()["ok"] and n.patience == 55.0, "sleeping on it restores patience")
+	check(n.demand_mult > n.floor_mult and n.demand_mult <= m + 1.0, "his ask drifts back up overnight")
+	check(not n.can_sleep(), "sleep on it once")
+	# Final offer: at his number he signs; far below he walks.
+	var want := n.required_salary(2)
+	r = _expiring_talks(89)
+	var n2: Negotiation = r[3]
+	var low := n2.final_offer(Contracts.MIN_SALARY, 2)
+	check(low["result"] == "walked" and n2.state == Negotiation.WALKED, "lowball final offer: he walks")
+	check(r[0].talks_log.any(func(e): return e["kind"] == &"walked"), "walkout logged")
+	var fin := n.final_offer(want, 2)
+	check(fin["result"] == "signed" or n.offer_error(want, 2) != "", "final offer at his number signs")
+	check(s != null, "season ok")
+
+
+func test_negotiation_arguments() -> void:
+	var r := _expiring_talks(90)
+	var s: Season = r[0]
+	var user: Team = r[1]
+	var so: Soldier = r[2]
+	var n: Negotiation = r[3]
+	if user.home_state == "":
+		user.home_state = "TX"
+	so.home_state = user.home_state
+	so.get_dna().hometown = 90
+	user.market_rating = 95
+	n._args_cache = []
+	var ids := n.arguments().map(func(a): return a["id"])
+	check(ids.has(&"hometown") and ids.has(&"big_stage"), "hometown and big-stage pitches exist when the data backs them (%s)" % [ids])
+	for a in n.arguments():
+		check(a["group"] == (Negotiation.SELL if a["tone"] == "soft" else Negotiation.HARDBALL), "%s grouped by tone" % a["id"])
+	check(n.arguments_in(Negotiation.SELL).size() + n.arguments_in(Negotiation.HARDBALL).size() == n.arguments().size(), "every argument in a tab")
+	so.home_state = ""
+	n._args_cache = []
+	check(not n.arguments().any(func(a): return a["id"] == &"hometown"), "no hometown pitch without a home state")
+	check(s != null, "season ok")
 
 
 func test_starter_promises() -> void:
