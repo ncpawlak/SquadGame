@@ -271,7 +271,7 @@ func need_factor(season: Season, team: Team, s: Soldier) -> float:
 	elif ahead > slots:
 		var units := maxi(1, buried_by - slots + 1)
 		var step := 0.3
-		if s.age <= 24 and s.potential >= Soldier.POTENTIAL_A - 1:
+		if s.age <= 24 and s.dev >= 3:
 			step = 0.12 if mode(season, team) == REBUILDING else 0.18
 		f = maxf(0.25, 0.85 - step * float(units))
 	var full := team.roster.size() >= (Team.ROSTER_SIZE if season.phase != Season.PHASE_OFFSEASON else Team.OFFSEASON_MAX)

@@ -762,6 +762,7 @@ func close_preseason_camp() -> void:
 	for t in league.teams:
 		if not t.user_controlled:
 			camp.ai_run(t, _rng)
+	_camp_star_news()
 	offseason_xp(CAMP_WEEK_XP)
 	preseason_camp = false
 	draft.scout_points += Draft.POINTS_PER_WEEK
@@ -771,7 +772,20 @@ func close_preseason_camp() -> void:
 func run_drill(group: StringName, s: Soldier) -> Dictionary:
 	if not camp_open() or camp == null:
 		return {}
-	return camp.run(user_team(), group, s, _rng)
+	var res := camp.run(user_team(), group, s, _rng)
+	if res.get("dev_up", false):
+		news.camp_star(self, user_team(), s, Camp.drill_name(group))
+	return res
+
+
+## Wire stories for every camp drill that earned a dev star (each soldier at most once a year).
+func _camp_star_news() -> void:
+	for t in league.teams:
+		var by_group: Dictionary = camp.team_results(t)
+		for g in by_group:
+			var r: Dictionary = by_group[g]
+			if r.get("dev_up", false):
+				news.camp_star(self, t, r["soldier"], Camp.drill_name(g))
 
 
 func camp_check(group: StringName, s: Soldier) -> String:
@@ -856,6 +870,7 @@ func _advance_offseason_step() -> Array:
 			for t in league.teams:
 				if not t.user_controlled:
 					camp.ai_run(t, _rng)
+			_camp_star_news()
 			offseason_xp(CAMP_WEEK_XP)
 			offseason_stage = OFF_DONE
 			relationships.offseason_week(league)
@@ -936,7 +951,7 @@ func _ai_resign() -> void:
 		var exp := Contracts.expiring(t)
 		exp.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
 		for s in exp:
-			var keep := s.age <= 33 and (s.best_ovr() >= bar - 2 or (s.age <= 25 and s.potential >= 3))
+			var keep := s.age <= 33 and (s.best_ovr() >= bar - 2 or (s.age <= 25 and s.potential_grade() >= 3))
 			var yrs := Contracts.preferred_years(s)
 			var salary := Contracts.resign_asking(s, yrs)
 			if keep and Contracts.resign_fits(t, cap_year(), s, salary):
@@ -1129,6 +1144,7 @@ func _advance() -> void:
 		retirements.append_array(Retirement.run(self, retire_rng))
 		last_floor_penalties = Contracts.charge_floor(league, year)
 		news.end_season(self, last_floor_penalties)
+		news.dev_changes(self, review.dev_changes)
 		Contracts.rollover(league)
 		offseason_stage = OFF_RESIGN
 		fa_day = 0

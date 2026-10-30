@@ -278,6 +278,9 @@ class _Reader:
 			for name in props:
 				if known.has(name):
 					_assign(o, name, dec(props[name]))
+				elif o.has_method("_migrate_prop"):
+					# Renamed/removed fields from older saves.
+					o._migrate_prop(name, dec(props[name]))
 		return objects[0] if not objects.is_empty() else null
 
 	func _instantiate(entry: Dictionary) -> Object:

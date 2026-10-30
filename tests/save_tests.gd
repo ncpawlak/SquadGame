@@ -16,6 +16,7 @@ func _init() -> void:
 		"test_news_round_trip",
 		"test_newsroom_round_trip",
 		"test_slot_api",
+		"test_legacy_potential_migrates",
 	]
 	var only := OS.get_environment("ONLY")
 	if only != "":
@@ -39,6 +40,16 @@ func check(cond: bool, msg: String) -> void:
 	if not cond:
 		_failures += 1
 		printerr("    [%s] %s" % [_current, msg])
+
+
+## Old saves stored a single F..A "potential" grade; it maps to dev stars.
+func test_legacy_potential_migrates() -> void:
+	for pair in [[0, 1], [1, 1], [2, 2], [3, 3], [4, 4]]:
+		var so := Soldier.new()
+		so._migrate_prop("potential", pair[0])
+		check(so.dev == pair[1], "grade %d -> %d stars (got %d)" % [pair[0], pair[1], so.dev])
+	var d := {"id": 1, "first": "A", "last": "B", "age": 30, "potential": 4, "stats": {}, "caps": {}}
+	check(League.soldier_from_dict(d).dev == Soldier.DEV_MAX, "legacy league.json potential maps to stars")
 
 
 # --- helpers ---------------------------------------------------------------
@@ -66,7 +77,7 @@ func standings_text(s: Season) -> String:
 
 
 func soldier_text(so: Soldier) -> String:
-	return var_to_str([so.id, so.first_name, so.last_name, so.age, so.potential, so.stats, so.career,
+	return var_to_str([so.id, so.first_name, so.last_name, so.age, so.dev, so.dev_year, so.stats, so.career,
 		so.contract.salary if so.contract else -1, so.contract.years if so.contract else -1,
 		so.level, so.xp, so.morale, so.fatigue, so.injury_weeks])
 

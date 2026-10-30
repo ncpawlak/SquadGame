@@ -28,8 +28,8 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
 - **The league** (`scripts/core/league_data.gd`, `data/league.json`): 20 fixed franchises in 4 divisions of 5 -
   East (NYE, DET, BOS, IND, BKN), South (CHA, ATL, MIA, NSH, ORL), Central (ARL, CHI, STL, LOU, LRK) and West
   (LAS, SEA, SDV, REN, DEN) - each with its city, colours, home state, backstory and a **hand-authored 12-man
-  roster** (names, ratings, ages, potential, DNA, home states and contracts are fixed; the same in every new
-  franchise). Team OVRs start from 85 (New York Empire) down to 65 (Little Rock Riverhawks), league average ~75: most players sit between 60 and 85 and only a handful are 90+. Each team carries 2-4 A/B potential players (better teams more); most are C or lower. Every team has the same
+  roster** (names, ratings, ages, dev stars, DNA, home states and contracts are fixed; the same in every new
+  franchise). Team OVRs start from 85 (New York Empire) down to 65 (Little Rock Riverhawks), league average ~75: most players sit between 60 and 85 and only a handful are 90+. Each team carries 2-4 players with 3-4 dev stars (better teams more); most have 1-2. Stars are fixed (mapped from the old grade: F/D 1, C 2, B 3, A 4; 90+ OVR at least 3, 85+ at least 2; promising rookies 3-4); only draft prospects roll them. Every team has the same
   cap, so payrolls (and cap space) differ. `tools/build_league.gd` regenerates `league.json` from the table in
   `league_data.gd` with one fixed seed (only needed if the table changes).
 - **Team logos** (`assets/logos/<ABBR>.png`, 256x256 transparent PNGs): shown on team-select tiles (inside an
@@ -107,7 +107,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   from each other division (3) and has one **bye**. The **playoffs** take 8 teams: the 4 division winners are seeds
   1-4 (by record), then the 4 best other records are wild cards 5-8. Bracket 1v8, 4v5, 2v7, 3v6 (no reseeding),
   higher seed hosts: Quarterfinals → Semifinals → Final.
-  Then the end-of-season review (awards and potential changes), the offseason (re-sign → free agency → draft → roster review → training camp),
+  Then the end-of-season review (awards and dev star changes), the offseason (re-sign → free agency → draft → roster review → training camp),
   and aging → next season (rosters, ratings and contracts carry over).
 - **Standings** (League → Standings): Divisions / Whole league toggle with W-L, division record and a SEED column
   (DIV / WC) for the current playoff picture. League → Playoffs shows the projected logo bracket in-season and the live
@@ -154,8 +154,8 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   Most classes hide one unlabelled **phenom** (sometimes none or two). A phenom lists one position but grades
   well in every group, so he can play anywhere. AI teams don't know who they are, and the league consensus
   underrates them.
-  Every class also has **standouts**: 3-6 unlabelled **blue chips** (day-one contributors at 68-72 OVR, B/A potential),
-  sometimes (about 1 class in 5) a **generational** talent (74-77 OVR, A potential), and 8-12 **specialists** (one
+  Every class also has **standouts**: 3-6 unlabelled **blue chips** (day-one contributors at 68-72 OVR, B/A potential, 2-4 stars),
+  sometimes (about 1 class in 5) a **generational** talent (74-77 OVR, A potential, 4 stars), and 8-12 **specialists** (one
   stat in the 84-95 range). Scouting is how you find them.
 - **Prospect news**: 0-2 stories a week during the season (Scouting page, League News → Prospect Watch, Home news box):
   stock rising, stock falling, and stat notes ("claimed #1 in the country for long range target practice").
@@ -231,20 +231,19 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   In the offseason your roster can be any size (trades, draft picks, extra signings), but **Week 1 needs exactly 12**:
   release down or sign up to it (an urgent "Roster Cuts" / "Roster Spots Open" to-do on Home). After Week 1
   you can play with 8-12; going over 12 by trade blocks your next match until you cut. AI teams carry up to 15 through
-  free agency and the draft and cut to 12 when camp ends, by a **keep score**: current OVR, upside (potential gap x
-  grade, weighted toward youth), age decline, depth at his role (starters and the top backup are safe; players buried
+  free agency and the draft and cut to 12 when camp ends, by a **keep score**: current OVR, upside (ceiling gap x
+  dev stars, weighted toward youth), age decline, depth at his role (starters and the top backup are safe; players buried
   behind better prospects drop), a bonus for recent draft picks (round 1 > 2 > 3, fading after two years) and contract
-  (dead money, surplus value). So a young A-potential is kept over a late-20s C, and fresh picks aren't cut into free agency.
+  (dead money, surplus value). So a young 4-star is kept over a late-20s 2-star, and fresh picks aren't cut into free agency.
 - **Training camp** (`scripts/season/camp.gd`, Home → Training Camp): one drill per rating group (Marksmanship Range,
   Weapons Lab, Combine Gauntlet, War Room, Hill Assault, Iron Conditioning). Pick a drill, pick a soldier, see his ratings boost.
-  One soldier per drill and one drill per soldier. The point pool depends on potential (A 9-13, B 7-10, C 5-8, D 3-6,
-  F 2-4), spread at random over the group's stats (max +4 each). Drills respect group caps: a capped group
-  shows "Capped" and can't be drilled, and points stop landing once the group reaches its cap. AI teams run theirs when camp closes; advancing with
+  One soldier per drill and one drill per soldier. The point pool depends on dev stars (4★ 9-13, 3★ 7-10, 2★ 5-8, 1★ 3-6), spread at random over the group's stats (max +4 each). Drills respect group caps: a capped group
+  shows "Capped" and can't be drilled, and points stop landing once the group reaches its cap. Each drill has a small chance to earn a dev star (4%, x1.25 at 22 and under, x0.6 at 27-30, x0.3 at 31+; max one star change a season). AI teams run theirs when camp closes; advancing with
   unused drills asks you to confirm first.
   A new franchise opens in a **preseason training camp** before Week 1 (same drills; "Start 2026 Season" closes it). The home hero shows the camp, not Week 1. Drill pick tables sort by any column and hide soldiers who already attended a drill.
   Hovering a row shows the soldier in the pane above; clicking opens an "are you sure" popup with his portrait, age,
   OVR, potential and point pool.
-- **Offseason XP**: every offseason step is an XP week (100 base XP, scaled by age and potential), and camp week gives 250.
+- **Offseason XP**: every offseason step is an XP week (100 base XP, scaled by age and dev stars), and camp week gives 250.
 - **Free agency** (`scripts/season/free_agency.gd`, League → Free Agents): unsigned soldiers with all ratings
   visible. A big **Available to spend** readout on top shows cap − current salaries (incl. dead money) − pending offers. Bidding: make offers (salary and years) during FA days or in-season. In-season (training camp included) a free agent answers your offer on the spot, weighing every current
   offer: he signs with you, picks another team, or turns you down so you can raise it. In the offseason each round every free agent scores
@@ -253,8 +252,8 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   job), a loyalty pull toward his former club (scaled by trust) and a security bonus for his preferred length. The
   offer page shows what he weighs and has a starter-promise toggle. It lists every team's current offer with a bar for his interest in each (the tick marks his bar). Unsigned players lower their asking price over time. AI teams bid too: every team with
   cap room chases free agents who would upgrade its weakest starter or depth (so top free agents draw several offers).
-  A full AI roster releases its least valuable player to make room. "Keep value" weighs OVR, age, potential and
-  salary, so a late-20s C-potential depth player is cut long before a young A/B prospect.
+  A full AI roster releases its least valuable player to make room. "Keep value" weighs OVR, age, dev stars, ceiling and
+  salary, so a late-20s 2-star depth player is cut long before a young 3-4 star prospect.
 - **Retirement** (`scripts/season/retirement.gd`): soldiers retire from age 35 (always by 39), more likely as
   they decline. Free agents unsigned for a season retire if they're weak or 33+, which keeps the pool churning.
   Home/League → Retirements lists them by year, toggling between your team and the league.
@@ -295,7 +294,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   results and upsets happen without changing ratings.
 - **Awards** (scripts/season/season_review.gd, Home → Awards): after the Final the league hands out Season MVP,
   Best Frontman/Center/Flex, Rookie of the Year and a 5-man All-League team (2 FM, 1 C, 2 FX), ranked on impact
-  per game (min 4 games). During the season the page shows the MVP race. It also lists potential changes and
+  per game (min 4 games). During the season the page shows the MVP race. It also lists dev star changes and
   this year's aging declines.
 - **Home**: a big pane for this week's match (both teams' OVR and record, starter averages per group plus morale and
   energy as head-to-head bars, and two impact players per side), with the This Week to-dos and news box described
@@ -322,7 +321,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   factors, OVR at each position and every attribute), **Ratings** (spend skill points), **Contract** (details,
   re-sign, release with a confirm step), **Stats** (a Season / Career toggle: Season lists every match this year - opponent, W/L score and the full line - with the season total; Career is the season-by-season lines and career total), **DNA** (motivations, personality, trust, promise status, trade request, chemistry bonds) and
   **Progression**: every rating change with when and why, newest first by season - level-ups (skill points), training
-  camp drills, age decline and end-of-season potential re-grades - with +/- per stat and OVR before → after.
+  camp drills, age decline and end-of-season dev star re-grades - with +/- per stat and OVR before → after.
   League Leaders, League/Team Stats, box scores, the matchup screen and Free Agents all open it.
 - **Team Stats / League Stats** (Team → Team Stats, League → League Stats): every soldier's season line (callsign and
   name, team, position, GP, K, D, A, K/D, saves, damage, headshots, HS%, hit%, wipes, hill time, captures, MVPs),
@@ -447,19 +446,21 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
     94+ are 4× less likely to receive upgrade points, so 99s stay rare.
   - Only a soldier's two highest group caps may exceed 89 (`PlayerGenerator.limit_elite_caps`), so even
     superstars keep a hole or two.
-  - **XP gain scales with age AND potential** (`AGE_POTENTIAL_XP`), tuned for these season OVR gains (before age
-    decline): 19-22 A +5-7 / B +3-4 / C +1-2 / D-F 0-1; 23-26 A +3-4 / B +2-3 / C +1; 27-30 A +1-2 / B +1;
-    31-33 small; 34+ next to none. Good seasons push a soldier toward the top of his range.
-  - **Potential** is an A–F grade, rolled by age (young players skew higher); draft phenoms are A (sometimes B).
-  - Each group has a hidden cap (CFB27 style). Headroom comes from age, is multiplied by the potential grade
-    (A 1.7× … F 0.4×) and by a random per-group factor, so a high grade means more room overall but which
-    groups get it is random.
-  - **End-of-season re-grade**: MVP +1 (50% chance of +2); a position award, All-League or Rookie of the Year +1;
-    performance well above/below the rating rank (impact-per-game percentile vs OVR percentile, ±0.3) ±1;
-    only players 25 and under (or graded D/F) can earn +1 from performance; age 30–32 50% chance of −1, 33+ −1,
-    A/B players 27+ 35% chance of −1; a 5+ week injury 50% chance of −1; 22+ and under 4 games played 45%
-    chance of −1 (award winners exempt). Max ±2 a year. Each step up adds 2–6 to a
-    random group's cap; each step down removes 2–6 (never below the current rating).
+  - **Dev stars (1-4, military insignia: 1 star, 2 side by side, 3 in a triangle, 4 in a 2x2)** control how fast a
+    soldier grows: XP gain scales with age AND stars (`Progression.AGE_DEV_XP`; e.g. 22 and under 0.25× / 0.75× /
+    2.6× / 7.5× for 1-4 stars, shrinking with age) and the camp point pool. Most players have 1-2; 4 is rare.
+    Draft prospects roll them by age (`PlayerGenerator.roll_dev`); phenoms and generationals are 4 (phenoms sometimes 3).
+  - **Potential (A-F)** is "how good will he be": it comes only from his stat ceiling (OVR at his caps,
+    `Soldier.potential_ovr()`), A 89+, B 83-88, C 76-82, D 68-75, F below 68. It never drops with age or a bad
+    season, so a 90 OVR veteran is always B or better. Stars and Potential are separate: a 1-2 star player can have
+    a high ceiling (slow to get there, cheap to grab early).
+  - Each group has a hidden cap (CFB27 style). Headroom comes from age, a per-player ceiling roll and the stars
+    (1★ 0.8× … 4★ 1.5×), plus a random per-group factor.
+  - **End-of-season star re-grade** (`SeasonReview`): gain chances combine (MVP 60%, Rookie of the Year 35%, best
+    role 30%, All-League 25%, breakout +4 OVR at 24 and under 30%, outplayed his rating 15%, veteran mentor 8%,
+    Player of the Week 2% each up to 10%), scaled by age. Losses only without a gain or an award: 5+ week injury
+    35%, barely played 35%, underperformed 25%, age 30+ 8% (33+ 15%). At most ±1 star a season (camp included).
+    Star changes don't move caps.
   - **Aging** (scripts/sim/aging.gd): everyone ages a year each offseason. Past a group's peak age
     (Physicality 28, Injury 29, Accuracy 30, Handling 31, Objective 31, Mentality 33) its stats drop each year, ~1 per stat
     the first year and faster after (+0.75 a year, up to 6). Caps drop with them. Cap headroom also runs out

@@ -1,17 +1,27 @@
 class_name Soldier
 extends RefCounted
-## A single player/soldier. Ratings live in `stats`. `potential` is an A-F grade that scales XP
-## gain; each upgradable stat group also has a hidden cap in `group_caps` (rolled at random but
-## larger for higher potential): skill points can't raise a group past its cap.
+## A single player/soldier. Ratings live in `stats`. Each upgradable stat group has a hidden cap
+## in `group_caps`: skill points can't raise a group past its cap.
+## Two development ratings, both shown:
+## - `dev` (1-4 stars): how fast he gains XP. Moves with awards, performance and camp drills.
+## - Potential (A-F, potential_grade()): his stat ceiling, i.e. the OVR he'd reach with every
+##   group at its cap. Not stored; it falls naturally as aging lowers caps.
 
 const INTENSITY_REST := &"rest"
 const INTENSITY_LIGHT := &"light"
 const INTENSITY_NORMAL := &"normal"
 const INTENSITY_HEAVY := &"heavy"
 
-## Potential grades, worst to best (index = Soldier.potential).
+## Potential grades, worst to best (index = potential_grade()).
 const POTENTIAL_LETTERS := ["F", "D", "C", "B", "A"]
 const POTENTIAL_A := 4
+## Minimum ceiling (potential_ovr) for D, C, B and A.
+const POTENTIAL_CUTOFFS := [68, 76, 83, 89]
+## Dev trait range (stars).
+const DEV_MIN := 1
+const DEV_MAX := 4
+## Old saves / league data stored a single F..A grade; it maps to stars like this.
+const LEGACY_GRADE_TO_DEV := [1, 1, 2, 3, 4]
 
 var id: int
 var first_name: String
@@ -20,8 +30,10 @@ var age: int
 var stats: Dictionary = {}
 ## group id -> cap (0-99) for each of Stats.UPGRADABLE_GROUPS.
 var group_caps: Dictionary = {}
-## 0 (F) .. 4 (A). Scales XP gain; moves with end-of-season performance and age.
-var potential: int = 2
+## Dev trait, 1-4 stars: scales XP gain. Moves at most one star a season.
+var dev: int = 2
+## Season year of his last dev star change (one change per season).
+var dev_year: int = 0
 ## Year he was drafted (0 = not a draftee). Used for Rookie of the Year.
 var draft_year: int = 0
 ## Overall pick number he went at (0 = undrafted / unknown).
@@ -101,7 +113,8 @@ var career := {"matches": 0, "rounds": 0, "kills": 0, "deaths": 0, "assists": 0,
 var season_lines: Dictionary = {}
 
 ## Progression history, oldest first. Each: {year, when, reason, changes: stat -> delta,
-## ovr_from, ovr_to, pot_from, pot_to (-1 when the grade didn't move)}.
+## ovr_from, ovr_to, dev_from, dev_to (-1 when his stars didn't move)}. Entries from older saves
+## carry pot_from / pot_to (the old F..A grade) instead.
 var history: Array = []
 ## Where new history entries are stamped; Season keeps this current ("Week 3", "Offseason", ...).
 static var log_year := 0
@@ -277,8 +290,51 @@ func is_injured() -> bool:
 	return injury_weeks > 0
 
 
+## Potential grade 0 (F) .. 4 (A) from his stat ceiling (potential_ovr).
+func potential_grade() -> int:
+	return grade_for_ceiling(potential_ovr())
+
+
+static func grade_for_ceiling(ceiling: int) -> int:
+	var g := 0
+	for c in POTENTIAL_CUTOFFS:
+		if ceiling >= c:
+			g += 1
+	return g
+
+
 func potential_letter() -> String:
-	return POTENTIAL_LETTERS[clampi(potential, 0, POTENTIAL_A)]
+	return POTENTIAL_LETTERS[potential_grade()]
+
+
+## "★★★" for dev 3 (text fallback where the insignia graphic doesn't fit).
+static func dev_stars(stars: int) -> String:
+	return "★".repeat(clampi(stars, DEV_MIN, DEV_MAX))
+
+
+func dev_text() -> String:
+	return dev_stars(dev)
+
+
+## Moves his dev trait by `delta` stars (clamped 1-4) and stamps the season. Returns the change.
+func change_dev(delta: int, year: int) -> int:
+	var to := clampi(dev + delta, DEV_MIN, DEV_MAX)
+	var moved := to - dev
+	if moved != 0:
+		dev = to
+		dev_year = year
+	return moved
+
+
+## True if his dev trait already moved this season.
+func dev_changed_in(year: int) -> bool:
+	return dev_year == year and year > 0
+
+
+## Save migration: old saves stored the F..A grade in `potential`.
+func _migrate_prop(prop: String, val: Variant) -> void:
+	if prop == "potential" and typeof(val) == TYPE_INT:
+		dev = LEGACY_GRADE_TO_DEV[clampi(int(val), 0, LEGACY_GRADE_TO_DEV.size() - 1)]
 
 
 ## Ratings if every upgradable group reached its cap (each stat raised by the group's headroom).
@@ -301,22 +357,27 @@ func add_usage(stat: StringName, amount: float) -> void:
 	usage[stat] += amount
 
 
-## Records a progression event (stat deltas and/or a potential change) in `history`, stamped with
+## Records a progression event (stat deltas and/or a dev star change) in `history`, stamped with
 ## the current log_year / log_when. Repeats of the same reason at the same stamp are merged.
 ## `ovr_before` is best_ovr() before the change was applied.
-func log_progress(reason: String, changes: Dictionary, ovr_before: int, pot_from := -1, pot_to := -1) -> void:
+func log_progress(reason: String, changes: Dictionary, ovr_before: int, dev_from := -1, dev_to := -1) -> void:
 	var deltas := {}
 	for st in changes:
 		if int(changes[st]) != 0:
 			deltas[st] = int(changes[st])
-	if deltas.is_empty() and pot_from == pot_to:
+	if deltas.is_empty() and dev_from == dev_to:
 		return
-	if not history.is_empty() and pot_from == pot_to:
+	if not history.is_empty() and dev_from == dev_to:
 		var last: Dictionary = history[-1]
-		if last["year"] == log_year and last["when"] == log_when and last["reason"] == reason and last["pot_from"] == last["pot_to"]:
+		if last["year"] == log_year and last["when"] == log_when and last["reason"] == reason and not history_has_grade_change(last):
 			for st in deltas:
 				last["changes"][st] = int(last["changes"].get(st, 0)) + deltas[st]
 			last["ovr_to"] = best_ovr()
 			return
 	history.append({"year": log_year, "when": log_when, "reason": reason, "changes": deltas,
-		"ovr_from": ovr_before, "ovr_to": best_ovr(), "pot_from": pot_from, "pot_to": pot_to})
+		"ovr_from": ovr_before, "ovr_to": best_ovr(), "dev_from": dev_from, "dev_to": dev_to})
+
+
+## True if a history entry moved his dev stars (or, in old saves, his potential grade).
+static func history_has_grade_change(e: Dictionary) -> bool:
+	return int(e.get("dev_from", -1)) != int(e.get("dev_to", -1)) or int(e.get("pot_from", -1)) != int(e.get("pot_to", -1))

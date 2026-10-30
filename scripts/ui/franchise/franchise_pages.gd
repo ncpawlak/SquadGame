@@ -722,7 +722,7 @@ func _sort_value(s: Soldier, key: StringName, team: Team) -> Variant:
 	match key:
 		&"name": return s.last_name + " " + s.first_name
 		&"age": return s.age
-		&"pot": return s.potential
+		&"pot": return s.potential_ovr() * 10 + s.dev
 		&"ovr": return _row_ovr(team, s)
 		&"sp": return s.skill_points
 		&"slot": return _slot_order(team, s) if team != null else 0
@@ -848,11 +848,11 @@ func _roster_table(progress_view: bool, team: Team = null, rebuild := Callable()
 
 
 ## Roster table columns: [header, width, sort key]. Rows carry name (with position underneath),
-## age, potential, OVR (with the morale effect), one column per stat group, then per mode:
+## age, potential + dev stars, OVR (with the morale effect), one column per stat group, then per mode:
 ## roster = lineup slot / status; progress = SP + slot / status; fa = asking price + offers.
 const RCOL_NAME := 210
 const RCOL_AGE := 44
-const RCOL_POT := 44
+const RCOL_POT := 64
 const RCOL_OVR := 84
 const RCOL_GROUP := 96
 const RCOL_SP := 44
@@ -943,7 +943,7 @@ func _roster_row(team: Team, s: Soldier, mode: StringName, pane: Control = null)
 	info.add_child(hb)
 	hb.add_child(_two_lines(s.display_name(), Color.WHITE, Scheme.ROLE_NAMES[Scheme.best_role(s.stats)], RCOL_NAME))
 	hb.add_child(_big_cell(str(s.age), UiKit.TEXT, RCOL_AGE, 18))
-	hb.add_child(_big_cell(s.potential_letter(), potential_color(s.potential), RCOL_POT))
+	hb.add_child(_pot_cell(s, RCOL_POT))
 	hb.add_child(_ovr_cell(_row_ovr(team, s), s.morale_ovr_delta(_row_role(team, s)), RCOL_OVR))
 	for g in Stats.GROUP_ORDER:
 		hb.add_child(_rating_cell(s.group_rating(g), RCOL_GROUP))
@@ -1006,7 +1006,8 @@ func _fill_pane(pane: Control, s: Soldier, team: Team) -> void:
 	var role := _row_role(team, s)
 	var ovr := _row_ovr(team, s)
 	facts.add_child(_fact_box("OVR", "[color=%s]%d[/color]%s" % [UiKit.hex(UiKit.ovr_color(ovr)), ovr, delta_bb(s.morale_ovr_delta(role), 16)], false))
-	facts.add_child(_fact_box("POT", "[color=%s]%s[/color]" % [UiKit.hex(potential_color(s.potential)), s.potential_letter()], false))
+	facts.add_child(_fact_box("POT", pot_bb(s), false))
+	facts.add_child(_fact_box_ctrl("DEV", DevInsignia.make(s.dev, 13.0), false))
 	if s.contract != null:
 		facts.add_child(_fact_box("SALARY", Contracts.money(s.contract.salary), false))
 		facts.add_child(_fact_box("CONTRACT", "EXPIRING" if s.contract.is_expiring() else "%d YR%s" % [s.contract.years, "" if s.contract.years == 1 else "S"], false))
@@ -1108,12 +1109,49 @@ static func potential_color(grade: int) -> Color:
 	return TIER_COLORS[clampi(grade, 0, TIER_COLORS.size() - 1)]
 
 
+## His Potential letter in its grade color (BBCode).
+static func pot_bb(s: Soldier) -> String:
+	return "[color=%s]%s[/color]" % [UiKit.hex(potential_color(s.potential_grade())), s.potential_letter()]
+
+
+## Potential letter plus dev stars as text (BBCode), where the insignia graphic doesn't fit.
+static func pot_dev_bb(s: Soldier, star_font := 0) -> String:
+	var stars := s.dev_text() if star_font <= 0 else "[font_size=%d]%s[/font_size]" % [star_font, s.dev_text()]
+	return "%s [color=%s]%s[/color]" % [pot_bb(s), UiKit.hex(DevInsignia.GOLD), stars]
+
+
+## Plain "B ★★★" for text tables.
+static func pot_dev_text(s: Soldier) -> String:
+	return "%s %s" % [s.potential_letter(), s.dev_text()]
+
+
+## Table cell: the Potential letter with the dev-star insignia beside it.
+func _pot_cell(s: Soldier, width: int, size := 24, star := 9.0) -> Control:
+	var hb := _row(6)
+	hb.custom_minimum_size.x = width
+	hb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var l := UiKit.label(s.potential_letter(), size, potential_color(s.potential_grade()))
+	l.add_theme_font_override("font", UiKit.font_heavy)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.add_child(l)
+	hb.add_child(DevInsignia.make(s.dev, star))
+	return hb
+
+
 func _potential_legend() -> Control:
-	var parts: PackedStringArray = []
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 8)
+	var grades: PackedStringArray = []
 	for i in range(Soldier.POTENTIAL_A, -1, -1):
-		parts.append("[color=%s]%s[/color] %sx" % [UiKit.hex(potential_color(i)), Soldier.POTENTIAL_LETTERS[i], str(Progression.AGE_POTENTIAL_XP[0][1][i])])
-	return UiKit.rich("[color=#8b97ab]POT = potential (XP gain, age 22 and under; it shrinks with age):[/color]   " + "   ".join(parts)
-		+ "   [color=#8b97ab]Grades move each offseason with awards, performance and age.[/color]", 14)
+		var floor_txt := ("%d+" % Soldier.POTENTIAL_CUTOFFS[i - 1]) if i > 0 else "<%d" % Soldier.POTENTIAL_CUTOFFS[0]
+		grades.append("[color=%s]%s[/color] %s" % [UiKit.hex(potential_color(i)), Soldier.POTENTIAL_LETTERS[i], floor_txt])
+	flow.add_child(UiKit.rich("[color=#8b97ab]POT = Potential, his projected peak OVR:[/color]  " + "  ".join(grades) + "   [color=#8b97ab]Stars = dev speed (XP, age 22 and under):[/color]", 14))
+	for n in range(Soldier.DEV_MAX, Soldier.DEV_MIN - 1, -1):
+		flow.add_child(DevInsignia.make(n, 8.0))
+		flow.add_child(UiKit.label("%sx" % str(Progression.AGE_DEV_XP[0][1][n - Soldier.DEV_MIN]), 14, UiKit.TEXT))
+	flow.add_child(UiKit.rich("[color=#8b97ab]Stars can move each offseason with awards, Player of the Week, camp and age.[/color]", 14))
+	return flow
 
 func _slot_order(team: Team, s: Soldier) -> int:
 	var slot := team.slot_of(s)
@@ -1243,9 +1281,37 @@ func _player_header(s: Soldier, team: Team) -> Control:
 	var role := _row_role(team, s)
 	var ovr := team.ovr_in_slot(s, team.slot_of(s)) if team != null and team.slot_of(s) != &"" else s.best_ovr()
 	h.add_child(_big_badge("OVR", "[color=%s]%d[/color]%s" % [UiKit.hex(UiKit.ovr_color(ovr)), ovr, delta_bb(s.morale_ovr_delta(role), 18)]))
-	h.add_child(_big_badge("POT", "[color=%s]%s[/color]" % [UiKit.hex(potential_color(s.potential)), s.potential_letter()]))
+	h.add_child(_big_badge("POT", pot_bb(s)))
+	h.add_child(_dev_badge(s))
 	pm.add_child(h)
 	return pane
+
+
+## A _fact_box holding any control (e.g. the dev insignia) instead of text.
+func _fact_box_ctrl(title: String, ctrl: Control, boxed := true) -> Control:
+	var p: Control = UiKit.panel(UiKit.PANEL_HI, 8) if boxed else MarginContainer.new()
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := _vbox(2)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(UiKit.label(title, 12, UiKit.MUTED))
+	ctrl.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	box.add_child(ctrl)
+	p.add_child(box)
+	return p
+
+
+## Header badge with the dev-star insignia (same frame as _big_badge).
+func _dev_badge(s: Soldier) -> Control:
+	var p := _big_badge("DEV", "")
+	var box: VBoxContainer = p.get_child(0)
+	var r: Control = box.get_child(1)
+	r.queue_free()
+	box.remove_child(r)
+	var c := CenterContainer.new()
+	c.custom_minimum_size = Vector2(110, 64)
+	c.add_child(DevInsignia.make(s.dev, 22.0))
+	box.add_child(c)
+	return p
 
 
 func _big_badge(title: String, value_bb: String) -> Control:
@@ -1495,7 +1561,7 @@ func _player_ratings(s: Soldier, team: Team) -> Control:
 	var bars := _row(30)
 	var xp: Array = Progression.xp_progress(s)
 	bars.add_child(_meter("XP", float(xp[0]), float(xp[1]), UiKit.INFO,
-		"%d / %d  (+%d SP)  -  %sx XP from potential" % [xp[0], xp[1], Progression.SKILL_POINTS_PER_LEVEL, str(Progression.xp_multiplier(s))]))
+		"%d / %d  (+%d SP)  -  %sx XP from %d-star dev" % [xp[0], xp[1], Progression.SKILL_POINTS_PER_LEVEL, str(Progression.xp_multiplier(s)), s.dev]))
 	bars.add_child(UiKit.label("%d skill points   -   Training: %s" % [s.skill_points, Training.label(s.intensity)], 16, UiKit.INFO))
 	v.add_child(bars)
 	if editable:
@@ -1699,7 +1765,8 @@ func _player_dna(s: Soldier, team: Team) -> Control:
 	var facts := _row(12)
 	facts.add_child(_fact_box("CALLSIGN", "\"%s\"" % s.callsign.to_upper() if s.callsign != "" else "-"))
 	facts.add_child(_fact_box("ARCHETYPE", Stats.GROUP_LABELS[Callsigns.best_group(s)]))
-	facts.add_child(_fact_box("POTENTIAL", "[color=%s]%s[/color]" % [UiKit.hex(potential_color(s.potential)), s.potential_letter()]))
+	facts.add_child(_fact_box("POTENTIAL", "%s  [font_size=14][color=#8b97ab]peak %d[/color][/font_size]" % [pot_bb(s), s.potential_ovr()]))
+	facts.add_child(_fact_box_ctrl("DEV", DevInsignia.make(s.dev, 16.0)))
 	facts.add_child(_fact_box("DRAFTED", str(s.draft_year) if s.draft_year > 0 else "Original roster"))
 	facts.add_child(_fact_box("MORALE", "[color=%s]%s[/color]" % [UiKit.hex(morale_color(s.morale)), Soldier.morale_label(s.morale)]))
 	v.add_child(facts)
@@ -1845,10 +1912,10 @@ func _dna_color(v: float) -> Color:
 	return UiKit.BAD
 
 
-## Every rating / potential change, newest first, grouped by season, with the reason.
+## Every rating / dev star change, newest first, grouped by season, with the reason.
 func _player_progression(s: Soldier) -> Control:
 	var v := _vbox(10)
-	var tip := UiKit.label("Every rating change this soldier has had and why: level-ups from performance (skill points), training camp drills, age decline and end-of-season potential re-grades.", 15, UiKit.MUTED)
+	var tip := UiKit.label("Every rating change this soldier has had and why: level-ups from performance (skill points), training camp drills, age decline and dev star changes (season review and camp).", 15, UiKit.MUTED)
 	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(tip)
 	if s.history.is_empty():
@@ -1880,9 +1947,15 @@ func _progress_entry(e: Dictionary) -> Control:
 		var d := int(changes.get(st, 0))
 		if d != 0:
 			bits.append("[color=%s]%s %+d[/color]" % [UiKit.hex(UiKit.GOOD if d > 0 else UiKit.BAD), Stats.ABBREV[st], d])
-	var pf := int(e["pot_from"])
-	var pt := int(e["pot_to"])
-	if pf != pt:
+	var df := int(e.get("dev_from", -1))
+	var dt := int(e.get("dev_to", -1))
+	if df != dt and df > 0 and dt > 0:
+		bits.append("DEV [color=%s]%s[/color] -> [color=%s]%s[/color]" % [UiKit.hex(UiKit.MUTED), Soldier.dev_stars(df),
+			UiKit.hex(UiKit.GOOD if dt > df else UiKit.BAD), Soldier.dev_stars(dt)])
+	# Old saves: the retired F..A potential grade.
+	var pf := int(e.get("pot_from", -1))
+	var pt := int(e.get("pot_to", -1))
+	if pf != pt and pf >= 0 and pt >= 0:
 		bits.append("POT [color=%s]%s[/color] -> [color=%s]%s[/color]" % [UiKit.hex(potential_color(pf)), Soldier.POTENTIAL_LETTERS[pf],
 			UiKit.hex(potential_color(pt)), Soldier.POTENTIAL_LETTERS[pt]])
 	var chips := UiKit.rich("   ".join(bits), 15)
@@ -2170,8 +2243,8 @@ func _lineup_card(team: Team, s: Soldier, slot: StringName, refresh: Callable) -
 	box.add_child(nm)
 	var role := team.scheme.role_for_slot(slot) if slot != &"" else Scheme.best_role(s.stats)
 	var o := s.ovr_at_role(role)
-	var nums := UiKit.rich("[center][font_size=12][color=#8b97ab]OVR[/color][/font_size] [color=%s]%d[/color]%s   [font_size=12][color=#8b97ab]POT[/color][/font_size] [color=%s]%s[/color][/center]" % [
-		UiKit.hex(UiKit.ovr_color(o)), o, delta_bb(s.morale_ovr_delta(role), 12), UiKit.hex(potential_color(s.potential)), s.potential_letter()], 20)
+	var nums := UiKit.rich("[center][font_size=12][color=#8b97ab]OVR[/color][/font_size] [color=%s]%d[/color]%s   [font_size=12][color=#8b97ab]POT[/color][/font_size] %s[/center]" % [
+		UiKit.hex(UiKit.ovr_color(o)), o, delta_bb(s.morale_ovr_delta(role), 12), pot_dev_bb(s, 14)], 20)
 	nums.autowrap_mode = TextServer.AUTOWRAP_OFF
 	box.add_child(nums)
 	var st := UiKit.label(("INJURED %dw" % s.injury_weeks) if s.is_injured() else ("%s · FAT %d" % [Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), roundi(s.fatigue)]),
@@ -3648,7 +3721,7 @@ func draft_recap(d: Draft) -> Control:
 	if not mine.is_empty():
 		var parts: PackedStringArray = []
 		for p in mine:
-			parts.append("%s (%s, %d OVR, %s POT)" % [p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role], p.soldier.best_ovr(), p.soldier.potential_letter()])
+			parts.append("%s (%s, %d OVR, %s POT)" % [p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role], p.soldier.best_ovr(), pot_dev_text(p.soldier)])
 		var yours := UiKit.label("YOUR CLASS:  " + ",   ".join(parts), 16, UiKit.ACCENT)
 		yours.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(yours)
@@ -3667,8 +3740,8 @@ func draft_recap(d: Draft) -> Control:
 		var so := p.soldier
 		var tag: Array = tag_of.call(p)
 		var row: Array = [p.pick_number, d.round_of(p.pick_number - 1), p.drafted_by, so.full_name(),
-			Scheme.ROLE_NAMES[p.listed_role], so.age, so.best_ovr(), so.potential_letter()]
-		var c := {6: UiKit.ovr_color(so.best_ovr()), 7: potential_color(so.potential)}
+			Scheme.ROLE_NAMES[p.listed_role], so.age, so.best_ovr(), pot_dev_text(so)]
+		var c := {6: UiKit.ovr_color(so.best_ovr()), 7: potential_color(so.potential_grade())}
 		for gi in Stats.GROUP_ORDER.size():
 			var gr := so.group_rating(Stats.GROUP_ORDER[gi])
 			row.append(gr)
@@ -3730,7 +3803,7 @@ func _camp_next_open(s: Season, from: StringName) -> StringName:
 func _camp_fit(team: Team, g: StringName, so: Soldier) -> float:
 	var slot := team.slot_of(so)
 	var role := team.scheme.role_for_slot(slot) if slot != &"" else Scheme.best_role(so.stats)
-	var v := Progression.group_value(role, g) * 10.0 + so.potential * 2.0 - maxf(0.0, so.age - 26.0)
+	var v := Progression.group_value(role, g) * 10.0 + so.dev * 2.0 + clampf(so.potential_ovr() - so.best_ovr(), 0.0, 15.0) * 0.2 - maxf(0.0, so.age - 26.0)
 	if team.starters().has(so):
 		v += 3.0
 	return v
@@ -3847,11 +3920,11 @@ func training_camp() -> Control:
 		for g in camp.team_results(t):
 			var r: Dictionary = camp.team_results(t)[g]
 			var so: Soldier = r["soldier"]
-			rows.append([t.abbrev, Camp.drill_name(g), so.full_name(), so.potential_letter(), "+%d" % r["points"], "%d -> %d" % [r["ovr_before"], r["ovr_after"]]])
+			rows.append([t.abbrev, Camp.drill_name(g), so.full_name(), pot_dev_text(so), "+%d" % r["points"], "%d -> %d" % [r["ovr_before"], r["ovr_after"]]])
 			targets.append(so)
 	if not rows.is_empty():
 		v.add_child(_section("AROUND THE LEAGUE"))
-		v.add_child(_soldier_table(["TEAM", "DRILL", "PLAYER", "POT", "POINTS", "OVR"], rows, [60, 200, 220, 50, 70, 100], targets))
+		v.add_child(_soldier_table(["TEAM", "DRILL", "PLAYER", "POT", "POINTS", "OVR"], rows, [60, 200, 220, 90, 70, 100], targets))
 	return v
 
 
@@ -3873,16 +3946,14 @@ func _camp_header(s: Season, open: bool) -> Control:
 	h.add_child(_camp_big_stat(str(_camp_plan.size()), "PLANNED", UiKit.ACCENT.lightened(0.15)))
 	var pools := _vbox(4)
 	pools.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	pools.add_child(UiKit.label("POINT POOL BY POTENTIAL  ·  max +%d per stat" % Camp.MAX_STAT_GAIN, 11, UiKit.MUTED))
+	pools.add_child(UiKit.label("POINT POOL BY DEV STARS  ·  max +%d per stat" % Camp.MAX_STAT_GAIN, 11, UiKit.MUTED))
 	var chips := _row(6)
-	for i in range(Soldier.POTENTIAL_A, -1, -1):
+	for i in range(Soldier.DEV_MAX, Soldier.DEV_MIN - 1, -1):
 		var r := Camp.pool_range(i)
 		var chip := UiKit.panel(UiKit.PANEL, 4)
 		chip.get_theme_stylebox("panel").set_content_margin_all(6)
 		var c := _row(6)
-		var l := UiKit.label(Soldier.POTENTIAL_LETTERS[i], 18, potential_color(i))
-		l.add_theme_font_override("font", UiKit.font_heavy)
-		c.add_child(l)
+		c.add_child(DevInsignia.make(i, 8.0))
 		c.add_child(UiKit.label("%d-%d" % [r[0], r[1]], 14, Color.WHITE))
 		chip.add_child(c)
 		chips.add_child(chip)
@@ -3986,8 +4057,8 @@ func _camp_card(s: Season, g: StringName, open: bool) -> Control:
 			nv.add_child(UiKit.label("OVR %d > %d%s" % [res["ovr_before"], res["ovr_after"], ("  (+%d)" % d) if d > 0 else ""], 14,
 				UiKit.GOOD if d > 0 else UiKit.MUTED))
 		else:
-			var pool := Camp.pool_range(who.potential)
-			nv.add_child(UiKit.label("%d OVR  ·  %s POT  ·  %d-%d pts" % [who.best_ovr(), who.potential_letter(), pool[0], pool[1]], 14, UiKit.GOOD))
+			var pool := Camp.pool_range(who.dev)
+			nv.add_child(UiKit.label("%d OVR  ·  %s POT  ·  %d-%d pts" % [who.best_ovr(), pot_dev_text(who), pool[0], pool[1]], 14, UiKit.GOOD))
 		for c in nv.get_children():
 			c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		h.add_child(nv)
@@ -4023,7 +4094,7 @@ func _camp_board(s: Season) -> Control:
 	var spacer := Control.new()
 	spacer.custom_minimum_size.x = 14 + 48 + 14 + 260
 	head.add_child(spacer)
-	for c in [["OVR", 64], ["POT", 52], ["POOL", 70]]:
+	for c in [["OVR", 64], ["POT", 64], ["POOL", 70]]:
 		head.add_child(_col_head(c[0], c[1]))
 	for gr in Stats.GROUP_ORDER:
 		var hl := _col_head(Stats.GROUP_LABELS[gr].to_upper(), 92)
@@ -4072,10 +4143,8 @@ func _camp_board(s: Season) -> Control:
 		var ol := _big_cell(str(ovr), UiKit.ovr_color(ovr), 64, 30)
 		ol.add_theme_font_override("font", UiKit.font_heavy)
 		hb.add_child(ol)
-		var pl := _big_cell(so.potential_letter(), potential_color(so.potential), 52, 26)
-		pl.add_theme_font_override("font", UiKit.font_heavy)
-		hb.add_child(pl)
-		var pool := Camp.pool_range(so.potential)
+		hb.add_child(_pot_cell(so, 64, 26))
+		var pool := Camp.pool_range(so.dev)
 		hb.add_child(_big_cell("%d-%d" % [pool[0], pool[1]], UiKit.GOOD, 70, 18))
 		for gr in Stats.GROUP_ORDER:
 			hb.add_child(_rating_cell(so.group_rating(gr), 92))
@@ -4141,7 +4210,7 @@ func _camp_confirm_card() -> Control:
 		if not _camp_plan.has(g):
 			continue
 		var so: Soldier = _camp_plan[g]
-		var pool := Camp.pool_range(so.potential)
+		var pool := Camp.pool_range(so.dev)
 		var h := _row(14)
 		h.add_child(Portrait.new(so, 44, team.color, team))
 		h.add_child(_big_cell(Camp.drill_name(g), UiKit.TRIM, 200, 16))
@@ -4165,9 +4234,9 @@ func drill_pick(group: StringName) -> Control:
 	var info: Dictionary = Camp.DRILLS[group]
 	v.add_child(UiKit.rich("[font_size=26][color=white]%s[/color][/font_size]     %s drill  -  %s" % [
 		UiKit.esc(info["name"]), Stats.GROUP_LABELS[group], UiKit.esc(info["blurb"])], 16))
-	v.add_child(UiKit.label("Pick the soldier to send. Higher potential = a bigger point pool. Each soldier can attend one drill per camp, so soldiers who already went aren't listed.", 15, UiKit.MUTED))
+	v.add_child(UiKit.label("Pick the soldier to send. More dev stars = a bigger point pool, and every drill has a small chance to earn a star. Each soldier can attend one drill per camp, so soldiers who already went aren't listed.", 15, UiKit.MUTED))
 	var members: Array = Stats.group_stats(group)
-	var cols: Array = [["PLAYER", 220, &"name"], ["POS", 100, &"role"], ["AGE", 44, &"age"], ["OVR", 50, &"ovr"], ["POT", 44, &"pot"],
+	var cols: Array = [["PLAYER", 220, &"name"], ["POS", 100, &"role"], ["AGE", 44, &"age"], ["OVR", 50, &"ovr"], ["POT", 80, &"pot"],
 		[Stats.GROUP_LABELS[group].to_upper(), 100, group]]
 	for st in members:
 		cols.append([Stats.ABBREV[st], 50, st])
@@ -4185,9 +4254,9 @@ func drill_pick(group: StringName) -> Control:
 	for i in list.size():
 		var so: Soldier = list[i]
 		var why := s.camp_check(group, so)
-		var row: Array = [so.full_name(), Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], so.age, so.best_ovr(), so.potential_letter(),
+		var row: Array = [so.full_name(), Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], so.age, so.best_ovr(), pot_dev_text(so),
 			so.group_rating(group)]
-		var c := {3: UiKit.ovr_color(so.best_ovr()), 4: potential_color(so.potential), 5: UiKit.ovr_color(so.group_rating(group))}
+		var c := {3: UiKit.ovr_color(so.best_ovr()), 4: potential_color(so.potential_grade()), 5: UiKit.ovr_color(so.group_rating(group))}
 		for j in members.size():
 			row.append(so.stats[members[j]])
 			c[6 + j] = UiKit.ovr_color(so.stats[members[j]])
@@ -4232,7 +4301,7 @@ func drill_pick(group: StringName) -> Control:
 ## "Are you sure?" card for sending `so` to the `group` drill.
 func _drill_confirm_card(group: StringName, so: Soldier) -> Control:
 	var team := _season().user_team()
-	var pool := Camp.pool_range(so.potential)
+	var pool := Camp.pool_range(so.dev)
 	var v := _vbox(14)
 	v.add_child(UiKit.label("SEND TO %s?" % Camp.drill_name(group).to_upper(), 16, UiKit.ACCENT))
 	var h := _row(22)
@@ -4244,7 +4313,8 @@ func _drill_confirm_card(group: StringName, so: Soldier) -> Control:
 	info.add_child(UiKit.label("%s  ·  AGE %d" % [Scheme.ROLE_NAMES[Scheme.best_role(so.stats)].to_upper(), so.age], 15, UiKit.MUTED))
 	var facts := _row(30)
 	facts.add_child(_fact_box("OVR", "[color=%s]%d[/color]" % [UiKit.hex(UiKit.ovr_color(so.best_ovr())), so.best_ovr()], false))
-	facts.add_child(_fact_box("POT", "[color=%s]%s[/color]" % [UiKit.hex(potential_color(so.potential)), so.potential_letter()], false))
+	facts.add_child(_fact_box("POT", pot_bb(so), false))
+	facts.add_child(_fact_box_ctrl("DEV", DevInsignia.make(so.dev, 13.0), false))
 	facts.add_child(_fact_box("POINT POOL", "[color=#22c55e]%d-%d[/color]" % [pool[0], pool[1]], false))
 	info.add_child(facts)
 	h.add_child(info)
@@ -4312,9 +4382,9 @@ func drill_result(group: StringName) -> Control:
 	var info := _vbox(8)
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	info.add_child(UiKit.rich("[font_size=14][color=#8b97ab]%s  -  DRILL COMPLETE[/color][/font_size]\n[font_size=32][color=white]%s[/color][/font_size]\n%s  -  age %d  -  [color=%s]%s potential[/color]" % [
+	info.add_child(UiKit.rich("[font_size=14][color=#8b97ab]%s  -  DRILL COMPLETE[/color][/font_size]\n[font_size=32][color=white]%s[/color][/font_size]\n%s  -  age %d  -  %s potential%s" % [
 		Camp.drill_name(group).to_upper(), UiKit.esc(so.full_name()), Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], so.age,
-		UiKit.hex(potential_color(so.potential)), so.potential_letter()], 16))
+		pot_dev_bb(so), ("  -  [color=%s]EARNED A DEV STAR[/color]" % UiKit.hex(DevInsignia.GOLD)) if res.get("dev_up", false) else ""], 16))
 	var ovr_delta: int = res["ovr_after"] - res["ovr_before"]
 	info.add_child(UiKit.rich("[font_size=26][color=#22c55e]+%d rating points[/color][/font_size]     OVR [color=white]%d[/color] -> [color=%s]%d[/color]%s" % [
 		res["points"], res["ovr_before"], UiKit.hex(UiKit.ovr_color(res["ovr_after"])), res["ovr_after"],
@@ -4363,7 +4433,7 @@ func awards() -> Control:
 	var v := _vbox(14)
 	var latest: SeasonReview = s.review_history[-1] if not s.review_history.is_empty() else null
 	if s.review == null:
-		v.add_child(_section("%d AWARD RACE  -  awards and potential re-grades are handed out after the final" % s.year))
+		v.add_child(_section("%d AWARD RACE  -  awards and dev star changes are handed out after the final" % s.year))
 		v.add_child(_award_race())
 	if latest != null:
 		v.add_child(_section("%d AWARDS" % latest.year))
@@ -4380,20 +4450,20 @@ func awards() -> Control:
 			rows.append([Scheme.ROLE_NAMES[a["role"]], a["soldier"].full_name(), a["team"].abbrev if a["team"] != null else "-", a["line"]])
 			targets.append(a["soldier"])
 		v.add_child(_soldier_table(["POS", "SOLDIER", "TEAM", "SEASON"], rows, [200, 220, 70, 330], targets))
-		v.add_child(_section("%d POTENTIAL CHANGES  -  awards and outplaying your rating raise it; underperforming and age lower it" % latest.year))
+		v.add_child(_section("%d DEV STAR CHANGES  -  awards, Player of the Week, breakouts and mentors can earn a star; injuries, the bench and age can cost one" % latest.year))
 		rows = []
 		targets = []
 		var colors := {}
-		for c in latest.potential_changes:
+		for c in latest.dev_changes:
 			var so: Soldier = c["soldier"]
-			colors[rows.size()] = {3: potential_color(c["from"]), 4: potential_color(c["to"])}
+			colors[rows.size()] = {3: UiKit.MUTED, 4: UiKit.GOOD if int(c["to"]) > int(c["from"]) else UiKit.BAD}
 			rows.append([so.full_name(), c["team"].abbrev if c["team"] != null else "-", so.age,
-				Soldier.POTENTIAL_LETTERS[c["from"]], Soldier.POTENTIAL_LETTERS[c["to"]], ", ".join(c["reasons"])])
+				Soldier.dev_stars(c["from"]), Soldier.dev_stars(c["to"]), ", ".join(c["reasons"])])
 			targets.append(so)
 		if rows.is_empty():
 			v.add_child(UiKit.label("No changes.", 15, UiKit.MUTED))
 		else:
-			v.add_child(_soldier_table(["SOLDIER", "TEAM", "AGE", "FROM", "TO", "WHY"], rows, [220, 70, 50, 60, 60, 380], targets, colors))
+			v.add_child(_soldier_table(["SOLDIER", "TEAM", "AGE", "FROM", "TO", "WHY"], rows, [220, 70, 50, 70, 70, 400], targets, colors))
 	if not s.aging_report.is_empty():
 		v.add_child(_section("AGING  -  declines at the start of the %d season (groups decline after their peak age)" % s.year))
 		var rows: Array = []
@@ -4604,9 +4674,9 @@ func offer() -> Control:
 	var top := _row(16)
 	top.add_child(Portrait.new(s, 72))
 	var yrs_pref := Contracts.preferred_years(s)
-	top.add_child(UiKit.rich("[font_size=26][color=white]%s[/color][/font_size]   age %d  -  %s  -  OVR [color=%s]%d[/color]  -  POT [color=%s]%s[/color]\nAsking [color=white]%s[/color] / yr for %d yr%s  -  market value %s  -  %d team%s bidding" % [
+	top.add_child(UiKit.rich("[font_size=26][color=white]%s[/color][/font_size]   age %d  -  %s  -  OVR [color=%s]%d[/color]  -  POT %s\nAsking [color=white]%s[/color] / yr for %d yr%s  -  market value %s  -  %d team%s bidding" % [
 		UiKit.esc(s.full_name()), s.age, Scheme.ROLE_NAMES[Scheme.best_role(s.stats)], UiKit.hex(UiKit.ovr_color(s.best_ovr())), s.best_ovr(),
-		UiKit.hex(potential_color(s.potential)), s.potential_letter(), Contracts.money(Contracts.asking(s, yrs_pref)), yrs_pref, "" if yrs_pref == 1 else "s",
+		pot_dev_bb(s), Contracts.money(Contracts.asking(s, yrs_pref)), yrs_pref, "" if yrs_pref == 1 else "s",
 		Contracts.money(Contracts.market_value(s)), season.fa.offers_for(s).size(), "" if season.fa.offers_for(s).size() == 1 else "s"], 16))
 	top.get_child(1).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.add_child(top)
@@ -4776,11 +4846,11 @@ func _position_compare(fa_s: Soldier, user: Team) -> Control:
 		var so: Soldier = mine[i]
 		var o := so.ovr_at_role(role)
 		var slot := user.slot_of(so)
-		rows.append([so.display_name(), so.age, o, "%+d" % (fa_ovr - o), so.potential_letter(),
+		rows.append([so.display_name(), so.age, o, "%+d" % (fa_ovr - o), pot_dev_text(so),
 			user.scheme.label_for_slot(slot) if slot != &"" else "Bench",
 			Contracts.money(so.contract.salary) if so.contract != null else "-",
 			("EXPIRING" if so.contract.is_expiring() else "%d yr" % so.contract.years) if so.contract != null else "-"])
-		colors[i] = {2: UiKit.ovr_color(o), 3: UiKit.GOOD if fa_ovr > o else (UiKit.BAD if fa_ovr < o else UiKit.MUTED), 4: potential_color(so.potential)}
+		colors[i] = {2: UiKit.ovr_color(o), 3: UiKit.GOOD if fa_ovr > o else (UiKit.BAD if fa_ovr < o else UiKit.MUTED), 4: potential_color(so.potential_grade())}
 	v.add_child(UiKit.table(["SOLDIER", "AGE", "OVR", "FA +/-", "POT", "SLOT", "SALARY", "YEARS"], rows,
 		[260, 50, 50, 70, 50, 110, 90, 90], {}, colors, func(i: int): open_player(mine[i])))
 	return v
@@ -4902,7 +4972,7 @@ func resign() -> Control:
 		var yrs: int = _resign_years.get(so.id, Contracts.preferred_years(so))
 		var row := _row(10)
 		row.add_child(Portrait.new(so, 44, user.color, user))
-		var info := UiKit.button("%s   -   age %d   -   OVR %d   -   POT %s   -   %s" % [so.display_name(), so.age, so.best_ovr(), so.potential_letter(),
+		var info := UiKit.button("%s   -   age %d   -   OVR %d   -   POT %s   -   %s" % [so.display_name(), so.age, so.best_ovr(), pot_dev_text(so),
 			Scheme.ROLE_NAMES[Scheme.best_role(so.stats)]], func(): open_player(ref, 4), 15)
 		info.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		info.custom_minimum_size.x = 470
@@ -4989,9 +5059,9 @@ func negotiate() -> Control:
 	top.add_child(Portrait.new(s, 88, user.color, user))
 	var head := _vbox(4)
 	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_child(UiKit.rich("[font_size=26][color=white]%s[/color][/font_size]   age %d  -  %s  -  OVR [color=%s]%d[/color]  -  POT [color=%s]%s[/color]" % [
+	head.add_child(UiKit.rich("[font_size=26][color=white]%s[/color][/font_size]   age %d  -  %s  -  OVR [color=%s]%d[/color]  -  POT %s" % [
 		UiKit.esc(s.display_name()), s.age, Scheme.ROLE_NAMES[Scheme.best_role(s.stats)], UiKit.hex(UiKit.ovr_color(s.best_ovr())), s.best_ovr(),
-		UiKit.hex(potential_color(s.potential)), s.potential_letter()], 16))
+		pot_dev_bb(s)], 16))
 	head.add_child(UiKit.rich("[color=%s]%s[/color]   -   %s   -   %s" % [UiKit.hex(UiKit.INFO), d.headline(), d.temperament_label(), d.savvy_label()], 15))
 	head.add_child(UiKit.rich("Market value [color=white]%s[/color]   -   %d cap room for him (his hold freed): [color=white]%s[/color]   -   current deal %s" % [
 		Contracts.money(Contracts.market_value(s)), season.cap_year(), Contracts.money(Contracts.cap_space(user, season.cap_year()) + Contracts.cap_hold(s)),
@@ -5513,7 +5583,7 @@ func _asset_list(title: String, team: Team, mine: bool) -> Control:
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.add_child(_section(title))
 	var hdr := _row(PCOL_SEP)
-	for c in [["", 24], ["SOLDIER", 200], ["POS", 70], ["AGE", 40], ["POT", 40], ["OVR", 46], ["CONTRACT", 110], ["ROLE", 90]]:
+	for c in [["", 24], ["SOLDIER", 200], ["POS", 70], ["AGE", 40], ["POT", 58], ["OVR", 46], ["CONTRACT", 110], ["ROLE", 90]]:
 		var l := UiKit.label(c[0], 13, UiKit.MUTED)
 		l.custom_minimum_size.x = c[1]
 		hdr.add_child(l)
@@ -5532,7 +5602,7 @@ func _asset_list(title: String, team: Team, mine: bool) -> Control:
 		hb.add_child(_two_lines(so.display_name(), Color.WHITE if ok else UiKit.MUTED, "TRADE REQUESTED" if so.trade_request else "", 200, 15))
 		hb.add_child(_big_cell(Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], UiKit.TEXT, 70, 14))
 		hb.add_child(_big_cell(str(so.age), UiKit.TEXT, 40, 15))
-		hb.add_child(_big_cell(so.potential_letter(), potential_color(so.potential), 40, 18))
+		hb.add_child(_pot_cell(so, 58, 18, 8.0))
 		hb.add_child(_big_cell(str(so.best_ovr()), UiKit.ovr_color(so.best_ovr()), 46, 20))
 		hb.add_child(_two_lines(Contracts.money(so.contract.salary) if so.contract != null else "-", Color.WHITE,
 			("%d yr%s" % [so.contract.years, "" if so.contract.years == 1 else "s"]) if ok else "EXPIRING", 110, 15))
@@ -5695,7 +5765,7 @@ func trade_block() -> Control:
 	var spacer := Control.new()
 	spacer.custom_minimum_size.x = 14 + 48 + 14 + 300
 	head.add_child(spacer)
-	for c in [["OVR", 64], ["POT", 52]]:
+	for c in [["OVR", 64], ["POT", 64]]:
 		head.add_child(_col_head(c[0], c[1]))
 	for g in Stats.GROUP_ORDER:
 		head.add_child(_col_head(Stats.GROUP_LABELS[g].to_upper(), 92))
@@ -5731,9 +5801,7 @@ func trade_block() -> Control:
 		var ol := _big_cell(str(ovr), UiKit.ovr_color(ovr), 64, 30)
 		ol.add_theme_font_override("font", UiKit.font_heavy)
 		hb.add_child(ol)
-		var pl := _big_cell(so.potential_letter(), potential_color(so.potential), 52, 26)
-		pl.add_theme_font_override("font", UiKit.font_heavy)
-		hb.add_child(pl)
+		hb.add_child(_pot_cell(so, 64, 26))
 		for g in Stats.GROUP_ORDER:
 			hb.add_child(_rating_cell(so.group_rating(g), 92))
 		hb.add_child(_contract_pips(so, 150))

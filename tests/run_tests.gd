@@ -27,7 +27,8 @@ func _init() -> void:
 		"test_better_team_wins_more",
 		"test_each_combat_stat_matters",
 		"test_xp_levels_and_points",
-		"test_potential_scales_xp",
+		"test_dev_scales_xp",
+		"test_potential_is_ceiling",
 		"test_aging_decline",
 		"test_stat_groups",
 		"test_group_upgrade_rules",
@@ -579,7 +580,7 @@ func test_each_combat_stat_matters() -> void:
 
 func test_xp_levels_and_points() -> void:
 	var s := make_soldier(1, 50)
-	s.potential = 2
+	s.dev = 2
 	var m := Progression.xp_multiplier(s)
 	var r := Progression.gain_xp(s, (Progression.xp_to_next(1) - 1) / m)
 	check(r["levels"] == 0 and s.level == 1, "just under threshold: no level")
@@ -590,56 +591,85 @@ func test_xp_levels_and_points() -> void:
 	check(s.level == 4, "multi-level gain (level %d)" % s.level)
 
 
-func test_potential_scales_xp() -> void:
+func test_dev_scales_xp() -> void:
 	var high := make_soldier(1, 50)
-	high.potential = Soldier.POTENTIAL_A
+	high.dev = Soldier.DEV_MAX
 	var low := make_soldier(2, 50)
-	low.potential = 0
+	low.dev = Soldier.DEV_MIN
 	var rh := Progression.gain_xp(high, 1000)
 	var rl := Progression.gain_xp(low, 1000)
-	check(rh["xp"] > rl["xp"] * 5, "A gains far more than F (%d vs %d)" % [rh["xp"], rl["xp"]])
-	# Age matters too: young soldiers gain more than veterans of the same grade.
+	check(rh["xp"] > rl["xp"] * 5, "4 stars gain far more than 1 (%d vs %d)" % [rh["xp"], rl["xp"]])
+	# Age matters too: young soldiers gain more than veterans with the same stars.
 	var young := make_soldier(3, 50)
 	young.age = 20
-	young.potential = Soldier.POTENTIAL_A
+	young.dev = Soldier.DEV_MAX
 	var old := make_soldier(4, 50)
 	old.age = 33
-	old.potential = Soldier.POTENTIAL_A
+	old.dev = Soldier.DEV_MAX
 	var yx: int = Progression.gain_xp(young, 1000)["xp"]
 	var ox: int = Progression.gain_xp(old, 1000)["xp"]
-	check(yx > ox * 4, "same grade: young gains more (%d vs %d)" % [yx, ox])
-	# Grades skew high for young players, and higher grades get more cap room on average.
+	check(yx > ox * 4, "same stars: young gains more (%d vs %d)" % [yx, ox])
+	# Stars skew high for young players and are rare overall.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 11
 	var young_sum := 0
 	var old_sum := 0
+	var fours := 0
 	for i in 400:
-		young_sum += PlayerGenerator.roll_potential(rng, 20)
-		old_sum += PlayerGenerator.roll_potential(rng, 32)
-	check(young_sum > old_sum * 1.5, "young players roll higher grades (%d vs %d)" % [young_sum, old_sum])
+		young_sum += PlayerGenerator.roll_dev(rng, 20)
+		var d := PlayerGenerator.roll_dev(rng, 32)
+		old_sum += d
+		fours += 1 if d == Soldier.DEV_MAX else 0
+	check(young_sum > old_sum * 1.08, "young players roll more stars (%d vs %d)" % [young_sum, old_sum])
+	check(fours < 40, "4 stars are rare for vets (%d / 400)" % fours)
+	# More stars = more cap room on average.
 	var room := [0, 0]
 	for i in 200:
 		for k in 2:
 			var so := make_soldier(10 + i, 50)
 			so.age = 22
-			so.potential = Soldier.POTENTIAL_A if k == 0 else 0
+			so.dev = Soldier.DEV_MAX if k == 0 else Soldier.DEV_MIN
 			PlayerGenerator.roll_caps(so, rng)
 			for g in Stats.UPGRADABLE_GROUPS:
 				room[k] += so.group_headroom(g)
-	check(room[0] > room[1] * 2, "A caps well above F caps (%d vs %d)" % [room[0], room[1]])
-	# Grade changes move caps, never below the current rating.
-	var s := make_soldier(5, 70)
-	s.potential = 2
+	check(room[0] > room[1] * 1.5, "4 star caps well above 1 star caps (%d vs %d)" % [room[0], room[1]])
+	# raise_ceiling lifts Potential without lowering anything.
+	var s := make_soldier(5, 60)
 	for g in Stats.UPGRADABLE_GROUPS:
-		s.group_caps[g] = 72
-	SeasonReview.set_potential(s, 4, rng)
-	var total := 0
+		s.group_caps[g] = 62
+	PlayerGenerator.raise_ceiling(s, Soldier.POTENTIAL_CUTOFFS[3])
+	check(s.potential_grade() == Soldier.POTENTIAL_A, "raise_ceiling reaches A (ceiling %d)" % s.potential_ovr())
 	for g in Stats.UPGRADABLE_GROUPS:
-		total += s.group_cap(g)
-	check(s.potential == 4 and total >= 72 * 4 + 4, "grade up raises caps (%d)" % total)
-	SeasonReview.set_potential(s, 0, rng)
+		check(s.group_cap(g) >= s.group_rating(g), "caps never below rating")
+
+
+## Potential is the stat ceiling only: an elite vet with a low dev never reads as D/F.
+func test_potential_is_ceiling() -> void:
+	var vet := make_soldier(1, 91)
+	vet.age = 34
+	vet.dev = Soldier.DEV_MIN
 	for g in Stats.UPGRADABLE_GROUPS:
-		check(s.group_cap(g) >= s.group_rating(g), "grade down never drops cap below rating")
+		vet.group_caps[g] = vet.group_rating(g)
+	check(vet.potential_grade() >= 3, "91 OVR at his caps is B+ (%s, ceiling %d)" % [vet.potential_letter(), vet.potential_ovr()])
+	var kid := make_soldier(2, 55)
+	kid.age = 20
+	kid.dev = Soldier.DEV_MIN
+	for g in Stats.UPGRADABLE_GROUPS:
+		kid.group_caps[g] = 95
+	check(kid.potential_grade() == Soldier.POTENTIAL_A, "1 star kid with a high ceiling reads A")
+	check(Soldier.grade_for_ceiling(Soldier.POTENTIAL_CUTOFFS[0] - 1) == 0 and Soldier.grade_for_ceiling(99) == Soldier.POTENTIAL_A, "cutoff edges")
+	# Stars change at most once a season.
+	var s := make_soldier(3, 70)
+	s.dev = 2
+	s.change_dev(1, 2026)
+	check(s.dev == 3 and s.dev_changed_in(2026) and not s.dev_changed_in(2027), "star change tracked by year")
+	s.change_dev(5, 2027)
+	check(s.dev == Soldier.DEV_MAX, "stars clamp at 4")
+	# Insignia formations.
+	for n in range(1, 5):
+		var ins := DevInsignia.make(n, 20)
+		check(ins.stars == n, "insignia with %d stars" % n)
+		ins.free()
 
 
 func test_aging_decline() -> void:

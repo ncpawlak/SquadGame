@@ -5,10 +5,10 @@ extends RefCounted
 const ROSTER_SIZE := 12
 ## Offseason rosters may run this big (draft picks + free agents); cut down to ROSTER_SIZE before Week 1.
 const OFFSEASON_MAX := 15
-## Future weight by potential grade (F..A) in keep_value.
-const KEEP_GRADE_W := [0.3, 0.4, 0.55, 0.75, 0.9]
-## Flat bonus by grade (F..A) for young players on top of the raw gap (scaled by age weight).
-const KEEP_GRADE_FLAT := [0.0, 0.0, 0.0, 2.0, 4.0]
+## Future weight by dev stars (1..4) in keep_value: faster developers reach their ceiling sooner.
+const KEEP_DEV_W := [0.35, 0.55, 0.75, 0.9]
+## Flat bonus by dev stars (1..4) for young players on top of the raw gap (scaled by age weight).
+const KEEP_DEV_FLAT := [0.0, 0.0, 2.0, 4.0]
 ## Draft-capital bonus by round (1..3) for a pick's draft offseason and first season; halved in his second.
 const KEEP_DRAFT_BONUS := [10.0, 5.0, 2.0]
 
@@ -220,9 +220,9 @@ func release(soldier: Soldier) -> void:
 
 ## How much a front office wants to keep `s` (higher = keep), in OVR-like points:
 ##   now      current OVR at his best role
-##   future   (projected - current) x age weight (1 at <=21, 0 by 28) x grade weight (A 0.9 .. F 0.3)
+##   future   (projected - current) x age weight (1 at <=21, 0 by 28) x dev weight (4* 0.9 .. 1* 0.35)
 ##   depth    starter +5, top backup +3; deeper: -3 per player ahead who is better now and projects
-##            at least as high (halved for young A/B players, who are still developing)
+##            at least as high (halved for young 3-4 star players, who are still developing)
 ##   draft    this year's / last year's pick: R1 +10, R2 +5, R3 +2 (half a year later, then gone)
 ##   contract cheap deal or big dead money if cut up to +5, overpaid down to -3
 ##   age      falls from 30, faster from 33
@@ -230,8 +230,8 @@ func keep_value(s: Soldier) -> float:
 	var now := float(s.best_ovr())
 	var v := now
 	var age_w := clampf((28.0 - s.age) / 7.0, 0.0, 1.0)
-	var g := clampi(s.potential, 0, Soldier.POTENTIAL_A)
-	v += (maxf(0.0, float(s.potential_ovr()) - now) * float(KEEP_GRADE_W[g]) + float(KEEP_GRADE_FLAT[g])) * age_w
+	var g := clampi(s.dev, Soldier.DEV_MIN, Soldier.DEV_MAX) - Soldier.DEV_MIN
+	v += (maxf(0.0, float(s.potential_ovr()) - now) * float(KEEP_DEV_W[g]) + float(KEEP_DEV_FLAT[g])) * age_w
 	if s.age >= 30:
 		v -= float(s.age - 29) * 0.8
 	if s.age >= 33:
@@ -257,7 +257,7 @@ func keep_value(s: Soldier) -> float:
 	else:
 		var units := maxi(0, buried_by - slots + 1)
 		var pen := 3.0 * float(units)
-		if s.age <= 24 and s.potential >= Soldier.POTENTIAL_A - 1:
+		if s.age <= 24 and s.dev >= 3:
 			pen *= 0.5
 		v -= pen
 	v += draft_bonus(s)
