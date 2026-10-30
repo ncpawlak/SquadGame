@@ -14,6 +14,7 @@ func _init() -> void:
 		"test_round_trip_identity",
 		"test_determinism_after_load",
 		"test_news_round_trip",
+		"test_newsroom_round_trip",
 		"test_slot_api",
 	]
 	var only := OS.get_environment("ONLY")
@@ -200,6 +201,28 @@ func test_news_round_trip() -> void:
 	for step in s.news.digest_steps(s):
 		check(s2.news.digest_summary(s2, step) == s.news.digest_summary(s, step), "%s recap differs after load" % step)
 	check(s2.step_label() == s.step_label(), "step label differs after load")
+
+
+## The Weekly News archive (and read marker) survive a save; no Season/Team refs linger in it.
+func test_newsroom_round_trip() -> void:
+	var s := Season.new_franchise(322)
+	s.sim_to_end_of_season()
+	s.advance_offseason()
+	s.newsroom.mark_read(2)
+	check(s.newsroom.count() > 5, "issues exist before the save (%d)" % s.newsroom.count())
+	check(s.newsroom._s == null and s.newsroom._us == null, "newsroom keeps no season/team refs between issues")
+	var s2 := SaveSystem.from_text(SaveSystem.to_text(s))
+	check(s2 != null, "from_text returned null")
+	if s2 == null:
+		return
+	check(s2.newsroom.count() == s.newsroom.count(), "issues lost (%d vs %d)" % [s2.newsroom.count(), s.newsroom.count()])
+	check(s2.newsroom.read_upto == s.newsroom.read_upto, "read marker lost")
+	for i in s.newsroom.count():
+		var a: Dictionary = s.newsroom.issue(i)
+		var b: Dictionary = s2.newsroom.issue(i)
+		if a["headline"] != b["headline"] or a["body"] != b["body"]:
+			check(false, "issue %d differs after load" % i)
+			break
 
 
 func test_slot_api() -> void:

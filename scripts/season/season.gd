@@ -59,6 +59,8 @@ var playoff_seeds := {}
 ## Salary-floor penalties charged at the end of the most recent season: [{team, amount}].
 var last_floor_penalties: Array = []
 var news := LeagueNews.new()
+## The Weekly News: the user's beat writer's feature on every week and offseason step.
+var newsroom := Newsroom.new()
 var year: int = 2026:
 	set(v):
 		year = v
@@ -500,6 +502,10 @@ func sim_week() -> Array:
 	_advance()
 	news.week_stories(self, played, news_week)
 	if phase == PHASE_OFFSEASON:
+		newsroom.publish_wrap(self, news_week)
+	else:
+		newsroom.publish_week(self, news_week)
+	if phase == PHASE_OFFSEASON:
 		_resolve_promises()
 		negotiations.clear()
 	_stamp_log()
@@ -757,8 +763,10 @@ func advance_offseason() -> Array:
 	if phase != PHASE_OFFSEASON:
 		return []
 	_step = step_label()
+	var label := _step
 	var signed := _advance_offseason_step()
 	_step = ""
+	newsroom.publish_offseason(self, label)
 	return signed
 
 
@@ -1064,6 +1072,7 @@ func _begin_season() -> void:
 	draft.scout_points = Draft.POINTS_PER_WEEK
 	league.ensure_callsigns()
 	news.begin_season(self)
+	newsroom.publish_preseason(self)
 	_stamp_log()
 
 

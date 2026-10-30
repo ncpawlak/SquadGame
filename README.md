@@ -262,6 +262,16 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   hometown heroes, contract-year breakouts, rookie starters, busts, trade requests, **rivalry** results
   (see Rivalries below), the champion, and salary-floor penalties. Each story fires once per player per
   season, capped per kind per week.
+- **Weekly News** (`scripts/season/newsroom.gd`, Home → This Week tile, Personnel → Weekly News archive): every
+  week and every offseason step, your club's beat writer (each club has its own paper and writer in
+  `LeagueData.PRESS`) files a full newspaper article - masthead, headline, dek, byline, dateline, body, pull quote,
+  sidebar boxes (box score / standings / signings / draft class) and an Around the League roundup - with a letter
+  grade. Articles are written from that week's facts (who won the decisive game, streaks, injuries, rivalries,
+  milestones, returning players, prospect grades) by picking an angle and composing from interchangeable sentence
+  pieces, so no two ledes repeat and the writer remembers earlier storylines. Game recaps, byes, injury-hit weeks,
+  the season wrap, re-signing, free agency, the draft, season review, training camp and the preseason preview each
+  have their own voice. Issues are plain data (saved with the season, newest 400 kept); deterministic per seed.
+  Body text is set in **Lora** (`assets/fonts/Lora-*.ttf`, SIL OFL - see `Lora-OFL.txt`).
 - **Rivalries** (`scripts/season/rivalries.gd`): two kinds that can stack. **Divisional**: every team in a division
   is a rival of the other four. **Team-specific**: 11 permanent named rivalries (Battle of the Snakes SDV-NSH, Battle
   of the Horses IND-LOU, Battle of the Coastal Powerhouses NYE-LAS, Battle for Florida ORL-MIA, Boroughs BKN-NYE, Old

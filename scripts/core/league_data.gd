@@ -50,6 +50,40 @@ const TEAMS := [
 		"Small-market franchise undergoing a complete rebuild. Limited current talent but excellent youth development, promising prospects, and valuable future draft picks."],
 ]
 
+## abbrev -> [newspaper, beat writer]: who covers each club in the Weekly News (Newsroom).
+const PRESS := {
+	"NYE": ["Empire City Herald", "Vivian Castellano"],
+	"DET": ["Detroit Motor Ledger", "Ray Kowalczyk"],
+	"LAS": ["Los Angeles Sun-Courier", "Marisol Vega"],
+	"BOS": ["Boston Commonwealth Post", "Desmond Fairweather"],
+	"SEA": ["Puget Sound Dispatch", "Hannah Lindqvist"],
+	"ARL": ["Tarrant County Clarion", "Wade Hollister"],
+	"CHI": ["Chicago Lakefront Tribune", "Frank Mazurek"],
+	"STL": ["Gateway Post-Examiner", "Lorraine Beaumont"],
+	"CHA": ["Queen City Observer", "Calvin Pettiford"],
+	"SDV": ["San Diego Harbor Times", "Elena Ruiz-Taylor"],
+	"REN": ["High Desert Gazette", "Jack Delacroix"],
+	"ATL": ["Peachtree Courier", "Darnell Whitfield"],
+	"IND": ["Crossroads Star", "Mitch Brandenburg"],
+	"MIA": ["Biscayne Herald", "Sofia Arrieta"],
+	"DEN": ["Mile High Sentinel", "Gus Thorvaldsen"],
+	"BKN": ["Brooklyn Eagle-Bulletin", "Nadia Rosenthal"],
+	"NSH": ["Music City Banner", "Beau Ellery"],
+	"LOU": ["Bluegrass Courier", "Shelby Hargrove"],
+	"ORL": ["Orange County Beacon", "Trevor Okonkwo"],
+	"LRK": ["Riverfront Gazette", "Earl Whitlock"],
+}
+const _PRESS_WRITERS := ["Pat Donnelly", "Renee Albright", "Sam Okafor", "Lou Brennan", "Dana Whitcomb", "Max Ferreira"]
+
+
+## [paper, writer] covering `team` (generated clubs get a stable stand-in).
+static func press_for(team: Team) -> Array:
+	if PRESS.has(team.abbrev):
+		return PRESS[team.abbrev]
+	var place := team.city if team.city != "" else team.name
+	return ["%s Daily Wire" % place, _PRESS_WRITERS[absi(hash(team.abbrev)) % _PRESS_WRITERS.size()]]
+
+
 ## Every state (and DC) belongs to one division's region (hometown pull, region scouting).
 const STATE_REGION := {
 	"ME": "East", "NH": "East", "VT": "East", "MA": "East", "RI": "East", "CT": "East", "NY": "East",

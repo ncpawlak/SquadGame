@@ -62,6 +62,7 @@ func _init() -> void:
 		"test_schemes",
 		"test_keep_value_protects_prospects",
 		"test_relationships",
+		"test_newsroom",
 	]
 	# Legacy tests run on a generated 5-team single-division league (fast); the expansion
 	# tests switch to the fixed 20-team league themselves.
@@ -1655,6 +1656,53 @@ func test_fixed_league() -> void:
 		check(names_a == names_b, "%s roster is fixed across seeds" % t.abbrev)
 		check(Contracts.payroll(t, a.cap_year()) <= Contracts.SALARY_CAP, "%s under the cap" % t.abbrev)
 	check(b.user_team() == b.league.teams[3], "user team index honoured")
+
+
+## The Weekly News: an issue for every week and offseason step, every slot filled, no two ledes
+## alike, and the same league writes the same paper.
+func test_newsroom() -> void:
+	var s := _fixed(61, 1)
+	s.sim_to_end_of_season()
+	while s.offseason_stage != Season.OFF_DONE:
+		s.advance_offseason()
+	s.start_next_season()
+	var nr := s.newsroom
+	check(nr.count() >= s.regular_weeks + 8, "an issue a week plus the offseason (%d)" % nr.count())
+	var press := LeagueData.press_for(s.user_team())
+	var ledes := {}
+	var kinds := {}
+	for i in nr.count():
+		var a: Dictionary = nr.issue(i)
+		kinds[a["kind"]] = true
+		check(a["paper"] == press[0] and a["writer"] == press[1], "issue %d bylined by the club's paper" % i)
+		check(String(a["headline"]) != "" and not (a["body"] as Array).is_empty(), "issue %d has a headline and body" % i)
+		var texts: Array = [a["headline"], a["dek"]] + a["body"]
+		if not a["pull_quote"].is_empty():
+			texts.append(a["pull_quote"]["text"])
+		for r in a["roundup"]:
+			texts.append(r["text"])
+		for t in texts:
+			if String(t).contains("{") or String(t).contains("}"):
+				check(false, "issue %d has an unfilled slot: %s" % [i, t])
+		var lede: String = a["body"][0]
+		check(not ledes.has(lede), "issue %d repeats an earlier lede" % i)
+		ledes[lede] = true
+	for k in [Newsroom.KIND_GAME, Newsroom.KIND_WRAP, Newsroom.KIND_RESIGN, Newsroom.KIND_FA, Newsroom.KIND_DRAFT, Newsroom.KIND_CAMP, Newsroom.KIND_PRESEASON]:
+		check(kinds.has(k), "a %s issue was written" % k)
+	check(nr._s == null and nr._us == null and nr._f.is_empty(), "working state cleared after writing")
+	check(nr.unread() == nr.count(), "everything starts unread")
+	nr.mark_read(nr.count() - 1)
+	check(nr.unread() == 0 and nr.is_read(0), "reading the latest marks the archive read")
+	# Same league, same paper.
+	var a1 := _fixed(62, 7)
+	var a2 := _fixed(62, 7)
+	for w in 3:
+		a1.sim_week()
+		a2.sim_week()
+	check(a1.newsroom.count() == a2.newsroom.count() and a1.newsroom.count() >= 3, "issues written each week")
+	for i in a1.newsroom.count():
+		check(a1.newsroom.issue(i)["body"] == a2.newsroom.issue(i)["body"], "issue %d is deterministic" % i)
+	check(LeagueData.press_for(a1.user_team())[0] != press[0], "different clubs, different papers")
 
 
 func test_division_schedule() -> void:
