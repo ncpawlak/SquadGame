@@ -66,6 +66,7 @@ func _init() -> void:
 		"test_newsroom",
 		"test_season_history",
 		"test_records",
+		"test_retired_callsigns",
 	]
 	# Legacy tests run on a generated 5-team single-division league (fast); the expansion
 	# tests switch to the fixed 20-team league themselves.
@@ -1753,6 +1754,84 @@ func test_records() -> void:
 	for row in Records.team_seasons(s, wins, team.abbrev):
 		check(row["team"] == team, "franchise team records only list that team")
 	check(Records.format_value(kd, 1.234) == "1.23" and Records.format_value(kills, 41.0) == "41", "values format by kind")
+
+
+## Gives `so` n seasons with `team` and a Season MVP, the way a long, decorated career looks.
+func _decorate(s: Season, so: Soldier, team: Team, n: int, mvp := true, extra := 0) -> void:
+	so.season_lines = {}
+	for i in n:
+		var line := {"team": team.abbrev}
+		for k in Soldier.STAT_LINE_KEYS:
+			line[k] = 1
+		so.season_lines[2000 + i] = line
+	var rev := SeasonReview.new()
+	rev.year = 2000 + n
+	if mvp:
+		rev.awards.append({"award": RetiredCallsigns.MVP_AWARD, "soldier": so, "team": team, "line": ""})
+	for i in extra:
+		rev.all_league.append({"soldier": so, "team": team, "role": Scheme.Role.FLEX, "line": ""})
+	s.review_history.append(rev)
+
+
+func test_retired_callsigns() -> void:
+	var s := _fixed(73, 1)
+	var user := s.user_team()
+	var ai: Team = s.league.teams[0] if s.league.teams[0] != user else s.league.teams[2]
+	var rookie := ai.roster[0]
+	var vet := ai.roster[1]
+	var mine := user.roster[0]
+	check(RetiredCallsigns.make_entry(s, rookie).is_empty(), "no seasons, no honors: not eligible")
+	_decorate(s, rookie, ai, RetiredCallsigns.MIN_SEASONS_WITH_CLUB - 1)
+	check(RetiredCallsigns.make_entry(s, rookie).is_empty(), "an MVP but too few seasons with the club: not eligible")
+	s.review_history.clear()
+	_decorate(s, rookie, ai, RetiredCallsigns.MIN_SEASONS_WITH_CLUB, false, RetiredCallsigns.MIN_HONORS - 1)
+	check(RetiredCallsigns.make_entry(s, rookie).is_empty(), "long service but too few honors: not eligible")
+	s.review_history.clear()
+	_decorate(s, rookie, ai, RetiredCallsigns.MIN_SEASONS_WITH_CLUB, false, RetiredCallsigns.MIN_HONORS)
+	var entry := RetiredCallsigns.make_entry(s, rookie)
+	check(not entry.is_empty() and entry["team"] == ai and entry["seasons"] == RetiredCallsigns.MIN_SEASONS_WITH_CLUB, "enough All-League picks qualify")
+	s.review_history.clear()
+	_decorate(s, rookie, ai, RetiredCallsigns.MIN_SEASONS_WITH_CLUB)
+	_decorate(s, vet, ai, RetiredCallsigns.MIN_SEASONS_WITH_CLUB)
+	_decorate(s, mine, user, RetiredCallsigns.MIN_SEASONS_WITH_CLUB)
+	check(not RetiredCallsigns.make_entry(s, rookie).is_empty(), "long service plus a Season MVP qualifies")
+	# Seasons split between clubs: the club with the most seasons gets the callsign.
+	var split := ai.roster[2]
+	_decorate(s, split, ai, RetiredCallsigns.MIN_SEASONS_WITH_CLUB + 2)
+	split.season_lines[2000]["team"] = user.abbrev
+	var split_club := RetiredCallsigns.club_of(s, split)
+	check(split_club["team"] == ai and split_club["seasons"] == RetiredCallsigns.MIN_SEASONS_WITH_CLUB + 1, "the club with most seasons is the soldier's club")
+
+	var sign := rookie.callsign
+	var records := [{"soldier": rookie}, {"soldier": mine}, {"soldier": ai.roster[3]}]
+	RetiredCallsigns.process(s, records)
+	check(s.league.retired_callsigns.size() == 1 and s.league.retired_callsigns[0]["soldier"] == rookie, "the AI club's callsign is retired at once")
+	check(s.league.callsign_proposals.size() == 1 and s.league.callsign_proposals[0]["soldier"] == mine, "the user's club gets a proposal")
+	check(RetiredCallsigns.is_retired(s.league, sign.to_upper()), "is_retired ignores case")
+	check(RetiredCallsigns.of_team(s.league, ai).size() == 1 and RetiredCallsigns.of_team(s.league, user).is_empty(), "the banner list is per club")
+	check(RetiredCallsigns.make_entry(s, rookie).is_empty(), "an already retired callsign is not proposed again")
+	var reserved := s.league.reserved_callsigns()
+	check(reserved.has(sign.to_lower()) and reserved.has(mine.callsign.to_lower()), "retired and pending callsigns are reserved")
+
+	# Nobody is handed a reserved callsign, even a soldier already wearing it.
+	var other := ai.roster[4]
+	other.callsign = sign
+	s.league.ensure_callsigns()
+	check(other.callsign.to_lower() != sign.to_lower(), "an active soldier cannot keep a retired callsign")
+	var fresh := ai.roster[5]
+	fresh.callsign = ""
+	s.league.give_callsign(fresh)
+	check(fresh.callsign != "" and not s.league.reserved_callsigns().has(fresh.callsign.to_lower()), "new callsigns skip reserved ones")
+
+	var pending: Dictionary = s.league.callsign_proposals[0]
+	RetiredCallsigns.decide(s, pending, false)
+	check(s.league.callsign_proposals.is_empty() and s.league.retired_callsigns.size() == 1, "declining drops the proposal and retires nothing")
+	check(not s.league.reserved_callsigns().has(mine.callsign.to_lower()), "a declined callsign is free again")
+	RetiredCallsigns.decide(s, pending, true)
+	check(s.league.retired_callsigns.size() == 1, "an answered proposal cannot be answered twice")
+	RetiredCallsigns.process(s, [{"soldier": mine}])
+	RetiredCallsigns.resolve_all(s)
+	check(s.league.callsign_proposals.is_empty() and s.league.retired_callsigns.size() == 2, "open proposals are honoured when the season starts")
 
 
 func test_newsroom() -> void:

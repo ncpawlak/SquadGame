@@ -16,6 +16,7 @@ func _init() -> void:
 		"test_news_round_trip",
 		"test_newsroom_round_trip",
 		"test_history_round_trip",
+		"test_retired_callsigns_round_trip",
 		"test_slot_api",
 		"test_legacy_potential_migrates",
 	]
@@ -261,6 +262,26 @@ func test_history_round_trip() -> void:
 	mid.history = []
 	var mid2 := SaveSystem.from_text(SaveSystem.to_text(mid))
 	check(mid2 != null and mid2.history.is_empty(), "old mid-season save loads with empty history")
+
+
+func test_retired_callsigns_round_trip() -> void:
+	var s := Season.new_franchise(325)
+	var ai: Team = s.league.teams[0] if s.league.teams[0] != s.user_team() else s.league.teams[1]
+	var so := ai.roster[0]
+	so.callsign = "Hawkeye"
+	var mine := s.user_team().roster[0]
+	s.league.retired_callsigns.append({"callsign": so.callsign, "soldier": so, "team": ai, "year": 2030, "seasons": 7, "honors": ["2029 Season MVP"]})
+	s.league.callsign_proposals.append({"callsign": mine.callsign, "soldier": mine, "team": s.user_team(), "year": 2030, "seasons": 6, "honors": []})
+	var s2 := SaveSystem.from_text(SaveSystem.to_text(s))
+	check(s2 != null and s2.league.retired_callsigns.size() == 1 and s2.league.callsign_proposals.size() == 1, "retired callsigns lost in the round trip")
+	if s2 == null or s2.league.retired_callsigns.size() != 1:
+		return
+	var e: Dictionary = s2.league.retired_callsigns[0]
+	check(e["callsign"] == "Hawkeye" and e["team"] == s2.league.team_by_abbrev(ai.abbrev) and e["soldier"].id == so.id and e["honors"] == ["2029 Season MVP"], "entry fields differ after load")
+	check(s2.league.reserved_callsigns().has("hawkeye"), "reserved set is rebuilt from the loaded entries")
+	var old := Season.new_franchise(326)
+	var old2 := SaveSystem.from_text(SaveSystem.to_text(old))
+	check(old2 != null and old2.league.retired_callsigns.is_empty() and old2.league.callsign_proposals.is_empty(), "a save with no retired callsigns loads empty")
 
 
 func test_slot_api() -> void:

@@ -3,7 +3,7 @@ extends RefCounted
 ## The Legacy page: league history in tabs (champions, awards). Built by the hub like the other
 ## detail pages; reads Season.history and Season.review_history fresh every time.
 
-const TABS := [["champions", "Champions"], ["awards", "Awards"], ["records", "Records"]]
+const TABS := [["champions", "Champions"], ["awards", "Awards"], ["records", "Records"], ["callsigns", "Callsigns"]]
 
 var hub: Control  # hub.gd
 var pages: FranchisePages
@@ -34,6 +34,8 @@ func legacy() -> Control:
 			v.add_child(_awards())
 		"records":
 			v.add_child(_records())
+		"callsigns":
+			v.add_child(_callsigns())
 		_:
 			v.add_child(_champions())
 	return v
@@ -261,3 +263,93 @@ func record_page(stat: Dictionary, top: Array, kind: String) -> Control:
 			else:
 				pages.open_player(top[i]["soldier"])))
 	return v
+
+
+# --- retired callsigns ----------------------------------------------------------------
+
+func _callsigns() -> Control:
+	var s := _season()
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	var rule := "A callsign is retired when its soldier gave one club %d or more seasons and won a Season MVP or %d or more honors. Nobody in the league is given it again." % [
+		RetiredCallsigns.MIN_SEASONS_WITH_CLUB, RetiredCallsigns.MIN_HONORS]
+	var note := UiKit.label(rule, 13, UiKit.MUTED)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(note)
+	if not s.league.callsign_proposals.is_empty():
+		v.add_child(pages._section("WAITING ON YOU"))
+		var b := UiKit.button("Decide on %d retired callsign%s" % [s.league.callsign_proposals.size(), "" if s.league.callsign_proposals.size() == 1 else "s"], hub.open_callsign_proposals, 16)
+		UiKit.style_primary(b)
+		b.custom_minimum_size.x = 360
+		v.add_child(b)
+	var list: Array = s.league.retired_callsigns.duplicate()
+	list.reverse()
+	v.add_child(pages._section("RETIRED CALLSIGNS"))
+	if list.is_empty():
+		v.add_child(UiKit.label("None yet. They are retired after a career-ending season.", 15, UiKit.MUTED))
+		return v
+	var rows: Array = []
+	var hl := {}
+	for i in list.size():
+		var e: Dictionary = list[i]
+		rows.append(["\"%s\"" % String(e["callsign"]).to_upper(), e["soldier"].full_name(), e["team"], e["seasons"], e["year"], e["honors"].size()])
+		if e["team"].user_controlled:
+			hl[i] = UiKit.MINE
+	v.add_child(UiKit.table(["CALLSIGN", "SOLDIER", "CLUB", "SEASONS", "RETIRED", "HONORS"], rows, [180, 220, 230, 90, 90, 90], hl, {},
+		func(i: int): pages.open_player(list[i]["soldier"])))
+	return v
+
+
+## The user's open proposals, each with a yes/no.
+func callsign_proposals() -> Control:
+	var s := _season()
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	var open_list: Array = s.league.callsign_proposals
+	if open_list.is_empty():
+		v.add_child(UiKit.label("Nothing to decide.", 16, UiKit.MUTED))
+		return v
+	var help := UiKit.label("Retiring a callsign takes it out of the league for good: it hangs from your banner row and nobody is given it again. Anything you leave open is retired when the next season starts.", 14, UiKit.MUTED)
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(help)
+	for e: Dictionary in open_list.duplicate():
+		var card := UiKit.panel()
+		var box := VBoxContainer.new()
+		box.add_theme_constant_override("separation", 8)
+		var m := MarginContainer.new()
+		for side in ["left", "right", "top", "bottom"]:
+			m.add_theme_constant_override("margin_" + side, 14)
+		card.add_child(m)
+		m.add_child(box)
+		var so: Soldier = e["soldier"]
+		box.add_child(UiKit.display("\"%s\"  -  %s" % [String(e["callsign"]).to_upper(), so.full_name()], 24, Color.WHITE))
+		var honors: Array = e["honors"]
+		var detail := UiKit.label("%d seasons with %s. Honors: %s" % [e["seasons"], e["team"].name, ", ".join(PackedStringArray(honors))], 15, UiKit.MUTED)
+		detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		box.add_child(detail)
+		var btns := HBoxContainer.new()
+		btns.add_theme_constant_override("separation", 12)
+		var yes := UiKit.button("Retire the callsign", func():
+			RetiredCallsigns.decide(s, e, true)
+			hub.replace("Retired Callsigns", callsign_proposals), 16)
+		UiKit.style_primary(yes)
+		btns.add_child(yes)
+		btns.add_child(UiKit.button("Keep it in play", func():
+			RetiredCallsigns.decide(s, e, false)
+			hub.replace("Retired Callsigns", callsign_proposals), 16))
+		box.add_child(btns)
+		v.add_child(card)
+	return v
+
+
+## A line of a club's retired callsigns for its team page, or null if it has none.
+func banner_row(team: Team) -> Control:
+	var list := RetiredCallsigns.of_team(_season().league, team)
+	if list.is_empty():
+		return null
+	var parts: PackedStringArray = []
+	for e: Dictionary in list:
+		parts.append("\"%s\" (%s, %d)" % [String(e["callsign"]).to_upper(), e["soldier"].last_name, e["year"]])
+	var l := UiKit.label("RETIRED CALLSIGNS   " + "   -   ".join(parts), 14, UiKit.MUTED)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	return l

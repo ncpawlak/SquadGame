@@ -841,6 +841,11 @@ func _todo_tiles(team: Team) -> Array:
 			hof.modulate = Color(1, 1, 1, 0.6)
 			hof.set_meta("todo_done", true)
 			out.append(hof)
+		var proposals := season.league.callsign_proposals.size()
+		if proposals > 0:
+			out.append(_todo("Retired Callsigns", "[color=#f59e0b]%d callsign%s[/color] up for retirement.
+Leave it and they are retired when the season starts." % [proposals, "" if proposals == 1 else "s"],
+				Color("#eab308"), open_callsign_proposals, false, true))
 		if season.offseason_stage == Season.OFF_DRAFT:
 			var d := season.draft
 			out.append(_todo("Draft Room", "Every pick is in." if d.is_complete() else "[color=#38bdf8]Your picks:[/color] %d left" % d.picks_left_for(team),
@@ -1736,6 +1741,10 @@ func open_news(i := -1) -> void:
 		i = nr.count() - 1
 	nr.mark_read(i)
 	open("Weekly News", func(): return pages.news_article(i))
+
+
+func open_callsign_proposals() -> void:
+	open("Retired Callsigns", legacy_pages.callsign_proposals)
 
 
 func open_legacy() -> void:

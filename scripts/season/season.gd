@@ -683,6 +683,7 @@ func start_next_season() -> void:
 	_stamp_log()
 	while offseason_stage != OFF_DONE:
 		advance_offseason()
+	RetiredCallsigns.resolve_all(self)
 	# Last call for free agency: pending offers (the user's too) are answered. The user's roster
 	# is left as is - he must reach exactly ROSTER_SIZE before Week 1 (user_roster_error).
 	fa.resolve(self, _rng, "Preseason")
@@ -1149,7 +1150,9 @@ func _advance() -> void:
 		review_history.append(review)
 		var retire_rng := RandomNumberGenerator.new()
 		retire_rng.seed = _mix([league.league_seed, year, 0x2E71])
-		retirements.append_array(Retirement.run(self, retire_rng))
+		var retired := Retirement.run(self, retire_rng)
+		retirements.append_array(retired)
+		RetiredCallsigns.process(self, retired)
 		last_floor_penalties = Contracts.charge_floor(league, year)
 		news.end_season(self, last_floor_penalties)
 		news.dev_changes(self, review.dev_changes)

@@ -4565,6 +4565,9 @@ func team_roster(t: Team) -> Control:
 	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top.add_child(info)
 	v.add_child(top)
+	var banner: Control = hub.legacy_pages.banner_row(t)
+	if banner != null:
+		v.add_child(banner)
 	v.add_child(_roster_table(false, t, func(): hub.replace(t.name, func(): return team_roster(t))))
 	return v
 

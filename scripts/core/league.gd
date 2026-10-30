@@ -28,6 +28,10 @@ var teams: Array[Team] = []
 var next_soldier_id := 1
 ## Unsigned soldiers: undrafted prospects, cuts and expired contracts.
 var free_agents: Array[Soldier] = []
+## Callsigns taken out of circulation for good, oldest first (see RetiredCallsigns.make_entry).
+var retired_callsigns: Array = []
+## Retirements waiting on the user's yes or no. Their callsigns stay reserved until decided.
+var callsign_proposals: Array = []
 
 
 static func generate(seed_value: int, team_count := 2) -> League:
@@ -168,9 +172,17 @@ func add_free_agent(s: Soldier, year: int) -> void:
 	give_callsign(s)
 
 
-## Lower-cased callsigns of every active soldier (rosters and free agents).
-func taken_callsigns(except: Soldier = null) -> Dictionary:
+## Lower-cased callsigns nobody new may be given: retired ones and ones awaiting the user's decision.
+func reserved_callsigns() -> Dictionary:
 	var out := {}
+	for e in retired_callsigns + callsign_proposals:
+		out[String(e["callsign"]).to_lower()] = true
+	return out
+
+
+## Lower-cased callsigns of every active soldier (rosters and free agents) plus the reserved ones.
+func taken_callsigns(except: Soldier = null) -> Dictionary:
+	var out := reserved_callsigns()
 	for s in all_soldiers():
 		if s != except and s.callsign != "":
 			out[s.callsign.to_lower()] = true
@@ -189,7 +201,7 @@ func give_callsign(s: Soldier) -> void:
 
 ## Safety net: every active soldier gets a unique callsign.
 func ensure_callsigns() -> void:
-	var taken := {}
+	var taken := reserved_callsigns()
 	var pool: Array[Soldier] = all_soldiers()
 	pool.append_array(free_agents)
 	for s in pool:
