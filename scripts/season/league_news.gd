@@ -13,7 +13,10 @@ extends RefCounted
 ##   trade_request    a player's trade request goes public. Morale -3.
 ##   rivalry          a rivalry game (see Rivalries): the winners gain morale and the losers lose it, by
 ##                    the rivalry's intensity (2 to 4). Also a new emergent rivalry forming or ending.
-##   champion / floor season-end headlines (title, salary-floor penalties).
+##   champion         season-end headline (the title).
+##   tax              season-end luxury-tax bills (see Revenue.charge_tax).
+##   board            season-end board review: your club's grant, the biggest grant, and boards
+##                    that lost confidence (see Revenue.board_review).
 ## Offseason stories (filed under the season just finished), each capped per year:
 ##   mega_deal        a signing or re-signing at MEGA_SALARY or more a year.
 ##   fa_signing       a free agent of BIG_SIGNING_OVR+ lands with a new team.
@@ -39,7 +42,7 @@ const BUST_OVR := 80
 ## Rivalry heat at which even a divisional game makes the wire.
 const HOT_HEAT := 25.0
 ## Offseason story thresholds (see the header).
-const MEGA_SALARY := 12000
+const MEGA_SALARY := 35000
 const BIG_SIGNING_OVR := 84
 const DEFECTION_OVR := 78
 const HOMECOMING_OVR := 76
@@ -178,8 +181,8 @@ func week_stories(season: Season, played: Array, wk: int) -> void:
 							t.nickname, int(season.playoff_seeds[t]), s.full_name()])
 
 
-## Season-end headlines: the champion (and any last ride that ended with a ring), floor penalties.
-func end_season(season: Season, penalties: Array) -> void:
+## Season-end headlines: the champion (and any last ride that ended with a ring).
+func end_season(season: Season) -> void:
 	var champ := season.champion
 	if champ != null:
 		var runner: Team = null
@@ -209,13 +212,35 @@ func end_season(season: Season, penalties: Array) -> void:
 		_add(season, "Re-signing", "retired", [rt.abbrev] if rt != null else [], s.id,
 			"%s retires at %d" % [s.display_name(), int(r["age"])],
 			"%s hangs it up after a career of %s." % [s.full_name(), line])
-	for p in penalties:
-		var t: Team = p["team"]
-		_add(season, "Offseason", "floor", [t.abbrev], 0,
-			"%s fined for spending under the salary floor" % t.name,
-			"The %s finished under the %s floor and owe the %s shortfall next season." % [
-				t.nickname, Contracts.money(Contracts.SALARY_FLOOR), Contracts.money(p["amount"])])
 
+
+## Season end: the luxury-tax bills (Revenue.charge_tax entries).
+func luxury_tax(season: Season, bills: Array) -> void:
+	for b in bills:
+		var t: Team = b["team"]
+		_add(season, "Offseason", "tax", [t.abbrev], 0,
+			"%s pay %s in luxury tax" % [t.name, Contracts.money(b["amount"])],
+			"The %s finished %s over the %s tax line and pay %s in club cash (%s per $1 over)." % [
+				t.nickname, Contracts.money(b["over"]), Contracts.money(Contracts.TAX_LINE), Contracts.money(b["amount"]),
+				"$%.2f" % Contracts.TAX_RATE])
+
+
+## Season end: the board review (Revenue.board_review entries, biggest grant first). Your club's
+## grant, the league's biggest, and any board that has lost confidence.
+func board_review(season: Season, reviews: Array) -> void:
+	for i in reviews.size():
+		var t: Team = reviews[i]["team"]
+		var r: Dictionary = reviews[i]["review"]
+		var low := float(r["confidence"]) < 1.0
+		if not (t.user_controlled or i == 0 or low):
+			continue
+		var why := "the board's confidence is shaken" if low else ("a reward for beating expectations" if float(r["results"]) > 0.0
+			else ("short of what the board expected" if float(r["results"]) < 0.0 else "in line with expectations"))
+		_add(season, "Offseason", "board", [t.abbrev], 0,
+			"%s board grants %s for next season" % [t.name, Contracts.money(roundi(float(r["grant"])))],
+			"Expected to finish #%d, the %s finished #%d: %s. Club fund now %s.%s" % [int(r["expected"]), t.nickname, int(r["finish"]), why,
+				Contracts.money(roundi(season.revenue.cash_of(t))),
+				(" The board cut the grant to %d%%." % roundi(float(r["confidence"]) * 100)) if low else ""])
 
 ## A soldier signs with a team (free agency, camp fill-ins, in-season pickups). `entry` is a
 ## FreeAgency history entry. One story at most, the biggest angle first.

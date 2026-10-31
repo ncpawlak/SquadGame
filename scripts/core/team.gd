@@ -39,14 +39,19 @@ var user_controlled := false
 var dead_money: Dictionary = {}
 ## Cap year -> signing bonuses paid that year ($K). Stays with the team if the player leaves.
 var bonus_money: Dictionary = {}
-## Season year -> salary-floor penalty charged for it (also booked into next year's dead money).
-var floor_penalties: Dictionary = {}
 ## Market (see Market): a fixed rating 1-100 (the city's size and money), the buzz meter 0-100 that moves,
 ## the heat not yet absorbed into buzz, and the recent points log [{year, when, label, amount}].
 var market_rating := 50
 var buzz := 45.0
 var heat := 0.0
 var market_log: Array = []
+
+
+## Removed fields from older saves. The salary floor is gone (issue #41): its pending penalties
+## are kept aside so Contracts.migrate_legacy can take them back off next season's dead money.
+func _migrate_prop(prop: String, val: Variant) -> void:
+	if prop == "floor_penalties" and val is Dictionary:
+		set_meta(&"legacy_floor_penalties", val)
 
 
 func starters() -> Array[Soldier]:
@@ -271,9 +276,9 @@ func keep_value(s: Soldier) -> float:
 		v -= pen
 	v += draft_bonus(s)
 	if s.contract != null and s.contract.years > 0:
-		var c := minf(4.0, float(Contracts.dead_money_if_released(s)) / 4200.0)
+		var c := minf(4.0, float(Contracts.dead_money_if_released(s)) / 10500.0)
 		var surplus := float(Contracts.market_value(s) - s.contract.salary) * mini(s.contract.years, 3)
-		c += clampf(surplus / 2800.0, -3.0, 3.0)
+		c += clampf(surplus / 7000.0, -3.0, 3.0)
 		v += clampf(c, -3.0, 5.0)
 	return v
 
