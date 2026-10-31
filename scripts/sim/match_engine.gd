@@ -278,6 +278,7 @@ func start(team_a: Team, team_b: Team, seed_value: int, field: ArenaMap = null, 
 	_result.match_seed = seed_value
 	_result.weather_kind = weather.kind
 	_result.weather_level = weather.level
+	_result.surface = arena.surface
 	_result.teams = [team_a, team_b]
 	team_form = [_roll_form(TEAM_FORM_SD), _roll_form(TEAM_FORM_SD)]
 	crowd = crowd_edge

@@ -127,6 +127,9 @@ var season_lines: Dictionary = {}
 ## Regular season = combined minus playoffs. Totals from before the split stay combined.
 var playoff_career := {}
 var playoff_season_lines: Dictionary = {}
+## Career totals split by match conditions, keys "wx|<kind>|<level>|<home/away>" (weather) and "sf|<surface>|<home/away>"
+## (the home field's floor). Each value has the STAT_LINE_KEYS shape; read them with StatRegistry.weather_line / surface_line.
+var split_career: Dictionary = {}
 
 ## Progression history, oldest first. Each: {year, when, reason, changes: stat -> delta,
 ## ovr_from, ovr_to, dev_from, dev_to (-1 when his stars didn't move)}. Entries from older saves

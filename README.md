@@ -320,6 +320,10 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   longest win and losing streak. A match that beats a full book stamps a record on `ScheduledMatch.records`, which
   feeds a League Wire story, a box score banner and a line in the Weekly News. Records only make news once 100
   matches are on the books, and single-match records count from the first match played with the ledger.
+  Condition splits: each soldier's career is also kept by weather (clear, light/inclement rain and snow), home or away, and
+  the home field's floor surface (`Soldier.split_career`). The player's Stats tab has a WEATHER AND FIELD table and calls
+  out rain or snow where his kills per death clearly beat or trail his clear-weather ratio (6+ matches in both).
+  Splits count from the first match played with them.
 - **Save / Load** (`scripts/save/save_system.gd`, Settings → Save Franchise / Load Franchise, title → Load Franchise): 3 manual slots
   plus an **autosave** after every week, the season rollover and camp. A save is the whole league graph (shared
   objects, RNG states) as compressed text, so a loaded game continues exactly as the original would have.

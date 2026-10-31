@@ -208,11 +208,22 @@ static func award_match_xp(result: MatchResult, year := 0, ctx := {}) -> Diction
 			if soldier.id == result.mvp_id:
 				xp += MVP_XP
 			reports[soldier.id] = gain_xp(soldier, xp)
-			_record_career(soldier, line, soldier.id == result.mvp_id, year, team.abbrev, ctx.get("playoffs", false))
+			_record_career(soldier, line, soldier.id == result.mvp_id, year, team.abbrev, ctx.get("playoffs", false),
+				_split_keys(result, team_index))
 	return reports
 
 
-static func _record_career(soldier: Soldier, line: Dictionary, mvp := false, year := 0, team_abbrev := "", playoffs := false) -> void:
+## The condition buckets a match counts toward for the side `team_index` (0 is the home side).
+static func _split_keys(result: MatchResult, team_index: int) -> Array[String]:
+	var site := "home" if team_index == 0 else "away"
+	var keys: Array[String] = ["wx|%s|%d|%s" % [result.weather_kind, result.weather_level, site]]
+	if result.surface != "":
+		keys.append("sf|%s|%s" % [result.surface, site])
+	return keys
+
+
+static func _record_career(soldier: Soldier, line: Dictionary, mvp := false, year := 0, team_abbrev := "", playoffs := false,
+		splits: Array[String] = []) -> void:
 	var add := {"matches": 1, "rounds": line["rounds_played"], "kills": line["kills"], "deaths": line["deaths"],
 		"assists": line["assists"], "damage": roundi(line["damage"]), "saves": line.get("saves", 0),
 		"headshots": line["headshots"], "shots": line["shots"], "hits": line["hits"], "mvps": 1 if mvp else 0,
@@ -234,6 +245,10 @@ static func _record_career(soldier: Soldier, line: Dictionary, mvp := false, yea
 				soldier.playoff_season_lines[year] = {"team": team_abbrev}
 			soldier.playoff_season_lines[year]["team"] = team_abbrev
 			targets.append(soldier.playoff_season_lines[year])
+	for key in splits:
+		if not soldier.split_career.has(key):
+			soldier.split_career[key] = {}
+		targets.append(soldier.split_career[key])
 	for d: Dictionary in targets:
 		for k in add:
 			d[k] = int(d.get(k, 0)) + int(add[k])
