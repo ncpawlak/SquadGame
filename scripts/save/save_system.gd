@@ -151,6 +151,7 @@ static func from_text(text: String) -> Season:
 		s._stamp_log()
 		s.market.ensure(s)
 		s.ensure_history()
+		s.league.ensure_callsigns()
 	return s
 
 
