@@ -90,7 +90,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   **Playoff Picture**: a logo bracket (projected seeds in-season, live series in the playoffs) with a champion slot.
 - **Team tab**: one big pane (Lineup sizes to fit the field + bench; the Roster scrolls inside a fixed height) whose < > arrows flip between the full **Roster** and **Lineup** screens
 - **League tab**: one big pane whose < > arrows flip between **Standings** (the four divisions as a 2x2 grid of mini tables with logos, W-L, game record, diff, streak and playoff seed - or one whole-league table), **Scores** (a week of results with week arrows), **League Leaders** and the **Playoff Picture** bracket. Under it, live cards (your OVR rank, the kills leader, the latest headline, the MVP favourite, free agents) and a second row of cards (Schedule, Team Stats, Teams, Retirements)
-- **Personnel tab**: one big pane whose < > arrows flip between **Contracts & Payroll** and **Trades** (plus the **Draft Room** while the draft runs). Trades lists incoming offers, then the trade block, then a card into the manual **Trade Center** builder. It opens on the view the current phase needs (trades in season, the Draft Room on draft day) and the header shows payroll, cap space and roster size. Under it, live cards (Free Agency, Re-sign, your next pick, scout points) and a second row of cards (Trade Log, Draft Recap, Weekly News archive with a NEW badge, Negotiation coming soon). Trade block rows show portrait, big OVR, POT, the six stat-group bars, contract pips and morale; offers put Accept / Counter / Decline on the right. The live draft order table also shows age, scout grade, hometown and each team's need
+- **Personnel tab**: one big pane whose < > arrows flip between **Contracts & Payroll** and **Trades** (plus the **Draft Room** while the draft runs). Trades lists incoming offers, then the trade block, then a card into the manual **Trade Center** builder. It opens on the view the current phase needs (trades in season, the Draft Room on draft day) and the header shows payroll, cap space and roster size. Under it, live cards (Free Agency, Re-sign, your next pick, scout points) and a second row of cards (Trade Log, Draft Recap, Weekly News archive with a NEW badge, Extensions: your final-year players and their extension status). Trade block rows show portrait, big OVR, POT, the six stat-group bars, contract pips and morale; offers put Accept / Counter / Decline on the right. The live draft order table also shows age, scout grade, hometown and each team's need
 - **Training Camp**: six drill cards in the team colours. Click a drill, then click players on the Camp Board (OVR, POT, point pool, stat-group bars, best drill) to plan who goes; Auto-fill plans the best fits. **Run Camp** runs every planned drill at once and shows a camp report with each stat gain
 - **Settings tab**: two rows of cards - Franchise (Sim Options, Save, Load, Franchise Settings soon) and System (Debug Sim Tools, Main Menu)
 - **Buttons**: all slanted; main actions (Make Offer, Sign, Propose Trade, Accept, Draft) use the team accent colour
@@ -197,8 +197,33 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   from data - production at his role, injuries, age 30+, comparable contracts, being a contender, a tight cap,
   competition at his spot, years with the club - and land by evidence × fit with his DNA × your leverage (lower
   for your best players), with diminishing returns. Weak evidence gets rebutted by savvy players; a bad fit
-  (e.g. threatening a playing-time guy with his backup) backfires and raises his price. You can also offer a
-  **starter promise** (worth up to ~9% off to a player who wants to start).
+  (e.g. threatening a playing-time guy with his backup) backfires and raises his price. Arguments sit in two
+  tabs: **SELL** (soft pitches - hometown club, his teammates, a starting role, the big stage, a young core,
+  "we'll build around you") and **HARDBALL** (the evidence cases plus "you've peaked" and "we made you"); each
+  only shows when the data backs it. Strong bonds soften his demand: the closer he is to a teammate (scaled by
+  loyalty), the cheaper he comes, and the agent says so.
+- **Deal terms**: beyond salary and years you can add a **signing bonus** (paid once, counted on this year's
+  cap, worth more than salary to money players), a **no-trade clause** (security and loyalty players value it;
+  he can't be traded unless he asks out), a **starter promise** (up to ~9% off to a player who wants to start)
+  and **keep the core** (promise not to trade or cut his closest Familiar+ teammate this season; breaking it costs
+  trust like a broken starter promise). The page prices every term to him and shows "your offer is worth
+  $X / yr to him - n% of his ask"; he signs when that value clears his demand and the cash clears his floor.
+- **Tactics**: **Ask what it'll take** (reveals a floor range, his preferred length and favourite term),
+  **Smooth it over** (once, after a misstep or with low trust: wins back trust and undoes one misstep's price
+  bump for some patience), **Sleep on it** (once: patience comes back, but his number drifts back toward his
+  opening ask) and **Final Offer** (take it or leave it - he signs if it's close enough, scaled by savvy and temper,
+  or walks). Walk-outs, backfires and insults are logged in Player Relations.
+- **Contract extensions** (Personnel → Extensions card, a player's Contract tab, or "Extend them now" on the
+  Re-sign page in season): from preseason camp until the playoffs you can open talks with any of your players in
+  the last year of his deal. It's the same negotiation room and deal terms, but the new deal starts **next
+  season** and must fit under next season's cap (payroll plus other agreed extensions). Two extra arguments: **Lock
+  in now** (security- and loyalty-minded players like certainty) and **Test the market** (a gamble: money-minded
+  or savvy players would rather see free agency, and it backfires harder). **Sleep on it** pauses talks until next
+  week instead of the next day. An agreed extension sits on the player (shown as "ext" in contract rows, counted
+  in Future Commitments and next season's payroll) and replaces his deal at the rollover, so he never hits the
+  re-sign window. If he walks, extension talks are off until the re-sign window, where he opens with 20 less
+  patience and a 3% higher ask. Released players lose their pending extension (any bonus stays booked). AI teams
+  extend about 60% of the final-year players they'd re-sign anyway once, at midseason; extensions show in News.
 - **Starter promises** (re-signs and free-agent offers): he must start 75% of next season's games (weeks out
   injured don't count). Kept → trust +12; broken → trust −25, morale −10, and players who need to start or are
   thin-skinned **request a trade**. His next negotiation opens sour. Results show under News → Player Relations.
@@ -249,7 +274,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   offer: he signs with you, picks another team, or turns you down so you can raise it. In the offseason each round every free agent scores
   his offers and signs the best one that clears his bar. The weights come from his DNA (money ~55-85% vs.
   asking, team quality and playing time the rest), plus a starter promise (a backup treats it as nearly a starting
-  job), a loyalty pull toward his former club (scaled by trust) and a security bonus for his preferred length. The
+  job), a loyalty pull toward his former club (scaled by trust), a pull toward teams with his closest friends and a security bonus for his preferred length. The
   offer page shows what he weighs and has a starter-promise toggle. It lists every team's current offer with a bar for his interest in each (the tick marks his bar). Unsigned players lower their asking price over time. AI teams bid too: every team with
   cap room chases free agents who would upgrade its weakest starter or depth (so top free agents draw several offers).
   A full AI roster releases its least valuable player to make room. "Keep value" weighs OVR, age, dev stars, ceiling and
@@ -319,7 +344,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   column (click a header; click again to flip). Free Agents, Progression and Contracts use the same sortable tables.
 - **Player page** (Madden style) with tabs: **Overview** (action rail, morale/health/energy/XP rings, morale
   factors, OVR at each position and every attribute), **Ratings** (spend skill points), **Contract** (details,
-  re-sign, release with a confirm step), **Stats** (a Season / Career toggle: Season lists every match this year - opponent, W/L score and the full line - with the season total; Career is the season-by-season lines and career total), **DNA** (motivations, personality, trust, promise status, trade request, chemistry bonds) and
+  re-sign, negotiate an extension (final-year players in season; an agreed extension is shown), release with a confirm step), **Stats** (a Season / Career toggle: Season lists every match this year - opponent, W/L score and the full line - with the season total; Career is the season-by-season lines and career total), **DNA** (motivations, personality, trust, promise status, trade request, chemistry bonds) and
   **Progression**: every rating change with when and why, newest first by season - level-ups (skill points), training
   camp drills, age decline and end-of-season dev star re-grades - with +/- per stat and OVR before → after.
   League Leaders, League/Team Stats, box scores, the matchup screen and Free Agents all open it.
@@ -486,7 +511,7 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
 - Seasons and schedules (done: 20 teams, 4 divisions, 8-team playoffs)
 - Save / Load (done)
 - Scouting and the end-of-season draft (done)
-- Contracts, hard cap, free agency, retirement, DNA, re-sign negotiation and starter promises (done)
+- Contracts, hard cap, free agency, retirement, DNA, re-sign negotiation, contract extensions and starter promises (done)
 - Trades: in-season (Week 8 deadline), offseason and draft-day, trade block and AI offers (done)
 - Best-of-3 match modes (done; next: more modes and per-mode schemes)
 - Weekly News: your club's beat writer files a generated newspaper article every week and offseason step (done)

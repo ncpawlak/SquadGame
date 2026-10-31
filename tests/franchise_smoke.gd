@@ -146,6 +146,8 @@ func _init() -> void:
 				await _wait_loading(hub)
 				_check(hub.viewer == null and hub._root.visible, "viewer closed back to the hub")
 				_check(m.is_played() and hub.season.week == wk + 1, "watched match recorded, week advanced")
+		if guard == 2:
+			await _extension_flow(hub)
 		if guard == 3:
 			await _visit_pages(hub, "midseason")
 	_check(saw_matchup and watched, "Play Week opens the matchup screen")
@@ -169,9 +171,18 @@ func _init() -> void:
 	var talks: Negotiation = hub.season.negotiations.get(talker.id)
 	_check(talks != null and talks.is_open(), "negotiation started")
 	var said := talks.talk.size()
-	if not talks.arguments().is_empty():
-		_check(_press(hub, talks.arguments()[0]["title"]), "argument button")
+	var sell := talks.arguments_in(Negotiation.SELL)
+	if not sell.is_empty():
+		_check(_press(hub, sell[0]["title"]), "sell argument button")
 		await process_frame
+	_check(_press(hub, "HARDBALL"), "hardball tab")
+	await process_frame
+	_check(_press(hub, "TACTICS"), "tactics tab")
+	await process_frame
+	_check(_press(hub, "Ask what it'll take") and not talks.revealed.is_empty(), "ask tactic")
+	await process_frame
+	_check(_press(hub, "[  ] No-trade clause"), "no-trade toggle")
+	await process_frame
 	_check(_press(hub, "Make Offer"), "make offer button")
 	await process_frame
 	_check(talks.talk.size() > said, "the table logs the exchange")
@@ -325,6 +336,43 @@ func _find_loading(hub) -> LoadingScreen:
 	return null
 
 
+## In-season extension: Personnel card -> Extensions page -> negotiation room -> sleep on it -> agree.
+func _extension_flow(hub) -> void:
+	var user: Team = hub.season.user_team()
+	var guy: Soldier = user.roster[2]
+	guy.contract.years = 1
+	guy.clear_extension()
+	guy.ext_walked_year = 0
+	hub.open_extensions()
+	await process_frame
+	_check(hub.page_stack[-1]["title"] == "Extensions", "extensions page opens")
+	_check(_find_button(hub, "Negotiate") != null, "extensions page has Negotiate")
+	hub.pages.open_negotiation(guy)
+	await process_frame
+	var talks: Negotiation = hub.season.negotiations.get(guy.id)
+	_check(talks != null and talks.extension and talks.is_open(), "extension talks started")
+	_check(_press(hub, "TACTICS"), "extension tactics tab")
+	await process_frame
+	_check(_press(hub, "Sleep on it") and talks.is_resting(), "sleep on it pauses extension talks")
+	await process_frame
+	_check(_find_button(hub, "Back to Extensions") != null, "resting room offers a way back")
+	hub.season.week += 1
+	_check(hub.season.negotiation(user, guy) == talks and talks.can_act(), "talks resume next week")
+	hub.season.week -= 1
+	talks.patience = Negotiation.MAX_PATIENCE
+	var yrs := Contracts.preferred_years(guy)
+	if talks.offer_error(talks.demand(yrs), yrs) == "":
+		talks.accept(yrs)
+		_check(guy.has_extension(), "extension agreed")
+		hub.open_extensions()
+		await process_frame
+		hub.open(guy.full_name(), func(): return hub.pages.player(guy))
+		await process_frame
+	hub.page_stack.clear()
+	hub.refresh()
+	await process_frame
+
+
 func _visit_pages(hub, phase: String) -> void:
 	var p = hub.pages
 	var builders := {
@@ -333,7 +381,7 @@ func _visit_pages(hub, phase: String) -> void:
 		"playoffs": p.playoffs, "rankings": p.team_rankings, "news": p.news, "sim_options": p.sim_options,
 		"injuries": p.injuries, "scouting": p.scouting, "draft_room": p.draft_room, "mock_draft": p.mock_draft,
 		"awards": p.awards, "teams": p.teams, "free_agents": p.free_agents, "contracts": p.contracts,
-		"resign": p.resign, "retirements": p.retirements, "offer": p.offer,
+		"resign": p.resign, "extensions": p.extensions, "retirements": p.retirements, "offer": p.offer,
 		"legacy_champions": func():
 			hub.legacy_pages.tab = "champions"
 			return hub.legacy_pages.legacy(),

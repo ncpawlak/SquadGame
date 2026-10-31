@@ -14,6 +14,8 @@ const LEVEL_NAMES: Array[String] = ["Acquainted", "Familiar", "Trusted", "Insepa
 const LEVEL_COLORS: Array[Color] = [Color("#64748b"), Color("#38bdf8"), Color("#22c55e"), Color("#f59e0b")]
 const LEVEL_BONUS: Array[int] = [0, 1, 2, 3]
 const BONUS_CAP := 4
+## Bond points (see bond_pull) that count as a full pull at the negotiating table.
+const BOND_PULL_FULL := 6.0
 const MAX_POINTS := 100.0
 const MATCH_GAIN := 1.5
 const ADJACENT_GAIN := 3.0
@@ -57,6 +59,27 @@ func bonus_in(s: Soldier, lineup: Array) -> int:
 		if o != s:
 			total += LEVEL_BONUS[level(s, o)]
 	return mini(total, BONUS_CAP)
+
+
+## 0..1: how much `s`'s bonds with `team`'s roster pull him toward signing there. Each Familiar /
+## Trusted / Inseparable teammate adds 1 / 2 / 3 points; BOND_PULL_FULL points is full pull.
+func bond_pull(s: Soldier, team: Team) -> float:
+	var total := 0
+	for o in team.roster:
+		if o != s:
+			total += LEVEL_BONUS[level(s, o)]
+	return clampf(total / BOND_PULL_FULL, 0.0, 1.0)
+
+
+## His strongest Familiar+ bond on `team`'s roster (null if none).
+func best_bond(s: Soldier, team: Team) -> Soldier:
+	var best: Soldier = null
+	var best_pts := LEVEL_POINTS[1] - 0.001
+	for o in team.roster:
+		if o != s and points(s, o) > best_pts:
+			best = o
+			best_pts = points(s, o)
+	return best
 
 
 ## Bonus for `s` in his current club's lineup (0 for free agents / bench / no active store).
