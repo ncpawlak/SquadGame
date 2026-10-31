@@ -103,6 +103,8 @@ var relationships := Relationships.new()
 var rivalries := Rivalries.new()
 ## Team market (a fixed rating) and the buzz that moves with results.
 var market := Market.new()
+## Club revenue and cash (behind the scenes: nothing in contracts or the cap reads it).
+var revenue := Revenue.new()
 var trades := Trades.new()
 ## Signings from the most recent resolution (free-agency day or week).
 var last_signings: Array = []
@@ -544,6 +546,7 @@ func finish_week() -> Array:
 		_ai_extend()
 	_advance()
 	market.week(self, played, news_week)
+	revenue.week(self, played, news_week)
 	news.week_stories(self, played, news_week)
 	if phase == PHASE_OFFSEASON:
 		newsroom.publish_wrap(self, news_week)
@@ -1268,6 +1271,7 @@ func _begin_season() -> void:
 	draft.scout_points = Draft.POINTS_PER_WEEK
 	league.ensure_callsigns()
 	market.begin_season(self)
+	revenue.begin_season(self)
 	news.begin_season(self)
 	newsroom.publish_preseason(self)
 	_stamp_log()

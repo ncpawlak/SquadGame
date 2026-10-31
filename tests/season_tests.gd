@@ -67,6 +67,9 @@ func _init() -> void:
 		"test_offseason_news",
 		"test_rivalries",
 		"test_market",
+		"test_revenue",
+		"test_home_crowd",
+		"test_team_appeal",
 		"test_match_form_upsets",
 		"test_schemes",
 		"test_keep_value_protects_prospects",
@@ -2280,7 +2283,9 @@ func test_newsroom() -> void:
 		if a["kind"] in [Newsroom.KIND_GAME, Newsroom.KIND_BYE, Newsroom.KIND_WRAP, Newsroom.KIND_PRESEASON]:
 			check((a["sidebar"] as Array).any(func(b): return b["title"] == "Market & Buzz"), "issue %d has the market and buzz box" % i)
 		if a["kind"] in [Newsroom.KIND_WRAP, Newsroom.KIND_PRESEASON]:
-			check((a["body"] as Array).any(func(p): return String(p).to_lower().contains("buzz")), "the %s issue talks about buzz" % a["kind"])
+			check((a["body"] as Array).any(func(p): return String(p).to_lower().contains("buzz") or String(p).to_lower().contains("interest")), "the %s issue talks about buzz" % a["kind"])
+		if a["kind"] == Newsroom.KIND_WRAP:
+			check((a["body"] as Array).any(func(p): return String(p).contains("took in") or String(p).contains("in revenue")), "the review covers the year in money")
 		for p in a["body"]:
 			if String(p).to_lower().contains("buzz"):
 				mood_lines += 1
@@ -2624,7 +2629,7 @@ func test_market() -> void:
 	check(Market.band_name(0.0) == "Ice Cold" and Market.band_name(19.9) == "Ice Cold" and Market.band_name(20.0) == "Cooling" and Market.band_name(40.0) == "Steady", "band edges")
 	check(Market.band_name(60.0) == "Warm" and Market.band_name(75.0) == "Hot" and Market.band_name(90.0) == "Electric" and Market.band_name(100.0) == "Electric", "upper bands")
 	check(Market.tier_of(1) == 1 and Market.tier_of(20) == 1 and Market.tier_of(21) == 2 and Market.tier_of(81) == 5 and Market.tier_of(100) == 5, "tier edges")
-	check(Market.baseline(by.call("NYE")) > Market.baseline(by.call("LRK")) and Market.baseline(by.call("LRK")) > 40.0 and Market.baseline(by.call("NYE")) < 56.0, "a bigger market rests hotter")
+	check(Market.baseline(by.call("NYE")) > Market.baseline(by.call("LRK")) and Market.baseline(by.call("LRK")) > 39.0 and Market.baseline(by.call("NYE")) < 66.0 and Market.baseline(by.call("NYE")) > 60.0, "a bigger market rests hotter")
 	# Heat is a reservoir: buzz absorbs at most WEEK_CAP a step, and nothing moves it directly.
 	var sea: Team = by.call("SEA")
 	var buzz0 := sea.buzz
@@ -2744,6 +2749,229 @@ func test_market() -> void:
 		loaded.league.teams[0].market_rating = 1
 		loaded.market.ensure(loaded)
 		check(loaded.league.teams[0].market_rating == int(LeagueData.MARKET_RATINGS[loaded.league.teams[0].abbrev]), "an older save is seeded from the tables")
+
+
+func test_revenue() -> void:
+	var s := _fixed(95)
+	var rv := s.revenue
+	var by := func(ab: String) -> Team: return s.league.team_by_abbrev(ab)
+	# Scale: 100M for the smallest market, 300M for the biggest, at average buzz.
+	check(is_equal_approx(Revenue.neutral_total(8), 100000.0) and is_equal_approx(Revenue.neutral_total(98), 300000.0), "market revenue spans 100M to 300M")
+	check(Revenue.neutral_total(50) > Revenue.neutral_total(30) and Revenue.neutral_total(1) == Revenue.neutral_total(8), "bigger markets earn more, clamped at the ends")
+	check(is_equal_approx(Revenue.buzz_factor(0.0), 0.75) and is_equal_approx(Revenue.buzz_factor(50.0), 1.0) and is_equal_approx(Revenue.buzz_factor(100.0), 1.25), "buzz scales money 0.75x to 1.25x")
+	check(is_equal_approx(Revenue.market_part(50) + Revenue.media(), Revenue.neutral_total(50)), "media plus the market-driven part make the total")
+	check(is_equal_approx(Revenue.TICKET_SHARE + Revenue.SPONSOR_SHARE + Revenue.MERCH_SHARE, 1.0), "stream shares add up")
+	# Everything is sized off one reference payroll.
+	check(Revenue.scale() == 1.0, "the design scale is 1 at today's cap")
+	# Opening cash.
+	for t: Team in s.league.teams:
+		check(is_equal_approx(rv.cash_of(t), Revenue.neutral_total(t.market_rating) * Revenue.SEED_SHARE), "%s opening cash" % t.abbrev)
+	check(rv.cash_of(by.call("NYE")) > rv.cash_of(by.call("LRK")) * 2.0, "a big market starts with more cash")
+	# The gate: an average crowd earns the even share; hot teams, rivals and the playoffs earn more.
+	var avg_gate := Revenue.gate(50, Revenue.FILL_AVERAGE, &"regular")
+	check(is_equal_approx(avg_gate, Revenue.market_part(50) * Revenue.TICKET_SHARE / Revenue.HOME_GAMES), "an average crowd earns the even share")
+	check(Revenue.fill(80.0, 50.0, false) > Revenue.fill(30.0, 50.0, false), "a hotter team fills more seats")
+	check(Revenue.fill(50.0, 50.0, true) > Revenue.fill(50.0, 50.0, false), "a rivalry fills more seats")
+	check(Revenue.fill(50.0, 80.0, false) > Revenue.fill(50.0, 20.0, false), "a hot opponent draws")
+	check(Revenue.fill(100.0, 100.0, true) <= 1.0 and Revenue.fill(0.0, 0.0, false) >= 0.3, "fill stays in range")
+	check(Revenue.gate(50, 0.87, &"final") > Revenue.gate(50, 0.87, &"semifinal") and Revenue.gate(50, 0.87, &"semifinal") > Revenue.gate(50, 0.87, &"quarterfinal") and Revenue.gate(50, 0.87, &"quarterfinal") > 0.0 and Revenue.gate(50, 0.87, &"final") < avg_gate, "later rounds pay more, but less than a regular gate")
+	# A played week: the home side takes the gate, everyone accrues sponsors, merch, media and costs.
+	var sea: Team = by.call("SEA")
+	var den: Team = by.call("DEN")
+	var before := rv.ledger_of(s.year, sea).duplicate()
+	var away_before := rv.ledger_of(s.year, den).duplicate()
+	var cash0 := rv.cash_of(sea)
+	rv.week(s, [_meeting(sea, den, 2, 1, &"regular", 1)], 1)
+	var after := rv.ledger_of(s.year, sea)
+	check(float(after["tickets"]) > 0.0 and int(after["home_games"]) == 1, "the home team books the gate")
+	check(is_zero_approx(float(rv.ledger_of(s.year, den)["tickets"])), "the visitors do not")
+	check(float(after["sponsors"]) > float(before["sponsors"]) and float(after["media"]) > float(before["media"]) and float(after["merch"]) > float(before["merch"]), "weekly streams accrue")
+	check(float(after["operations"]) > 0.0 and float(after["net"]) < float(after["revenue"]), "operating cost is booked")
+	check(rv.cash_of(sea) != cash0, "cash moves with the ledger")
+	check(is_equal_approx(float(after["media"]), Revenue.media() / s.regular_weeks), "media is paid evenly")
+	check(float(rv.ledger_of(s.year, den)["media"]) == float(after["media"]), "media is equal for every team")
+	# Merchandise rises with live buzz.
+	var chi: Team = by.call("CHI")
+	var lrk: Team = by.call("LRK")
+	chi.buzz = 90.0
+	lrk.buzz = 10.0
+	check(Revenue.buzz_factor(chi.buzz) > Revenue.buzz_factor(lrk.buzz), "hot clubs earn more than cold ones")
+	# Playoff money.
+	var ledger_final := rv.ledger_of(s.year, sea)
+	var bonus0 := float(ledger_final["bonus"])
+	s.phase = Season.PHASE_PLAYOFFS
+	s.playoff_seeds = {sea: 1}
+	rv.week(s, [], s.regular_weeks)
+	check(is_equal_approx(float(ledger_final["bonus"]) - bonus0, Revenue.BONUS_QUALIFY), "a playoff berth pays")
+	s.phase = Season.PHASE_REGULAR
+	# Payroll is not part of the ledger.
+	check(not rv.ledger_of(s.year, sea).has("payroll"), "payroll is not deducted: the cap is its own rule")
+	# A real season: every club's ledger is sane, the champion earns the title money, cash stays in range.
+	var s2 := _fixed(96)
+	var table := {}
+	for t: Team in s2.league.teams:
+		table[t.abbrev] = t.market_rating
+	s2.sim_to_end_of_season()
+	var rows := s2.revenue.table(s2)
+	check(rows.size() == 20, "a ledger for every club")
+	var total := 0.0
+	for r in rows:
+		var l: Dictionary = r["ledger"]
+		var t: Team = r["team"]
+		total += float(l["revenue"])
+		check(float(l["revenue"]) > 50000.0 and float(l["revenue"]) < 450000.0, "%s revenue is sane (%.0f)" % [t.abbrev, float(l["revenue"])])
+		check(absf(float(l["revenue"]) - (float(l["tickets"]) + float(l["sponsors"]) + float(l["merch"]) + float(l["media"]) + float(l["bonus"]))) < 0.01, "%s revenue is the sum of its streams" % t.abbrev)
+		check(int(l["home_games"]) >= 4, "%s played home games" % t.abbrev)
+		check(s2.revenue.cash_of(t) <= Revenue.cash_cap(t.market_rating) + 0.01 and s2.revenue.cash_of(t) >= Revenue.cash_floor(t.market_rating) - 0.01, "%s cash in range" % t.abbrev)
+	check(total / 20.0 > 120000.0 and total / 20.0 < 280000.0, "the league averages sensible revenue (%.0f)" % (total / 20.0))
+	var big := 0.0
+	var big_n := 0
+	var small := 0.0
+	var small_n := 0
+	for r in rows:
+		if (r["team"] as Team).market_rating >= 70:
+			big += float(r["ledger"]["revenue"])
+			big_n += 1
+		elif (r["team"] as Team).market_rating <= 20:
+			small += float(r["ledger"]["revenue"])
+			small_n += 1
+	check(big_n > 0 and small_n > 0 and big / big_n > small / small_n * 1.5, "big markets out-earn small ones (%.0f vs %.0f)" % [big / maxf(1.0, big_n), small / maxf(1.0, small_n)])
+	var champ_l := s2.revenue.ledger_of(s2.year, s2.champion)
+	check(float(champ_l["bonus"]) >= Revenue.BONUS_TITLE, "the champion collects the title money")
+	check(s2.news.items.any(func(it): return it["kind"] == "sellout"), "a sellout made the wire")
+	# Saves keep ledgers, and an older save without revenue is seeded.
+	var loaded := SaveSystem.from_text(SaveSystem.to_text(s2))
+	check(loaded != null and is_equal_approx(loaded.revenue.cash_of(loaded.league.teams[0]), s2.revenue.cash_of(s2.league.teams[0])), "cash survives a save")
+	check(loaded != null and str(loaded.revenue.ledgers) == str(s2.revenue.ledgers), "ledgers survive a save")
+	if loaded != null:
+		loaded.revenue.seeded = false
+		loaded.revenue.cash = {}
+		loaded.revenue.ensure(loaded)
+		check(is_equal_approx(loaded.revenue.cash_of(loaded.league.teams[0]), Revenue.neutral_total(loaded.league.teams[0].market_rating) * Revenue.SEED_SHARE), "an older save is seeded")
+	# A new season opens a new ledger and keeps the sponsors' step up for hot clubs.
+	var s3 := _fixed(97)
+	var hot: Team = s3.league.team_by_abbrev("NYE")
+	check(float(s3.revenue.deals["NYE"]) > Revenue.market_part(hot.market_rating) * Revenue.SPONSOR_SHARE, "a hot club signs a bigger sponsor deal")
+
+
+func test_home_crowd() -> void:
+	var s := _fixed(98)
+	var a: Team = s.league.team_by_abbrev("SEA")
+	var b: Team = s.league.team_by_abbrev("DEN")
+	# The edge: nothing at a cold stadium, the full amount at Electric, never more than about one OVR point.
+	a.buzz = 20.0
+	check(is_zero_approx(Market.crowd_edge(a)), "a cold stadium gives no edge")
+	a.buzz = Market.CROWD_FLOOR
+	check(is_zero_approx(Market.crowd_edge(a)), "nothing at the floor")
+	a.buzz = 70.0
+	var mid := Market.crowd_edge(a)
+	a.buzz = 100.0
+	check(is_equal_approx(Market.crowd_edge(a), Market.CROWD_MAX) and mid > 0.0 and mid < Market.CROWD_MAX, "the edge grows with buzz up to the maximum")
+	check(Market.CROWD_MAX <= 1.5, "the crowd stays a small edge beside match-day form")
+	# It adds rating points to the home squad only, and does not disturb the match's randomness.
+	var e0 := MatchEngine.new()
+	e0.start(a, b, 4242, null, null, 0.0)
+	var e1 := MatchEngine.new()
+	e1.start(a, b, 4242, null, null, 1.0)
+	check(is_equal_approx(e1.team_form[0] - e0.team_form[0], 1.0) and is_equal_approx(e1.team_form[1], e0.team_form[1]), "the home squad gains the edge, the visitors nothing")
+	check(is_equal_approx(e1.result().crowd, 1.0) and is_zero_approx(e0.result().crowd), "the result records the crowd")
+	var r_a := MatchEngine.simulate(a, b, 777, null, null, 0.5)
+	var r_b := MatchEngine.simulate(a, b, 777, null, null, 0.5)
+	check(r_a.winner() == r_b.winner() and r_a.score == r_b.score, "a match with a crowd is deterministic")
+	check(is_equal_approx(MatchEngine.simulate(a, b, 777).crowd, 0.0), "no crowd by default")
+	# Fixtures use the home team's live buzz.
+	var m: ScheduledMatch = s.matches_for_week(1)[0]
+	m.home.buzz = 100.0
+	check(is_equal_approx(m.play().crowd, Market.CROWD_MAX), "a hot home club brings the full crowd")
+	var m2: ScheduledMatch = s.matches_for_week(2)[0]
+	m2.home.buzz = 10.0
+	check(is_zero_approx(m2.play().crowd), "a cold home club brings none")
+	# Over many matches the crowd helps the home side, but only a little.
+	var lift_a := 0
+	var lift_b := 0
+	for i in 40:
+		if MatchEngine.simulate(a, b, 9000 + i, null, null, 4.0).winner() == a:
+			lift_a += 1
+		if MatchEngine.simulate(a, b, 9000 + i, null, null, 0.0).winner() == a:
+			lift_b += 1
+	check(lift_a >= lift_b - 6, "an exaggerated crowd does not hurt the home side (%d vs %d)" % [lift_a, lift_b])
+
+
+func test_team_appeal() -> void:
+	var s := _fixed(99)
+	var by := func(ab: String) -> Team: return s.league.team_by_abbrev(ab)
+	var nye: Team = by.call("NYE")
+	var lrk: Team = by.call("LRK")
+	var fa := PlayerGenerator.generate(RandomNumberGenerator.new(), 90001, Scheme.Role.FLEX, 70.0, 27)
+	var dna := Dna.new()
+	for k in Dna.MOTIVATIONS:
+		dna.set(k, 1)
+	fa.dna = dna
+	fa.home_state = ""
+	# Read-only: scoring changes nothing.
+	var cash0 := s.revenue.cash_of(nye)
+	var buzz0 := nye.buzz
+	TeamAppeal.score(fa, nye, s)
+	check(is_equal_approx(s.revenue.cash_of(nye), cash0) and is_equal_approx(nye.buzz, buzz0), "appeal is read-only")
+	# Someone who cares about nothing is neutral; the score stays within 0..100.
+	check(absf(TeamAppeal.score(fa, nye, s) - TeamAppeal.score(fa, lrk, s)) < 6.0, "a soldier with no motivations barely tells clubs apart")
+	for t: Team in s.league.teams:
+		var sc := TeamAppeal.score(fa, t, s)
+		check(sc >= 0.0 and sc <= 100.0, "%s score in range" % t.abbrev)
+	# Money: the big market wins.
+	dna.money = 99
+	check(TeamAppeal.score(fa, nye, s) > TeamAppeal.score(fa, lrk, s) + 10.0, "a money-minded soldier prefers the bigger market")
+	dna.money = 1
+	# Winning: a stronger, hotter club wins.
+	dna.winning = 99
+	var best: Team = s.league.teams[0]
+	var worst: Team = s.league.teams[0]
+	for t: Team in s.league.teams:
+		if t.team_ovr() > best.team_ovr():
+			best = t
+		if t.team_ovr() < worst.team_ovr():
+			worst = t
+	best.buzz = 80.0
+	worst.buzz = 25.0
+	check(TeamAppeal.score(fa, best, s) > TeamAppeal.score(fa, worst, s) + 10.0, "a winner prefers the contender")
+	dna.winning = 1
+	# Hometown: his own state's club beats a far one.
+	dna.hometown = 99
+	var home_team: Team = by.call("DET")
+	fa.home_state = home_team.home_state
+	var far: Team = s.league.teams.filter(func(t: Team): return LeagueData.region_of(t.home_state) != LeagueData.region_of(home_team.home_state))[0]
+	check(TeamAppeal.score(fa, home_team, s) > TeamAppeal.score(fa, far, s) + 10.0, "a homesick soldier prefers the club near home")
+	dna.hometown = 1
+	fa.home_state = ""
+	# Playing time: he would start for a thin club and sit for a deep one.
+	var thin: Team = worst
+	var deep: Team = best
+	var mid := PlayerGenerator.generate(RandomNumberGenerator.new(), 90002, Scheme.Role.FLEX, 70.0, 27)
+	mid.dna = dna
+	dna.playing_time = 99
+	var pt := func(t: Team) -> float:
+		for r in TeamAppeal.breakdown(mid, t, s):
+			if r["key"] == &"playing_time":
+				return float(r["value"])
+		return -1.0
+	check(float(pt.call(thin)) >= float(pt.call(deep)), "he would start more readily for the thinner roster")
+	dna.playing_time = 1
+	# Loyalty: his own club beats strangers.
+	dna.loyalty = 99
+	var mine: Team = by.call("SEA")
+	var other: Team = by.call("DEN")
+	fa.former_team = mine.abbrev
+	check(TeamAppeal.score(fa, mine, s) > TeamAppeal.score(fa, other, s) + 10.0, "a loyal soldier prefers his old club")
+	# The breakdown explains the score.
+	dna.loyalty = 50
+	var rows := TeamAppeal.breakdown(fa, nye, s)
+	check(rows.size() == Dna.MOTIVATIONS.size(), "a row per motivation")
+	var total := 50.0
+	for r in rows:
+		total += float(r["points"])
+		check(float(r["value"]) >= 0.0 and float(r["value"]) <= 1.0 and String(r["text"]) != "", "row %s has a value and a reason" % r["key"])
+	check(is_equal_approx(clampf(total, 0.0, 100.0), TeamAppeal.score(fa, nye, s)), "the rows add up to the score")
+	check(TeamAppeal.reasons(fa, nye, s, 2).size() == 2, "the top reasons come back")
 
 
 func test_match_form_upsets() -> void:

@@ -449,6 +449,22 @@ func buzz_leader(season: Season, when: String, t: Team, gain: float) -> void:
 			t.nickname, roundi(gain), (", led by %s," % why) if why != "" else "", Market.buzz_text(t)])
 
 
+## A club's sponsor deal for the season grew a lot (see Revenue).
+func sponsor_deal(season: Season, t: Team, now: float, was: float) -> void:
+	_add(season, "Preseason", "sponsor_deal", [t.abbrev], 0,
+		"%s land a bigger sponsorship deal" % t.name,
+		"Buzz has paid off for the %s: their sponsorship deal for %d is worth %s, up %d%% on last year's %s." % [
+			t.nickname, season.year, Contracts.money(roundi(now)), roundi((now / was - 1.0) * 100.0), Contracts.money(roundi(was))])
+
+
+## A club's first sold-out home game of the season.
+func sellout(season: Season, when: String, t: Team) -> void:
+	_add(season, when, "sellout", [t.abbrev], 0,
+		"%s sell out for the first time this year" % t.name,
+		"Every seat was taken in %s. With buzz at %s, the %s are the hot ticket." % [
+			t.city, Market.band_name(t.buzz), t.nickname])
+
+
 func _offseason_when(season: Season) -> String:
 	return season.step_label() if season.phase == Season.PHASE_OFFSEASON else season.week_label(season.week)
 
