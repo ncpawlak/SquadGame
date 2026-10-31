@@ -37,7 +37,8 @@ var lineup: Dictionary = {}
 var user_controlled := false
 ## Cap year -> dead money ($K) still owed to released soldiers.
 var dead_money: Dictionary = {}
-## Cap year -> signing bonuses paid that year ($K). Stays with the team if the player leaves.
+## Cap year -> signing bonuses booked on the cap ($K): saves from before issue #41 only (bonuses are now
+## paid from the club fund, off the cap). Stays with the team if the player leaves.
 var bonus_money: Dictionary = {}
 ## Market (see Market): a fixed rating 1-100 (the city's size and money), the buzz meter 0-100 that moves,
 ## the heat not yet absorbed into buzz, and the recent points log [{year, when, label, amount}].

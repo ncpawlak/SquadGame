@@ -86,7 +86,7 @@ var promise: Dictionary = {}
 ## name}: his club won't trade or release that teammate this season. {} = none.
 var keep_promise: Dictionary = {}
 ## Agreed in-season extension, applied when his current deal runs out (Contracts.rollover):
-## yearly salary ($K) and years (0 = none), signing bonus (already booked on the cap) and
+## yearly salary ($K) and years (0 = none), signing bonus (already paid from the club fund) and
 ## no-trade clause.
 var ext_salary: int = 0
 var ext_years: int = 0

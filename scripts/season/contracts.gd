@@ -2,8 +2,8 @@ class_name Contracts
 extends RefCounted
 ## Salary cap rules (NBA-style soft cap with a luxury tax, the same for every team). Money is in $K.
 ##
-## - Payroll = salaries of rostered soldiers under contract for the cap year + dead money +
-##   signing bonuses paid that year (a bonus stays on the payer's cap if the player leaves).
+## - Payroll = salaries of rostered soldiers under contract for the cap year + dead money (+ signing
+##   bonuses booked by saves from before issue #41; a bonus is now paid from the club fund, off the cap).
 ##   The cap year is the current season, or next season during the offseason.
 ## - Soft cap (SALARY_CAP): signing another team's free agent needs room under it (pending offers
 ##   count). Minimum deals, re-signing your own expiring players (Bird rights; his cap hold is
@@ -28,6 +28,9 @@ const MAX_SALARY := 60000
 ## 90s $40-60M. [ovr, $K].
 const MARKET_CURVE := [[59, 1000], [60, 2000], [70, 8000], [80, 25000], [90, 40000], [99, 60000]]
 const MAX_YEARS := 5
+## A signing bonus is paid from the club fund, never counts on the cap, and may be at most this share
+## of the deal's total salary (issue #41).
+const BONUS_SHARE := 0.5
 const DEAD_MONEY_SHARE := 0.5
 const YEARS_PREMIUM := 0.06
 const RESIGN_DISCOUNT := 0.95
@@ -178,6 +181,11 @@ static func tax_due(team: Team, cap_year: int) -> int:
 ## Whether a free-agent deal paying `salary` fits under the soft cap. `committed` is money
 ## already promised elsewhere (e.g. pending free-agent offers). Minimum deals always fit, so a
 ## team can fill its roster.
+## The biggest signing bonus allowed on a deal: BONUS_SHARE of its total salary.
+static func max_bonus(salary: int, years: int) -> int:
+	return roundi(salary * maxi(1, years) * BONUS_SHARE / 10.0) * 10
+
+
 static func fits(team: Team, cap_year: int, salary: int, committed := 0) -> bool:
 	return salary <= MIN_SALARY or salary + committed <= cap_space(team, cap_year)
 
@@ -194,8 +202,8 @@ static func next_apron_room(team: Team, year: int) -> int:
 	return apron_room(team, year, 1)
 
 
-## Whether an in-season extension paying `salary` next season (plus a bonus booked on that year)
-## fits under next season's apron. Minimum deals always fit.
+## Whether an in-season extension paying `salary` next season fits under next season's apron (a
+## `bonus` here counts as cap money; signing bonuses themselves are off the cap). Minimum deals always fit.
 static func extension_fits(team: Team, year: int, salary: int, bonus := 0) -> bool:
 	return (salary <= MIN_SALARY and bonus <= 0) or salary + bonus <= next_apron_room(team, year)
 
