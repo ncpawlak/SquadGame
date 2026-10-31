@@ -169,9 +169,18 @@ func _init() -> void:
 	var talks: Negotiation = hub.season.negotiations.get(talker.id)
 	_check(talks != null and talks.is_open(), "negotiation started")
 	var said := talks.talk.size()
-	if not talks.arguments().is_empty():
-		_check(_press(hub, talks.arguments()[0]["title"]), "argument button")
+	var sell := talks.arguments_in(Negotiation.SELL)
+	if not sell.is_empty():
+		_check(_press(hub, sell[0]["title"]), "sell argument button")
 		await process_frame
+	_check(_press(hub, "HARDBALL"), "hardball tab")
+	await process_frame
+	_check(_press(hub, "TACTICS"), "tactics tab")
+	await process_frame
+	_check(_press(hub, "Ask what it'll take") and not talks.revealed.is_empty(), "ask tactic")
+	await process_frame
+	_check(_press(hub, "[  ] No-trade clause"), "no-trade toggle")
+	await process_frame
 	_check(_press(hub, "Make Offer"), "make offer button")
 	await process_frame
 	_check(talks.talk.size() > said, "the table logs the exchange")

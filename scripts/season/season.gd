@@ -110,6 +110,9 @@ var resign_log: Array = []
 var negotiations: Dictionary = {}
 ## Resolved starter promises: {soldier, team, year, games, started, kept, request}.
 var promise_log: Array = []
+## Contract-talk flashpoints for storylines: {year, when, soldier, team, kind, text}. Kinds:
+## &"walked", &"insulted", &"backfired", &"keep_broken", &"keep_kept".
+var talks_log: Array = []
 ## Expiring soldiers who left their team when free agency opened: {soldier, team, year}.
 var departures: Array = []
 ## This offseason's training camp (null until the first offseason).
@@ -599,6 +602,12 @@ func _resolve_promises() -> void:
 				so.trade_request = so.trade_request or request
 			promise_log.append({"soldier": so, "team": t, "year": year, "games": games, "started": started, "kept": kept, "request": request})
 			so.promise = {}
+		for so in t.roster:
+			if so.keep_promise.is_empty() or int(so.keep_promise["year"]) != year:
+				continue
+			so.add_trust(6.0)
+			log_talk(so, t, &"keep_kept", "%s's club kept its word: %s stayed." % [so.full_name(), so.keep_promise["name"]])
+			so.keep_promise = {}
 
 
 ## AI teams pick intensities and rest tired/injured starters; every team (including the user's)
@@ -915,7 +924,7 @@ func negotiation(team: Team, s: Soldier) -> Negotiation:
 
 
 ## Re-signs one of `team`'s expiring soldiers at his current demand. Returns "" or the reason it failed.
-func resign_player(team: Team, s: Soldier, years: int, promise := false) -> String:
+func resign_player(team: Team, s: Soldier, years: int, terms := {}) -> String:
 	if not can_resign():
 		return "Re-signing is open from the end of the season until free agency."
 	var n := negotiation(team, s)
@@ -925,18 +934,39 @@ func resign_player(team: Team, s: Soldier, years: int, promise := false) -> Stri
 		return "%s broke off talks. He's headed to free agency." % s.full_name()
 	if n.state == Negotiation.SIGNED:
 		return "%s already re-signed." % s.full_name()
-	var salary := n.demand(years, promise)
-	var err := n.offer_error(salary, years, promise)
+	var salary := n.required_salary(years, terms)
+	var err := n.offer_error(salary, years, terms)
 	if err != "":
 		return "%s He wants %s." % [err, Contracts.money(salary)] if err.begins_with("Not enough") else err
-	n.accept(years, promise)
+	n.accept(years, terms)
 	return ""
+
+
+## `team` just traded or released `gone`: every teammate it promised to keep him around is let
+## down (trust, morale, maybe a trade request) and the storyline log notes it.
+func break_keep_promises(team: Team, gone: Soldier) -> void:
+	for so in team.roster:
+		if so == gone or so.keep_promise.is_empty() or so.keep_promise["team"] != team.abbrev or int(so.keep_promise["id"]) != gone.id:
+			continue
+		var d := so.get_dna()
+		so.add_trust(-15.0)
+		so.add_morale(-10.0)
+		if d.temperament <= 35 or d.loyalty >= 70:
+			so.trade_request = true
+		so.keep_promise = {}
+		log_talk(so, team, &"keep_broken", "%s was promised %s would stay. He's gone." % [so.full_name(), gone.full_name()])
+
+
+## Adds a storyline flashpoint to talks_log.
+func log_talk(s: Soldier, team: Team, kind: StringName, text: String) -> void:
+	talks_log.append({"year": year, "when": Trades._when(self), "soldier": s, "team": team, "kind": kind, "text": text})
 
 
 ## Releases a soldier into free agency, booking dead money for what's left on his deal.
 ## Returns the dead money.
 func release_player(team: Team, s: Soldier) -> int:
 	news.release(self, team, s)
+	break_keep_promises(team, s)
 	var dead := Contracts.charge_release(team, s, cap_year())
 	team.release(s)
 	league.add_free_agent(s, year)

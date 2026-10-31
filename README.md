@@ -197,8 +197,22 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   from data - production at his role, injuries, age 30+, comparable contracts, being a contender, a tight cap,
   competition at his spot, years with the club - and land by evidence × fit with his DNA × your leverage (lower
   for your best players), with diminishing returns. Weak evidence gets rebutted by savvy players; a bad fit
-  (e.g. threatening a playing-time guy with his backup) backfires and raises his price. You can also offer a
-  **starter promise** (worth up to ~9% off to a player who wants to start).
+  (e.g. threatening a playing-time guy with his backup) backfires and raises his price. Arguments sit in two
+  tabs: **SELL** (soft pitches - hometown club, his teammates, a starting role, the big stage, a young core,
+  "we'll build around you") and **HARDBALL** (the evidence cases plus "you've peaked" and "we made you"); each
+  only shows when the data backs it. Strong bonds soften his demand: the closer he is to a teammate (scaled by
+  loyalty), the cheaper he comes, and the agent says so.
+- **Deal terms**: beyond salary and years you can add a **signing bonus** (paid once, counted on this year's
+  cap, worth more than salary to money players), a **no-trade clause** (security and loyalty players value it;
+  he can't be traded unless he asks out), a **starter promise** (up to ~9% off to a player who wants to start)
+  and **keep the core** (promise not to trade or cut his closest Familiar+ teammate this season; breaking it costs
+  trust like a broken starter promise). The page prices every term to him and shows "your offer is worth
+  $X / yr to him - n% of his ask"; he signs when that value clears his demand and the cash clears his floor.
+- **Tactics**: **Ask what it'll take** (reveals a floor range, his preferred length and favourite term),
+  **Smooth it over** (once, after a misstep or with low trust: wins back trust and undoes one misstep's price
+  bump for some patience), **Sleep on it** (once: patience comes back, but his number drifts back toward his
+  opening ask) and **Final Offer** (take it or leave it - he signs if it's close enough, scaled by savvy and temper,
+  or walks). Walk-outs, backfires and insults are logged in Player Relations.
 - **Starter promises** (re-signs and free-agent offers): he must start 75% of next season's games (weeks out
   injured don't count). Kept → trust +12; broken → trust −25, morale −10, and players who need to start or are
   thin-skinned **request a trade**. His next negotiation opens sour. Results show under News → Player Relations.
@@ -249,7 +263,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   offer: he signs with you, picks another team, or turns you down so you can raise it. In the offseason each round every free agent scores
   his offers and signs the best one that clears his bar. The weights come from his DNA (money ~55-85% vs.
   asking, team quality and playing time the rest), plus a starter promise (a backup treats it as nearly a starting
-  job), a loyalty pull toward his former club (scaled by trust) and a security bonus for his preferred length. The
+  job), a loyalty pull toward his former club (scaled by trust), a pull toward teams with his closest friends and a security bonus for his preferred length. The
   offer page shows what he weighs and has a starter-promise toggle. It lists every team's current offer with a bar for his interest in each (the tick marks his bar). Unsigned players lower their asking price over time. AI teams bid too: every team with
   cap room chases free agents who would upgrade its weakest starter or depth (so top free agents draw several offers).
   A full AI roster releases its least valuable player to make room. "Keep value" weighs OVR, age, dev stars, ceiling and

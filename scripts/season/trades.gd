@@ -146,9 +146,10 @@ func picks_of(season: Season, team: Team) -> Array:
 	return out
 
 
-## Players `team` can trade: everyone under contract past this season.
+## Players `team` can trade: everyone under contract past this season, except a no-trade clause
+## (waived if he has asked out).
 static func tradeable(s: Soldier) -> bool:
-	return s.contract != null and s.contract.years > 0 and s.retired_year == 0
+	return s.contract != null and s.contract.years > 0 and s.retired_year == 0 and (not s.contract.no_trade or s.trade_request)
 
 
 func assets_of(season: Season, team: Team) -> Array:
@@ -382,6 +383,8 @@ func validate(season: Season, a: Team, a_give: Array, b: Team, b_give: Array) ->
 				if not t.roster.has(s):
 					return "%s is no longer on %s." % [s.display_name(), t.name]
 				if not tradeable(s):
+					if s.contract != null and s.contract.no_trade and s.contract.years > 0:
+						return "%s has a no-trade clause." % s.display_name()
 					return "%s's contract is expiring; he can't be traded." % s.display_name()
 	var cy := season.cap_year()
 	var floor_n := min_roster(season)
@@ -628,6 +631,7 @@ func _move(season: Season, x: Dictionary, from: Team, to: Team) -> Dictionary:
 	if asked:
 		delta += 12.0
 	delta += clampf((to.team_ovr() - from.team_ovr()) / 4.0, -1.0, 1.0) * 5.0 * d.n(&"winning")
+	season.break_keep_promises(from, s)
 	from.release(s)
 	to.roster.append(s)
 	s.add_morale(delta)
