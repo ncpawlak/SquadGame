@@ -382,6 +382,60 @@ func _visit_pages(hub, phase: String) -> void:
 		"injuries": p.injuries, "scouting": p.scouting, "draft_room": p.draft_room, "mock_draft": p.mock_draft,
 		"awards": p.awards, "teams": p.teams, "free_agents": p.free_agents, "contracts": p.contracts,
 		"resign": p.resign, "extensions": p.extensions, "retirements": p.retirements, "offer": p.offer,
+		"legacy_champions": func():
+			hub.legacy_pages.tab = "champions"
+			return hub.legacy_pages.legacy(),
+		"legacy_awards": func():
+			hub.legacy_pages.tab = "awards"
+			return hub.legacy_pages.legacy(),
+		"legacy_records": func():
+			hub.legacy_pages.tab = "records"
+			hub.legacy_pages.records_team = ""
+			return hub.legacy_pages.legacy(),
+		"legacy_records_franchise": func():
+			hub.legacy_pages.tab = "records"
+			hub.legacy_pages.records_team = hub.season.user_team().abbrev
+			var c: Control = hub.legacy_pages.legacy()
+			hub.legacy_pages.records_team = ""
+			return c,
+		"legacy_record_page": func():
+			var top := Records.player_seasons(hub.season, Records.PLAYER_STATS[0])
+			return hub.legacy_pages.record_page(Records.PLAYER_STATS[0], top, "season"),
+		"legacy_callsigns": func():
+			hub.legacy_pages.tab = "callsigns"
+			return hub.legacy_pages.legacy(),
+		"legacy_callsign_proposals": func():
+			var lg: League = hub.season.league
+			var so: Soldier = hub.season.user_team().roster[0]
+			var entry := {"callsign": so.callsign, "soldier": so, "team": hub.season.user_team(), "year": hub.season.year, "seasons": 7, "honors": ["2030 Season MVP"]}
+			lg.callsign_proposals.append(entry)
+			lg.retired_callsigns.append(entry)
+			var c: Control = hub.legacy_pages.callsign_proposals()
+			var banner: Control = hub.legacy_pages.banner_row(hub.season.user_team())
+			lg.callsign_proposals.erase(entry)
+			lg.retired_callsigns.erase(entry)
+			if banner != null:
+				banner.free()
+			return c,
+		"legacy_hall": func():
+			hub.legacy_pages.tab = "hall"
+			return hub.legacy_pages.legacy(),
+		"legacy_hall_class": func():
+			var s: Season = hub.season
+			var so: Soldier = s.league.teams[1].roster[0]
+			var entry := {"soldier": so, "year": s.year, "score": 70.0, "club": s.league.teams[1], "honors": ["2030 Season MVP"]}
+			s.hall_of_fame.append(entry)
+			var c: Control = hub.legacy_pages.legacy()
+			p._player_tab = 4
+			var card: Control = p.player(so)
+			p._player_tab = 0
+			s.hall_of_fame.erase(entry)
+			card.free()
+			return c,
+		"legacy_season": func():
+			if hub.season.history.is_empty():
+				return Control.new()
+			return hub.legacy_pages.season_page(hub.season.history[-1]),
 		"other_roster": func(): return p.team_roster(hub.season.league.teams[1]),
 		"signings": func(): return p.signings("Test", hub.season.fa.history.slice(-5)),
 		"training_camp": p.training_camp, "league_stats": p.league_stats, "negotiate": p.negotiate,

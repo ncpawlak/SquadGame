@@ -150,6 +150,8 @@ static func from_text(text: String) -> Season:
 	if s != null and s.has_method("_stamp_log"):
 		s._stamp_log()
 		s.market.ensure(s)
+		s.ensure_history()
+		s.league.ensure_callsigns()
 	return s
 
 

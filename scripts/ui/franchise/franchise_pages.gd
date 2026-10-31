@@ -1773,6 +1773,9 @@ func _player_dna(s: Soldier, team: Team) -> Control:
 	facts.add_child(_fact_box_ctrl("DEV", DevInsignia.make(s.dev, 16.0)))
 	facts.add_child(_fact_box("DRAFTED", str(s.draft_year) if s.draft_year > 0 else "Original roster"))
 	facts.add_child(_fact_box("MORALE", "[color=%s]%s[/color]" % [UiKit.hex(morale_color(s.morale)), Soldier.morale_label(s.morale)]))
+	var hall := HallOfFame.entry_of(_season(), s)
+	if not hall.is_empty():
+		facts.add_child(_fact_box("HALL OF FAME", "Class of %d" % hall["year"]))
 	v.add_child(facts)
 	v.add_child(_dna_panel(s, team))
 	v.add_child(_chemistry_box(s, team))
@@ -4569,6 +4572,9 @@ func team_roster(t: Team) -> Control:
 	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top.add_child(info)
 	v.add_child(top)
+	var banner: Control = hub.legacy_pages.banner_row(t)
+	if banner != null:
+		v.add_child(banner)
 	v.add_child(_roster_table(false, t, func(): hub.replace(t.name, func(): return team_roster(t))))
 	return v
 

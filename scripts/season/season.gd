@@ -84,6 +84,10 @@ var draft: Draft
 var review: SeasonReview = null
 ## Every past review, oldest first (includes `review` once the season is over).
 var review_history: Array = []
+## One SeasonSnapshot per finished season (champion, runner-up, final table, bracket), oldest first.
+var history: Array = []
+## Hall of Fame members, oldest induction first (see HallOfFame).
+var hall_of_fame: Array = []
 ## Who declined with age at the start of this season: Array of Aging.age_soldier reports.
 var aging_report: Array = []
 ## Current offseason stage (OFF_*; "" during the season) and free-agency day (1..FA_DAYS).
@@ -694,6 +698,7 @@ func start_next_season() -> void:
 	_stamp_log()
 	while offseason_stage != OFF_DONE:
 		advance_offseason()
+	RetiredCallsigns.resolve_all(self)
 	# Last call for free agency: pending offers (the user's too) are answered. The user's roster
 	# is left as is - he must reach exactly ROSTER_SIZE before Week 1 (user_roster_error).
 	fa.resolve(self, _rng, "Preseason")
@@ -1280,6 +1285,7 @@ func _advance() -> void:
 	if last_round.size() == 1:
 		champion = last_round[0].winner()
 		phase = PHASE_OFFSEASON
+		history.append(SeasonSnapshot.capture(self))
 		var rrng := RandomNumberGenerator.new()
 		rrng.seed = _mix([league.league_seed, year, 0x4E71])
 		Soldier.log_year = year
@@ -1288,7 +1294,10 @@ func _advance() -> void:
 		review_history.append(review)
 		var retire_rng := RandomNumberGenerator.new()
 		retire_rng.seed = _mix([league.league_seed, year, 0x2E71])
-		retirements.append_array(Retirement.run(self, retire_rng))
+		var retired := Retirement.run(self, retire_rng)
+		retirements.append_array(retired)
+		RetiredCallsigns.process(self, retired)
+		HallOfFame.run(self)
 		last_floor_penalties = Contracts.charge_floor(league, year)
 		news.end_season(self, last_floor_penalties)
 		news.dev_changes(self, review.dev_changes)
@@ -1303,6 +1312,17 @@ func _advance() -> void:
 	for m in last_round:
 		winners.append(m.winner())
 	_create_round(winners)
+
+
+## Saves from before `history` existed: if this season is already over, snapshot it now. Earlier
+## seasons were never recorded and stay missing.
+func ensure_history() -> void:
+	if phase != PHASE_OFFSEASON or champion == null:
+		return
+	for snap: SeasonSnapshot in history:
+		if snap.year == year:
+			return
+	history.append(SeasonSnapshot.capture(self))
 
 
 ## The playoff field in seed order: with divisions, the division winners (seeded by record) then
