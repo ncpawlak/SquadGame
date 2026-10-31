@@ -23,6 +23,8 @@ func _init() -> void:
 		"test_streak_events",
 		"test_records_phase",
 		"test_record_save_and_news",
+		"test_telemetry_box",
+		"test_telemetry_lines",
 	]
 	Season.fixture_teams = 5
 	Season.backfill_careers = false
@@ -356,3 +358,58 @@ func test_record_save_and_news() -> void:
 	check(loaded.ledger.run == s.ledger.run and loaded.ledger.best_win == s.ledger.best_win, "streaks kept")
 	var lm: ScheduledMatch = _regular(loaded)[0]
 	check(lm.records.size() == m.records.size() and lm.records[0]["value"] == m.records[0]["value"], "records on the match kept")
+
+
+## Telemetry counters in every box line agree with each other and with the match.
+func test_telemetry_box() -> void:
+	var s := _season(94)
+	var moved := 0.0
+	var cover := 0.0
+	var opening_matches := 0
+	var total_matches := 0
+	for m: ScheduledMatch in _regular(s):
+		var openings := 0
+		for sid in m.result.box:
+			var b: Dictionary = m.result.box[sid]
+			check(int(b["kills_short"]) + int(b["kills_medium"]) + int(b["kills_long"]) == int(b["kills"]), "kills by range add up to kills")
+			check(int(b["bursts"]) >= int(b["first_shot_n"]) and (int(b["bursts"]) == 0 or int(b["first_shot_n"]) > 0), "first shots come from bursts")
+			check(float(b["fire_dist"]) >= 0.0 and float(b["distance"]) >= 0.0 and float(b["cover_s"]) >= 0.0, "telemetry is never negative")
+			if int(b["bursts"]) > 0:
+				var avg := float(b["fire_dist"]) / int(b["bursts"])
+				check(avg > 0.0 and avg < 150.0, "average engagement range is plausible (%s)" % avg)
+			openings += int(b["opening_kills"])
+			moved += float(b["distance"])
+			cover += float(b["cover_s"])
+		total_matches += 1
+		opening_matches += 1 if openings >= 1 else 0
+	check(opening_matches == total_matches, "every match has an opening kill")
+	check(moved > 0.0 and cover > 0.0, "soldiers moved and took cover (%s m, %s s)" % [moved, cover])
+
+
+## Telemetry flows into season and career lines (rounded per match), then into the registry's readings.
+func test_telemetry_lines() -> void:
+	var s := _season(95)
+	var so: Soldier = s.league.all_soldiers().filter(func(x: Soldier): return x.season_lines.has(s.year))[0]
+	var want := {"distance": 0, "kills_long": 0, "opening_kills": 0, "bursts": 0, "first_shot_s": 0}
+	for m: ScheduledMatch in _regular(s) + s.playoff_matches:
+		if m.is_played() and m.result.box.has(so.id):
+			var b: Dictionary = m.result.box[so.id]
+			for k in want:
+				want[k] += roundi(float(b[k]))
+	for k in want:
+		check(int(so.career[k]) == want[k] and int(so.season_lines[s.year][k]) == want[k], "%s totals the matches (%s vs %s)" % [k, so.career[k], want[k]])
+	var line := {"matches": 10, "kills": 20, "kills_short": 8, "kills_medium": 8, "kills_long": 4, "kill_dist": 400, "bursts": 50, "fire_dist": 1500,
+		"first_shot_s": 60, "first_shot_n": 20, "contest_s": 30, "hill_s": 90, "distance": 12345, "cover_s": 75, "opening_kills": 3}
+	var rows := {}
+	for r in StatRegistry.telemetry_rows(line):
+		rows[r[0]] = r[1]
+	check(rows["Average kill range"] == "20.0 m" and rows["Average engagement range"] == "30.0 m", "ranges average over tracked kills and bursts")
+	check(rows["Distance covered"] == "12345 m" and rows["Time in cover"] == "1:15" and rows["Average time to first shot"] == "3.0 s", "totals and times read well")
+	check(rows["Share of hill time contested"] == "25%" and rows["Opening kills"] == "3", "share and count")
+	var empty := {}
+	for r in StatRegistry.telemetry_rows({"matches": 1}):
+		empty[r[0]] = r[1]
+	check(empty["Average kill range"] == "-" and empty["Share of hill time contested"] == "-", "nothing to average reads as a dash")
+	var avg: Dictionary = StatRegistry.LEADERS.filter(func(d): return d["id"] == "kill_range")[0]
+	check(StatRegistry.value_of(avg, line, 5) == 20.0 and StatRegistry.value_of(avg, {"matches": 9}, 5) == -1.0, "average leaders skip lines with nothing tracked")
+

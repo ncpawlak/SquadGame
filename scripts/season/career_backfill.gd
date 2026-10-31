@@ -31,7 +31,7 @@ static func run(league: League, start_year: int, rng: RandomNumberGenerator) -> 
 				continue
 			so.season_lines[year] = line
 			for k in Soldier.STAT_LINE_KEYS:
-				so.career[k] = int(so.career[k]) + int(line[k])
+				so.career[k] = int(so.career.get(k, 0)) + int(line.get(k, 0))
 
 
 ## One made-up season for `so` at `age_then`, or {} if he did not play.
