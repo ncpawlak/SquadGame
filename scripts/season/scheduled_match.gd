@@ -10,6 +10,9 @@ var match_seed: int
 var result: MatchResult = null
 ## Set when a result was produced outside `sim_week` (e.g. a watched match) and XP is still owed.
 var needs_xp := false
+## League records this match broke (see StatLedger.record_match): [{stat, label, noun, fmt, phase, value, id,
+## name, team, previous}]. `id` is the soldier's id, or -1 for a team streak.
+var records: Array = []
 
 
 func is_played() -> bool:

@@ -312,6 +312,14 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   meets (they move into the stat ledger, issue #11, later). Rivalries don't shape the schedule. On the Home
   matchup the big VS / @ becomes a flame (team-specific) and/or clashing chevrons (divisional), stacked when both
   apply, with the rivalry name, series record and intensity on hover.
+- **Stat ledger** (`scripts/season/stat_ledger.gd`, `stat_registry.gd`, issue #11): every league match is recorded
+  once (exhibitions never are), split into regular season and playoffs (`Soldier.playoff_career` and
+  `playoff_season_lines`; regular is combined minus playoffs, and seasons from before the split stay combined).
+  League Leaders and the player Stats tab take season/career and combined/regular/playoffs filters. The ledger keeps
+  the top 5 single-match performances for 10 stats (league-wide and per franchise, in each phase) and each team's
+  longest win and losing streak. A match that beats a full book stamps a record on `ScheduledMatch.records`, which
+  feeds a League Wire story, a box score banner and a line in the Weekly News. Records only make news once 100
+  matches are on the books, and single-match records count from the first match played with the ledger.
 - **Save / Load** (`scripts/save/save_system.gd`, Settings → Save Franchise / Load Franchise, title → Load Franchise): 3 manual slots
   plus an **autosave** after every week, the season rollover and camp. A save is the whole league graph (shared
   objects, RNG states) as compressed text, so a loaded game continues exactly as the original would have.
@@ -406,6 +414,7 @@ godot --headless --path . --script res://tests/season_tests.gd  # season loop te
 godot --headless --path . --script res://tests/ui_smoke.gd      # debug UI smoke test
 godot --headless --path . --script res://tests/franchise_smoke.gd  # franchise menus through a full season
 godot --headless --path . --script res://tests/save_tests.gd    # save/load round trips and determinism after load
+godot --headless --path . --script res://tests/ledger_tests.gd  # stat ledger: phase split, once-only recording, saves (fast; ONLY=test_a,test_b)
 ```
 
 ```powershell

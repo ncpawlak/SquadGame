@@ -123,6 +123,10 @@ var career := {"matches": 0, "rounds": 0, "kills": 0, "deaths": 0, "assists": 0,
 	"headshots": 0, "shots": 0, "hits": 0, "mvps": 0, "clutches": 0, "games": 0, "wipes": 0, "hill_s": 0, "caps": 0}
 ## Season year -> totals with the same keys as `career` (plus "team" abbrev).
 var season_lines: Dictionary = {}
+## Playoff-only share of `career` and `season_lines` (same shape, empty until a playoff match is played).
+## Regular season = combined minus playoffs. Totals from before the split stay combined.
+var playoff_career := {}
+var playoff_season_lines: Dictionary = {}
 
 ## Progression history, oldest first. Each: {year, when, reason, changes: stat -> delta,
 ## ovr_from, ovr_to, dev_from, dev_to (-1 when his stars didn't move)}. Entries from older saves

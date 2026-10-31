@@ -10,6 +10,8 @@ var pages: FranchisePages
 var tab := "champions"
 ## Records scope: a team abbrev for one franchise, "" for the whole league.
 var records_team := ""
+## Records phase: a StatRegistry phase for the season, career and single-match books.
+var records_phase := StatRegistry.PHASE_COMBINED
 
 
 func _season() -> Season:
@@ -202,17 +204,30 @@ func _records() -> Control:
 		records_team = "" if i == 0 else s.league.teams[i - 1].abbrev
 		hub.replace("Legacy", legacy))
 	scope.add_child(pick)
+	var gap := Control.new()
+	gap.custom_minimum_size.x = 24
+	scope.add_child(gap)
+	for o in StatsPages.PHASES:
+		var val: String = o[0]
+		scope.add_child(pages._seg(o[1], records_phase == val, func():
+			records_phase = val
+			hub.replace("Legacy", legacy), 14))
 	v.add_child(scope)
 	var abbrev := records_team
+	var phase := records_phase
 	var who := "LEAGUE" if abbrev == "" else s.league.team_by_abbrev(abbrev).name.to_upper()
 	v.add_child(UiKit.label("The best mark in each category. Click a row for the top %d. Counts every season played, including this one." % Records.TOP_N, 13, UiKit.MUTED))
 
 	v.add_child(pages._section("%s SEASON RECORDS" % who))
-	v.add_child(_holders(Records.PLAYER_STATS, func(stat): return Records.player_seasons(s, stat, abbrev), "season"))
+	v.add_child(_holders(Records.PLAYER_STATS, func(stat): return Records.player_seasons(s, stat, abbrev, phase), "season"))
 	v.add_child(pages._section("%s CAREER RECORDS" % who))
-	v.add_child(_holders(Records.PLAYER_STATS, func(stat): return Records.player_careers(s, stat, abbrev), "career"))
+	v.add_child(_holders(Records.PLAYER_STATS, func(stat): return Records.player_careers(s, stat, abbrev, phase), "career"))
+	v.add_child(pages._section("%s SINGLE-MATCH RECORDS" % who))
+	v.add_child(_holders(StatRegistry.SINGLE_MATCH, func(stat): return Records.single_matches(s, stat, phase, abbrev), "match"))
+	v.add_child(UiKit.label("Single-match records and streaks count from the first match played with this version of the game.", 13, UiKit.MUTED))
 	v.add_child(pages._section("%s TEAM RECORDS" % who))
 	v.add_child(_holders(Records.TEAM_STATS, func(stat): return Records.team_seasons(s, stat, abbrev), "team"))
+	v.add_child(_holders(StatRegistry.STREAKS, func(stat): return Records.streaks(s, stat["id"], abbrev), "team"))
 	return v
 
 
@@ -240,6 +255,8 @@ func _holder_cells(e: Dictionary, kind: String) -> Array:
 	match kind:
 		"team":
 			return [e["team"], "", str(e["year"])]
+		"match":
+			return [e["name"], e["team"], "%d  Wk %d" % [e["year"], e["week"]]]
 		"career":
 			var so: Soldier = e["soldier"]
 			return [so.full_name(), "", str(e["first"]) if e["first"] == e["last"] else "%d-%d" % [e["first"], e["last"]]]
@@ -252,7 +269,7 @@ func _holder_cells(e: Dictionary, kind: String) -> Array:
 func record_page(stat: Dictionary, top: Array, kind: String) -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 12)
-	var span := "CAREER" if kind == "career" else "SINGLE SEASON"
+	var span := "CAREER" if kind == "career" else ("SINGLE MATCH" if kind == "match" else "SINGLE SEASON")
 	v.add_child(pages._section("%s  -  %s" % [stat["label"].to_upper(), span]))
 	var rows: Array = []
 	for i in top.size():
@@ -262,7 +279,7 @@ func record_page(stat: Dictionary, top: Array, kind: String) -> Control:
 			if kind == "team":
 				var t: Team = top[i]["team"]
 				hub.open(t.name, func(): return pages.team_roster(t))
-			else:
+			elif top[i]["soldier"] != null:
 				pages.open_player(top[i]["soldier"])))
 	return v
 

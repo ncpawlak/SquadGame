@@ -65,6 +65,8 @@ var last_floor_penalties: Array = []
 var news := LeagueNews.new()
 ## The Weekly News: the user's beat writer's feature on every week and offseason step.
 var newsroom := Newsroom.new()
+## Stat ledger: match counts by phase, and later single-game records and streaks (issue #11).
+var ledger := StatLedger.new()
 var year: int = 2026:
 	set(v):
 		year = v
@@ -507,11 +509,14 @@ func begin_week() -> Array:
 
 ## Step 2 of sim_week: plays one fixture (unless it was watched live) and awards its XP.
 func play_week_match(m: ScheduledMatch) -> void:
+	var ctx := {"playoffs": m.stage != STAGE_REGULAR}
 	if not m.is_played():
 		m.play()
-		Progression.award_match_xp(m.result, year)
+		Progression.award_match_xp(m.result, year, ctx)
+		ledger.record_match(self, m)
 	elif m.needs_xp:
-		Progression.award_match_xp(m.result, year)
+		Progression.award_match_xp(m.result, year, ctx)
+		ledger.record_match(self, m)
 	m.needs_xp = false
 
 

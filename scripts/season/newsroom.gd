@@ -760,6 +760,9 @@ func _game_article(m: ScheduledMatch, wk: int) -> Dictionary:
 		body.append(sp[0])
 		quote = sp[1]
 	body.append(_secondary(g, order, lede))
+	var records := _records_para(m)
+	if records != "":
+		body.append(records)
 	body.append(_standings_para(wk))
 	body.append(_buzz_para())
 	body.append(_preview_para(wk))
@@ -768,6 +771,21 @@ func _game_article(m: ScheduledMatch, wk: int) -> Dictionary:
 	art["sidebar"] = _box_sidebar(g)
 	art["roundup"] = _roundup(wk)
 	return art
+
+
+## The league records this match broke, one sentence each ("" when it broke none). Plain text, so a record
+## never shifts the phrases picked for other articles.
+func _records_para(m: ScheduledMatch) -> String:
+	var out: Array = []
+	for rec: Dictionary in m.records:
+		var value := StatRegistry.format(rec, rec["value"])
+		var scope := "playoff " if rec["phase"] == StatRegistry.PHASE_PLAYOFFS else ""
+		if int(rec["id"]) < 0:
+			out.append("The %s now own the league's longest %s: %s %s." % [rec["name"],
+				"winning streak" if rec["stat"] == "win_streak" else "losing streak", value, rec["noun"]])
+		else:
+			out.append("%s's %s %s is a new %ssingle-match league record." % [rec["name"], value, rec["noun"], scope])
+	return " ".join(out)
 
 
 func _section(g: Dictionary) -> String:
