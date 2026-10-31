@@ -15,6 +15,7 @@ func _init() -> void:
 		"test_determinism_after_load",
 		"test_news_round_trip",
 		"test_newsroom_round_trip",
+		"test_history_round_trip",
 		"test_slot_api",
 		"test_legacy_potential_migrates",
 	]
@@ -236,6 +237,30 @@ func test_newsroom_round_trip() -> void:
 		if a["headline"] != b["headline"] or a["body"] != b["body"]:
 			check(false, "issue %d differs after load" % i)
 			break
+
+
+func test_history_round_trip() -> void:
+	var s := Season.new_franchise(323)
+	s.sim_to_end_of_season()
+	var s2 := SaveSystem.from_text(SaveSystem.to_text(s))
+	check(s2 != null and s2.history.size() == 1, "snapshot lost in the round trip")
+	if s2 == null or s2.history.size() != 1:
+		return
+	var a: SeasonSnapshot = s.history[0]
+	var b: SeasonSnapshot = s2.history[0]
+	check(b.year == a.year and b.champion.abbrev == a.champion.abbrev and b.runner_up.abbrev == a.runner_up.abbrev, "year, champion or runner-up differ after load")
+	check(b.standings.size() == a.standings.size() and b.bracket.size() == a.bracket.size(), "table or bracket size differs after load")
+	check(b.champion == s2.champion, "snapshot champion is the loaded season's own team object")
+	# A save from before history existed: still in the offseason, so the finished season is rebuilt.
+	s.history = []
+	var old := SaveSystem.from_text(SaveSystem.to_text(s))
+	check(old != null and old.history.size() == 1 and old.history[0].champion == old.champion, "old offseason save is backfilled with this season")
+	# Mid-season old save: nothing to backfill, history stays empty.
+	var mid := Season.new_franchise(324)
+	mid.sim_week()
+	mid.history = []
+	var mid2 := SaveSystem.from_text(SaveSystem.to_text(mid))
+	check(mid2 != null and mid2.history.is_empty(), "old mid-season save loads with empty history")
 
 
 func test_slot_api() -> void:

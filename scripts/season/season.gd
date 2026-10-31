@@ -82,6 +82,8 @@ var draft: Draft
 var review: SeasonReview = null
 ## Every past review, oldest first (includes `review` once the season is over).
 var review_history: Array = []
+## One SeasonSnapshot per finished season (champion, runner-up, final table, bracket), oldest first.
+var history: Array = []
 ## Who declined with age at the start of this season: Array of Aging.age_soldier reports.
 var aging_report: Array = []
 ## Current offseason stage (OFF_*; "" during the season) and free-agency day (1..FA_DAYS).
@@ -1138,6 +1140,7 @@ func _advance() -> void:
 	if last_round.size() == 1:
 		champion = last_round[0].winner()
 		phase = PHASE_OFFSEASON
+		history.append(SeasonSnapshot.capture(self))
 		var rrng := RandomNumberGenerator.new()
 		rrng.seed = _mix([league.league_seed, year, 0x4E71])
 		Soldier.log_year = year
@@ -1161,6 +1164,17 @@ func _advance() -> void:
 	for m in last_round:
 		winners.append(m.winner())
 	_create_round(winners)
+
+
+## Saves from before `history` existed: if this season is already over, snapshot it now. Earlier
+## seasons were never recorded and stay missing.
+func ensure_history() -> void:
+	if phase != PHASE_OFFSEASON or champion == null:
+		return
+	for snap: SeasonSnapshot in history:
+		if snap.year == year:
+			return
+	history.append(SeasonSnapshot.capture(self))
 
 
 ## The playoff field in seed order: with divisions, the division winners (seeded by record) then

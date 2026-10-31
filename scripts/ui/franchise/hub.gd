@@ -12,6 +12,7 @@ const TALL := Vector2(290, 236)
 var app: Control
 var season: Season
 var pages: FranchisePages
+var legacy_pages: LegacyPages
 
 var tab_index := 0
 ## Each entry: {"title": String, "build": Callable -> Control}. Empty = showing tab tiles.
@@ -34,6 +35,9 @@ var simming := false
 func _ready() -> void:
 	pages = FranchisePages.new()
 	pages.hub = self
+	legacy_pages = LegacyPages.new()
+	legacy_pages.hub = self
+	legacy_pages.pages = pages
 	_bg = Control.new()
 	_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1734,6 +1738,10 @@ func open_news(i := -1) -> void:
 	open("Weekly News", func(): return pages.news_article(i))
 
 
+func open_legacy() -> void:
+	open("Legacy", legacy_pages.legacy)
+
+
 func open_retirements() -> void:
 	open("Retirements", pages.retirements)
 
@@ -2366,7 +2374,9 @@ func _league_strip() -> Control:
 	cards.append(_stat_card("Retirements", str(rets.size()), "RETIRED", ("Latest: [color=white]%s[/color] at %d" % [UiKit.esc(last["soldier"].short_name()), last["age"]]) if not last.is_empty() else "Nobody has retired yet",
 		Color("#94a3b8"), open_retirements))
 
-	cards.append(_soon_card("Records & History", "Champions, records, Hall of Fame", ["Past champions by year", "Single-season and career records", "Hall of Fame"]))
+	var champ: SeasonSnapshot = season.history[-1] if not season.history.is_empty() else null
+	cards.append(_stat_card("Legacy", str(season.history.size()), "SEASONS", ("%d champion: [color=white]%s[/color]" % [champ.year, UiKit.esc(champ.champion.name)]) if champ != null and champ.champion != null else "Champions and awards history",
+		Color("#eab308"), open_legacy))
 	return _card_row("LeagueMore", cards, 5)
 
 

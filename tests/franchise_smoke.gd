@@ -334,6 +334,16 @@ func _visit_pages(hub, phase: String) -> void:
 		"injuries": p.injuries, "scouting": p.scouting, "draft_room": p.draft_room, "mock_draft": p.mock_draft,
 		"awards": p.awards, "teams": p.teams, "free_agents": p.free_agents, "contracts": p.contracts,
 		"resign": p.resign, "retirements": p.retirements, "offer": p.offer,
+		"legacy_champions": func():
+			hub.legacy_pages.tab = "champions"
+			return hub.legacy_pages.legacy(),
+		"legacy_awards": func():
+			hub.legacy_pages.tab = "awards"
+			return hub.legacy_pages.legacy(),
+		"legacy_season": func():
+			if hub.season.history.is_empty():
+				return Control.new()
+			return hub.legacy_pages.season_page(hub.season.history[-1]),
 		"other_roster": func(): return p.team_roster(hub.season.league.teams[1]),
 		"signings": func(): return p.signings("Test", hub.season.fa.history.slice(-5)),
 		"training_camp": p.training_camp, "league_stats": p.league_stats, "negotiate": p.negotiate,

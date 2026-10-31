@@ -64,6 +64,7 @@ func _init() -> void:
 		"test_keep_value_protects_prospects",
 		"test_relationships",
 		"test_newsroom",
+		"test_season_history",
 	]
 	# Legacy tests run on a generated 5-team single-division league (fast); the expansion
 	# tests switch to the fixed 20-team league themselves.
@@ -1679,6 +1680,31 @@ func test_fixed_league() -> void:
 
 ## The Weekly News: an issue for every week and offseason step, every slot filled, no two ledes
 ## alike, and the same league writes the same paper.
+func test_season_history() -> void:
+	var s := _fixed(71, 1)
+	check(s.history.is_empty(), "no history before the first final")
+	s.sim_to_end_of_season()
+	check(s.history.size() == 1, "one snapshot after the first final (%d)" % s.history.size())
+	var snap: SeasonSnapshot = s.history[0]
+	check(snap.year == s.year and snap.champion == s.champion, "snapshot has the year and champion")
+	var fin: ScheduledMatch = s.playoff_matches[-1]
+	check(snap.runner_up == fin.loser() and snap.runner_up != snap.champion, "runner-up is the final's loser")
+	check(snap.standings.size() == s.league.teams.size(), "final table covers every team")
+	check(snap.bracket.size() == s.playoff_matches.size(), "bracket has every playoff match")
+	check(snap.final_score() == "%d-%d" % [fin.games_for(s.champion), fin.games_for(snap.runner_up)], "final score is from the champion's side")
+	check(snap.champion_record() != "", "champion record found in the table")
+	var snap_year := s.year
+	while s.offseason_stage != Season.OFF_DONE:
+		s.advance_offseason()
+	s.start_next_season()
+	check(s.champion == null, "champion resets for the new season")
+	check(s.history.size() == 1 and s.history[0].champion != null and s.history[0].year == snap_year, "the snapshot survives the rollover")
+	s.sim_to_end_of_season()
+	check(s.history.size() == 2 and s.history[1].year == snap_year + 1, "second season adds a second snapshot")
+	s.ensure_history()
+	check(s.history.size() == 2, "ensure_history does not duplicate a season already recorded")
+
+
 func test_newsroom() -> void:
 	var s := _fixed(61, 1)
 	s.sim_to_end_of_season()
