@@ -14,6 +14,28 @@ const PLAYER := [
 ]
 
 
+## The leaderboard categories (League Leaders), in display order. `short` heads the value column and
+## `fmt` is how the value reads: "int", "secs" (hill time) or "ratio".
+const LEADERS := [
+	{"id": "kills", "label": "KILLS", "short": "K", "kind": "sum", "fmt": "int"},
+	{"id": "assists", "label": "ASSISTS", "short": "A", "kind": "sum", "fmt": "int"},
+	{"id": "saves", "label": "SAVES", "short": "SAV", "kind": "sum", "fmt": "int"},
+	{"id": "damage", "label": "DAMAGE", "short": "DMG", "kind": "sum", "fmt": "int"},
+	{"id": "mvps", "label": "MVP AWARDS", "short": "MVP", "kind": "sum", "fmt": "int"},
+	{"id": "headshots", "label": "HEADSHOTS", "short": "HS", "kind": "sum", "fmt": "int"},
+	{"id": "wipes", "label": "TEAM WIPES", "short": "WIPE", "kind": "sum", "fmt": "int"},
+	{"id": "hill_s", "label": "HILL TIME", "short": "TIME", "kind": "sum", "fmt": "secs"},
+	{"id": "caps", "label": "HILL CAPTURES", "short": "CAPS", "kind": "sum", "fmt": "int"},
+	{"id": "kd", "label": "KILLS PER DEATH", "short": "K/D", "kind": "kd", "fmt": "ratio"},
+]
+
+const SCOPE_SEASON := "season"
+const SCOPE_CAREER := "career"
+const PHASE_COMBINED := "combined"
+const PHASE_REGULAR := "regular"
+const PHASE_PLAYOFFS := "playoffs"
+
+
 ## The stat's value for one stat line, or -1 if the line does not qualify.
 static func value_of(stat: Dictionary, line: Dictionary, min_matches: int) -> float:
 	if stat["kind"] == "kd":
@@ -21,3 +43,28 @@ static func value_of(stat: Dictionary, line: Dictionary, min_matches: int) -> fl
 			return -1.0
 		return float(line.get("kills", 0)) / maxf(1.0, float(line.get("deaths", 0)))
 	return float(line.get(stat["id"], 0))
+
+
+## One soldier's stat line for a scope (SCOPE_SEASON for `year`, or SCOPE_CAREER) and phase. Combined is the
+## stored line, playoffs the playoff share, regular the difference. {} when he has no such line.
+static func line_for(so: Soldier, scope: String, phase: String, year := 0) -> Dictionary:
+	var combined: Dictionary = so.career if scope == SCOPE_CAREER else so.season_lines.get(year, {})
+	if combined.is_empty() or phase == PHASE_COMBINED:
+		return combined
+	var playoff: Dictionary = so.playoff_career if scope == SCOPE_CAREER else so.playoff_season_lines.get(year, {})
+	if phase == PHASE_PLAYOFFS:
+		return playoff
+	var out := combined.duplicate()
+	for k in Soldier.STAT_LINE_KEYS:
+		out[k] = int(combined.get(k, 0)) - int(playoff.get(k, 0))
+	return out
+
+
+## The value as shown: whole numbers, "m:ss" hill time, or two decimals for a ratio.
+static func format(stat: Dictionary, v: float) -> String:
+	match stat.get("fmt", "int"):
+		"secs":
+			return MatchEngine._fmt_secs(v)
+		"ratio":
+			return "%.2f" % v
+	return str(int(v))

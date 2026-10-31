@@ -16,6 +16,8 @@ func _init() -> void:
 		"test_save_round_trip",
 		"test_determinism",
 		"test_registry_matches_records",
+		"test_line_for_phases",
+		"test_format",
 	]
 	Season.fixture_teams = 5
 	Season.backfill_careers = false
@@ -163,3 +165,38 @@ func test_registry_matches_records() -> void:
 	check(is_equal_approx(Records.value_of(kd, line, 6), 2.0), "kd value")
 	check(Records.value_of(kd, line, 30) == -1.0, "kd needs enough matches")
 	check(Records.value_of({"id": "kills", "kind": "sum"}, line, 6) == 30.0, "sum value")
+
+
+## Regular plus playoffs is the combined line, for seasons and careers; without playoff data regular is combined.
+func test_line_for_phases() -> void:
+	var s := _season(85)
+	var with_playoffs := 0
+	for so: Soldier in s.league.all_soldiers():
+		for scope in [StatRegistry.SCOPE_SEASON, StatRegistry.SCOPE_CAREER]:
+			var combined := StatRegistry.line_for(so, scope, StatRegistry.PHASE_COMBINED, s.year)
+			var regular := StatRegistry.line_for(so, scope, StatRegistry.PHASE_REGULAR, s.year)
+			var playoffs := StatRegistry.line_for(so, scope, StatRegistry.PHASE_PLAYOFFS, s.year)
+			if combined.is_empty():
+				check(regular.is_empty() and playoffs.is_empty(), "%s no line in any phase" % so.full_name())
+				continue
+			for k in Soldier.STAT_LINE_KEYS:
+				check(int(regular.get(k, 0)) + int(playoffs.get(k, 0)) == int(combined.get(k, 0)),
+					"%s %s %s: regular + playoffs = combined" % [so.full_name(), scope, k])
+				check(int(regular.get(k, 0)) >= 0, "%s %s regular never negative" % [so.full_name(), k])
+			if not playoffs.is_empty():
+				with_playoffs += 1
+		so.playoff_career = {}
+		so.playoff_season_lines = {}
+		var old := StatRegistry.line_for(so, StatRegistry.SCOPE_CAREER, StatRegistry.PHASE_REGULAR)
+		for k in Soldier.STAT_LINE_KEYS:
+			check(int(old.get(k, 0)) == int(so.career.get(k, 0)), "old save: regular is combined")
+	check(with_playoffs > 0, "some soldiers have playoff lines")
+
+
+func test_format() -> void:
+	var by_id := {}
+	for stat: Dictionary in StatRegistry.LEADERS:
+		by_id[stat["id"]] = stat
+	check(StatRegistry.format(by_id["kills"], 12.0) == "12", "int format")
+	check(StatRegistry.format(by_id["kd"], 1.5) == "1.50", "ratio format")
+	check(StatRegistry.format(by_id["hill_s"], 75.0) == MatchEngine._fmt_secs(75.0), "hill time format")

@@ -14,6 +14,7 @@ var season: Season
 var pages: FranchisePages
 var club: ClubPages
 var legacy_pages: LegacyPages
+var stats_pages: StatsPages
 
 var tab_index := 0
 ## Each entry: {"title": String, "build": Callable -> Control}. Empty = showing tab tiles.
@@ -41,6 +42,9 @@ func _ready() -> void:
 	legacy_pages = LegacyPages.new()
 	legacy_pages.hub = self
 	legacy_pages.pages = pages
+	stats_pages = StatsPages.new()
+	stats_pages.hub = self
+	stats_pages.pages = pages
 	_bg = Control.new()
 	_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2128,7 +2132,7 @@ func _fill_league_box() -> void:
 	match league_view:
 		0: body = _league_standings()
 		1: body = _league_scores()
-		2: body = pages.leaders()
+		2: body = stats_pages.leaders()
 		_: body = _league_playoffs()
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sc.add_child(body)

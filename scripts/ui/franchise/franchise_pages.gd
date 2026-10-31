@@ -1164,6 +1164,7 @@ const PLAYER_TABS := ["Overview", "Ratings", "Contract", "Stats", "DNA", "Progre
 var _player_tab := 0
 ## Stats tab view: true = this season match by match, false = career by season.
 var _stats_season := true
+var _stats_phase := StatRegistry.PHASE_COMBINED
 
 
 func open_player(s: Soldier, tab := 0) -> void:
@@ -1691,6 +1692,18 @@ func _player_stats(s: Soldier) -> Control:
 		if on == _stats_season:
 			UiKit.style_primary(b)
 		toggle.add_child(b)
+	var gap := Control.new()
+	gap.custom_minimum_size.x = 24
+	toggle.add_child(gap)
+	for opt in StatsPages.PHASES:
+		var val: String = opt[0]
+		var b := UiKit.button(opt[1], func():
+			_stats_phase = val
+			_player_refresh(s), 15)
+		b.custom_minimum_size = Vector2(130, 36)
+		if val == _stats_phase:
+			UiKit.style_primary(b)
+		toggle.add_child(b)
 	v.add_child(toggle)
 	v.add_child(_player_game_log(s) if _stats_season else _player_career(s))
 	return v
@@ -1705,6 +1718,9 @@ func _player_game_log(s: Soldier) -> Control:
 	for w in range(1, season.total_weeks() + 1):
 		for m: ScheduledMatch in season.matches_for_week(w):
 			if not m.is_played() or not m.result.box.has(s.id):
+				continue
+			var is_playoff := m.stage != Season.STAGE_REGULAR
+			if (_stats_phase == StatRegistry.PHASE_PLAYOFFS and not is_playoff) or (_stats_phase == StatRegistry.PHASE_REGULAR and is_playoff):
 				continue
 			var r: MatchResult = m.result
 			var line: Dictionary = r.box[s.id]
@@ -1724,7 +1740,7 @@ func _player_game_log(s: Soldier) -> Control:
 		v.add_child(UiKit.label("No matches played this season yet.", 16, UiKit.MUTED))
 		return v
 	var hl := {}
-	var tot: Dictionary = s.season_lines.get(season.year, {})
+	var tot := StatRegistry.line_for(s, StatRegistry.SCOPE_SEASON, _stats_phase, season.year)
 	if not tot.is_empty():
 		var cells := _stat_line_cells("SEASON", tot.get("team", ""), tot)
 		cells[2] = "%d GP" % int(tot.get("matches", 0))
@@ -1742,13 +1758,16 @@ func _player_career(s: Soldier) -> Control:
 	years.reverse()
 	var rows: Array = []
 	for y in years:
-		rows.append(_stat_line_cells(str(y), s.season_lines[y].get("team", ""), s.season_lines[y]))
+		var line := StatRegistry.line_for(s, StatRegistry.SCOPE_SEASON, _stats_phase, y)
+		if int(line.get("matches", 0)) > 0:
+			rows.append(_stat_line_cells(str(y), s.season_lines[y].get("team", ""), line))
 	var hl := {}
-	rows.append(_stat_line_cells("CAREER", "", s.career))
+	var empty := rows.is_empty()
+	rows.append(_stat_line_cells("CAREER", "", StatRegistry.line_for(s, StatRegistry.SCOPE_CAREER, _stats_phase)))
 	hl[rows.size() - 1] = UiKit.ACCENT.darkened(0.7)
 	v.add_child(_section("SEASON BY SEASON"))
-	if years.is_empty():
-		v.add_child(UiKit.label("No matches played yet.", 16, UiKit.MUTED))
+	if empty:
+		v.add_child(UiKit.label("No matches played yet." if _stats_phase == StatRegistry.PHASE_COMBINED else "No %s matches recorded." % _stats_phase, 16, UiKit.MUTED))
 	v.add_child(UiKit.table(["SEASON", "TEAM", "GP", "K", "D", "A", "K/D", "SAVES", "WIPES", "HILL", "CAPS", "DMG", "HS%", "ACC%", "MVP"], rows,
 		[80, 60, 44, 50, 50, 50, 56, 60, 60, 70, 50, 80, 56, 60, 50], hl))
 	return v
@@ -2540,40 +2559,6 @@ func _stats_table(lines: Array, show_team: bool, mode: StringName, rebuild: Call
 
 
 # --- league pages ------------------------------------------------------------------
-
-func leaders() -> Control:
-	var v := _vbox(18)
-	var totals := season_totals()
-	if totals.is_empty():
-		v.add_child(UiKit.label("No matches played yet this season.", 18, UiKit.MUTED))
-		return v
-	var cats := [["KILLS", "kills"], ["ASSISTS", "assists"], ["SAVES", "saves"], ["DAMAGE", "damage"], ["MVP AWARDS", "mvps"], ["HEADSHOTS", "headshots"],
-		["TEAM WIPES", "wipes", "WIPE"], ["HILL TIME", "hill_s", "TIME"], ["HILL CAPTURES", "caps", "CAPS"]]
-	var flow := HFlowContainer.new()
-	flow.add_theme_constant_override("h_separation", 20)
-	flow.add_theme_constant_override("v_separation", 20)
-	for cat in cats:
-		var key: String = cat[1]
-		var sorted := totals.duplicate()
-		sorted.sort_custom(func(a, b): return a[key] > b[key])
-		var rows: Array = []
-		var hl := {}
-		var targets: Array = []
-		for i in mini(5, sorted.size()):
-			var s: Soldier = sorted[i]["soldier"]
-			var t: Team = sorted[i]["team"]
-			if t.user_controlled:
-				hl[i] = UiKit.MINE
-			targets.append(s)
-			rows.append([i + 1, s.tag(), t.abbrev, MatchEngine._fmt_secs(sorted[i][key]) if key == "hill_s" else str(int(sorted[i][key]))])
-		var col := _vbox(6)
-		col.add_child(_section(cat[0]))
-		col.add_child(UiKit.table(["#", "PLAYER", "TM", cat[2] if cat.size() > 2 else cat[0].left(3)], rows, [24, 170, 50, 60], hl, {},
-			func(i: int): open_player(targets[i])))
-		flow.add_child(col)
-	v.add_child(flow)
-	return v
-
 
 func playoffs() -> Control:
 	var s := _season()

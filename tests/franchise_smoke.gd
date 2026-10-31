@@ -383,7 +383,20 @@ func _visit_pages(hub, phase: String) -> void:
 	var p = hub.pages
 	var builders := {
 		"standings": p.standings, "schedule": p.schedule, "roster": p.roster, "progression": p.progression,
-		"lineup": p.lineup, "training": p.training, "team_stats": p.team_stats, "leaders": p.leaders,
+		"lineup": p.lineup, "training": p.training, "team_stats": p.team_stats,
+		"leaders": func(): return hub.stats_pages.leaders(),
+		"leaders_career_playoffs": func():
+			hub.stats_pages.scope = StatRegistry.SCOPE_CAREER
+			hub.stats_pages.phase = StatRegistry.PHASE_PLAYOFFS
+			var c: Control = hub.stats_pages.leaders()
+			hub.stats_pages.scope = StatRegistry.SCOPE_SEASON
+			hub.stats_pages.phase = StatRegistry.PHASE_COMBINED
+			return c,
+		"leaders_season_regular": func():
+			hub.stats_pages.phase = StatRegistry.PHASE_REGULAR
+			var c: Control = hub.stats_pages.leaders()
+			hub.stats_pages.phase = StatRegistry.PHASE_COMBINED
+			return c,
 		"playoffs": p.playoffs, "rankings": p.team_rankings, "news": p.news, "sim_options": p.sim_options,
 		"injuries": p.injuries, "scouting": p.scouting, "draft_room": p.draft_room, "mock_draft": p.mock_draft,
 		"awards": p.awards, "teams": p.teams, "free_agents": p.free_agents, "contracts": p.contracts,
