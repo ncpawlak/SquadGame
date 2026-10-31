@@ -406,6 +406,7 @@ godot --headless --path . --script res://tests/season_tests.gd  # season loop te
 godot --headless --path . --script res://tests/ui_smoke.gd      # debug UI smoke test
 godot --headless --path . --script res://tests/franchise_smoke.gd  # franchise menus through a full season
 godot --headless --path . --script res://tests/save_tests.gd    # save/load round trips and determinism after load
+godot --headless --path . --script res://tests/ledger_tests.gd  # stat ledger: phase split, once-only recording, saves (fast; ONLY=test_a,test_b)
 ```
 
 ```powershell
