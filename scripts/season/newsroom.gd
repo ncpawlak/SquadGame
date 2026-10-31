@@ -2130,9 +2130,16 @@ func _deal(salary: int, years: int) -> String:
 
 
 func _cap_line() -> String:
-	var space := Contracts.cap_space(_us, _s.cap_year())
+	var cy := _s.cap_year()
+	var space := Contracts.cap_space(_us, cy)
+	var apron := Contracts.apron_room(_us, cy)
+	if apron < 0:
+		return _g("cap_over", ["They are {m} over the apron, and that has to be fixed before camp.", "The cap sheet is {m} past the apron."], {"m": _money(-apron)})
+	var tax := Contracts.tax_overage(_us, cy)
+	if tax > 0:
+		return _g("cap_tax", ["They are {m} into the luxury tax.", "The cap sheet sits {m} over the tax line, and the owner pays for every dollar of it."], {"m": _money(tax)})
 	if space < 0:
-		return _g("cap_over", ["They are {m} over the cap, and that has to be fixed before camp.", "The cap sheet is {m} in the red."], {"m": _money(-space)})
+		return _g("cap_soft", ["They are {m} over the cap: re-signs and minimum deals only.", "The cap sheet is {m} past the soft cap."], {"m": _money(-space)})
 	return _g("cap_room", ["They have {m} in cap space to work with.", "That leaves {m} of room under the cap.", "The cap sheet shows {m} free."], {"m": _money(space)})
 
 

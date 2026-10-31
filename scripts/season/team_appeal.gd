@@ -80,7 +80,7 @@ static func _value(key: StringName, s: Soldier, team: Team, season: Season) -> A
 			return [LOYAL_HOME if home else LOYAL_STRANGER, "his own club" if home else "a new club"]
 		&"security":
 			var rev := season.revenue
-			var steady := clampf(rev.cash_of(team) / maxf(1.0, Revenue.neutral_total(team.market_rating) * 0.5), 0.0, 1.0)
+			var steady := clampf(rev.cash_of(team) / maxf(1.0, Revenue.market_grant(team.market_rating)), 0.0, 1.0)
 			return [steady, "a steady club" if steady >= 0.5 else "a thin budget"]
 		&"hometown":
 			var near := 0.0

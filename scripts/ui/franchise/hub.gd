@@ -357,7 +357,7 @@ func _advance_offseason() -> void:
 				return
 			season.advance_offseason()
 			_rebuild_and_open("Contracts & Payroll", pages.contracts)
-			app.toast("Roster review: undrafted prospects joined free agency. Set your roster and get under the cap before camp.")
+			app.toast("Roster review: undrafted prospects joined free agency. Set your roster and get under the apron before camp.")
 		Season.OFF_REVIEW:
 			var err := season.user_cap_error()
 			if err != "":
@@ -2670,7 +2670,7 @@ func _club_view(v: VBoxContainer) -> void:
 		if table[i]["team"] == team:
 			rank = i + 1
 	var fin := _stat_card("Finances", Contracts.money(roundi(float(l.get("revenue", 0.0)))), "REVENUE %d" % season.year,
-		"Net [color=white]%s[/color]  ·  Cash [color=white]%s[/color]
+		"Net [color=white]%s[/color]  ·  Fund [color=white]%s[/color]
 #%d of %d in the league" % [
 			Contracts.money(roundi(float(l.get("net", 0.0)))), Contracts.money(roundi(rv.cash_of(team))), rank, table.size()],
 		UiKit.TRIM, func(): open("Finances", club.finances))
@@ -2781,9 +2781,9 @@ func _status_info(team: Team) -> Dictionary:
 			Season.OFF_DRAFT:
 				next_step = "Draft day is here: make your picks."
 			Season.OFF_REVIEW:
-				var over := -Contracts.cap_space(team, season.cap_year())
+				var over := -Contracts.apron_room(team, season.cap_year())
 				next_step = "Roster review: undrafted prospects are in free agency. Make your cuts and moves%s, then advance to training camp." % (
-					(" ([color=#ef4444]%s over the cap[/color])" % Contracts.money(over)) if over > 0 else "")
+					(" ([color=#ef4444]%s over the apron[/color])" % Contracts.money(over)) if over > 0 else "")
 				target = open_contracts
 				cta = "Contracts & Payroll"
 			Season.OFF_CAMP:

@@ -31,7 +31,7 @@ const STAGE_SEMIFINAL := &"semifinal"
 const STAGE_FINAL := &"final"
 ## Offseason stages: re-sign your expiring players (awards and retirements are in), then free
 ## agency (FA_DAYS bidding rounds), then the draft, then a roster-review week (undrafted
-## prospects join free agency; get under the cap), then training camp (Camp drills), then the
+## prospects join free agency; get under the apron), then training camp (Camp drills), then the
 ## next season. Every offseason step is a "week" for XP: rostered soldiers earn
 ## OFFSEASON_WEEK_XP (scaled by potential), and the training-camp week pays CAMP_WEEK_XP instead.
 const OFF_RESIGN := &"resign"
@@ -53,6 +53,8 @@ const INITIAL_FREE_AGENTS := 18
 const UNDRAFTED_TO_FA := 12
 ## Chance an AI team extends each final-year player it wants to keep, once at midseason.
 const AI_EXTEND_CHANCE := 0.6
+## AI teams only pay luxury tax to keep players this good (see _ai_can_pay).
+const AI_TAX_OVR := 85
 
 var league: League
 ## Regular-season length and playoff field (set from the league's shape when the franchise starts).
@@ -60,8 +62,9 @@ var regular_weeks := DIVISION_WEEKS
 var playoff_teams := DIVISION_PLAYOFF_TEAMS
 ## Seed of every playoff team this season (Team -> 1..playoff_teams).
 var playoff_seeds := {}
-## Salary-floor penalties charged at the end of the most recent season: [{team, amount}].
-var last_floor_penalties: Array = []
+## Salary scale the league's contracts are on (Contracts.ECONOMY_VERSION; 0 = a pre-#41 save,
+## rescaled on load by ensure_economy).
+var economy_version := 0
 var news := LeagueNews.new()
 ## The Weekly News: the user's beat writer's feature on every week and offseason step.
 var newsroom := Newsroom.new()
@@ -145,6 +148,7 @@ var _rng := RandomNumberGenerator.new()
 static func new_franchise(seed_value: int, user_team_index := 0, start_year := 2026, with_camp := false) -> Season:
 	var s := Season.new()
 	s.year = start_year
+	s.economy_version = Contracts.ECONOMY_VERSION
 	var crng := RandomNumberGenerator.new()
 	crng.seed = _mix([seed_value, start_year, 0xC0475])
 	if fixture_teams > 0:
@@ -771,14 +775,15 @@ func rookie_reserve(team: Team) -> int:
 
 
 ## Why the user can't leave the roster-review week yet ("" = he can): payroll must be under
-## the cap before training camp (rookie deals always sign, so a team can end up over).
+## the apron before training camp (rookie deals always sign, so a team can end up over).
 func user_cap_error() -> String:
 	if phase != PHASE_OFFSEASON or offseason_stage != OFF_REVIEW:
 		return ""
-	var over := -Contracts.cap_space(user_team(), cap_year())
+	var over := -Contracts.apron_room(user_team(), cap_year())
 	if over <= 0:
 		return ""
-	return "You're %s over the cap. Release or trade players to get under it before training camp." % Contracts.money(over)
+	return "You're %s over the %s apron. Release or trade players to get under it before training camp." % [
+		Contracts.money(over), Contracts.money(Contracts.APRON)]
 
 
 func camp_open() -> bool:
@@ -831,7 +836,7 @@ func can_resign() -> bool:
 ## Moves the offseason one step: re-sign (AI teams re-sign) -> free agency (expiring soldiers
 ## hit the pool) -> each free-agency day resolves offers -> draft (finished with AI picks if it
 ## isn't done) -> roster review (undrafted prospects join the pool, AI teams cut down and get
-## under the cap) -> pending offers are answered -> training camp (AI teams run their drills,
+## under the apron) -> pending offers are answered -> training camp (AI teams run their drills,
 ## bonus XP) -> done. Each step is an XP week. Returns new signings.
 func advance_offseason() -> Array:
 	if phase != PHASE_OFFSEASON:
@@ -1100,24 +1105,40 @@ func _ai_wants(s: Soldier, bar: int) -> bool:
 
 
 ## An AI team re-signs (or extends) `s` at his asking price for his preferred years if it fits
-## the cap. Returns true if he signed.
+## (see _ai_can_pay). Returns true if he signed.
 func _ai_lock_up(t: Team, s: Soldier, extension: bool) -> bool:
 	var yrs := Contracts.preferred_years(s)
 	var salary := Contracts.resign_asking(s, yrs)
+	if not _ai_can_pay(t, s, salary, extension):
+		return false
 	if extension:
-		if not Contracts.extension_fits(t, year, salary):
-			return false
 		s.ext_salary = salary
 		s.ext_years = yrs
 		s.ext_bonus = 0
 		s.ext_no_trade = false
 	else:
-		if not Contracts.resign_fits(t, cap_year(), s, salary):
-			return false
 		s.contract = Contract.make(salary, yrs, year)
 	resign_log.append({"soldier": s, "team": t, "salary": salary, "years": yrs, "year": year, "extension": extension})
 	news.resign(self, t, s, salary, yrs, extension)
 	return true
+
+
+## AI tax policy: re-sign (Bird rights) or extend over the soft cap up to the tax line; cross it
+## only for an AI_TAX_OVR+ player while contending, with the cash to pay a year of the tax.
+func _ai_can_pay(t: Team, s: Soldier, salary: int, extension: bool) -> bool:
+	var after := 0
+	if extension:
+		if not Contracts.extension_fits(t, year, salary):
+			return false
+		after = Contracts.payroll(t, year, 1) + salary
+	else:
+		if not Contracts.resign_fits(t, cap_year(), s, salary):
+			return false
+		after = Contracts.payroll(t, cap_year()) - Contracts.cap_hold(s) + salary
+	if after <= Contracts.TAX_LINE:
+		return true
+	var tax := (after - Contracts.TAX_LINE) * Contracts.TAX_RATE
+	return s.best_ovr() >= AI_TAX_OVR and trades.mode(self, t) == Trades.CONTENDER and revenue.cash_of(t) >= tax
 
 
 func _open_free_agency() -> void:
@@ -1142,7 +1163,7 @@ func _release_expiring() -> void:
 
 
 ## After the draft: the best undrafted prospects turn pro as free agents, AI teams trim to the
-## offseason max and get under the cap, and they bid on the new pool.
+## offseason max and get under the apron, and they bid on the new pool.
 func _open_roster_review() -> void:
 	offseason_stage = OFF_REVIEW
 	# Saves from the old order (draft before free agency) may still hold expiring deals.
@@ -1161,13 +1182,13 @@ func _open_roster_review() -> void:
 	fa.ai_offers(self, _rng)
 
 
-## Releases soldiers until `team`'s payroll is under the cap (each cut still leaves dead money):
+## Releases soldiers until `team`'s payroll is under the apron (each cut still leaves dead money):
 ## from its less valuable half, the cheapest-to-lose player whose savings clear the overage,
 ## else the one who saves the most. For the user this only runs as a safety net (headless
 ## sims); the hub holds him in the review week until he fixes it himself (user_cap_error).
 func _cut_to_cap(team: Team) -> void:
-	while Contracts.cap_space(team, cap_year()) < 0 and team.roster.size() > Trades.MIN_ROSTER_OFFSEASON:
-		var over := -Contracts.cap_space(team, cap_year())
+	while Contracts.apron_room(team, cap_year()) < 0 and team.roster.size() > Trades.MIN_ROSTER_OFFSEASON:
+		var over := -Contracts.apron_room(team, cap_year())
 		var kv := {}
 		for s in team.roster:
 			kv[s] = team.keep_value(s)
@@ -1308,8 +1329,9 @@ func _advance() -> void:
 		retirements.append_array(retired)
 		RetiredCallsigns.process(self, retired)
 		HallOfFame.run(self)
-		last_floor_penalties = Contracts.charge_floor(league, year)
-		news.end_season(self, last_floor_penalties)
+		news.end_season(self)
+		news.luxury_tax(self, revenue.charge_tax(self))
+		news.board_review(self, revenue.board_review(self))
 		news.dev_changes(self, review.dev_changes)
 		Contracts.rollover(league, year)
 		offseason_stage = OFF_RESIGN
@@ -1333,6 +1355,17 @@ func ensure_history() -> void:
 		if snap.year == year:
 			return
 	history.append(SeasonSnapshot.capture(self))
+
+
+## Saves from before the issue #41 salary scale: rescale every contract (and club cash) once.
+func ensure_economy() -> void:
+	if economy_version >= Contracts.ECONOMY_VERSION:
+		return
+	Contracts.migrate_legacy(league, fa.offers, cap_year())
+	var f := float(Contracts.SALARY_CAP) / float(Contracts.LEGACY_SALARY_CAP)
+	for k in revenue.cash:
+		revenue.cash[k] = float(revenue.cash[k]) * f
+	economy_version = Contracts.ECONOMY_VERSION
 
 
 ## The playoff field in seed order: with divisions, the division winners (seeded by record) then

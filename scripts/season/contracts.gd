@@ -1,34 +1,48 @@
 class_name Contracts
 extends RefCounted
-## Salary cap rules (Madden-style hard cap, the same for every team). Money is in $K.
+## Salary cap rules (NBA-style soft cap with a luxury tax, the same for every team). Money is in $K.
 ##
 ## - Payroll = salaries of rostered soldiers under contract for the cap year + dead money +
 ##   signing bonuses paid that year (a bonus stays on the payer's cap if the player leaves).
 ##   The cap year is the current season, or next season during the offseason.
-## - New deals (re-signs, free-agent offers) must fit under the cap, except minimum-salary deals,
-##   which are always allowed so a team can fill its roster. Draft picks get fixed rookie deals.
-## - Salary floor: a team whose payroll ends a season under SALARY_FLOOR pays the shortfall as a
-##   penalty on next season's cap (booked like dead money).
+## - Soft cap (SALARY_CAP): signing another team's free agent needs room under it (pending offers
+##   count). Minimum deals, re-signing your own expiring players (Bird rights; his cap hold is
+##   freed), extensions and rookie deals may go over it, up to the APRON.
+## - Apron: a hard ceiling nothing may cross (signings, re-signs, extensions, trades).
+## - Luxury tax: payroll over TAX_LINE at season end costs TAX_RATE in club cash per $1 over.
+## - There is no salary floor (issue #41): hoarding cap room is allowed.
 ## - Releasing a soldier leaves DEAD_MONEY_SHARE of each remaining year on the cap.
-## - In-season extensions (players in their last year) are checked against next season's cap and
-##   count on future payrolls; the new deal starts at the rollover (see rollover).
+## - In-season extensions (players in their last year) are checked against next season's apron
+##   and count on future payrolls; the new deal starts at the rollover (see rollover).
 ## - Asking salary comes from OVR, age and potential, plus a premium for deal lengths the soldier
 ##   doesn't want (see preferred_years); free agents drop their price the longer they go unsigned.
 
-const SALARY_CAP := 150000
-const SALARY_FLOOR := 20000
-const MIN_SALARY := 750
-const MAX_SALARY := 20000
-## Market salary by OVR (interpolated): [ovr, $K].
-const MARKET_CURVE := [[52, 750], [62, 1000], [67, 2000], [72, 4000], [77, 6500], [82, 9000], [87, 14000], [92, 20000]]
+const SALARY_CAP := 250000
+## Every line above the cap is a share of it, so cap growth is one number.
+const TAX_LINE := SALARY_CAP * 32 / 25
+const APRON := SALARY_CAP * 38 / 25
+const TAX_RATE := 1.5
+const MIN_SALARY := 1000
+const MAX_SALARY := 60000
+## Market salary by OVR (interpolated): under 60 the minimum, 60s $2-8M, 70s $8-25M, 80s $25-40M,
+## 90s $40-60M. [ovr, $K].
+const MARKET_CURVE := [[59, 1000], [60, 2000], [70, 8000], [80, 25000], [90, 40000], [99, 60000]]
 const MAX_YEARS := 5
 const DEAD_MONEY_SHARE := 0.5
 const YEARS_PREMIUM := 0.06
 const RESIGN_DISCOUNT := 0.95
-## Rookie scale: pick 1 earns ROOKIE_TOP, the last pick ROOKIE_BOTTOM. Years by round.
-const ROOKIE_TOP := 5000
-const ROOKIE_BOTTOM := 750
-const ROOKIE_YEARS := [3, 2, 2]
+## Rookie scale: pick 1 earns ROOKIE_TOP, falling steeply through round 1 (cubic) to ROOKIE_BOTTOM
+## at the last pick. Every rookie deal runs ROOKIE_YEARS.
+const ROOKIE_TOP := 15000
+const ROOKIE_BOTTOM := 1000
+const ROOKIE_YEARS := 4
+## Salary scale version. Saves and data from before issue #41 (version 0) are rescaled on load
+## (see rescale_legacy) from the old scale below.
+const ECONOMY_VERSION := 1
+const LEGACY_CURVE := [[52, 750], [62, 1000], [67, 2000], [72, 4000], [77, 6500], [82, 9000], [87, 14000], [92, 20000]]
+const LEGACY_MIN_SALARY := 750
+const LEGACY_MAX_SALARY := 20000
+const LEGACY_SALARY_CAP := 150000
 
 
 static func money(k: int) -> String:
@@ -50,24 +64,35 @@ static func contract_text(c: Contract) -> String:
 ## Fair yearly salary for a soldier: MARKET_CURVE by OVR, a premium for young players with room
 ## to grow (ceiling over his OVR) and more dev stars, and a discount for players past 30.
 static func market_value(s: Soldier) -> int:
-	var v := curve_salary(s.best_ovr())
+	return _round_salary(_market_raw(s, MARKET_CURVE))
+
+
+static func _market_raw(s: Soldier, curve: Array) -> float:
+	var v := curve_salary(s.best_ovr(), curve)
 	var youth := clampf((30.0 - s.age) / 8.0, 0.0, 1.0)
 	var upside := float(s.potential_ovr() - s.best_ovr())
 	v *= 1.0 + (0.012 * clampf(upside - 6.0, -6.0, 14.0) + 0.06 * (s.dev - 2)) * youth
 	if s.age > 30:
 		v *= maxf(0.5, 1.0 - 0.08 * (s.age - 30))
-	return _round_salary(v)
+	return v
 
 
-static func curve_salary(ovr: float) -> float:
-	if ovr <= MARKET_CURVE[0][0]:
-		return float(MARKET_CURVE[0][1])
-	for i in range(1, MARKET_CURVE.size()):
-		var hi: Array = MARKET_CURVE[i]
+static func curve_salary(ovr: float, curve: Array = MARKET_CURVE) -> float:
+	if ovr <= curve[0][0]:
+		return float(curve[0][1])
+	for i in range(1, curve.size()):
+		var hi: Array = curve[i]
 		if ovr <= hi[0]:
-			var lo: Array = MARKET_CURVE[i - 1]
+			var lo: Array = curve[i - 1]
 			return lerpf(lo[1], hi[1], (ovr - lo[0]) / float(hi[0] - lo[0]))
-	return float(MARKET_CURVE[-1][1])
+	return float(curve[-1][1])
+
+
+## `old_salary` (a deal signed on the pre-#41 scale) on today's scale: his new market value times
+## how far over or under his old market value the deal was.
+static func rescale_legacy(s: Soldier, old_salary: int) -> int:
+	var old_market := clampf(roundf(_market_raw(s, LEGACY_CURVE) / 10.0) * 10.0, LEGACY_MIN_SALARY, LEGACY_MAX_SALARY)
+	return _round_salary(market_value(s) * float(old_salary) / old_market)
 
 
 ## Deal length the soldier wants: young players bet on themselves, prime players want security,
@@ -95,10 +120,13 @@ static func resign_asking(s: Soldier, years: int) -> int:
 
 
 static func rookie_contract(pick_number: int, total_picks: int, year: int) -> Contract:
-	var t := 0.0 if total_picks <= 1 else float(pick_number - 1) / float(total_picks - 1)
-	var salary := _round_salary(lerpf(ROOKIE_TOP, ROOKIE_BOTTOM, t))
-	var rnd := clampi((pick_number - 1) * Draft.ROUNDS / maxi(1, total_picks), 0, ROOKIE_YEARS.size() - 1)
-	return Contract.make(salary, ROOKIE_YEARS[rnd], year, true)
+	return Contract.make(rookie_salary(pick_number, total_picks), ROOKIE_YEARS, year, true)
+
+
+## Slot salary for pick `pick_number` of `total_picks`: min + (top - min)(1 - t)^3.
+static func rookie_salary(pick_number: int, total_picks: int) -> int:
+	var t := 0.0 if total_picks <= 1 else clampf(float(pick_number - 1) / float(total_picks - 1), 0.0, 1.0)
+	return _round_salary(ROOKIE_BOTTOM + (ROOKIE_TOP - ROOKIE_BOTTOM) * pow(1.0 - t, 3.0))
 
 
 ## Payroll for `cap_year + ahead` (ahead 0 = the cap year itself). In the offseason an expiring
@@ -127,31 +155,49 @@ static func cap_hold(s: Soldier) -> int:
 	return s.contract.salary if s.contract != null and s.contract.is_expiring() else 0
 
 
+## Room under the soft cap: what a free-agent signing needs.
 static func cap_space(team: Team, cap_year: int) -> int:
 	return SALARY_CAP - payroll(team, cap_year)
 
 
-## Whether a new deal paying `salary` fits (minimum deals always fit). `committed` is money
-## already promised elsewhere (e.g. pending free-agent offers); negative frees room (a cap hold).
+## Room under the apron (`ahead` seasons past the cap year): the hard ceiling for every deal.
+static func apron_room(team: Team, cap_year: int, ahead := 0) -> int:
+	return APRON - payroll(team, cap_year, ahead)
+
+
+## How far `cap_year`'s payroll is over the tax line (0 if under).
+static func tax_overage(team: Team, cap_year: int) -> int:
+	return maxi(0, payroll(team, cap_year) - TAX_LINE)
+
+
+## Luxury tax owed on `cap_year`'s payroll ($K of club cash).
+static func tax_due(team: Team, cap_year: int) -> int:
+	return roundi(tax_overage(team, cap_year) * TAX_RATE)
+
+
+## Whether a free-agent deal paying `salary` fits under the soft cap. `committed` is money
+## already promised elsewhere (e.g. pending free-agent offers). Minimum deals always fit, so a
+## team can fill its roster.
 static func fits(team: Team, cap_year: int, salary: int, committed := 0) -> bool:
 	return salary <= MIN_SALARY or salary + committed <= cap_space(team, cap_year)
 
 
-## Whether re-signing `s` at `salary` fits: his new deal replaces his cap hold.
+## Whether re-signing `s` at `salary` fits (Bird rights): his new deal replaces his cap hold and
+## may go over the soft cap, but not the apron.
 static func resign_fits(team: Team, cap_year: int, s: Soldier, salary: int) -> bool:
-	return fits(team, cap_year, salary, -cap_hold(s))
+	return salary <= MIN_SALARY or salary - cap_hold(s) <= apron_room(team, cap_year)
 
 
-## Cap space next season (`year` + 1), counting agreed extensions: what an in-season extension
-## is checked against.
-static func next_cap_space(team: Team, year: int) -> int:
-	return SALARY_CAP - payroll(team, year, 1)
+## Room under next season's (`year` + 1) apron, counting agreed extensions: what an in-season
+## extension is checked against.
+static func next_apron_room(team: Team, year: int) -> int:
+	return apron_room(team, year, 1)
 
 
-## Whether an in-season extension paying `amount` next season (salary, plus a bonus booked on
-## that year) fits under next season's cap. Minimum deals always fit.
+## Whether an in-season extension paying `salary` next season (plus a bonus booked on that year)
+## fits under next season's apron. Minimum deals always fit.
 static func extension_fits(team: Team, year: int, salary: int, bonus := 0) -> bool:
-	return (salary <= MIN_SALARY and bonus <= 0) or salary + bonus <= next_cap_space(team, year)
+	return (salary <= MIN_SALARY and bonus <= 0) or salary + bonus <= next_apron_room(team, year)
 
 
 ## Dead money left on the cap if `s` is released now: DEAD_MONEY_SHARE of each remaining year.
@@ -197,25 +243,6 @@ static func expiring(team: Team) -> Array[Soldier]:
 	return out
 
 
-## Salary-floor penalty for `cap_year`'s payroll (0 if at or over the floor). Dead money and
-## earlier penalties count toward the floor.
-static func floor_shortfall(team: Team, cap_year: int) -> int:
-	return maxi(0, SALARY_FLOOR - payroll(team, cap_year))
-
-
-## Season end: teams under the floor have the shortfall booked onto next season's cap.
-## Returns [{team, amount}].
-static func charge_floor(league: League, cap_year: int) -> Array:
-	var out: Array = []
-	for t in league.teams:
-		var short := floor_shortfall(t, cap_year)
-		if short > 0:
-			t.dead_money[cap_year + 1] = int(t.dead_money.get(cap_year + 1, 0)) + short
-			t.floor_penalties[cap_year] = short
-			out.append({"team": t, "amount": short})
-	return out
-
-
 ## Starting contracts for a new league: market value with some noise, 1-4 years (veterans
 ## shorter); teams that come out over the cap have their deals scaled down to fit.
 static func assign_initial(league: League, year: int, rng: RandomNumberGenerator) -> void:
@@ -235,3 +262,45 @@ static func assign_initial(league: League, year: int, rng: RandomNumberGenerator
 
 static func _round_salary(v: float) -> int:
 	return clampi(roundi(v / 10.0) * 10, MIN_SALARY, MAX_SALARY)
+
+
+## Moves a league signed on the pre-#41 scale onto today's: every contract and agreed extension by
+## the player's own ratio (rescale_legacy); dead money and bonuses by the team's payroll ratio;
+## pending free-agent `offers` by the player's ratio; a team left over the apron has its deals
+## trimmed to fit. Salary-floor penalties still waiting on next
+## season's cap (stashed by Team._migrate_prop) are dropped: there is no floor any more.
+static func migrate_legacy(league: League, offers: Array, cap_year: int) -> void:
+	for t in league.teams:
+		var pen: Dictionary = t.get_meta(&"legacy_floor_penalties", {})
+		for y in pen:
+			var y1 := int(y) + 1
+			if t.dead_money.has(y1):
+				t.dead_money[y1] = maxi(0, int(t.dead_money[y1]) - int(pen[y]))
+		if t.has_meta(&"legacy_floor_penalties"):
+			t.remove_meta(&"legacy_floor_penalties")
+		var before := 0
+		var after := 0
+		for s in t.roster:
+			if s.contract != null:
+				var old := s.contract.salary
+				s.contract.salary = rescale_legacy(s, old)
+				var ratio := float(s.contract.salary) / maxf(1.0, old)
+				s.contract.bonus = roundi(s.contract.bonus * ratio / 10.0) * 10
+				before += old
+				after += s.contract.salary
+			if s.has_extension():
+				var old_ext := s.ext_salary
+				s.ext_salary = rescale_legacy(s, old_ext)
+				s.ext_bonus = roundi(s.ext_bonus * float(s.ext_salary) / maxf(1.0, old_ext) / 10.0) * 10
+		var f := float(after) / float(before) if before > 0 else float(SALARY_CAP) / float(LEGACY_SALARY_CAP)
+		for book: Dictionary in [t.dead_money, t.bonus_money]:
+			for y in book:
+				book[y] = roundi(int(book[y]) * f / 10.0) * 10
+		var over := payroll(t, cap_year) - APRON
+		if over > 0 and after > 0:
+			var k := maxf(0.0, 1.0 - float(over) / float(after))
+			for s in t.roster:
+				if s.contract != null:
+					s.contract.salary = _round_salary(floorf(s.contract.salary * k))
+	for o: Dictionary in offers:
+		o["salary"] = rescale_legacy(o["soldier"], int(o["salary"]))
