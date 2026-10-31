@@ -10,6 +10,8 @@ extends RefCounted
 ## - Salary floor: a team whose payroll ends a season under SALARY_FLOOR pays the shortfall as a
 ##   penalty on next season's cap (booked like dead money).
 ## - Releasing a soldier leaves DEAD_MONEY_SHARE of each remaining year on the cap.
+## - In-season extensions (players in their last year) are checked against next season's cap and
+##   count on future payrolls; the new deal starts at the rollover (see rollover).
 ## - Asking salary comes from OVR, age and potential, plus a premium for deal lengths the soldier
 ##   doesn't want (see preferred_years); free agents drop their price the longer they go unsigned.
 
@@ -100,13 +102,24 @@ static func rookie_contract(pick_number: int, total_picks: int, year: int) -> Co
 
 
 ## Payroll for `cap_year + ahead` (ahead 0 = the cap year itself). In the offseason an expiring
-## deal stays on the cap year as a cap hold (his old salary) until he re-signs or leaves.
+## deal stays on the cap year as a cap hold (his old salary) until he re-signs or leaves. An agreed
+## extension counts from the season after his current deal ends.
 static func payroll(team: Team, cap_year: int, ahead := 0) -> int:
 	var total := int(team.dead_money.get(cap_year + ahead, 0)) + int(team.bonus_money.get(cap_year + ahead, 0))
 	for s in team.roster:
 		if s.contract != null and (s.contract.years > ahead or (ahead == 0 and s.contract.is_expiring())):
 			total += s.contract.salary
+		elif extension_covers(s, ahead):
+			total += s.ext_salary
 	return total
+
+
+## Whether `s`'s agreed extension pays him `ahead` seasons from the cap year.
+static func extension_covers(s: Soldier, ahead: int) -> bool:
+	if s.contract == null or not s.has_extension():
+		return false
+	var start := maxi(1, s.contract.years)
+	return ahead >= start and ahead < start + s.ext_years
 
 
 ## The cap hold an expiring soldier carries (his old salary); re-signing him replaces it.
@@ -129,6 +142,18 @@ static func resign_fits(team: Team, cap_year: int, s: Soldier, salary: int) -> b
 	return fits(team, cap_year, salary, -cap_hold(s))
 
 
+## Cap space next season (`year` + 1), counting agreed extensions: what an in-season extension
+## is checked against.
+static func next_cap_space(team: Team, year: int) -> int:
+	return SALARY_CAP - payroll(team, year, 1)
+
+
+## Whether an in-season extension paying `amount` next season (salary, plus a bonus booked on
+## that year) fits under next season's cap. Minimum deals always fit.
+static func extension_fits(team: Team, year: int, salary: int, bonus := 0) -> bool:
+	return (salary <= MIN_SALARY and bonus <= 0) or salary + bonus <= next_cap_space(team, year)
+
+
 ## Dead money left on the cap if `s` is released now: DEAD_MONEY_SHARE of each remaining year.
 static func dead_money_if_released(s: Soldier) -> int:
 	if s.contract == null or s.contract.years <= 0:
@@ -136,7 +161,8 @@ static func dead_money_if_released(s: Soldier) -> int:
 	return roundi(s.contract.salary * DEAD_MONEY_SHARE) * s.contract.years
 
 
-## Books dead money for releasing `s` and clears his contract. The caller moves him off the roster.
+## Books dead money for releasing `s` and clears his contract (an agreed extension is voided; its
+## bonus stays booked). The caller moves him off the roster.
 static func charge_release(team: Team, s: Soldier, cap_year: int) -> int:
 	var total := 0
 	if s.contract != null:
@@ -145,15 +171,22 @@ static func charge_release(team: Team, s: Soldier, cap_year: int) -> int:
 			team.dead_money[cap_year + k] = int(team.dead_money.get(cap_year + k, 0)) + amount
 			total += amount
 	s.contract = null
+	s.clear_extension()
 	return total
 
 
-## A season ended: every contract loses a year (expiring deals hit 0).
-static func rollover(league: League) -> void:
+## A season ended: every contract loses a year (expiring deals hit 0). An expiring soldier with an
+## agreed extension starts it now (signed in `year`), so he never reaches the re-sign window.
+static func rollover(league: League, year := 0) -> void:
 	for t in league.teams:
 		for s in t.roster:
 			if s.contract != null:
 				s.contract.years -= 1
+				if s.contract.is_expiring() and s.has_extension():
+					s.contract = Contract.make(s.ext_salary, s.ext_years, year)
+					s.contract.bonus = s.ext_bonus
+					s.contract.no_trade = s.ext_no_trade
+					s.clear_extension()
 
 
 static func expiring(team: Team) -> Array[Soldier]:

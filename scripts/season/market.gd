@@ -80,7 +80,7 @@ const OPENING_TITLES := {"DET": [2025]}
 ## Story kind -> [points for the first team, points for the second]. A kind counts at most STORY_CAP
 ## times a year per team.
 const STORY_POINTS := {
-	"mega_deal": [2.0, 0.0], "fa_signing": [2.0, 0.0], "homecoming": [1.0, 0.0], "resign": [1.0, 0.0],
+	"mega_deal": [2.0, 0.0], "fa_signing": [2.0, 0.0], "homecoming": [1.0, 0.0], "resign": [1.0, 0.0], "extension": [1.0, 0.0],
 	"defection": [1.0, -1.0], "draft_top": [2.0, 0.0], "draft_slide": [2.0, 0.0], "draft_haul": [2.0, 0.0],
 	"surprise_cut": [-1.0, 0.0], "trade_request": [-1.0, 0.0], "hits_market": [-1.0, 0.0],
 }

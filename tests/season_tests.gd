@@ -49,6 +49,9 @@ func _init() -> void:
 		"test_negotiation_tactics",
 		"test_negotiation_arguments",
 		"test_starter_promises",
+		"test_contract_extensions",
+		"test_extension_walk_and_sleep",
+		"test_ai_midseason_extensions",
 		"test_trades",
 		"test_trade_need_factor",
 		"test_roster_rules",
@@ -1304,6 +1307,120 @@ func _expiring_talks(seed_val: int) -> Array:
 	so.contract.years = 0
 	so.trust = Soldier.TRUST_NEUTRAL
 	return [s, user, so, s.negotiation(user, so)]
+
+
+## A user-team soldier in the last year of his deal during the regular season, with fresh
+## extension talks.
+func _extension_talks(seed_val: int) -> Array:
+	var s := Season.new_franchise(seed_val)
+	var user := s.user_team()
+	var so: Soldier = user.roster[1]
+	so.contract.years = 1
+	so.trust = Soldier.TRUST_NEUTRAL
+	return [s, user, so, s.negotiation(user, so)]
+
+
+func test_contract_extensions() -> void:
+	var r := _extension_talks(91)
+	var s: Season = r[0]
+	var user: Team = r[1]
+	var so: Soldier = r[2]
+	var n: Negotiation = r[3]
+	check(s.extension_open(), "extension window open in the regular season")
+	check(n != null and n.extension and n.is_open(), "extension talks open for a final-year player")
+	check(n.deal_year() == s.year + 1, "extension deal starts next season")
+	var other: Soldier = user.roster[2]
+	other.contract.years = 3
+	check(s.extension_error(user, other) != "" and s.extend_player(user, other, 2) != "", "no extension with years left")
+	var old_salary := so.contract.salary
+	var before := Contracts.payroll(user, s.year, 1)
+	var now_pay := Contracts.payroll(user, s.year, 0)
+	check(s.extend_player(user, so, 3) == "", "extension agreed at his demand")
+	check(so.has_extension() and so.ext_years == 3 and so.ext_salary > 0, "extension stored as pending")
+	check(so.contract.salary == old_salary and so.contract.years == 1, "current deal untouched")
+	check(Contracts.payroll(user, s.year, 1) == before + so.ext_salary, "extension counts on next season's payroll")
+	check(Contracts.payroll(user, s.year, 0) == now_pay, "current payroll unchanged")
+	check(s.resign_log.any(func(e): return e["soldier"] == so and e.get("extension", false)), "extension logged")
+	check(s.extension_error(user, so) != "", "can't extend twice")
+	check(s.extension_candidates(user).has(so), "still listed as a final-year player")
+	var ext_salary := so.ext_salary
+	s.sim_to_end_of_season()
+	check(not s.extension_open() and s.extension_error(user, user.roster[0]) != "", "window closed after the season")
+	check(not Contracts.expiring(user).has(so) or so.contract.salary == ext_salary, "extended player isn't an expiring re-sign")
+	var guard := 0
+	while s.phase == Season.PHASE_OFFSEASON and guard < 20:
+		s.advance_offseason()
+		guard += 1
+	if user.roster.has(so):
+		check(so.contract.salary == ext_salary and not so.has_extension(), "extension applied at rollover")
+		check(so.contract.years >= 2, "extension years applied")
+
+
+func test_extension_walk_and_sleep() -> void:
+	var r := _extension_talks(92)
+	var s: Season = r[0]
+	var user: Team = r[1]
+	var so: Soldier = r[2]
+	var n: Negotiation = r[3]
+	# Sleep on it pauses talks until next week.
+	var res := n.sleep_on_it()
+	check(res["result"] == "slept" and n.is_resting() and not n.can_act(), "sleep on it rests until next week")
+	check(n.ask(2)["result"] == "error", "no tactics while resting")
+	s.week += 1
+	check(s.negotiation(user, so) == n and not n.is_resting(), "talks resume the next week")
+	# Lowball until he walks.
+	var guard := 0
+	while n.is_open() and guard < 20:
+		n.make_offer(Contracts.MIN_SALARY, 2)
+		guard += 1
+	check(n.state == Negotiation.WALKED and so.ext_walked_year == s.year, "walked out of extension talks")
+	check(s.extension_error(user, so) != "" and s.extend_player(user, so, 2) != "", "talks blocked after he walks")
+	check(not so.has_extension(), "no extension after walking")
+	# Re-sign talks open less patient and asking more.
+	s.sim_to_end_of_season()
+	so.contract.years = 0
+	var re := s.negotiation(user, so)
+	check(re != null and not re.extension, "re-sign talks open after the Final")
+	if re != null:
+		check(re.patience <= Negotiation.MAX_PATIENCE - Negotiation.EXT_WALK_PATIENCE, "walk costs starting patience")
+		so.ext_walked_year = 0
+		var fresh := Negotiation.start(s, user, so)
+		check(re.demand(2) > fresh.demand(2), "walk raises his re-sign demand")
+
+
+func test_ai_midseason_extensions() -> void:
+	var a := Season.new_franchise(93)
+	var b := Season.new_franchise(93)
+	for t in a.league.teams:
+		for so in t.roster:
+			if so.contract != null and so.contract.years > 1 and so.id % 3 == 0:
+				so.contract.years = 1
+	for t in b.league.teams:
+		for so in t.roster:
+			if so.contract != null and so.contract.years > 1 and so.id % 3 == 0:
+				so.contract.years = 1
+	a._ai_extend()
+	b._ai_extend()
+	var ext_a := 0
+	var cand := 0
+	var same := true
+	for i in a.league.teams.size():
+		var ta: Team = a.league.teams[i]
+		var tb: Team = b.league.teams[i]
+		for j in ta.roster.size():
+			var sa: Soldier = ta.roster[j]
+			var sb: Soldier = tb.roster[j]
+			if sa.contract != null and sa.contract.years == 1:
+				cand += 1
+			if sa.has_extension():
+				ext_a += 1
+				check(not ta.user_controlled, "user players are never auto-extended")
+			if sa.has_extension() != sb.has_extension() or sa.ext_salary != sb.ext_salary:
+				same = false
+	check(cand > 0 and ext_a > 0, "some AI final-year players extended (%d of %d)" % [ext_a, cand])
+	check(ext_a < cand, "not every final-year player extended")
+	check(same, "AI extensions are deterministic")
+	check(a.resign_log.any(func(e): return e.get("extension", false)), "AI extensions logged")
 
 
 func test_resign_negotiation() -> void:

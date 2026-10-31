@@ -20,6 +20,8 @@ extends RefCounted
 ##   defection        a free agent of DEFECTION_OVR+ leaves for his old team's rival.
 ##   homecoming       a free agent of HOMECOMING_OVR+ signs with his home-state club.
 ##   resign           a cornerstone (BIG_SIGNING_OVR+) re-signs.
+##   extension        in-season: a cornerstone (BIG_SIGNING_OVR+, or a MEGA_SALARY deal) agrees to
+##                    an extension (filed under the week it was signed).
 ##   hits_market      a STAR_MARKET_OVR+ player reaches free agency.
 ##   surprise_cut     an AI team releases a STAR_CUT_OVR+ player ranked in its top STAR_CUT_RANK.
 ##   draft_*          #1 pick, a generational talent who slid, steals, reaches and the best haul.
@@ -258,17 +260,22 @@ func signing(season: Season, entry: Dictionary) -> void:
 	_add(season, String(entry["when"]), kind, teams, s.id, head, body)
 
 
-## An expiring contract is renewed (AI teams, or the user through a negotiation).
-func resign(season: Season, team: Team, s: Soldier, salary: int, years: int) -> void:
+## An expiring contract is renewed (AI teams, or the user through a negotiation), or an in-season
+## extension is agreed (`extension`).
+func resign(season: Season, team: Team, s: Soldier, salary: int, years: int, extension := false) -> void:
 	var ovr := s.best_ovr()
 	var mega := salary >= MEGA_SALARY
 	if not mega and ovr < BIG_SIGNING_OVR:
 		return
-	var kind := "mega_deal" if mega else "resign"
+	var kind := "extension" if extension else ("mega_deal" if mega else "resign")
 	if not _year_room(season, kind) or not _tag(s, kind, season.year):
 		return
 	var deal := "%s a year for %d year%s" % [Contracts.money(salary), years, "" if years == 1 else "s"]
-	if mega:
+	if extension:
+		_add(season, Trades._when(season), kind, [team.abbrev], s.id,
+			"%s extend %s%s" % [team.name, s.display_name(), " on %s a year" % Contracts.money(salary) if mega else ""],
+			"%s (%d OVR) won't reach free agency: he agrees to %s starting in %d." % [s.full_name(), ovr, deal, season.year + 1])
+	elif mega:
 		_add(season, "Re-signing", kind, [team.abbrev], s.id,
 			"%s lock up %s on %s a year" % [team.name, s.display_name(), Contracts.money(salary)],
 			"%s (%d OVR) stays put and gets %s. The %s are building around him." % [s.full_name(), ovr, deal, team.nickname])
@@ -495,7 +502,7 @@ func digest(season: Season, step: String) -> Dictionary:
 	out["cuts"] = season.trades.moves.filter(func(m): return m["year"] == y and m["when"] == step and m["kind"] == &"cut")
 	out["trades"] = season.trades.history.filter(func(e): return e["year"] == y and e["when"] == step)
 	if step == "Re-signing":
-		out["resigned"] = season.resign_log.filter(func(r): return r["year"] == y)
+		out["resigned"] = season.resign_log.filter(func(r): return r["year"] == y and not r.get("extension", false))
 		out["resigned"].sort_custom(func(a, b): return a["soldier"].best_ovr() > b["soldier"].best_ovr())
 		out["retired"] = season.retirements.filter(func(r): return r["year"] == y)
 		out["retired"].sort_custom(func(a, b): return int(a["ovr"]) > int(b["ovr"]))
