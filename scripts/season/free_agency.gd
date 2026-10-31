@@ -6,7 +6,8 @@ extends RefCounted
 ## lowers his asking price.
 ##
 ## Offer score (weights come from his DNA; an average soldier is about 70 / 15 / 15):
-##     W_money x money (salary / his asking price for that length, capped at 1.3)
+##     W_money x money (yearly pay / his asking price for that length, capped at 1.3; a signing bonus
+##     spread over the deal counts extra for money-driven players)
 ##   + W_win x team quality (team OVR) + W_time x playing time (would he start there? a starter
 ##     promise counts for a lot) + loyalty (his former club, scaled by trust) + security (deal
 ##     length vs what he wants) + hometown (a club near home, scaled by his Hometown DNA) + bonds
@@ -35,7 +36,8 @@ const ASK_DROP_WITH_OFFERS := 0.92
 const ASK_DROP_NO_OFFERS := 0.95
 const ASK_FLOOR := 0.55
 
-## Pending offers: {team: Team, soldier: Soldier, salary: int, years: int, promise: bool}.
+## Pending offers: {team: Team, soldier: Soldier, salary: int, years: int, promise: bool, bonus: int}.
+## A signing bonus is paid from the club fund when he signs and never counts on the cap.
 var offers: Array = []
 ## Every signing: {soldier, team, salary, years, year, when: String, user: bool}.
 var history: Array = []
@@ -65,8 +67,17 @@ func committed(team: Team, except: Soldier = null) -> int:
 	return total
 
 
+## Signing-bonus money promised in a team's pending offers (optionally ignoring the offer on `except`).
+func committed_bonus(team: Team, except: Soldier = null) -> int:
+	var total := 0
+	for o in offers_by(team):
+		if o["soldier"] != except:
+			total += int(o.get("bonus", 0))
+	return total
+
+
 ## Why `team` can't make this offer ("" = it can).
-func offer_error(season: Season, team: Team, s: Soldier, salary: int, years: int, promise := false) -> String:
+func offer_error(season: Season, team: Team, s: Soldier, salary: int, years: int, promise := false, bonus := 0) -> String:
 	if not season.free_agency_open():
 		return "Free agency opens when the re-signing window closes."
 	if not season.league.free_agents.has(s):
@@ -85,7 +96,9 @@ func offer_error(season: Season, team: Team, s: Soldier, salary: int, years: int
 		return "Not enough cap space (%s left after pending offers)." % Contracts.money(Contracts.cap_space(team, season.cap_year()) - committed(team, s))
 	if promise and promises_made(season, team, s) >= team.scheme.slot_ids().size():
 		return "You've already promised all %d starting spots." % team.scheme.slot_ids().size()
-	return ""
+	if bonus < 0 or bonus > Contracts.max_bonus(salary, years):
+		return "A signing bonus can be at most half the deal's total salary (%s on this offer)." % Contracts.money(Contracts.max_bonus(salary, years))
+	return season.revenue.bonus_error(team, bonus, committed_bonus(team, s))
 
 
 ## Starter promises `team` has out for the cap year: rostered soldiers plus pending offers
@@ -114,12 +127,12 @@ static func blocks_signing(season: Season, team: Team) -> bool:
 
 
 ## Places or replaces `team`'s offer. Returns the error text ("" on success).
-func make_offer(season: Season, team: Team, s: Soldier, salary: int, years: int, promise := false) -> String:
-	var err := offer_error(season, team, s, salary, years, promise)
+func make_offer(season: Season, team: Team, s: Soldier, salary: int, years: int, promise := false, bonus := 0) -> String:
+	var err := offer_error(season, team, s, salary, years, promise, bonus)
 	if err != "":
 		return err
 	withdraw(team, s)
-	offers.append({"team": team, "soldier": s, "salary": salary, "years": years, "promise": promise})
+	offers.append({"team": team, "soldier": s, "salary": salary, "years": years, "promise": promise, "bonus": bonus})
 	return ""
 
 
@@ -141,10 +154,10 @@ static func would_start(team: Team, s: Soldier) -> bool:
 	return s.ovr_at_role(role) > weakest
 
 
-static func score(team: Team, s: Soldier, salary: int, years: int, promise := false) -> float:
+static func score(team: Team, s: Soldier, salary: int, years: int, promise := false, bonus := 0) -> float:
 	var d := s.get_dna()
 	var w := weights(s)
-	var money := minf(1.3, float(salary) / float(maxi(1, Contracts.asking(s, years))))
+	var money := minf(1.3, yearly_value(s, salary, years, bonus) / float(maxi(1, Contracts.asking(s, years))))
 	var team_q := clampf((team.team_ovr() - 64.0) / 25.0, 0.0, 1.0)
 	var starts := would_start(team, s)
 	var role := 1.0 if starts else 0.3
@@ -160,6 +173,21 @@ static func score(team: Team, s: Soldier, salary: int, years: int, promise := fa
 	return sc
 
 
+## What an offer pays him a year as he sees it: salary plus the bonus spread over the deal, the bonus
+## worth up to 1.5x its cash to a money-driven player (as in re-sign talks).
+static func yearly_value(s: Soldier, salary: int, years: int, bonus := 0) -> float:
+	return salary + bonus / float(maxi(1, years)) * (1.0 + 0.5 * s.get_dna().n(&"money"))
+
+
+## The bonus it takes to lift `salary` to his asking price, or -1 if the bonus limit doesn't allow it.
+static func bonus_to_ask(s: Soldier, salary: int, years: int) -> int:
+	var gap := Contracts.asking(s, years) - salary
+	if gap <= 0:
+		return 0
+	var b := ceili(gap * years / (1.0 + 0.5 * s.get_dna().n(&"money")) / 10.0) * 10
+	return b if b <= Contracts.max_bonus(salary, years) else -1
+
+
 ## [money, winning, playing time] weights from his DNA, summing to 1.
 static func weights(s: Soldier) -> Array:
 	var d := s.get_dna()
@@ -171,8 +199,8 @@ static func weights(s: Soldier) -> Array:
 
 
 ## Player interest in an offer, for the UI: [label, color].
-static func interest(team: Team, s: Soldier, salary: int, years: int, promise := false) -> Array:
-	var r := score(team, s, salary, years, promise) / ACCEPT_SCORE
+static func interest(team: Team, s: Soldier, salary: int, years: int, promise := false, bonus := 0) -> Array:
+	var r := score(team, s, salary, years, promise, bonus) / ACCEPT_SCORE
 	if r >= 1.08:
 		return ["VERY HIGH", Color("#22c55e")]
 	if r >= 1.0:
@@ -187,11 +215,14 @@ static func interest(team: Team, s: Soldier, salary: int, years: int, promise :=
 ## upside, age, depth, contract), so good free agents draw several bids. In the offseason AI
 ## rosters may run over the limit (they cut down before Week 1); in-season a signing releases
 ## the team's least valuable player. Contenders pay a premium for stars, and every rival bid
-## already on a player pushes the next one up.
+## already on a player pushes the next one up. A team without the cap room to pay his asking price
+## tops up what it can fit with a signing bonus from its club fund (within the bonus limit, never
+## more than AI_BONUS_FUND_SHARE of the fund across its pending offers).
 const AI_UPGRADE_MARGIN := 3.0
 const AI_UPGRADE_BIDS := 2
 const AI_UPGRADE_BIDS_IN_SEASON := 1
 const AI_OFFSEASON_MAX := Team.OFFSEASON_MAX
+const AI_BONUS_FUND_SHARE := 0.5
 
 
 func ai_offers(season: Season, rng: RandomNumberGenerator, in_season := false) -> void:
@@ -234,13 +265,32 @@ func ai_offers(season: Season, rng: RandomNumberGenerator, in_season := false) -
 			if contender and s.best_ovr() >= 80:
 				mult += 0.05
 			var salary := clampi(roundi(ask * mult / 10.0) * 10, Contracts.MIN_SALARY, Contracts.MAX_SALARY)
+			var bonus := 0
 			if not Contracts.fits(team, season.cap_year(), salary, committed(team) + reserve):
 				salary = ask
 				if not Contracts.fits(team, season.cap_year(), salary, committed(team) + reserve):
-					continue
-			if make_offer(season, team, s, salary, years) == "":
+					bonus = _ai_bonus_deal(season, team, s, years, committed(team) + reserve)
+					if bonus <= 0:
+						continue
+					salary = Contracts.cap_space(team, season.cap_year()) - committed(team) - reserve
+					salary = floori(salary / 10.0) * 10
+			if make_offer(season, team, s, salary, years, false, bonus) == "":
 				budget -= 1
 				open -= 1
+
+
+## The signing bonus an AI team needs to reach `s`'s asking price with all its remaining cap room
+## as salary, or 0 when it can't (no room for a real salary, the bonus limit, or the fund).
+func _ai_bonus_deal(season: Season, team: Team, s: Soldier, years: int, held: int) -> int:
+	var room := floori((Contracts.cap_space(team, season.cap_year()) - held) / 10.0) * 10
+	if room <= Contracts.MIN_SALARY or season.revenue.frozen(team):
+		return 0
+	var bonus := bonus_to_ask(s, room, years)
+	if bonus <= 0:
+		return 0
+	if bonus + committed_bonus(team) > season.revenue.cash_of(team) * AI_BONUS_FUND_SHARE:
+		return 0
+	return bonus
 
 
 static func _ai_value(s: Soldier, weak_role: int) -> float:
@@ -270,12 +320,14 @@ func resolve(season: Season, rng: RandomNumberGenerator, when: String, only: Tea
 				continue
 			if not Contracts.fits(team, season.cap_year(), o["salary"]):
 				continue
-			var sc := score(team, s, o["salary"], o["years"], o.get("promise", false)) + rng.randf_range(0.0, 0.01)
+			if season.revenue.bonus_error(team, int(o.get("bonus", 0))) != "":
+				continue
+			var sc := score(team, s, o["salary"], o["years"], o.get("promise", false), int(o.get("bonus", 0))) + rng.randf_range(0.0, 0.01)
 			if sc > best_score:
 				best_score = sc
 				best = o
 		if not best.is_empty() and best_score >= ACCEPT_SCORE:
-			signed.append(sign_player(season, best["team"], s, best["salary"], best["years"], when, best.get("promise", false)))
+			signed.append(sign_player(season, best["team"], s, best["salary"], best["years"], when, best.get("promise", false), int(best.get("bonus", 0))))
 		else:
 			s.ask_mult = maxf(ASK_FLOOR, s.ask_mult * (ASK_DROP_WITH_OFFERS if not mine.is_empty() else ASK_DROP_NO_OFFERS))
 	# Offers that couldn't be honoured (roster filled up) are dropped; the rest stay pending.
@@ -295,21 +347,24 @@ func decide_now(season: Season, team: Team, s: Soldier) -> Dictionary:
 			continue
 		if not Contracts.fits(t, season.cap_year(), o["salary"]):
 			continue
-		var sc := score(t, s, o["salary"], o["years"], o.get("promise", false))
+		if season.revenue.bonus_error(t, int(o.get("bonus", 0))) != "":
+			continue
+		var sc := score(t, s, o["salary"], o["years"], o.get("promise", false), int(o.get("bonus", 0)))
 		if sc > best_score or (sc == best_score and t == team):
 			best_score = sc
 			best = o
 	if best.is_empty() or best_score < ACCEPT_SCORE:
-		return {"signed": {}, "text": "%s turned it down - not enough to sign. Raise the money, years or add a starter promise." % s.full_name()}
+		return {"signed": {}, "text": "%s turned it down - not enough to sign. Raise the money, years or bonus, or add a starter promise." % s.full_name()}
 	var winner: Team = best["team"]
-	var entry := sign_player(season, winner, s, best["salary"], best["years"], season.week_label(season.week), best.get("promise", false))
+	var entry := sign_player(season, winner, s, best["salary"], best["years"], season.week_label(season.week), best.get("promise", false), int(best.get("bonus", 0)))
 	if winner == team:
-		return {"signed": entry, "text": "%s signed with you: %s x %d." % [s.full_name(), Contracts.money(best["salary"]), best["years"]]}
+		return {"signed": entry, "text": "%s signed with you: %s x %d%s." % [s.full_name(), Contracts.money(best["salary"]), best["years"],
+			" + %s bonus" % Contracts.money(int(best.get("bonus", 0))) if int(best.get("bonus", 0)) > 0 else ""]}
 	return {"signed": entry, "text": "%s chose %s's offer instead." % [s.full_name(), winner.name]}
 
 
 ## Signs a free agent outright (accepted offer, or a team filling its roster).
-func sign_player(season: Season, team: Team, s: Soldier, salary: int, years: int, when: String, promise := false) -> Dictionary:
+func sign_player(season: Season, team: Team, s: Soldier, salary: int, years: int, when: String, promise := false, bonus := 0) -> Dictionary:
 	season.league.free_agents.erase(s)
 	if s.former_team != team.abbrev:
 		s.trust = Soldier.TRUST_NEUTRAL
@@ -322,6 +377,8 @@ func sign_player(season: Season, team: Team, s: Soldier, salary: int, years: int
 			season.release_player(team, cut)
 			season.trades.moves.append({"year": season.year, "when": season.trades._when(season), "team": team, "soldier": cut, "kind": &"cut", "to": null})
 	s.contract = Contract.make(salary, years, season.year)
+	s.contract.bonus = bonus
+	season.revenue.pay_bonus(season, team, bonus)
 	s.ask_mult = 1.0
 	s.intensity = Soldier.INTENSITY_NORMAL
 	s.morale = maxf(s.morale, 80.0)
@@ -329,7 +386,7 @@ func sign_player(season: Season, team: Team, s: Soldier, salary: int, years: int
 	season.league.give_callsign(s)
 	if team.lineup.size() < team.scheme.slot_ids().size():
 		team.auto_lineup()
-	var entry := {"soldier": s, "team": team, "salary": salary, "years": years, "year": season.year, "when": when, "user": team.user_controlled, "promise": promise}
+	var entry := {"soldier": s, "team": team, "salary": salary, "years": years, "year": season.year, "when": when, "user": team.user_controlled, "promise": promise, "bonus": bonus}
 	history.append(entry)
 	season.news.signing(season, entry)
 	return entry

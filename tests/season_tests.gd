@@ -64,6 +64,7 @@ func _init() -> void:
 		"test_rookie_scale",
 		"test_legacy_salary_migration",
 		"test_board_review",
+		"test_signing_bonuses",
 		"test_hometown_pull",
 		"test_region_and_auto_scout",
 		"test_league_news",
@@ -1508,29 +1509,38 @@ func test_negotiation_terms() -> void:
 	d.money = 5
 	check(greedy > n.term_value(&"bonus", 3, {"bonus": 3000}) and greedy > 1000.0, "money-driven players value a bonus above its cash")
 	var all := {"bonus": 1500, "no_trade": true, "promise": true}
+	s.revenue.cash[user.abbrev] = 50000.0
 	var cheap := n.required_salary(3, all)
 	check(cheap <= base, "terms lower the salary he needs")
 	check(n.cash_per_year(cheap, 3, all) >= n.floor_salary(3) - 10, "terms never buy him below his floor")
 	check(not n.accepts(cheap - 100, 3, all), "just below the required salary doesn't sign")
-	# Signing books the bonus and the clause.
+	# Signing pays the bonus from the club fund (off the cap) and books the clause.
 	var cy := s.cap_year()
 	var before := Contracts.payroll(user, cy) - Contracts.cap_hold(so)
 	var res := n.accept(3, all)
 	check(res["result"] == "signed", "accepting with terms signs (%s)" % res["text"])
 	if res["result"] == "signed":
 		check(so.contract.bonus == 1500 and so.contract.no_trade and so.contract.salary == cheap, "contract carries the terms")
-		check(int(user.bonus_money.get(cy, 0)) >= 1500, "bonus booked on the cap year")
-		check(Contracts.payroll(user, cy) == before + cheap + 1500, "payroll counts salary plus bonus")
+		check(int(user.bonus_money.get(cy, 0)) == 0, "the bonus is not booked on the cap")
+		check(Contracts.payroll(user, cy) == before + cheap, "payroll counts the salary only")
+		check(is_equal_approx(s.revenue.cash_of(user), 48500.0) and s.revenue.bonuses_paid(s.year, user) == 1500, "the bonus is paid from the club fund")
 		check(not so.promise.is_empty(), "starter promise tracked")
 		check(not Trades.tradeable(so), "no-trade clause blocks trades")
 		so.trade_request = true
 		check(Trades.tradeable(so), "a trade request waives the clause")
 		so.trade_request = false
-	# Bonus counts against this year's cap.
+	# The bonus limit (half the deal's salary) and the club fund.
 	r = _expiring_talks(85)
+	s = r[0]
+	user = r[1]
 	n = r[3]
-	check(n.offer_error(Contracts.MIN_SALARY, 2, {"bonus": Contracts.SALARY_CAP}) != "", "bonus over the cap rejected")
+	s.revenue.cash[user.abbrev] = 50000.0
+	check(n.offer_error(Contracts.MIN_SALARY, 2, {"bonus": Contracts.MIN_SALARY + 10}).contains("half"), "bonus over half the deal's salary rejected")
 	check(n.offer_error(1000, 2, {"bonus": -5}) != "", "negative bonus rejected")
+	s.revenue.cash[user.abbrev] = 500.0
+	check(n.offer_error(Contracts.MIN_SALARY, 2, {"bonus": 1000}).contains("club fund"), "bonus over the club fund rejected")
+	s.revenue.cash[user.abbrev] = -1.0
+	check(n.offer_error(Contracts.MIN_SALARY, 2, {"bonus": 100}).contains("frozen"), "a frozen fund blocks bonuses")
 
 
 func test_keep_the_core() -> void:
@@ -2532,6 +2542,80 @@ func test_board_review() -> void:
 	check(rv.frozen(nye) and not rv.frozen(lrk), "a fund below $0 freezes spending")
 	rv.grants.erase(s.year - 1)
 	check(is_equal_approx(rv._confidence(s, nye, true), Revenue.CONF_BROKE), "a fund below $0 alone: x0.90")
+
+
+func test_signing_bonuses() -> void:
+	check(Contracts.max_bonus(10000, 3) == 15000 and Contracts.max_bonus(Contracts.MIN_SALARY, 1) == 500, "bonus limit: half the deal's total salary")
+	var s := Season.new_franchise(64)
+	var t := s.user_team()
+	t.release(t.roster[-1])
+	t.release(t.roster[-1])
+	for so in t.roster:
+		if so.contract != null:
+			so.contract.salary = Contracts.MIN_SALARY
+	var rv := s.revenue
+	var pool := s.league.free_agents
+	var a: Soldier = pool[0]
+	var b: Soldier = pool[1]
+	var sal := 4000
+	check(Contracts.fits(t, s.cap_year(), sal * 2), "room for two offers")
+	# Limit and fund, counting bonuses in other pending offers.
+	rv.cash[t.abbrev] = 5000.0
+	check(s.fa.offer_error(s, t, a, sal, 2, false, 4010).contains("half"), "FA bonus over the limit rejected")
+	check(s.fa.make_offer(s, t, a, sal, 2, false, 3000) == "", "bonus offer placed")
+	check(s.fa.committed_bonus(t) == 3000, "pending bonus counted")
+	check(s.fa.offer_error(s, t, b, sal, 2, false, 3000).contains("club fund"), "other pending bonuses hold the fund")
+	check(s.fa.offer_error(s, t, b, sal, 2, false, 2000) == "", "what's left in the fund can be offered")
+	check(s.fa.offer_error(s, t, a, sal, 2, false, 4000) == "", "replacing an offer frees its own bonus")
+	rv.cash[t.abbrev] = -1.0
+	check(s.fa.offer_error(s, t, b, sal, 2, false, 100).contains("frozen"), "frozen fund blocks FA bonuses")
+	check(s.fa.offer_error(s, t, b, sal, 2) == "", "a frozen fund still allows a deal without a bonus")
+	# A bonus is worth more to a money-driven player.
+	var d := a.get_dna()
+	var low := roundi(Contracts.asking(a, 2) * 0.6)
+	d.money = 95
+	var greedy := FreeAgency.score(t, a, low, 2, false, 2000) - FreeAgency.score(t, a, low, 2)
+	d.money = 5
+	check(greedy > FreeAgency.score(t, a, low, 2, false, 2000) - FreeAgency.score(t, a, low, 2) and greedy > 0.0, "money-driven players value a bonus more")
+	# Bonus needed to reach the asking price.
+	var ask := Contracts.asking(a, 2)
+	var part := roundi(ask * 0.8 / 10.0) * 10
+	var need := FreeAgency.bonus_to_ask(a, part, 2)
+	check(need > 0 and FreeAgency.yearly_value(a, part, 2, need) >= ask - 1, "bonus_to_ask reaches the asking price")
+	check(FreeAgency.bonus_to_ask(a, roundi(ask / 3.0), 2) == -1 or ask <= 3 * Contracts.MIN_SALARY, "too big a gap for the bonus limit")
+	# An AI club tops up its cap room with a bonus from its fund.
+	var ai: Team = s.league.teams[1] if s.league.teams[0] == t else s.league.teams[0]
+	if part > Contracts.MIN_SALARY:
+		var held := Contracts.cap_space(ai, s.cap_year()) - part
+		rv.cash[ai.abbrev] = 1000000.0
+		check(s.fa._ai_bonus_deal(s, ai, a, 2, held) == need, "AI bonus fills the gap to his ask")
+		rv.cash[ai.abbrev] = float(need)
+		check(s.fa._ai_bonus_deal(s, ai, a, 2, held) == 0, "AI keeps half its fund back")
+		rv.cash[ai.abbrev] = -1.0
+		check(s.fa._ai_bonus_deal(s, ai, a, 2, held) == 0, "a frozen AI club offers no bonus")
+	# Signing pays the fund, not the cap.
+	rv.cash[t.abbrev] = 20000.0
+	var cy := s.cap_year()
+	var before := Contracts.payroll(t, cy)
+	var entry := s.fa.sign_player(s, t, a, sal, 2, "test", false, 4000)
+	check(entry["bonus"] == 4000 and a.contract.bonus == 4000, "contract and history carry the bonus")
+	check(Contracts.payroll(t, cy) == before + sal, "the bonus is off the cap")
+	check(is_equal_approx(rv.cash_of(t), 16000.0) and rv.bonuses_paid(s.year, t) == 4000, "the bonus is paid from the fund")
+	# An offer whose bonus can no longer be paid is passed over.
+	d = b.get_dna()
+	d.money = 95
+	check(s.fa.make_offer(s, t, b, mini(Contracts.MAX_SALARY, roundi(Contracts.asking(b, 2) * 1.3)), 2, false, 3000) == "", "generous bonus offer placed")
+	for o in s.fa.offers_for(b).duplicate():
+		if o["team"] != t:
+			s.fa.withdraw(o["team"], b)
+	rv.cash[t.abbrev] = 1000.0
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3
+	s.fa.resolve(s, rng, "test")
+	check(not t.roster.has(b), "an unaffordable bonus offer doesn't sign")
+	# Saves keep the bonus ledger.
+	var s2 := SaveSystem.from_text(SaveSystem.to_text(s))
+	check(s2 != null and s2.revenue.bonuses_paid(s.year, s2.user_team()) == 4000, "bonus ledger survives a save")
 
 
 func test_hometown_pull() -> void:

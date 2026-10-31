@@ -256,7 +256,9 @@ func signing(season: Season, entry: Dictionary) -> void:
 	if moved:
 		teams.append(from.abbrev)
 	var rival := moved and season.rivalries.is_rivalry(from, t)
-	var deal := "%s a year for %d year%s (%s in all)" % [Contracts.money(salary), years, "" if years == 1 else "s", Contracts.money(salary * years)]
+	var bonus := int(entry.get("bonus", 0))
+	var deal := "%s a year for %d year%s (%s in all%s)" % [Contracts.money(salary), years, "" if years == 1 else "s", Contracts.money(salary * years + bonus),
+		", with a %s signing bonus" % Contracts.money(bonus) if bonus > 0 else ""]
 	var kind := ""
 	var head := ""
 	var body := ""
