@@ -94,7 +94,7 @@ static func breakdown(season: Season, ctx: Dictionary, so: Soldier) -> Dictionar
 	for year in so.season_lines:
 		var line: Dictionary = so.season_lines[year]
 		best_season = maxf(best_season, float(line.get("kills", 0)))
-		if ctx["champions"].get(int(year), "") == line.get("team", "-") and int(line.get("matches", 0)) >= MIN_TITLE_MATCHES:
+		if line.get("team", "") != "" and ctx["champions"].get(int(year), "") == line["team"] and int(line.get("matches", 0)) >= MIN_TITLE_MATCHES:
 			titles += 1
 	out["titles_won"] = titles
 	out["titles"] = minf(titles * TITLE_POINTS, TITLES_CAP)

@@ -1707,6 +1707,10 @@ func open_resign() -> void:
 	open("Re-sign Players", pages.resign)
 
 
+func open_extensions() -> void:
+	open("Extensions", pages.extensions)
+
+
 func open_free_agents() -> void:
 	open("Free Agents", pages.free_agents)
 
@@ -2579,7 +2583,7 @@ func _personnel_cards() -> Control:
 
 	# In season the contracts that expire are the ones in their final year.
 	var off := season.phase == Season.PHASE_OFFSEASON
-	var exp: Array = Contracts.expiring(team) if off else team.roster.filter(func(x: Soldier): return x.contract != null and x.contract.years == 1)
+	var exp: Array = Contracts.expiring(team) if off else team.roster.filter(func(x: Soldier): return x.contract != null and x.contract.years == 1 and not x.has_extension())
 	cards.append(_stat_card("Re-sign Players", str(exp.size()), "EXPIRING" if off else "IN FINAL YEAR", "Window open" if season.can_resign() else "Window opens after the Final",
 		Color("#22c55e"), open_resign, "RE-SIGN" if season.can_resign() and not exp.is_empty() else ""))
 
@@ -2634,7 +2638,14 @@ func _personnel_strip() -> Control:
 	cards.append(_stat_card("Weekly News", str(nr.count()), "ISSUES", ("[color=white]%s[/color]\n%s" % [UiKit.esc(String(la["headline"])), UiKit.esc(String(la["paper"]))]) if not la.is_empty()
 		else "No issues yet", Color("#e2e8f0"), func(): open("News Archive", pages.news_archive), "NEW" if nr.unread() > 0 else ""))
 
-	cards.append(_soon_card("Negotiation", "Back-and-forth contract talks", ["Back-and-forth contract talks", "Signing bonuses, incentives and options", "Agent personalities and holdouts"]))
+	var ext_team := season.user_team()
+	var ext_list := season.extension_candidates(ext_team)
+	var agreed := ext_list.filter(func(x: Soldier): return x.has_extension()).size()
+	var ext_detail := "Window open until the playoffs" if season.extension_open() else "Opens in the regular season"
+	if season.extension_open() and not ext_list.is_empty():
+		ext_detail = "%d agreed  ·  %d to go\nWindow closes at the playoffs" % [agreed, ext_list.size() - agreed]
+	cards.append(_stat_card("Extensions", str(ext_list.size()) if season.extension_open() else "-", "IN FINAL YEAR", ext_detail,
+		Color("#a855f7"), open_extensions, "NEGOTIATE" if season.extension_open() and ext_list.size() > agreed else ""))
 	return _card_row("PersonnelMore", cards, 4)
 
 

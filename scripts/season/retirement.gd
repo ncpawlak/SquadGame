@@ -64,5 +64,6 @@ static func _retire(season: Season, s: Soldier, team: Team, reason: String) -> D
 	season.league.free_agents.erase(s)
 	season.fa.offers = season.fa.offers.filter(func(o): return o["soldier"] != s)
 	s.contract = null
+	s.clear_extension()
 	s.retired_year = season.year
 	return rec

@@ -82,6 +82,18 @@ var dna: Dna = null
 var trust: float = TRUST_NEUTRAL
 ## Active starter promise: {year, team (abbrev), games, started}; {} = none.
 var promise: Dictionary = {}
+## Active "keep the core" promise: {year (cap year), team (abbrev), id (teammate's soldier id),
+## name}: his club won't trade or release that teammate this season. {} = none.
+var keep_promise: Dictionary = {}
+## Agreed in-season extension, applied when his current deal runs out (Contracts.rollover):
+## yearly salary ($K) and years (0 = none), signing bonus (already booked on the cap) and
+## no-trade clause.
+var ext_salary: int = 0
+var ext_years: int = 0
+var ext_bonus: int = 0
+var ext_no_trade := false
+## Season he broke off extension talks (0 = never): that offseason's re-sign talks open sour.
+var ext_walked_year: int = 0
 ## Set when a broken promise makes him want out (trades act on it later).
 var trade_request := false
 ## Abbrev of the last club that released him (free-agent loyalty).
@@ -140,6 +152,17 @@ func get_dna() -> Dna:
 
 func add_trust(amount: float) -> void:
 	trust = clampf(trust + amount, 0.0, 100.0)
+
+
+func has_extension() -> bool:
+	return ext_years > 0
+
+
+func clear_extension() -> void:
+	ext_salary = 0
+	ext_years = 0
+	ext_bonus = 0
+	ext_no_trade = false
 
 
 static func trust_label(t: float) -> String:

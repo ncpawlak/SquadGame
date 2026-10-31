@@ -20,6 +20,7 @@ func _init() -> void:
 		"test_hall_of_fame_round_trip",
 		"test_load_repairs_callsigns",
 		"test_slot_api",
+		"test_extension_round_trip",
 		"test_legacy_potential_migrates",
 	]
 	var only := OS.get_environment("ONLY")
@@ -321,6 +322,33 @@ func test_load_repairs_callsigns() -> void:
 		check(not seen.has(so.callsign.to_lower()), "callsign %s is still worn twice after load" % so.callsign)
 		check(not retired.has(so.callsign.to_lower()), "%s still wears a retired callsign after load" % so.callsign)
 		seen[so.callsign.to_lower()] = true
+
+
+## Agreed extensions, walked-out flags and paused extension talks survive a save mid-season.
+func test_extension_round_trip() -> void:
+	var s := Season.new_franchise(323)
+	var user := s.user_team()
+	var a: Soldier = user.roster[1]
+	var b: Soldier = user.roster[2]
+	var c: Soldier = user.roster[3]
+	for so in [a, b, c]:
+		so.contract.years = 1
+	check(s.extend_player(user, a, 2, {"bonus": 1000, "no_trade": true}) == "", "extension agreed")
+	b.ext_walked_year = s.year
+	var n := s.negotiation(user, c)
+	n.sleep_on_it()
+	var s2 := SaveSystem.from_text(SaveSystem.to_text(s))
+	check(s2 != null, "from_text returned null")
+	if s2 == null:
+		return
+	var a2 := soldier_by_id(s2, a.id)
+	var b2 := soldier_by_id(s2, b.id)
+	check(a2.has_extension() and a2.ext_salary == a.ext_salary and a2.ext_years == 2, "extension terms lost")
+	check(a2.ext_bonus == a.ext_bonus and a2.ext_no_trade, "extension bonus/NTC lost")
+	check(b2.ext_walked_year == s.year and s2.extension_error(s2.user_team(), b2) != "", "walked flag lost")
+	var n2: Negotiation = s2.negotiations.get(c.id)
+	check(n2 != null and n2.extension and n2.is_resting() and n2.wake_week == n.wake_week, "paused extension talks lost")
+	check(SaveSystem.to_text(s2) == SaveSystem.to_text(s), "re-serialization not stable")
 
 
 func test_slot_api() -> void:
