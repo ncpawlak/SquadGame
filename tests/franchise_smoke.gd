@@ -340,6 +340,19 @@ func _visit_pages(hub, phase: String) -> void:
 		"legacy_awards": func():
 			hub.legacy_pages.tab = "awards"
 			return hub.legacy_pages.legacy(),
+		"legacy_records": func():
+			hub.legacy_pages.tab = "records"
+			hub.legacy_pages.records_team = ""
+			return hub.legacy_pages.legacy(),
+		"legacy_records_franchise": func():
+			hub.legacy_pages.tab = "records"
+			hub.legacy_pages.records_team = hub.season.user_team().abbrev
+			var c: Control = hub.legacy_pages.legacy()
+			hub.legacy_pages.records_team = ""
+			return c,
+		"legacy_record_page": func():
+			var top := Records.player_seasons(hub.season, Records.PLAYER_STATS[0])
+			return hub.legacy_pages.record_page(Records.PLAYER_STATS[0], top, "season"),
 		"legacy_season": func():
 			if hub.season.history.is_empty():
 				return Control.new()
