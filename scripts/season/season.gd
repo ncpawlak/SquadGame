@@ -20,6 +20,8 @@ const DIVISION_PLAYOFF_TEAMS := 8
 const FIXTURE_PLAYOFF_TEAMS := 4
 ## Tests: > 0 makes new_franchise build a generated single-division league of this many teams.
 static var fixture_teams := 0
+## New franchises start with made-up past seasons for their veterans (see CareerBackfill). Tests turn it off.
+static var backfill_careers := true
 const PHASE_REGULAR := &"regular"
 const PHASE_PLAYOFFS := &"playoffs"
 const PHASE_OFFSEASON := &"offseason"
@@ -165,6 +167,10 @@ static func new_franchise(seed_value: int, user_team_index := 0, start_year := 2
 	var rrng := RandomNumberGenerator.new()
 	rrng.seed = _mix([seed_value, start_year, 0xC4E3])
 	s.relationships.seed_league(s.league, rrng)
+	if backfill_careers:
+		var brng := RandomNumberGenerator.new()
+		brng.seed = _mix([seed_value, start_year, 0xBAC4F])
+		CareerBackfill.run(s.league, start_year, brng)
 	s._begin_season()
 	if s.has_divisions():
 		s._apply_opening_pick_trades()
