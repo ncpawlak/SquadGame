@@ -513,10 +513,10 @@ func play_week_match(m: ScheduledMatch) -> void:
 	if not m.is_played():
 		m.play()
 		Progression.award_match_xp(m.result, year, ctx)
-		ledger.record_match(ctx["playoffs"])
+		ledger.record_match(self, m)
 	elif m.needs_xp:
 		Progression.award_match_xp(m.result, year, ctx)
-		ledger.record_match(ctx["playoffs"])
+		ledger.record_match(self, m)
 	m.needs_xp = false
 
 

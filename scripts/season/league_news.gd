@@ -13,6 +13,9 @@ extends RefCounted
 ##   trade_request    a player's trade request goes public. Morale -3.
 ##   rivalry          a rivalry game (see Rivalries): the winners gain morale and the losers lose it, by
 ##                    the rivalry's intensity (2 to 4). Also a new emergent rivalry forming or ending.
+##   record_broken    a player beats the league's best in a single-match stat (see StatLedger), once per
+##                    player, stat and phase a season. No effect.
+##   streak_record    a team's win or losing streak passes every other team's best. No effect.
 ##   champion / floor season-end headlines (title, salary-floor penalties).
 ## Offseason stories (filed under the season just finished), each capped per year:
 ##   mega_deal        a signing or re-signing at MEGA_SALARY or more a year.
@@ -116,6 +119,7 @@ func week_stories(season: Season, played: Array, wk: int) -> void:
 		winners[m.winner()] = m
 		if season.rivalries.is_rivalry(m.home, m.away):
 			_rivalry(season, m, when)
+	_record_stories(season, played, when, counts)
 	for e in season.rivalries.last_events:
 		_rivalry_change(season, when, e)
 	var home_winners := {}
@@ -571,6 +575,47 @@ func _wrote(season: Season, kind: String) -> bool:
 
 ## Every rivalry game moves morale; team-specific, playoff and hot games (and snapped streaks)
 ## make the wire, quiet divisional ones only while the week has room.
+## Stories for the records this week's matches broke (stamped on each match by the ledger).
+func _record_stories(season: Season, played: Array, when: String, counts: Dictionary) -> void:
+	for m: ScheduledMatch in played:
+		for rec: Dictionary in m.records:
+			var value := StatRegistry.format(rec, rec["value"])
+			var prev: Dictionary = rec["previous"]
+			if int(rec["id"]) < 0:
+				if not _room(counts, "streak_record"):
+					continue
+				var held := ""
+				if not prev.is_empty():
+					held = " The old mark was %d, set by the %s." % [int(prev["value"]), season.league.team_by_abbrev(prev["team"]).nickname]
+				var t := season.league.team_by_abbrev(rec["team"])
+				_add(season, when, "streak_record", [t.abbrev], -1,
+					"%s reach a league record %s" % [t.nickname, "%s %s" % [value, rec["noun"]]],
+					"The %s now hold the league's longest %s: %s %s.%s" % [t.nickname,
+						"winning streak" if rec["stat"] == "win_streak" else "losing streak", value, rec["noun"], held])
+				continue
+			var so := _soldier_in(m, int(rec["id"]))
+			if so == null or not _room(counts, "record_broken") or not _tag(so, "record:%s:%s" % [rec["stat"], rec["phase"]], season.year):
+				continue
+			var scope := "playoff " if rec["phase"] == StatRegistry.PHASE_PLAYOFFS else ""
+			var opp := m.away if rec["team"] == m.home.abbrev else m.home
+			var passed := ""
+			if not prev.is_empty():
+				var shown := StatRegistry.format(rec, prev["value"])
+				passed = " He passes %s, who had %s in %d." % [prev["name"], shown, int(prev["year"])]
+			_add(season, when, "record_broken", [rec["team"], opp.abbrev], so.id,
+				"%s sets a new %ssingle-match record: %s %s" % [so.display_name(), scope, value, rec["noun"]],
+				"%s put up %s %s against the %s, the most in a %smatch in league history.%s" % [
+					so.full_name(), value, rec["noun"], opp.nickname, scope, passed])
+
+
+func _soldier_in(m: ScheduledMatch, id: int) -> Soldier:
+	for t: Team in [m.home, m.away]:
+		for so: Soldier in t.roster:
+			if so.id == id:
+				return so
+	return null
+
+
 func _rivalry(season: Season, m: ScheduledMatch, when: String) -> void:
 	var rv := season.rivalries
 	var w := m.winner()

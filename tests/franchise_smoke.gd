@@ -411,6 +411,15 @@ func _visit_pages(hub, phase: String) -> void:
 			hub.legacy_pages.tab = "records"
 			hub.legacy_pages.records_team = ""
 			return hub.legacy_pages.legacy(),
+		"legacy_records_playoffs": func():
+			hub.legacy_pages.tab = "records"
+			hub.legacy_pages.records_phase = StatRegistry.PHASE_PLAYOFFS
+			var c: Control = hub.legacy_pages.legacy()
+			hub.legacy_pages.records_phase = StatRegistry.PHASE_COMBINED
+			return c,
+		"legacy_match_record_page": func():
+			var stat: Dictionary = StatRegistry.SINGLE_MATCH[0]
+			return hub.legacy_pages.record_page(stat, Records.single_matches(hub.season, stat), "match"),
 		"legacy_records_franchise": func():
 			hub.legacy_pages.tab = "records"
 			hub.legacy_pages.records_team = hub.season.user_team().abbrev
@@ -513,8 +522,20 @@ func _visit_pages(hub, phase: String) -> void:
 		hub.open("Scores", func(): return p.scores(w))
 		await process_frame
 		hub.go_back()
+	var banner_checked := false
 	for m in hub.season.matches_for(hub.season.user_team()):
 		var mm = m
+		if mm.is_played() and not banner_checked and mm.records.is_empty():
+			# A recap shows the records its match broke: one for a player, one for a team streak.
+			banner_checked = true
+			mm.records = [
+				{"stat": "kills", "label": "Kills in a match", "noun": "kills", "fmt": "int", "phase": "playoffs", "value": 31.0, "id": 1, "name": "A Soldier", "team": "ABC", "previous": {"value": 29.0, "name": "B Soldier", "year": 2030}},
+				{"stat": "win_streak", "label": "Longest win streak", "noun": "straight wins", "fmt": "int", "phase": "combined", "value": 9.0, "id": -1, "name": "Empire", "team": "NYE", "previous": {}}]
+			hub.open("m", func(): return p.recap(mm))
+			await process_frame
+			_check(hub._content.get_child_count() > 0, "recap with record banners builds (%s)" % phase)
+			hub.go_back()
+			mm.records = []
 		hub.open("m", func(): return p.recap(mm) if mm.is_played() else p.preview(mm))
 		await process_frame
 		hub.go_back()

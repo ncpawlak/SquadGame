@@ -446,6 +446,8 @@ func recap(m: ScheduledMatch) -> Control:
 	var user := _season().user_team()
 	v.add_child(match_summary(m, user if m.involves(user) else null))
 	_add_weather_chip(v, m)
+	for rec: Dictionary in m.records:
+		v.add_child(UiKit.label(_record_banner(rec), 16, UiKit.ACCENT))
 	v.add_child(_pbp_button(m))
 	for t in r.teams:
 		v.add_child(_section("%s BOX SCORE" % t.name.to_upper()))
@@ -473,6 +475,17 @@ func recap(m: ScheduledMatch) -> Control:
 				if players[i] != null:
 					open_player(players[i])))
 	return v
+
+
+## One line for a league record broken in a match: who, how much, and what it passed.
+func _record_banner(rec: Dictionary) -> String:
+	var text := "LEAGUE RECORD  -  %s: %s %s" % [rec["name"], StatRegistry.format(rec, rec["value"]), rec["noun"]]
+	if rec["phase"] == StatRegistry.PHASE_PLAYOFFS:
+		text += "  (playoff record)"
+	var prev: Dictionary = rec["previous"]
+	if not prev.is_empty():
+		text += "  -  previous %s" % StatRegistry.format(rec, prev["value"])
+	return text
 
 
 func _pbp_button(m: ScheduledMatch) -> Button:
