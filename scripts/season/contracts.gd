@@ -2,7 +2,8 @@ class_name Contracts
 extends RefCounted
 ## Salary cap rules (Madden-style hard cap, the same for every team). Money is in $K.
 ##
-## - Payroll = salaries of rostered soldiers under contract for the cap year + dead money.
+## - Payroll = salaries of rostered soldiers under contract for the cap year + dead money +
+##   signing bonuses paid that year (a bonus stays on the payer's cap if the player leaves).
 ##   The cap year is the current season, or next season during the offseason.
 ## - New deals (re-signs, free-agent offers) must fit under the cap, except minimum-salary deals,
 ##   which are always allowed so a team can fill its roster. Draft picks get fixed rookie deals.
@@ -101,7 +102,7 @@ static func rookie_contract(pick_number: int, total_picks: int, year: int) -> Co
 ## Payroll for `cap_year + ahead` (ahead 0 = the cap year itself). In the offseason an expiring
 ## deal stays on the cap year as a cap hold (his old salary) until he re-signs or leaves.
 static func payroll(team: Team, cap_year: int, ahead := 0) -> int:
-	var total := int(team.dead_money.get(cap_year + ahead, 0))
+	var total := int(team.dead_money.get(cap_year + ahead, 0)) + int(team.bonus_money.get(cap_year + ahead, 0))
 	for s in team.roster:
 		if s.contract != null and (s.contract.years > ahead or (ahead == 0 and s.contract.is_expiring())):
 			total += s.contract.salary

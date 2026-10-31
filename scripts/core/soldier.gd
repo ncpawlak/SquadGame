@@ -82,6 +82,9 @@ var dna: Dna = null
 var trust: float = TRUST_NEUTRAL
 ## Active starter promise: {year, team (abbrev), games, started}; {} = none.
 var promise: Dictionary = {}
+## Active "keep the core" promise: {year (cap year), team (abbrev), id (teammate's soldier id),
+## name}: his club won't trade or release that teammate this season. {} = none.
+var keep_promise: Dictionary = {}
 ## Set when a broken promise makes him want out (trades act on it later).
 var trade_request := false
 ## Abbrev of the last club that released him (free-agent loyalty).

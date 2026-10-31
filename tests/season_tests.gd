@@ -43,6 +43,11 @@ func _init() -> void:
 		"test_dna_profiles",
 		"test_fa_dna_weights",
 		"test_resign_negotiation",
+		"test_negotiation_terms",
+		"test_keep_the_core",
+		"test_bond_pull_in_talks",
+		"test_negotiation_tactics",
+		"test_negotiation_arguments",
 		"test_starter_promises",
 		"test_trades",
 		"test_trade_need_factor",
@@ -67,6 +72,11 @@ func _init() -> void:
 		"test_keep_value_protects_prospects",
 		"test_relationships",
 		"test_newsroom",
+		"test_season_history",
+		"test_records",
+		"test_retired_callsigns",
+		"test_hall_of_fame",
+		"test_callsign_uniqueness",
 	]
 	# Legacy tests run on a generated 5-team single-division league (fast); the expansion
 	# tests switch to the fixed 20-team league themselves.
@@ -1324,14 +1334,15 @@ func test_resign_negotiation() -> void:
 	r = _expiring_talks(82)
 	n = r[3]
 	so = r[2]
-	n.arguments().append({"id": &"test", "title": "Test", "pitch": "You're replaceable.", "evidence": 1.0, "evidence_text": "", "fit": 0.05, "tone": "hard", "used": false})
+	n.arguments().append({"id": &"test", "title": "Test", "pitch": "You're replaceable.", "evidence": 1.0, "evidence_text": "", "fit": 0.05, "tone": "hard", "group": Negotiation.HARDBALL, "used": false})
 	var before := n.demand(2)
 	var trust := so.trust
 	var bf := n.use_argument(&"test")
 	check(bf["result"] == "backfired" and n.demand(2) > before and so.trust < trust, "bad-fit argument backfires")
+	check(n.missteps == 1 and r[0].talks_log.any(func(e): return e["kind"] == &"backfired" and e["soldier"] == so), "backfire logged for storylines")
 	# A promise is worth money to a playing-time guy.
 	so.get_dna().playing_time = 90
-	check(n.demand(2, true) < n.demand(2) or n.demand(2) <= n.floor_salary(2), "promise lowers his demand")
+	check(n.required_salary(2, {"promise": true}) < n.required_salary(2) or n.required_salary(2) <= n.floor_salary(2), "promise lowers the salary he needs")
 	# Lowballing until he walks.
 	r = _expiring_talks(83)
 	s = r[0]
@@ -1353,6 +1364,157 @@ func test_resign_negotiation() -> void:
 	var late: Soldier = user.roster[0]
 	late.contract.years = 0
 	check(not s.can_resign() and s.negotiation(user, late) == null, "no new talks once the window closes")
+
+
+func test_negotiation_terms() -> void:
+	var r := _expiring_talks(84)
+	var s: Season = r[0]
+	var user: Team = r[1]
+	var so: Soldier = r[2]
+	var n: Negotiation = r[3]
+	var d := so.get_dna()
+	# Every term adds value; none can buy him under his floor in cash.
+	var base := n.required_salary(3)
+	check(n.term_value(&"no_trade", 3, {}) > 0.0, "a no-trade clause is worth something")
+	d.loyalty = 95
+	var loyal_ntc := n.term_value(&"no_trade", 3, {})
+	d.loyalty = 5
+	d.hometown = 5
+	check(loyal_ntc > n.term_value(&"no_trade", 3, {}), "loyal players value a no-trade clause more")
+	d.money = 95
+	var greedy := n.term_value(&"bonus", 3, {"bonus": 3000})
+	d.money = 5
+	check(greedy > n.term_value(&"bonus", 3, {"bonus": 3000}) and greedy > 1000.0, "money-driven players value a bonus above its cash")
+	var all := {"bonus": 1500, "no_trade": true, "promise": true}
+	var cheap := n.required_salary(3, all)
+	check(cheap <= base, "terms lower the salary he needs")
+	check(n.cash_per_year(cheap, 3, all) >= n.floor_salary(3) - 10, "terms never buy him below his floor")
+	check(not n.accepts(cheap - 100, 3, all), "just below the required salary doesn't sign")
+	# Signing books the bonus and the clause.
+	var cy := s.cap_year()
+	var before := Contracts.payroll(user, cy) - Contracts.cap_hold(so)
+	var res := n.accept(3, all)
+	check(res["result"] == "signed", "accepting with terms signs (%s)" % res["text"])
+	if res["result"] == "signed":
+		check(so.contract.bonus == 1500 and so.contract.no_trade and so.contract.salary == cheap, "contract carries the terms")
+		check(int(user.bonus_money.get(cy, 0)) >= 1500, "bonus booked on the cap year")
+		check(Contracts.payroll(user, cy) == before + cheap + 1500, "payroll counts salary plus bonus")
+		check(not so.promise.is_empty(), "starter promise tracked")
+		check(not Trades.tradeable(so), "no-trade clause blocks trades")
+		so.trade_request = true
+		check(Trades.tradeable(so), "a trade request waives the clause")
+		so.trade_request = false
+	# Bonus counts against this year's cap.
+	r = _expiring_talks(85)
+	n = r[3]
+	check(n.offer_error(Contracts.MIN_SALARY, 2, {"bonus": Contracts.SALARY_CAP}) != "", "bonus over the cap rejected")
+	check(n.offer_error(1000, 2, {"bonus": -5}) != "", "negative bonus rejected")
+
+
+func test_keep_the_core() -> void:
+	var r := _expiring_talks(86)
+	var s: Season = r[0]
+	var user: Team = r[1]
+	var so: Soldier = r[2]
+	var n: Negotiation = r[3]
+	var pal: Soldier = null
+	for o in user.roster:
+		if o != so and o.contract != null and not o.contract.is_expiring():
+			pal = o
+			break
+	check(pal != null, "a teammate under contract")
+	s.relationships.pairs[Relationships.key(so.id, pal.id)] = {"pts": 99.0, "m": 20, "d": 0.0}
+	check(n.keep_target() == pal and n.term_value(&"keep", 2, {}) > 0.0, "his closest teammate can be promised")
+	check(s.relationships.bond_pull(so, user) >= 0.5, "an Inseparable bond pulls him")
+	check(n.arguments().any(func(a): return a["id"] == &"teammates"), "teammates argument available with a strong bond")
+	var res := n.accept(2, {"keep": true})
+	check(res["result"] == "signed" and so.keep_promise.get("id", -1) == pal.id, "keep promise recorded")
+	var trust := so.trust
+	s.release_player(user, pal)
+	check(so.keep_promise.is_empty() and so.trust < trust, "cutting the teammate breaks the promise")
+	check(s.talks_log.any(func(e): return e["kind"] == &"keep_broken" and e["soldier"] == so), "broken keep promise logged")
+
+
+func test_bond_pull_in_talks() -> void:
+	var r := _expiring_talks(87)
+	var s: Season = r[0]
+	var user: Team = r[1]
+	var so: Soldier = r[2]
+	for k in s.relationships.pairs.keys():
+		if k.x == so.id or k.y == so.id:
+			s.relationships.pairs.erase(k)
+	s.negotiations.clear()
+	var lone := Negotiation.start(s, user, so)
+	for o in user.roster:
+		if o != so:
+			s.relationships.pairs[Relationships.key(so.id, o.id)] = {"pts": 85.0, "m": 20, "d": 0.0}
+	var bonded := Negotiation.start(s, user, so)
+	check(bonded.demand_mult < lone.demand_mult and bonded.floor_mult <= lone.floor_mult, "bonds soften his demand")
+	check(bonded.talk.any(func(t): return "close with" in t["text"]), "agent mentions his friends")
+	var other: Team = s.league.teams.filter(func(t: Team): return t != user)[0]
+	var fa_score := FreeAgency.score(user, so, 2000, 2) - FreeAgency.score(other, so, 2000, 2)
+	for k in s.relationships.pairs.keys():
+		if k.x == so.id or k.y == so.id:
+			s.relationships.pairs.erase(k)
+	check(fa_score > FreeAgency.score(user, so, 2000, 2) - FreeAgency.score(other, so, 2000, 2), "free agents lean toward bonded teammates")
+
+
+func test_negotiation_tactics() -> void:
+	var r := _expiring_talks(88)
+	var s: Season = r[0]
+	var so: Soldier = r[2]
+	var n: Negotiation = r[3]
+	var p := n.patience
+	var a := n.ask(2)
+	check(a["ok"] and not n.revealed.is_empty() and n.patience < p, "asking reveals his range")
+	check(int(n.revealed["low"]) <= n.floor_salary(2) and int(n.revealed["high"]) >= n.floor_salary(2), "range contains his floor")
+	check(not n.can_ask(), "only ask once")
+	check(not n.can_smooth() or so.trust < Negotiation.SMOOTH_TRUST_BELOW, "nothing to smooth over yet")
+	n.make_offer(Contracts.MIN_SALARY, 2)
+	if n.is_open() and n.missteps > 0:
+		var dm := n.demand_mult
+		var t := so.trust
+		check(n.smooth_over()["ok"] and so.trust > t and n.demand_mult <= dm, "smoothing over repairs a lowball")
+		check(not n.can_smooth(), "smooth over once")
+	n.patience = 30.0
+	var m := n.demand_mult
+	n.demand_mult = n.floor_mult
+	check(n.sleep_on_it()["ok"] and n.patience == 55.0, "sleeping on it restores patience")
+	check(n.demand_mult > n.floor_mult and n.demand_mult <= m + 1.0, "his ask drifts back up overnight")
+	check(not n.can_sleep(), "sleep on it once")
+	# Final offer: at his number he signs; far below he walks.
+	var want := n.required_salary(2)
+	r = _expiring_talks(89)
+	var n2: Negotiation = r[3]
+	var low := n2.final_offer(Contracts.MIN_SALARY, 2)
+	check(low["result"] == "walked" and n2.state == Negotiation.WALKED, "lowball final offer: he walks")
+	check(r[0].talks_log.any(func(e): return e["kind"] == &"walked"), "walkout logged")
+	var fin := n.final_offer(want, 2)
+	check(fin["result"] == "signed" or n.offer_error(want, 2) != "", "final offer at his number signs")
+	check(s != null, "season ok")
+
+
+func test_negotiation_arguments() -> void:
+	var r := _expiring_talks(90)
+	var s: Season = r[0]
+	var user: Team = r[1]
+	var so: Soldier = r[2]
+	var n: Negotiation = r[3]
+	if user.home_state == "":
+		user.home_state = "TX"
+	so.home_state = user.home_state
+	so.get_dna().hometown = 90
+	user.market_rating = 95
+	n._args_cache = []
+	var ids := n.arguments().map(func(a): return a["id"])
+	check(ids.has(&"hometown") and ids.has(&"big_stage"), "hometown and big-stage pitches exist when the data backs them (%s)" % [ids])
+	for a in n.arguments():
+		check(a["group"] == (Negotiation.SELL if a["tone"] == "soft" else Negotiation.HARDBALL), "%s grouped by tone" % a["id"])
+	check(n.arguments_in(Negotiation.SELL).size() + n.arguments_in(Negotiation.HARDBALL).size() == n.arguments().size(), "every argument in a tab")
+	so.home_state = ""
+	n._args_cache = []
+	check(not n.arguments().any(func(a): return a["id"] == &"hometown"), "no hometown pitch without a home state")
+	check(s != null, "season ok")
 
 
 func test_starter_promises() -> void:
@@ -1682,6 +1844,297 @@ func test_fixed_league() -> void:
 
 ## The Weekly News: an issue for every week and offseason step, every slot filled, no two ledes
 ## alike, and the same league writes the same paper.
+func test_season_history() -> void:
+	var s := _fixed(71, 1)
+	check(s.history.is_empty(), "no history before the first final")
+	s.sim_to_end_of_season()
+	check(s.history.size() == 1, "one snapshot after the first final (%d)" % s.history.size())
+	var snap: SeasonSnapshot = s.history[0]
+	check(snap.year == s.year and snap.champion == s.champion, "snapshot has the year and champion")
+	var fin: ScheduledMatch = s.playoff_matches[-1]
+	check(snap.runner_up == fin.loser() and snap.runner_up != snap.champion, "runner-up is the final's loser")
+	check(snap.standings.size() == s.league.teams.size(), "final table covers every team")
+	check(snap.bracket.size() == s.playoff_matches.size(), "bracket has every playoff match")
+	check(snap.final_score() == "%d-%d" % [fin.games_for(s.champion), fin.games_for(snap.runner_up)], "final score is from the champion's side")
+	check(snap.champion_record() != "", "champion record found in the table")
+	var snap_year := s.year
+	while s.offseason_stage != Season.OFF_DONE:
+		s.advance_offseason()
+	s.start_next_season()
+	check(s.champion == null, "champion resets for the new season")
+	check(s.history.size() == 1 and s.history[0].champion != null and s.history[0].year == snap_year, "the snapshot survives the rollover")
+	s.sim_to_end_of_season()
+	check(s.history.size() == 2 and s.history[1].year == snap_year + 1, "second season adds a second snapshot")
+	s.ensure_history()
+	check(s.history.size() == 2, "ensure_history does not duplicate a season already recorded")
+
+
+func test_records() -> void:
+	var s := _fixed(72, 1)
+	s.sim_to_end_of_season()
+	while s.offseason_stage != Season.OFF_DONE:
+		s.advance_offseason()
+	s.start_next_season()
+	s.sim_to_end_of_season()
+	var kills: Dictionary = Records.PLAYER_STATS[0]
+	var kd: Dictionary = Records.PLAYER_STATS[-1]
+	var everyone := Records.soldiers(s)
+	for r in s.retirements:
+		check(everyone.has(r["soldier"]), "retired soldiers are in the record pool")
+	var best := 0
+	var best_career := 0
+	for so: Soldier in everyone:
+		best_career = maxi(best_career, int(so.career["kills"]))
+		for y in so.season_lines:
+			best = maxi(best, int(so.season_lines[y]["kills"]))
+	var seasons := Records.player_seasons(s, kills)
+	check(not seasons.is_empty() and seasons[0]["value"] == best, "season kills record is the best line (%s vs %d)" % [seasons[0]["value"] if not seasons.is_empty() else "-", best])
+	check(seasons.size() <= Records.TOP_N, "top list is capped")
+	for i in range(1, seasons.size()):
+		check(seasons[i - 1]["value"] >= seasons[i]["value"], "season list is sorted best first")
+	var careers := Records.player_careers(s, kills)
+	check(not careers.is_empty() and careers[0]["value"] == best_career, "career kills record is the best career")
+	check(careers[0]["first"] <= careers[0]["last"] and careers[0]["first"] > 0, "career span is set")
+	for row in Records.player_seasons(s, kd):
+		check(int(row["soldier"].season_lines[row["year"]]["matches"]) >= Records.MIN_MATCHES_SEASON, "kd record needs a minimum of matches")
+	var team := s.user_team()
+	for row in Records.player_seasons(s, kills, team.abbrev):
+		check(row["team"] == team.abbrev, "franchise season records only count that team")
+	for row in Records.player_careers(s, kills, team.abbrev):
+		var with_team := 0
+		for y in row["soldier"].season_lines:
+			if row["soldier"].season_lines[y]["team"] == team.abbrev:
+				with_team += int(row["soldier"].season_lines[y]["kills"])
+		check(int(row["value"]) == with_team and row["value"] <= row["soldier"].career["kills"], "franchise career is the sum of that team's seasons")
+	var wins: Dictionary = Records.TEAM_STATS[0]
+	var most := 0
+	for snap: SeasonSnapshot in s.history:
+		for r in snap.standings:
+			most = maxi(most, int(r["wins"]))
+	var tw := Records.team_seasons(s, wins)
+	check(not tw.is_empty() and tw[0]["value"] == most, "team wins record matches the history")
+	for row in Records.team_seasons(s, wins, team.abbrev):
+		check(row["team"] == team, "franchise team records only list that team")
+	check(Records.format_value(kd, 1.234) == "1.23" and Records.format_value(kills, 41.0) == "41", "values format by kind")
+
+
+## Gives `so` n seasons with `team` and a Season MVP, the way a long, decorated career looks.
+func _decorate(s: Season, so: Soldier, team: Team, n: int, mvp := true, extra := 0) -> void:
+	so.season_lines = {}
+	for i in n:
+		var line := {"team": team.abbrev}
+		for k in Soldier.STAT_LINE_KEYS:
+			line[k] = 1
+		so.season_lines[2000 + i] = line
+	var rev := SeasonReview.new()
+	rev.year = 2000 + n
+	if mvp:
+		rev.awards.append({"award": RetiredCallsigns.MVP_AWARD, "soldier": so, "team": team, "line": ""})
+	for i in extra:
+		rev.all_league.append({"soldier": so, "team": team, "role": Scheme.Role.FLEX, "line": ""})
+	s.review_history.append(rev)
+
+
+func test_retired_callsigns() -> void:
+	var s := _fixed(73, 1)
+	var user := s.user_team()
+	var ai: Team = s.league.teams[0] if s.league.teams[0] != user else s.league.teams[2]
+	var rookie := ai.roster[0]
+	var vet := ai.roster[1]
+	var mine := user.roster[0]
+	check(RetiredCallsigns.make_entry(s, rookie).is_empty(), "no seasons, no honors: not eligible")
+	_decorate(s, rookie, ai, RetiredCallsigns.MIN_SEASONS_WITH_CLUB - 1)
+	check(RetiredCallsigns.make_entry(s, rookie).is_empty(), "an MVP but too few seasons with the club: not eligible")
+	s.review_history.clear()
+	_decorate(s, rookie, ai, RetiredCallsigns.MIN_SEASONS_WITH_CLUB, false, RetiredCallsigns.MIN_HONORS - 1)
+	check(RetiredCallsigns.make_entry(s, rookie).is_empty(), "long service but too few honors: not eligible")
+	s.review_history.clear()
+	_decorate(s, rookie, ai, RetiredCallsigns.MIN_SEASONS_WITH_CLUB, false, RetiredCallsigns.MIN_HONORS)
+	var entry := RetiredCallsigns.make_entry(s, rookie)
+	check(not entry.is_empty() and entry["team"] == ai and entry["seasons"] == RetiredCallsigns.MIN_SEASONS_WITH_CLUB, "enough All-League picks qualify")
+	s.review_history.clear()
+	_decorate(s, rookie, ai, RetiredCallsigns.MIN_SEASONS_WITH_CLUB)
+	_decorate(s, vet, ai, RetiredCallsigns.MIN_SEASONS_WITH_CLUB)
+	_decorate(s, mine, user, RetiredCallsigns.MIN_SEASONS_WITH_CLUB)
+	check(not RetiredCallsigns.make_entry(s, rookie).is_empty(), "long service plus a Season MVP qualifies")
+	# Seasons split between clubs: the club with the most seasons gets the callsign.
+	var split := ai.roster[2]
+	_decorate(s, split, ai, RetiredCallsigns.MIN_SEASONS_WITH_CLUB + 2)
+	split.season_lines[2000]["team"] = user.abbrev
+	var split_club := RetiredCallsigns.club_of(s, split)
+	check(split_club["team"] == ai and split_club["seasons"] == RetiredCallsigns.MIN_SEASONS_WITH_CLUB + 1, "the club with most seasons is the soldier's club")
+
+	var sign := rookie.callsign
+	var records := [{"soldier": rookie}, {"soldier": mine}, {"soldier": ai.roster[3]}]
+	RetiredCallsigns.process(s, records)
+	check(s.league.retired_callsigns.size() == 1 and s.league.retired_callsigns[0]["soldier"] == rookie, "the AI club's callsign is retired at once")
+	check(s.league.callsign_proposals.size() == 1 and s.league.callsign_proposals[0]["soldier"] == mine, "the user's club gets a proposal")
+	check(RetiredCallsigns.is_retired(s.league, sign.to_upper()), "is_retired ignores case")
+	check(RetiredCallsigns.of_team(s.league, ai).size() == 1 and RetiredCallsigns.of_team(s.league, user).is_empty(), "the banner list is per club")
+	check(RetiredCallsigns.make_entry(s, rookie).is_empty(), "an already retired callsign is not proposed again")
+	var reserved := s.league.reserved_callsigns()
+	check(reserved.has(sign.to_lower()) and reserved.has(mine.callsign.to_lower()), "retired and pending callsigns are reserved")
+
+	# Nobody is handed a reserved callsign, even a soldier already wearing it.
+	var other := ai.roster[4]
+	other.callsign = sign
+	s.league.ensure_callsigns()
+	check(other.callsign.to_lower() != sign.to_lower(), "an active soldier cannot keep a retired callsign")
+	var fresh := ai.roster[5]
+	fresh.callsign = ""
+	s.league.give_callsign(fresh)
+	check(fresh.callsign != "" and not s.league.reserved_callsigns().has(fresh.callsign.to_lower()), "new callsigns skip reserved ones")
+
+	var pending: Dictionary = s.league.callsign_proposals[0]
+	RetiredCallsigns.decide(s, pending, false)
+	check(s.league.callsign_proposals.is_empty() and s.league.retired_callsigns.size() == 1, "declining drops the proposal and retires nothing")
+	check(not s.league.reserved_callsigns().has(mine.callsign.to_lower()), "a declined callsign is free again")
+	RetiredCallsigns.decide(s, pending, true)
+	check(s.league.retired_callsigns.size() == 1, "an answered proposal cannot be answered twice")
+	RetiredCallsigns.process(s, [{"soldier": mine}])
+	RetiredCallsigns.resolve_all(s)
+	check(s.league.callsign_proposals.is_empty() and s.league.retired_callsigns.size() == 2, "open proposals are honoured when the season starts")
+
+
+## Twenty-four AI-club soldiers with careers that grow with their index (0 weakest). All of them
+## are put on the retirement list `ago` seasons back and released.
+func _hall_pool(s: Season, ago: int) -> Array:
+	var user := s.user_team()
+	var pool: Array = []
+	for t in s.league.teams:
+		if t != user:
+			pool.append_array(t.roster)
+	pool = pool.slice(0, 24)
+	for i in pool.size():
+		var so: Soldier = pool[i]
+		var k := i + 1
+		var club := s.league.team_of(so)
+		so.career = {"matches": 60, "rounds": 120, "kills": 50 * k, "deaths": 50, "assists": 20 * k, "damage": 400 * k, "saves": 0,
+			"headshots": 0, "shots": 0, "hits": 0, "mvps": k, "clutches": k, "games": 0, "wipes": 0, "hill_s": 0, "caps": 0}
+		so.season_lines = {2000: {"team": club.abbrev, "matches": 20, "kills": 5 * k, "deaths": 10}}
+		club.release(so)
+		s.retirements.append({"soldier": so, "year": s.year - ago, "team": club})
+	return pool
+
+
+func test_hall_of_fame() -> void:
+	var s := _fixed(74, 1)
+	var user := s.user_team()
+	var pool := _hall_pool(s, HallOfFame.WAIT_SEASONS)
+	var ctx := HallOfFame.context(s)
+	var low := HallOfFame.breakdown(s, ctx, pool[2])
+	var mid := HallOfFame.breakdown(s, ctx, pool[12])
+	var star := HallOfFame.breakdown(s, ctx, pool[23])
+	check(low["score"] < mid["score"] and mid["score"] < star["score"], "a bigger career scores higher (%.1f < %.1f < %.1f)" % [low["score"], mid["score"], star["score"]])
+	check(is_equal_approx(star["score"], star["production"] + star["awards"] + star["titles"] + star["peak"]), "the score is the sum of its parts")
+	check(star["production"] <= HallOfFame.PRODUCTION_POINTS and star["peak"] <= HallOfFame.PEAK_POINTS, "production and peak stay within their points")
+	var green: Soldier = pool[0]
+	green.career["matches"] = HallOfFame.MIN_MATCHES - 1
+	check(HallOfFame.breakdown(s, ctx, green)["score"] == 0.0, "a short career is not scored")
+
+	# Awards are capped, titles need a real season with the champion.
+	var decorated: Soldier = pool[23]
+	for i in 20:
+		var rev := SeasonReview.new()
+		rev.year = 1980 + i
+		rev.awards.append({"award": RetiredCallsigns.MVP_AWARD, "soldier": decorated, "team": null, "line": ""})
+		s.review_history.append(rev)
+	var champ: Team = s.league.team_by_abbrev(decorated.season_lines[2000]["team"])
+	var snap := SeasonSnapshot.new()
+	snap.year = 2000
+	snap.champion = champ
+	s.history.append(snap)
+	var b := HallOfFame.breakdown(s, HallOfFame.context(s), decorated)
+	check(b["awards"] == HallOfFame.AWARDS_CAP and b["honors"].size() == 20, "awards are capped (%s, %d honors)" % [b["awards"], b["honors"].size()])
+	check(b["titles_won"] == 1 and b["titles"] == HallOfFame.TITLE_POINTS, "a title season with the champion counts")
+	s.review_history.clear()
+	s.history.clear()
+
+	# The vote: only those whose wait has ended, best first, capped, once.
+	check(HallOfFame.candidates(s).size() == 24, "everyone who retired WAIT seasons ago is a candidate")
+	pool[22].season_lines[2000]["team"] = user.abbrev
+	var cls := HallOfFame.run(s, 0.0)
+	check(cls.size() == HallOfFame.CLASS_MAX, "the class is capped (%d)" % cls.size())
+	check(cls[0]["soldier"] == pool[23] and cls[1]["soldier"] == pool[22] and cls[2]["soldier"] == pool[21], "the best scores go in, best first")
+	check(cls[0]["score"] >= cls[1]["score"] and cls[1]["score"] >= cls[2]["score"], "the class is sorted by score")
+	check(s.hall_of_fame.size() == 3 and HallOfFame.is_member(s, pool[23]) and not HallOfFame.is_member(s, pool[20]), "members are recorded")
+	check(HallOfFame.class_of(s, s.year).size() == 3 and HallOfFame.entry_of(s, pool[23])["year"] == s.year, "the class and entry are found by year and soldier")
+	check(HallOfFame.run(s, 0.0).size() == HallOfFame.CLASS_MAX and s.hall_of_fame.size() == 6, "the next vote takes the next best, never the same soldier twice")
+	var again := HallOfFame.candidates(s)
+	check(again.size() == 18 and not again.has(pool[23]), "inducted soldiers are no longer candidates")
+
+	# An inductee's callsign is retired too: at once for an AI club, as a proposal for yours.
+	var ai_sign := String(pool[23].callsign)
+	check(RetiredCallsigns.is_retired(s.league, ai_sign), "an AI club inductee's callsign is retired")
+	check(s.league.callsign_proposals.any(func(e): return e["soldier"] == pool[22]), "your club's inductee's callsign waits for your answer")
+
+	var fresh := _fixed(75, 1)
+	var late := _hall_pool(fresh, HallOfFame.WAIT_SEASONS - 1)
+	check(HallOfFame.candidates(fresh).is_empty() and HallOfFame.run(fresh, 0.0).is_empty(), "nobody is voted on before the wait is over (%d)" % late.size())
+	var strict := _fixed(76, 1)
+	_hall_pool(strict, HallOfFame.WAIT_SEASONS)
+	check(HallOfFame.run(strict, 1000.0).is_empty(), "nobody below the bar is inducted")
+
+
+## Lower-cased callsigns of every active soldier; fails the test on a blank or repeated one or one
+## on the retired list.
+func _check_callsigns(s: Season, when: String) -> void:
+	var seen := {}
+	var retired := s.league.reserved_callsigns()
+	var pool: Array = s.league.all_soldiers()
+	pool.append_array(s.league.free_agents)
+	for so: Soldier in pool:
+		var key := so.callsign.to_lower()
+		check(key != "", "%s: %s has no callsign" % [when, so.full_name()])
+		check(not seen.has(key), "%s: callsign %s is worn by two soldiers" % [when, so.callsign])
+		check(not retired.has(key), "%s: %s wears a retired or reserved callsign" % [when, so.callsign])
+		seen[key] = true
+
+
+func test_callsign_uniqueness() -> void:
+	var s := _fixed(77, 1)
+	_check_callsigns(s, "new league")
+	for season_no in 2:
+		s.sim_to_end_of_season()
+		while s.offseason_stage != Season.OFF_DONE:
+			s.advance_offseason()
+			_check_callsigns(s, "offseason step %s" % s.offseason_stage)
+		s.start_next_season()
+		_check_callsigns(s, "season %d" % s.year)
+		var rookies := 0
+		for so: Soldier in s.league.all_soldiers():
+			if so.draft_year == s.year - 1:
+				rookies += 1
+		check(rookies > 0, "the draft class made the rosters (%d)" % rookies)
+
+	# A retiree's callsign goes back into circulation...
+	var team: Team = s.league.teams[0]
+	var gone := team.roster[0]
+	var sign := gone.callsign
+	team.release(gone)
+	gone.retired_year = s.year
+	check(not s.league.taken_callsigns().has(sign.to_lower()), "a retired soldier's callsign is free again")
+	var heir := s.league.teams[1].roster[0]
+	heir.callsign = sign
+	s.league.ensure_callsigns()
+	check(heir.callsign == sign, "...and a new soldier can wear it")
+	# ...unless the callsign itself is retired.
+	var banner := s.league.teams[1].roster[1]
+	s.league.retired_callsigns.append({"callsign": banner.callsign, "soldier": banner, "team": s.league.teams[1], "year": s.year, "seasons": 7, "honors": []})
+	var banned := banner.callsign
+	var other := s.league.teams[2].roster[0]
+	other.callsign = ""
+	s.league.teams[1].release(banner)
+	var fresh_taken := s.league.taken_callsigns()
+	check(fresh_taken.has(banned.to_lower()), "a retired callsign stays out of circulation after its owner leaves")
+	for i in 40:
+		other.callsign = ""
+		s.league.give_callsign(other)
+		check(other.callsign.to_lower() != banned.to_lower(), "a new soldier is never given a retired callsign")
+		other.id += 1  # a different start in the pool each time
+	_check_callsigns(s, "after the checks")
+
+
 func test_newsroom() -> void:
 	var s := _fixed(61, 1)
 	s.sim_to_end_of_season()

@@ -37,6 +37,8 @@ var lineup: Dictionary = {}
 var user_controlled := false
 ## Cap year -> dead money ($K) still owed to released soldiers.
 var dead_money: Dictionary = {}
+## Cap year -> signing bonuses paid that year ($K). Stays with the team if the player leaves.
+var bonus_money: Dictionary = {}
 ## Season year -> salary-floor penalty charged for it (also booked into next year's dead money).
 var floor_penalties: Dictionary = {}
 ## Market (see Market): a fixed rating 1-100 (the city's size and money), the buzz meter 0-100 that moves,
@@ -217,6 +219,7 @@ func is_over_roster_limit() -> bool:
 func release(soldier: Soldier) -> void:
 	soldier.former_team = abbrev
 	soldier.promise = {}
+	soldier.keep_promise = {}
 	var slot := slot_of(soldier)
 	roster.erase(soldier)
 	if slot != &"":

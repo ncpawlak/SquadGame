@@ -13,6 +13,7 @@ var app: Control
 var season: Season
 var pages: FranchisePages
 var club: ClubPages
+var legacy_pages: LegacyPages
 
 var tab_index := 0
 ## Each entry: {"title": String, "build": Callable -> Control}. Empty = showing tab tiles.
@@ -37,6 +38,9 @@ func _ready() -> void:
 	pages.hub = self
 	club = ClubPages.new()
 	club.hub = self
+	legacy_pages = LegacyPages.new()
+	legacy_pages.hub = self
+	legacy_pages.pages = pages
 	_bg = Control.new()
 	_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -837,11 +841,14 @@ func _todo_tiles(team: Team) -> Array:
 			var rets := season.retirements_in(season.year)
 			out.append(_todo("Retirements", ("[color=white]%d[/color] soldier%s hung it up this year." % [rets.size(), "" if rets.size() == 1 else "s"]) if not rets.is_empty() else "Nobody retired this year.",
 				Color("#94a3b8"), open_retirements))
-			var hof := _todo("Hall of Fame", "Coming soon: this year's inductees.", UiKit.MUTED,
-				func(): coming_soon("Hall of Fame", ["This year's inductees", "Career numbers and honours", "The full Hall by class"]))
-			hof.modulate = Color(1, 1, 1, 0.6)
-			hof.set_meta("todo_done", true)
-			out.append(hof)
+			var hall_class := HallOfFame.class_of(season, season.year)
+			out.append(_todo("Hall of Fame", ("Class of %d: [color=white]%s[/color]" % [season.year, ", ".join(PackedStringArray(hall_class.map(func(e): return UiKit.esc(e["soldier"].short_name()))))]) if not hall_class.is_empty() else "No inductees this year.",
+				Color("#eab308"), open_hall, hall_class.is_empty()))
+		var proposals := season.league.callsign_proposals.size()
+		if proposals > 0:
+			out.append(_todo("Retired Callsigns", "[color=#f59e0b]%d callsign%s[/color] up for retirement.
+Leave it and they are retired when the season starts." % [proposals, "" if proposals == 1 else "s"],
+				Color("#eab308"), open_callsign_proposals, false, true))
 		if season.offseason_stage == Season.OFF_DRAFT:
 			var d := season.draft
 			out.append(_todo("Draft Room", "Every pick is in." if d.is_complete() else "[color=#38bdf8]Your picks:[/color] %d left" % d.picks_left_for(team),
@@ -1739,6 +1746,19 @@ func open_news(i := -1) -> void:
 	open("Weekly News", func(): return pages.news_article(i))
 
 
+func open_callsign_proposals() -> void:
+	open("Retired Callsigns", legacy_pages.callsign_proposals)
+
+
+func open_hall() -> void:
+	legacy_pages.tab = "hall"
+	open("Legacy", legacy_pages.legacy)
+
+
+func open_legacy() -> void:
+	open("Legacy", legacy_pages.legacy)
+
+
 func open_retirements() -> void:
 	open("Retirements", pages.retirements)
 
@@ -2371,7 +2391,9 @@ func _league_strip() -> Control:
 	cards.append(_stat_card("Retirements", str(rets.size()), "RETIRED", ("Latest: [color=white]%s[/color] at %d" % [UiKit.esc(last["soldier"].short_name()), last["age"]]) if not last.is_empty() else "Nobody has retired yet",
 		Color("#94a3b8"), open_retirements))
 
-	cards.append(_soon_card("Records & History", "Champions, records, Hall of Fame", ["Past champions by year", "Single-season and career records", "Hall of Fame"]))
+	var champ: SeasonSnapshot = season.history[-1] if not season.history.is_empty() else null
+	cards.append(_stat_card("Legacy", str(season.history.size()), "SEASONS", ("%d champion: [color=white]%s[/color]" % [champ.year, UiKit.esc(champ.champion.name)]) if champ != null and champ.champion != null else "Champions and awards history",
+		Color("#eab308"), open_legacy))
 	return _card_row("LeagueMore", cards, 5)
 
 
