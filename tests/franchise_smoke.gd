@@ -28,6 +28,12 @@ func _init() -> void:
 		_check(hub._content.get_child_count() > 0, "tab %s builds" % hub.TABS[i])
 	hub.cycle_tab(1)
 	_check(hub.tab_index == 0, "tab cycling wraps")
+	# The Club pages build and read the ledger and buzz.
+	for pg in [["Finances", hub.club.finances], ["Market & Buzz", hub.club.market_buzz]]:
+		hub.open(pg[0], pg[1])
+		await process_frame
+		_check(hub._content.get_child_count() > 0, "%s page builds" % pg[0])
+		hub.go_back()
 
 	await _visit_pages(hub, "preseason")
 	# A new franchise opens in preseason training camp.

@@ -1521,6 +1521,24 @@ func _buzz_year_para() -> String:
 	return _cap_first(_para(out))
 
 
+## The year in money: revenue, where it ranks, the gate and the sellouts.
+func _money_year_para() -> String:
+	var led := _s.revenue.ledger_of(_s.year, _us)
+	if led.is_empty():
+		return ""
+	var table := _s.revenue.table(_s)
+	var rank := 1
+	for i in table.size():
+		if table[i]["team"] == _us:
+			rank = i + 1
+	var ex := {"rev": _money(roundi(float(led["revenue"]))), "tix": _money(roundi(float(led["tickets"]))), "rank": _ord(rank), "n": str(table.size())}
+	var out: Array = [_g("my_rev", ["On the business side, the {us_nick} took in {rev} this year, {rank} of {n} in the league, with {tix} of it from the gate.",
+		"The books: {rev} in revenue, {rank} of {n}, and {tix} at the gate."], ex)]
+	if int(led["sellouts"]) > 0:
+		out.append(_g("my_so", ["They sold out {so} at home.", "The building was full for {so}."], {"so": _plural(int(led["sellouts"]), "game")}))
+	return _cap_first(_para(out))
+
+
 ## Preview line: how loud the city is going in, for a market this size.
 func _buzz_pre_para() -> String:
 	memory["buzz_said"] = _us.buzz
@@ -1542,6 +1560,9 @@ func _buzz_box(year := false) -> Dictionary:
 	if year:
 		var start := float(_s.market.start_buzz.get(_us.abbrev, _us.buzz))
 		rows.append(["Season start", "%s %d" % [Market.band_name(start), roundi(start)]])
+		var led := _s.revenue.ledger_of(_s.year, _us)
+		if not led.is_empty():
+			rows.append(["Revenue", _money(roundi(float(led["revenue"])))])
 	elif memory.has("buzz"):
 		rows.append(["Since last issue", "%+d" % roundi(_us.buzz - float(memory["buzz"]))])
 	rows.append(["Resting level", str(roundi(Market.baseline(_us)))])
@@ -2005,6 +2026,7 @@ func _wrap_article(wk: int) -> Dictionary:
 			"And {who} is hanging it up at {age}, {k} kills over {m} matches. {reason}"],
 			{"who": _who_role(s), "age": str(int(r["age"])), "m": str(int(r["matches"])), "k": str(int(r["kills"])), "reason": _cap_first(String(r.get("reason", "")))}))
 	body.append(_buzz_year_para())
+	body.append(_money_year_para())
 	body.append(_offseason_look())
 	if star != null:
 		var q := _quote(star, "season_good" if good else "season_bad", {})
