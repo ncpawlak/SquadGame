@@ -245,7 +245,7 @@ func _holder_cells(e: Dictionary, kind: String) -> Array:
 			return [so.full_name(), "", str(e["first"]) if e["first"] == e["last"] else "%d-%d" % [e["first"], e["last"]]]
 		_:
 			var so: Soldier = e["soldier"]
-			return [so.full_name(), e["team"], str(e["year"])]
+			return [so.full_name(), e["team"] if e["team"] != "" else "-", str(e["year"])]
 
 
 ## The top entries of one record.

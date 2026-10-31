@@ -69,10 +69,12 @@ func _init() -> void:
 		"test_retired_callsigns",
 		"test_hall_of_fame",
 		"test_callsign_uniqueness",
+		"test_career_backfill",
 	]
 	# Legacy tests run on a generated 5-team single-division league (fast); the expansion
 	# tests switch to the fixed 20-team league themselves.
 	Season.fixture_teams = 5
+	Season.backfill_careers = false
 	var only := OS.get_environment("ONLY")
 	if only != "":
 		tests = tests.filter(func(x): return only.split(",").has(x))
@@ -1929,6 +1931,45 @@ func _check_callsigns(s: Season, when: String) -> void:
 		check(not seen.has(key), "%s: callsign %s is worn by two soldiers" % [when, so.callsign])
 		check(not retired.has(key), "%s: %s wears a retired or reserved callsign" % [when, so.callsign])
 		seen[key] = true
+
+
+## A new league's veterans start with made-up past seasons: clubless, summing to their career,
+## plausible per match, deterministic, and invisible to club-based logic.
+func test_career_backfill() -> void:
+	Season.backfill_careers = true
+	var s := _fixed(21)
+	var again := _fixed(21)
+	Season.backfill_careers = false
+	var plain := _fixed(21)
+	var vets := 0
+	var kills := 0
+	var matches := 0
+	for so: Soldier in s.league.all_soldiers():
+		if so.age <= CareerBackfill.ROOKIE_AGE:
+			check(so.season_lines.is_empty() and int(so.career["matches"]) == 0, "%s is a rookie with no past" % so.full_name())
+			continue
+		var total := 0
+		for year in so.season_lines:
+			var line: Dictionary = so.season_lines[year]
+			check(int(year) < s.year and line["team"] == "", "%s's past season %d has no club and is before the start" % [so.full_name(), year])
+			total += int(line["matches"])
+			kills += int(line["kills"])
+			matches += int(line["matches"])
+		check(total == int(so.career["matches"]), "%s's career matches are his seasons summed" % so.full_name())
+		check(RetiredCallsigns.club_of(s, so).is_empty(), "%s's invented seasons give him no club" % so.full_name())
+		if not so.season_lines.is_empty():
+			vets += 1
+	check(vets > s.league.all_soldiers().size() / 2, "most soldiers have a past (%d)" % vets)
+	var rate := float(kills) / maxf(1.0, float(matches))
+	check(rate > 6.0 and rate < 11.0, "invented kills per match are in the sim's range (%.2f)" % rate)
+	var ctx := HallOfFame.context(s)
+	for so: Soldier in s.league.all_soldiers():
+		check(HallOfFame.breakdown(s, ctx, so)["titles_won"] == 0, "invented seasons never count as titles")
+	var a: Soldier = s.league.all_soldiers()[3]
+	var b: Soldier = again.league.all_soldiers()[3]
+	check(a.career == b.career and a.season_lines == b.season_lines, "the same seed invents the same past")
+	check(plain.league.all_soldiers()[3].season_lines.is_empty(), "backfill can be switched off")
+	check(not Records.player_seasons(s, Records.PLAYER_STATS[0]).is_empty(), "invented seasons feed the records")
 
 
 func test_callsign_uniqueness() -> void:
