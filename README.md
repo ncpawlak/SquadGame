@@ -316,7 +316,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   once (exhibitions never are), split into regular season and playoffs (`Soldier.playoff_career` and
   `playoff_season_lines`; regular is combined minus playoffs, and seasons from before the split stay combined).
   League Leaders and the player Stats tab take season/career and combined/regular/playoffs filters. The ledger keeps
-  the top 5 single-match performances for 10 stats (league-wide and per franchise, in each phase) and each team's
+  the top 5 single-match performances for 13 stats (league-wide and per franchise, in each phase) and each team's
   longest win and losing streak. A match that beats a full book stamps a record on `ScheduledMatch.records`, which
   feeds a League Wire story, a box score banner and a line in the Weekly News. Every new franchise starts with the
   same fixed record books (`scripts/season/record_seed.gd`: single-match, season, career, team and streak marks from
@@ -325,6 +325,8 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   distance covered, time in cover, time to first shot and time contesting the hill (pure bookkeeping, no random numbers;
   `tests/engine_golden.gd` guards the sim). They show in League Leaders and on a NEXT GEN panel on the player's Stats tab,
   and count from the first match played with telemetry.
+  Opening kills, long-range kills and distance covered also have record books (single-match, season and career) with
+  seeded targets like the rest.
 - **Save / Load** (`scripts/save/save_system.gd`, Settings → Save Franchise / Load Franchise, title → Load Franchise): 3 manual slots
   plus an **autosave** after every week, the season rollover and camp. A save is the whole league graph (shared
   objects, RNG states) as compressed text, so a loaded game continues exactly as the original would have.
