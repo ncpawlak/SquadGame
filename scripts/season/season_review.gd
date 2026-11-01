@@ -6,8 +6,10 @@ extends RefCounted
 ## injuries, riding the bench, underperforming and age (30+) a chance to lose one. Stars move at
 ## most one a season (camp drills share that limit) and never touch the caps: Potential (A-F)
 ## comes from the caps alone, so this only changes how fast he grows toward them.
-## Facilities (issue #38): a Marketing Team upgrade turns every honor (Player of the Week, an award, an
-## All-League pick, a stat-leader title) into one-time XP; a Sports Science Lab raises star-gain chances and
+## Every season honor (an award, an All-League pick, a stat-leader title) also pays one-time XP (HONOR_XP,
+## before the dev multiplier), logged in his progression history (issue #65).
+## Facilities (issue #38): a Marketing Team upgrade adds XP to every honor (Player of the Week, an award, an
+## All-League pick, a stat-leader title); a Sports Science Lab raises star-gain chances and
 ## lowers star-loss chances (the roll is the same one, so stars the Lab earned or saved are noted as its).
 
 const MIN_MATCHES := 4
@@ -18,6 +20,10 @@ const MAJOR_INJURY_WEEKS := 5
 ## Chance of a star per reason (combined as 1 - product of misses, then scaled by GAIN_AGE).
 const GAIN_CHANCE := {"Season MVP": 0.6, "Rookie of the Year": 0.35, "Best role": 0.3, "All-League": 0.25,
 	"Breakout": 0.3, "Outplayed his rating": 0.15, "Veteran mentor": 0.08}
+## One-time XP per season honor (before the dev multiplier), paid to every honoree. "Best role" covers
+## Best Frontman/Center/Flex; "Stat leader" every LEADER_STATS title. A Marketing Team adds honor_xp on top.
+const HONOR_XP := {"Season MVP": 750.0, "Rookie of the Year": 500.0, "Best role": 400.0, "All-League": 300.0,
+	"Stat leader": 200.0}
 ## Player of the Week: chance per honor, capped.
 const POTW_CHANCE := 0.02
 const POTW_MAX := 0.10
@@ -169,7 +175,7 @@ static func run(season: Season, rng: RandomNumberGenerator) -> SeasonReview:
 				lead = t
 		if lead[st[0]] > 0:
 			rev.stat_leaders.append({"title": st[1], "stat": st[0], "soldier": lead["soldier"], "team": lead["team"], "value": lead[st[0]]})
-	rev._marketing_xp(season, potw)
+	rev._honor_xp(season, potw)
 
 	# Performance vs expectation: percentile of impact/match vs percentile of rating.
 	var n := rows.size()
@@ -288,17 +294,29 @@ func award_for(so: Soldier) -> Array:
 	return out
 
 
-## Marketing Team: one-time XP for each honor, paid to the honoree's current club's level.
-func _marketing_xp(season: Season, potw: Dictionary) -> void:
+## One-time XP for each honor: HONOR_XP for every season honor, plus the Marketing Team bonus at the
+## honoree's current club (the only XP a Player of the Week earns). Each payout is logged in his history.
+func _honor_xp(season: Season, potw: Dictionary) -> void:
 	for so: Soldier in potw:
 		var team := _team_of(season.league, so)
 		if team != null and Facilities.potw_xp(team) > 0.0:
-			Progression.gain_xp(so, Facilities.potw_xp(team) * int(potw[so]))
-	for list in [awards, all_league, stat_leaders]:
-		for a in list:
-			var team := _team_of(season.league, a["soldier"])
-			if team != null and Facilities.honor_xp(team) > 0.0:
-				Progression.gain_xp(a["soldier"], Facilities.honor_xp(team))
+			var n: int = potw[so]
+			var label := "Player of the Week" + (" x%d" % n if n > 1 else "")
+			so.log_xp("%s (Marketing Team)" % label, Progression.gain_xp(so, Facilities.potw_xp(team) * n))
+	var honors: Array = []
+	for a in awards:
+		var key: String = "Best role" if String(a["award"]).begins_with("Best ") else String(a["award"])
+		honors.append([a["soldier"], String(a["award"]), float(HONOR_XP.get(key, HONOR_XP["Best role"]))])
+	for a in all_league:
+		honors.append([a["soldier"], "All-League", HONOR_XP["All-League"]])
+	for a in stat_leaders:
+		honors.append([a["soldier"], String(a["title"]), HONOR_XP["Stat leader"]])
+	for h in honors:
+		var so: Soldier = h[0]
+		var team := _team_of(season.league, so)
+		var bonus := Facilities.honor_xp(team) if team != null else 0.0
+		var reason := "Honor XP: %s" % h[1] + (" (+Marketing Team)" if bonus > 0.0 else "")
+		so.log_xp(reason, Progression.gain_xp(so, float(h[2]) + bonus))
 
 
 func _add_award(award: String, t: Dictionary) -> void:

@@ -342,7 +342,9 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
 - **Awards** (scripts/season/season_review.gd, Home → Awards): after the Final the league hands out Season MVP,
   Best Frontman/Center/Flex, Rookie of the Year and a 5-man All-League team (2 FM, 1 C, 2 FX), ranked on impact
   per game (min 4 games). During the season the page shows the MVP race. It also lists dev star changes and
-  this year's aging declines.
+  this year's aging declines. Every season honor also pays one-time XP (before the dev multiplier: MVP 750,
+  Rookie of the Year 500, Best role 400, All-League 300, stat leader 200; a Marketing Team adds more), shown in
+  the player's progression history.
 - **Home**: a big pane for this week's match (both teams' OVR and record, starter averages per group plus morale and
   energy as head-to-head bars, and two impact players per side), with the This Week to-dos and news box described
   above.

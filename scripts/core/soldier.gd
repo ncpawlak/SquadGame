@@ -139,9 +139,10 @@ var playoff_season_lines: Dictionary = {}
 var split_career: Dictionary = {}
 
 ## Progression history, oldest first. Each: {year, when, reason, changes: stat -> delta,
-## ovr_from, ovr_to, dev_from, dev_to (-1 when his stars didn't move)}. Entries from older saves
+## ovr_from, ovr_to, dev_from, dev_to (-1 when his stars didn't move)}. A note (log_note) changes nothing;
+## an XP payout (log_xp) adds xp and sp (skill points earned). Entries from older saves
 ## carry pot_from / pot_to (the old F..A grade) instead. A group-cap change adds caps: group -> [from, to]
-## (and pot_from / pot_to if the grade moved); a note (log_note) changes nothing.
+## (and pot_from / pot_to if the grade moved).
 var history: Array = []
 ## Where new history entries are stamped; Season keeps this current ("Week 3", "Offseason", ...).
 static var log_year := 0
@@ -427,6 +428,13 @@ func log_progress(reason: String, changes: Dictionary, ovr_before: int, dev_from
 func log_note(reason: String) -> void:
 	history.append({"year": log_year, "when": log_when, "reason": reason, "changes": {},
 		"ovr_from": best_ovr(), "ovr_to": best_ovr(), "dev_from": -1, "dev_to": -1})
+
+
+## Records a one-time XP payout (e.g. a season honor): `report` is a Progression.gain_xp report.
+func log_xp(reason: String, report: Dictionary) -> void:
+	history.append({"year": log_year, "when": log_when, "reason": reason, "changes": {},
+		"ovr_from": best_ovr(), "ovr_to": best_ovr(), "dev_from": -1, "dev_to": -1,
+		"xp": int(report.get("xp", 0)), "sp": int(report.get("points", 0))})
 
 
 ## Records a group-cap change (applied already): "caps" holds group -> [from, to], plus the potential

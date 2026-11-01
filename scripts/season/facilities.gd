@@ -8,8 +8,8 @@ extends RefCounted
 ##                           +1 at levels 3-4, +2 at 5 (Camp.run)
 ##   Scouting Office         +2 scout points a week a step (the user's draft points)
 ##   Medical Center          injuries 5% shorter and +1% weekly fatigue recovery a step (Conditioning)
-##   Marketing Team          one-time XP per honor: +50 a step for a Player of the Week, +250 for a season
-##                           honor (award, All-League, stat leader) (SeasonReview.run)
+##   Marketing Team          extra one-time XP per honor: +50 a step for a Player of the Week, +250 for a season
+##                           honor (award, All-League, stat leader; on top of SeasonReview.HONOR_XP) (SeasonReview.run)
 ##   Gear Sponsor            the impact part of match XP x1.1 at level 2 up to x1.5 at 5 (Progression.award_match_xp)
 ##   Sports Science Lab      dev-star gain chances +10% and loss chances -15% a step (SeasonReview.run, Camp.run)
 ##   Performance Institute   a 3% chance a step, per rostered player each offseason, to raise one group cap

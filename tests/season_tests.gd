@@ -531,6 +531,12 @@ func test_season_review_and_aging() -> void:
 	check(ups <= 40, "star gains stay rare (%d)" % ups)
 	var mvp: Soldier = rev.awards[0]["soldier"]
 	check(SeasonReview.gain_chance(mvp, {"Season MVP": SeasonReview.GAIN_CHANCE["Season MVP"]}) > 0.1 or mvp.dev == Soldier.DEV_MAX, "MVP has a real shot at a star")
+	# Every honoree gets honor XP, logged in his progression history.
+	for a in rev.awards:
+		var logged: bool = a["soldier"].history.any(func(e): return int(e["year"]) == rev.year and e["reason"].begins_with("Honor XP: " + a["award"]) and int(e.get("xp", 0)) > 0)
+		check(logged, "%s: honor XP in history" % a["award"])
+	for a in rev.all_league:
+		check(a["soldier"].history.any(func(e): return int(e["year"]) == rev.year and e["reason"].begins_with("Honor XP: All-League")), "All-League: honor XP in history")
 	s.finish_draft()
 	for t in s.league.teams:
 		for so in t.roster:
@@ -2749,16 +2755,22 @@ func test_facility_effects() -> void:
 	us.facility_levels = {Facilities.DRILL: 5}
 	var o5 := s.offseason_xp(100.0)
 	check(absi(int(o5[so.id]["xp"]) - roundi(int(o1[so.id]["xp"]) * 1.2)) <= 2, "Drill Rooms: +20%% offseason XP (%d vs %d)" % [o5[so.id]["xp"], o1[so.id]["xp"]])
-	# Marketing: one-time XP for honors on a club with the upgrade.
+	# Honors: base XP at any Marketing level, more with the upgrade, each logged in his history.
 	var rev := SeasonReview.new()
-	rev.awards = [{"award": "MVP", "soldier": so, "team": us, "line": ""}]
-	var before := Vector2i(so.level, so.xp)
+	rev.awards = [{"award": "Rookie of the Year", "soldier": so, "team": us, "line": ""}]
 	us.facility_levels = {}
-	rev._marketing_xp(s, {so: 2})
-	check(Vector2i(so.level, so.xp) == before, "level 1 Marketing: no honor XP")
+	var h0 := so.history.size()
+	rev._honor_xp(s, {so: 2})
+	var base_e: Dictionary = so.history[-1]
+	check(so.history.size() == h0 + 1, "level 1 Marketing: one honor entry, no Player of the Week XP")
+	check(base_e["reason"] == "Honor XP: Rookie of the Year" and int(base_e["xp"]) == roundi(SeasonReview.HONOR_XP["Rookie of the Year"] * Progression.xp_multiplier(so)),
+		"level 1 Marketing: base honor XP logged (%s)" % [base_e])
 	us.facility_levels = {Facilities.MARKETING: 5}
-	rev._marketing_xp(s, {so: 2})
-	check(so.level > before.x or so.xp > before.y, "Marketing Team: honor XP")
+	rev._honor_xp(s, {so: 2})
+	var mk_e: Dictionary = so.history[-1]
+	check(so.history.size() == h0 + 3 and String(so.history[-2]["reason"]).begins_with("Player of the Week x2"), "Marketing Team: Player of the Week XP logged")
+	check(int(mk_e["xp"]) > int(base_e["xp"]) and String(mk_e["reason"]).ends_with("(+Marketing Team)"), "Marketing Team: more honor XP")
+	check(not Soldier.history_has_grade_change(mk_e) and mk_e["changes"].is_empty(), "honor XP is not a rating change")
 	# Lab notes don't count as rating or grade changes.
 	var n := so.history.size()
 	so.log_note("Sports Science Lab: kept his dev star (Age)")
