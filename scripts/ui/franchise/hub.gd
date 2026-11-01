@@ -1936,8 +1936,12 @@ func _team_cards() -> Control:
 		sp += s.skill_points
 		if Progression.can_level_up(s):
 			up += 1
-	cards.append(_stat_card("Player Progression", str(up), "CAN LEVEL UP", "%d skill point%s banked" % [sp, "" if sp == 1 else "s"],
-		UiKit.INFO, func(): open("Player Progression", pages.progression), "LEVEL UP" if up > 0 else ""))
+	var prog_card := _stat_card("Player Progression", str(up), "CAN LEVEL UP", "%d skill point%s banked" % [sp, "" if sp == 1 else "s"],
+		UiKit.INFO, func(): open("Player Progression", pages.progression), "LEVEL UP" if up > 0 else "")
+	prog_card.disabled = up == 0
+	if up == 0:
+		prog_card.modulate = Color(1, 1, 1, 0.55)
+	cards.append(prog_card)
 
 	var fat := 0.0
 	var tired := 0

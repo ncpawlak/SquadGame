@@ -108,8 +108,17 @@ func _init() -> void:
 	if acc != null:
 		acc.pressed.emit()
 		await process_frame
+		await process_frame
 	_check(prog_guy.skill_points == 0, "clicking a group spends SP")
-	_check(_with_meta(hub._content, &"prog_sid").is_empty(), "spent-out player leaves the progression list")
+	_check(hub.page_stack.is_empty() or hub.page_stack[-1]["title"] != "Player Progression", "progression closes when no one is left to level up")
+	hub.select_tab(1)
+	await process_frame
+	var prog_card: Button = null
+	for b in hub._content.find_children("*", "Button", true, false):
+		for l in b.find_children("*", "Label", true, false):
+			if l.text.to_upper() == "PLAYER PROGRESSION":
+				prog_card = b
+	_check(prog_card != null and prog_card.disabled, "progression card is disabled with no one to level up")
 	hub.page_stack.clear()
 	hub.refresh()
 	# Auto-progress all.

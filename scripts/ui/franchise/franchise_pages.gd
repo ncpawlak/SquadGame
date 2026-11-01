@@ -722,6 +722,8 @@ func progression() -> Control:
 ## (Re)builds the page in place, so selecting a soldier or spending SP keeps the scroll position.
 ## `focus_group` refocuses that group's row afterwards (keyboard / gamepad spending).
 func _build_progression(root: VBoxContainer, focus_group: StringName = &"") -> void:
+	var rebuilt := root.has_meta(&"built")
+	root.set_meta(&"built", true)
 	for c in root.get_children():
 		root.remove_child(c)
 		c.queue_free()
@@ -747,6 +749,9 @@ func _build_progression(root: VBoxContainer, focus_group: StringName = &"") -> v
 	actions.add_child(UiKit.label("Pick a soldier, then click a stat group to spend skill points on it.", 15, UiKit.MUTED))
 	root.add_child(actions)
 	if eligible.is_empty():
+		# Spent out from this screen: nothing left to do here, so close it.
+		if rebuilt:
+			hub.call_deferred("go_back")
 		root.add_child(UiKit.label("No one can level up right now. Matches and weekly training earn XP; every level banks %d skill points." %
 			Progression.SKILL_POINTS_PER_LEVEL, 18, UiKit.MUTED))
 		return
