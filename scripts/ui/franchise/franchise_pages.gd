@@ -705,16 +705,243 @@ func play_by_play(m: ScheduledMatch) -> Control:
 # --- team pages --------------------------------------------------------------------
 
 func roster() -> Control:
-	return _roster_table(false, null, func(): hub.page_refresh("Roster", roster))
+	return _roster_table(null, func(): hub.page_refresh("Roster", roster))
+
+
+## Player Progression: players who can afford an upgrade on the left; the selected (or hovered)
+## one on the right with his stat groups as 0-99 cap bars. Click a group to spend SP on it.
+var _prog_sel_id := -1
 
 
 func progression() -> Control:
-	return _roster_table(true, null, func(): hub.replace("Player Progression", progression))
+	var root := _vbox(14)
+	_build_progression(root)
+	return root
+
+
+## (Re)builds the page in place, so selecting a soldier or spending SP keeps the scroll position.
+## `focus_group` refocuses that group's row afterwards (keyboard / gamepad spending).
+func _build_progression(root: VBoxContainer, focus_group: StringName = &"") -> void:
+	var rebuilt := root.has_meta(&"built")
+	root.set_meta(&"built", true)
+	for c in root.get_children():
+		root.remove_child(c)
+		c.queue_free()
+	var team := _season().user_team()
+	var eligible: Array = team.roster.filter(func(x: Soldier): return Progression.can_level_up(x))
+	eligible.sort_custom(func(a: Soldier, b: Soldier):
+		return a.skill_points > b.skill_points if a.skill_points != b.skill_points else a.id < b.id)
+	var actions := _row()
+	var auto := UiKit.button("Auto-progress all (%d can level up)" % eligible.size(), func():
+		var raised := 0
+		var players := 0
+		for s in team.roster:
+			if s.skill_points <= 0:
+				continue
+			var groups: Array = Progression.auto_spend(s, _row_role(team, s))
+			if not groups.is_empty():
+				players += 1
+				raised += groups.size()
+		hub.app.toast("Auto-progressed %d players (%d group upgrades)." % [players, raised] if players > 0 else "No skill points could be spent.")
+		_build_progression(root))
+	auto.disabled = eligible.is_empty()
+	actions.add_child(auto)
+	actions.add_child(UiKit.label("Pick a soldier, then click a stat group to spend skill points on it.", 15, UiKit.MUTED))
+	root.add_child(actions)
+	if eligible.is_empty():
+		# Spent out from this screen: nothing left to do here, so close it.
+		if rebuilt:
+			hub.call_deferred("go_back")
+		root.add_child(UiKit.label("No one can level up right now. Matches and weekly training earn XP; every level banks %d skill points." %
+			Progression.SKILL_POINTS_PER_LEVEL, 18, UiKit.MUTED))
+		return
+	var sel: Soldier = eligible[0]
+	for s in eligible:
+		if s.id == _prog_sel_id:
+			sel = s
+	_prog_sel_id = sel.id
+
+	var h := _row(20)
+	var list := _vbox(6)
+	list.custom_minimum_size.x = 430
+	list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	list.add_child(UiKit.label("READY TO LEVEL UP  (%d)" % eligible.size(), 13, UiKit.MUTED))
+	var detail := _player_pane()
+	detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	detail.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	var ctx := {"root": root, "detail": detail, "team": team, "rows": {}}
+	for s in eligible:
+		var row := _progression_list_row(s, ctx)
+		ctx["rows"][s.id] = row
+		list.add_child(row)
+	_progression_select(ctx, sel)
+	h.add_child(list)
+	h.add_child(detail)
+	root.add_child(h)
+	if focus_group != &"":
+		for b in detail.find_children("*", "Button", true, false):
+			if b.get_meta(&"prog_group", &"") == focus_group and not b.disabled:
+				b.call_deferred("grab_focus")
+
+
+func _progression_soldier(ctx: Dictionary) -> Soldier:
+	for s in ctx["team"].roster:
+		if s.id == _prog_sel_id:
+			return s
+	return null
+
+
+## Makes `s` the selected soldier: highlights his list row and shows him on the right.
+func _progression_select(ctx: Dictionary, s: Soldier) -> void:
+	_prog_sel_id = s.id
+	for id in ctx["rows"]:
+		UiKit.style_button(ctx["rows"][id], UiKit.ACCENT.darkened(0.65) if id == s.id else UiKit.PANEL, UiKit.ACCENT, 6, false)
+	_fill_progression(ctx["detail"], s, ctx)
+
+
+## One soldier in the left list: name / role, OVR, POT and banked SP. Hover previews him on the
+## right (leaving goes back to the selected soldier); click or focus selects him.
+func _progression_list_row(s: Soldier, ctx: Dictionary) -> Button:
+	var team: Team = ctx["team"]
+	var b := Button.new()
+	UiKit.style_button(b, UiKit.PANEL, UiKit.ACCENT, 6)
+	b.custom_minimum_size = Vector2(430, 56)
+	b.set_meta(&"prog_sid", s.id)
+	b.pressed.connect(func(): _progression_select(ctx, s))
+	b.focus_entered.connect(func(): _progression_select(ctx, s))
+	b.mouse_entered.connect(func(): _fill_progression(ctx["detail"], s, ctx))
+	b.mouse_exited.connect(func():
+		var cur := _progression_soldier(ctx)
+		if cur != null:
+			_fill_progression(ctx["detail"], cur, ctx))
+	var hb := _row(14)
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hb.offset_left = 14
+	hb.offset_right = -14
+	hb.offset_top = 4
+	hb.offset_bottom = -4
+	b.add_child(hb)
+	var who := _two_lines(s.display_name(), Color.WHITE, Scheme.ROLE_NAMES[Scheme.best_role(s.stats)], 200)
+	who.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hb.add_child(who)
+	hb.add_child(_ovr_cell(_row_ovr(team, s), 0, 44, 22))
+	hb.add_child(_pot_cell(s, 56, 22, 8.0))
+	hb.add_child(_two_lines(str(s.skill_points), UiKit.INFO, "SP", 44, 22))
+	return b
+
+
+## Fills the right-hand panel: who he is, then one clickable cap-bar row per stat group.
+func _fill_progression(pane: Control, s: Soldier, ctx: Dictionary) -> void:
+	if not is_instance_valid(pane) or pane.get_meta(&"sid", -1) == s.id:
+		return
+	var team: Team = ctx["team"]
+	pane.set_meta(&"sid", s.id)
+	for c in pane.get_children():
+		pane.remove_child(c)
+		c.queue_free()
+	var v := _vbox(12)
+	var head := _row(22)
+	head.add_child(Portrait.new(s, 130, team.color, team))
+	var mid := _vbox(6)
+	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mid.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	mid.add_child(UiKit.label(s.full_name().to_upper(), 15, UiKit.ACCENT))
+	mid.add_child(UiKit.label(("\"%s\"" % s.callsign.to_upper()) if s.callsign != "" else s.last_name.to_upper(), 36, Color.WHITE))
+	var slot := team.slot_of(s)
+	var where := "Starting " + team.scheme.label_for_slot(slot) if slot != &"" else "Bench"
+	mid.add_child(UiKit.label("%s   ·   AGE %d   ·   %s" % [Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), s.age, where.to_upper()], 15, UiKit.MUTED))
+	var facts := _row(30)
+	var role := _row_role(team, s)
+	var ovr := _row_ovr(team, s)
+	facts.add_child(_fact_box("OVR", "[color=%s]%d[/color]%s" % [UiKit.hex(UiKit.ovr_color(ovr)), ovr, delta_bb(s.morale_ovr_delta(role), 16)], false))
+	facts.add_child(_fact_box("POT", pot_bb(s), false))
+	facts.add_child(_fact_box_ctrl("DEV", DevInsignia.make(s.dev, 13.0), false))
+	facts.add_child(_fact_box("SKILL POINTS", "[color=%s]%d[/color]" % [UiKit.hex(UiKit.INFO), s.skill_points], false))
+	mid.add_child(facts)
+	head.add_child(mid)
+	v.add_child(head)
+	var xp: Array = Progression.xp_progress(s)
+	v.add_child(_meter("XP", float(xp[0]), float(xp[1]), UiKit.INFO, "%d / %d to the next +%d SP" % [xp[0], xp[1], Progression.SKILL_POINTS_PER_LEVEL]))
+	v.add_child(_section("STAT GROUPS  -  click a group to spend skill points (+1 group = random points across its stats, max +%d each)" %
+		Progression.MAX_STAT_GAIN_PER_UPGRADE))
+	for g in Stats.GROUP_ORDER:
+		v.add_child(_progression_group_row(s, g, ctx))
+	pane.add_child(v)
+
+
+## A stat group: the 0-99 cap bar (cap labelled above it) over the group name, rating and cost.
+## Upgradable rows glow on hover and spend one +1 per click.
+func _progression_group_row(s: Soldier, g: StringName, ctx: Dictionary) -> Control:
+	var gr := s.group_rating(g)
+	var upgradable := Stats.UPGRADABLE_GROUPS.has(g)
+	var capped := Progression.is_capped(s, g)
+	var cost := Progression.upgrade_cost(s, g)
+	var b := Button.new()
+	UiKit.style_button(b, UiKit.PANEL_HI, UiKit.ACCENT, 8, false)
+	b.custom_minimum_size.y = 74
+	b.disabled = not Progression.can_upgrade(s, g)
+	b.set_meta(&"prog_group", g)
+	var box := _vbox(4)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	box.offset_left = 16
+	box.offset_right = -16
+	box.offset_top = 6
+	box.offset_bottom = -6
+	b.add_child(box)
+	var bar := CapBar.new(gr, s.group_cap(g) if upgradable else -1, UiKit.ovr_color(gr))
+	box.add_child(bar)
+	var line := _row(14)
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var title := UiKit.label(Stats.GROUP_LABELS[g].to_upper(), 18, Color.WHITE if upgradable else UiKit.MUTED)
+	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	line.add_child(title)
+	var val := UiKit.label(str(gr), 26, UiKit.ovr_color(gr))
+	val.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	line.add_child(val)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	line.add_child(spacer)
+	var note: String
+	var note_color := UiKit.MUTED
+	if not upgradable:
+		note = "AGE / INJURIES ONLY"
+	elif capped:
+		note = "CAPPED"
+		note_color = UiKit.ACCENT
+	elif s.skill_points < cost:
+		note = "+1  ·  NEED %d SP" % cost
+	else:
+		note = "+1  ·  %d SP" % cost
+		note_color = UiKit.INFO
+	var nl := UiKit.label(note, 16, note_color)
+	nl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	line.add_child(nl)
+	box.add_child(line)
+	if b.disabled:
+		return b
+	b.mouse_entered.connect(func(): bar.preview = true)
+	b.focus_entered.connect(func(): bar.preview = true)
+	b.mouse_exited.connect(func(): bar.preview = b.has_focus())
+	b.focus_exited.connect(func(): bar.preview = false)
+	b.pressed.connect(func():
+		var gains := Progression.upgrade_group(s, g)
+		if not gains.is_empty():
+			var parts: PackedStringArray = []
+			for st in gains:
+				if gains[st] > 0:
+					parts.append("%s +%d" % [Stats.ABBREV[st], gains[st]])
+			hub.app.toast("%s: %s %d  (%s)" % [s.display_name(), Stats.GROUP_LABELS[g], s.group_rating(g), ", ".join(parts)])
+		_prog_sel_id = s.id
+		_build_progression(ctx["root"], g))
+	return b
 
 
 ## Column sort per table mode: mode -> [key, descending].
 var _sort := {}
-const DEFAULT_SORT := {&"roster": [&"slot", false], &"progress": [&"sp", true], &"fa": [&"ovr", true], &"contracts": [&"salary", true], &"drill": [&"ovr", true],
+const DEFAULT_SORT := {&"roster": [&"slot", false], &"fa": [&"ovr", true], &"contracts": [&"salary", true], &"drill": [&"ovr", true],
 	&"team_stats": [&"kills", true], &"league_stats": [&"kills", true], &"prospects": [&"proj", true], &"league_teams": [&"w", true]}
 
 
@@ -737,7 +964,6 @@ func _sort_value(s: Soldier, key: StringName, team: Team) -> Variant:
 		&"age": return s.age
 		&"pot": return s.potential_ovr() * 10 + s.dev
 		&"ovr": return _row_ovr(team, s)
-		&"sp": return s.skill_points
 		&"slot": return _slot_order(team, s) if team != null else 0
 		&"morale": return s.morale
 		&"fatigue": return s.fatigue
@@ -817,35 +1043,11 @@ func _sort_header(mode: StringName, cols: Array, rebuild: Callable) -> Control:
 	return panel
 
 
-func _roster_table(progress_view: bool, team: Team = null, rebuild := Callable()) -> Control:
+func _roster_table(team: Team = null, rebuild := Callable()) -> Control:
 	if team == null:
 		team = _season().user_team()
-	var mode := &"progress" if progress_view else &"roster"
+	var mode := &"roster"
 	var v := _vbox()
-	if progress_view:
-		var with_sp := 0
-		for s in team.roster:
-			if Progression.can_level_up(s):
-				with_sp += 1
-		var actions := _row()
-		var auto := UiKit.button("Auto-progress all (%d can level up)" % with_sp, func():
-			var raised := 0
-			var players := 0
-			for s in team.roster:
-				if s.skill_points <= 0:
-					continue
-				var slot := team.slot_of(s)
-				var role := team.scheme.role_for_slot(slot) if slot != &"" else Scheme.best_role(s.stats)
-				var groups: Array = Progression.auto_spend(s, role)
-				if not groups.is_empty():
-					players += 1
-					raised += groups.size()
-			hub.app.toast("Auto-progressed %d players (%d group upgrades)." % [players, raised] if players > 0 else "No skill points could be spent.")
-			hub.replace("Player Progression", progression))
-		auto.disabled = with_sp == 0
-		actions.add_child(auto)
-		actions.add_child(UiKit.label("Select a soldier to spend skill points on his ratings.", 15, UiKit.MUTED))
-		v.add_child(actions)
 	var list := _sorted(team.roster, mode, team)
 	var pane := _player_pane()
 	v.add_child(pane)
@@ -862,13 +1064,12 @@ func _roster_table(progress_view: bool, team: Team = null, rebuild := Callable()
 
 ## Roster table columns: [header, width, sort key]. Rows carry name (with position underneath),
 ## age, potential + dev stars, OVR (with the morale effect), one column per stat group, then per mode:
-## roster = lineup slot / status; progress = SP + slot / status; fa = asking price + offers.
+## roster = morale + lineup slot / status; fa = asking price + offers.
 const RCOL_NAME := 210
 const RCOL_AGE := 44
 const RCOL_POT := 64
 const RCOL_OVR := 84
 const RCOL_GROUP := 96
-const RCOL_SP := 44
 const RCOL_MORALE := 70
 const RCOL_STATUS := 150
 const RCOL_CONTRACT := 110
@@ -880,9 +1081,6 @@ func _roster_cols(mode: StringName) -> Array:
 	for g in Stats.GROUP_ORDER:
 		cols.append([Stats.GROUP_LABELS[g].to_upper(), RCOL_GROUP, g])
 	match mode:
-		&"progress":
-			cols.append(["SP", RCOL_SP, &"sp"])
-			cols.append(["SLOT / STATUS", RCOL_STATUS, &"slot"])
 		&"fa":
 			cols.append(["ASKING", RCOL_CONTRACT, &"asking"])
 			cols.append(["OFFERS", RCOL_OFFERS, &"offers"])
@@ -972,10 +1170,7 @@ func _roster_row(team: Team, s: Soldier, mode: StringName, pane: Control = null)
 		if not mine.is_empty():
 			UiKit.style_button(info, UiKit.INFO.darkened(0.7), UiKit.ACCENT, 6)
 		return info
-	if mode == &"progress":
-		hb.add_child(_big_cell(str(s.skill_points), UiKit.INFO if s.skill_points > 0 else UiKit.MUTED, RCOL_SP))
-	else:
-		hb.add_child(_big_cell(str(roundi(s.morale)), morale_color(s.morale), RCOL_MORALE, 18))
+	hb.add_child(_big_cell(str(roundi(s.morale)), morale_color(s.morale), RCOL_MORALE, 18))
 	var slot := team.slot_of(s)
 	var slot_text := team.scheme.label_for_slot(slot) if slot != &"" else "Bench"
 	hb.add_child(_two_lines(slot_text, Color.WHITE if slot != &"" else UiKit.MUTED, _status_text(s), RCOL_STATUS, 15))
@@ -4631,7 +4826,7 @@ func team_roster(t: Team) -> Control:
 	var banner: Control = hub.legacy_pages.banner_row(t)
 	if banner != null:
 		v.add_child(banner)
-	v.add_child(_roster_table(false, t, func(): hub.replace(t.name, func(): return team_roster(t))))
+	v.add_child(_roster_table(t, func(): hub.replace(t.name, func(): return team_roster(t))))
 	return v
 
 

@@ -510,6 +510,12 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
   - XP from matches and weekly training gives skill points (SP): every 500 XP (+150 per batch) = 3 SP.
     Levels are internal; the UI shows an XP bar toward the next SP.
   - SP buy +1 to a whole group. That spreads N points (N = stats in the group) randomly across the group, at most +2 per stat.
+  - **Player Progression screen**: the left list shows only soldiers who can afford an upgrade right now (OVR, POT,
+    SP). Hover one to preview him on the right, click to select. The right panel shows his info and each stat group
+    as a thin 0-99 bar: filled up to the group rating, black up to the cap (labelled above), grey past the cap.
+    Upgradable group rows glow on hover; click one to spend SP on +1 (`scripts/ui/franchise/cap_bar.gd`). The screen
+    closes itself once no one is left to level up, and the Team tab's Player Progression card is disabled until
+    someone can.
   - Cost rises with the group rating: 1 SP below 60, 2 below 80, 3 below 90, 4 below 95, 6 at 95+. Stats already
     94+ are 4× less likely to receive upgrade points, so 99s stay rare.
   - Only a soldier's two highest group caps may exceed 89 (`PlayerGenerator.limit_elite_caps`), so even
