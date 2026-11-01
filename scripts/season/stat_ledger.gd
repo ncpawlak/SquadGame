@@ -5,7 +5,8 @@ extends RefCounted
 ## which also stamps the records that match broke on `ScheduledMatch.records`.
 ##
 ## Single-match records are counted from the first match played with the ledger; older results are not
-## kept per match, so a save from before it starts with an empty book.
+## kept per match, so a save from before it starts with an empty book. `seed_records` fills the books
+## with the fixed marks of RecordSeed, so every league starts with the same targets.
 
 ## Entries kept per record list (the same depth as the season and career books).
 const KEEP := 5
@@ -15,6 +16,8 @@ const MATURE_AFTER := 100
 ## A streak must reach this long to be news.
 const MIN_STREAK_EVENT := 5
 
+## True once the books hold RecordSeed's marks; a seeded book is mature from the first match.
+var seeded := false
 ## Matches recorded so far, split by phase.
 var matches_regular := 0
 var matches_playoffs := 0
@@ -31,7 +34,7 @@ var best_lose := {}
 ## Records one finished league match and stamps the records it broke on `m.records`.
 func record_match(season: Season, m: ScheduledMatch) -> void:
 	var playoffs := m.stage != Season.STAGE_REGULAR
-	var mature := matches_regular + matches_playoffs >= MATURE_AFTER
+	var mature := seeded or matches_regular + matches_playoffs >= MATURE_AFTER
 	if playoffs:
 		matches_playoffs += 1
 	else:
@@ -83,9 +86,28 @@ func record_match(season: Season, m: ScheduledMatch) -> void:
 	_streaks(season, m)
 
 
-## Saves from before the ledger existed load with it empty; nothing to rebuild.
+## Saves from before the ledger existed load with it empty and get the seeded marks.
 func ensure(_season: Season) -> void:
-	pass
+	if Season.seed_records:
+		seed_records()
+
+
+## Puts RecordSeed's single-match marks and streaks on the books (once).
+func seed_records() -> void:
+	if seeded:
+		return
+	seeded = true
+	for stat: Dictionary in StatRegistry.SINGLE_MATCH:
+		for snap: Dictionary in RecordSeed.match_snaps(stat["id"]):
+			var phases: Array = [StatRegistry.PHASE_COMBINED, StatRegistry.PHASE_REGULAR if snap["stage"] == "regular" else StatRegistry.PHASE_PLAYOFFS]
+			for phase: String in phases:
+				for scope: String in ["", snap["team"]]:
+					_offer("%s|%s|%s" % [stat["id"], phase, scope], snap)
+	for kind: String in ["win_streak", "lose_streak"]:
+		var best: Dictionary = best_win if kind == "win_streak" else best_lose
+		for e: Dictionary in RecordSeed.streak_rows(kind):
+			if int(e["length"]) > int(best.get(e["team"], {}).get("length", 0)):
+				best[e["team"]] = {"length": e["length"], "year": e["year"], "week": e["week"]}
 
 
 ## Best first: the stored snapshots for one record, or [].
@@ -153,7 +175,7 @@ func _extend(season: Season, m: ScheduledMatch, abbrev: String, length: int, bes
 			league_best = int(best[t]["length"])
 			holder = t
 	best[abbrev] = {"length": length, "year": season.year, "week": m.week}
-	if length > league_best and length >= MIN_STREAK_EVENT and matches_regular + matches_playoffs >= MATURE_AFTER:
+	if length > league_best and length >= MIN_STREAK_EVENT and (seeded or matches_regular + matches_playoffs >= MATURE_AFTER):
 		var prev := {"value": float(league_best), "team": holder, "name": holder} if league_best > 0 else {}
 		var nickname := season.league.team_by_abbrev(abbrev).nickname
 		m.records.append(_event(stat, StatRegistry.PHASE_COMBINED, float(length), -1, nickname, abbrev, prev))

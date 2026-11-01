@@ -86,6 +86,7 @@ func _init() -> void:
 	# tests switch to the fixed 20-team league themselves.
 	Season.fixture_teams = 5
 	Season.backfill_careers = false
+	Season.seed_records = false
 	var only := OS.get_environment("ONLY")
 	if only != "":
 		tests = tests.filter(func(x): return only.split(",").has(x))
