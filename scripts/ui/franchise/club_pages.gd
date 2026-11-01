@@ -2,7 +2,8 @@ class_name ClubPages
 extends RefCounted
 ## Club tab pages (issue #8): the club's finances and its market and buzz. Each returns a Control that
 ## the hub wraps in a titled, scrollable frame. Pages read Season state fresh every time they are built.
-## Nothing here changes the league: the money shown is not connected to the salary cap or contracts.
+## Nothing here changes the league. Revenue is a ledger the board reads; cash is the club fund, filled by the
+## yearly board grant (issue #50) and spent on the luxury tax.
 
 var hub: Control  # hub.gd; a Node, so no RefCounted cycle
 
@@ -44,7 +45,7 @@ func finances() -> Control:
 	var rv := s.revenue
 	var v := _vbox(14)
 	var l := rv.ledger_of(s.year, us)
-	v.add_child(_section("%s  -  %d SEASON  -  money earned, and the club budget" % [us.name.to_upper(), s.year]))
+	v.add_child(_section("%s  -  %d SEASON  -  money earned, and the club fund" % [us.name.to_upper(), s.year]))
 	if l.is_empty():
 		v.add_child(UiKit.label("No ledger yet.", 16, UiKit.MUTED))
 		return v
@@ -54,10 +55,13 @@ func finances() -> Control:
 		if table_rows[i]["team"] == us:
 			rank = i + 1
 	var net := float(l["net"])
-	v.add_child(UiKit.rich("REVENUE [color=white]%s[/color]   -   OPERATING COST [color=white]%s[/color]   -   NET [color=%s]%s[/color]   -   CASH [color=white]%s[/color]   -   #%d of %d in revenue" % [
+	var fund := rv.cash_of(us)
+	v.add_child(UiKit.rich("REVENUE [color=white]%s[/color]   -   OPERATING COST [color=white]%s[/color]   -   NET [color=%s]%s[/color]   -   CLUB FUND [color=%s]%s[/color]   -   #%d of %d in revenue" % [
 		_money(float(l["revenue"])), _money(float(l["operations"])), UiKit.hex(UiKit.GOOD if net >= 0.0 else UiKit.BAD), _money(net),
-		_money(rv.cash_of(us)), rank, table_rows.size()], 18))
-	v.add_child(UiKit.label("Cash is the club budget: unspent for now (facilities and upgrades are not in yet). Player pay comes under the salary cap and is not taken from this money.", 14, UiKit.MUTED))
+		UiKit.hex(UiKit.BAD if fund < 0.0 else Color.WHITE), _money(fund), rank, table_rows.size()], 18))
+	v.add_child(UiKit.label("The club fund is filled once a year by the board grant and pays the luxury tax (and later signing bonuses and facilities). It carries over with no limit. Revenue doesn't go into it: the board reads it. Player pay comes under the salary cap and is not taken from this money.%s" % (
+		"  While the fund is below $0 the board freezes spending: no deal may take payroll over the tax line." if fund < 0.0 else ""), 14, UiKit.BAD if fund < 0.0 else UiKit.MUTED))
+	_board_section(v, s, us)
 
 	v.add_child(_section("WHERE IT COMES FROM"))
 	var n := float(table_rows.size())
@@ -100,10 +104,36 @@ func finances() -> Control:
 		if t.user_controlled:
 			hl[i] = UiKit.MINE
 		colors[i] = {3: UiKit.buzz_color(t.buzz)}
-	v.add_child(UiKit.table(["#", "TEAM", "MARKET", "BUZZ", "REVENUE", "TICKETS", "SPONSORS", "MERCH", "NET", "CASH"], lrows,
+	v.add_child(UiKit.table(["#", "TEAM", "MARKET", "BUZZ", "REVENUE", "TICKETS", "SPONSORS", "MERCH", "NET", "FUND"], lrows,
 		[30, 230, 160, 90, 100, 100, 100, 90, 100, 100], hl, colors,
 		func(i: int): hub.open((table_rows[i]["team"] as Team).name, func(): return hub.pages.team_roster(table_rows[i]["team"]))))
 	return v
+
+
+## The latest board review (season end): each term of the grant, plus this year's grant preview terms.
+func _board_section(v: VBoxContainer, s: Season, us: Team) -> void:
+	var rv := s.revenue
+	v.add_child(_section("BOARD REVIEW"))
+	var years: Array = rv.grants.keys()
+	years.sort()
+	if years.is_empty():
+		v.add_child(UiKit.label("The board reviews the season after the Final and grants next season's money: market size, results against the preseason expectation (#%d), playoff wins, awards, player development and unused cap room. A fund below $0 or three straight seasons below expectations cut the grant." % int(s.market.preseason_rank.get(us.abbrev, 0)), 14, UiKit.MUTED))
+		return
+	var y := int(years[-1])
+	var r := rv.grant_of(y, us)
+	if r.is_empty():
+		return
+	var rows := [["Market size", _money(float(r["market"])), "%s (rating %d)" % [Market.market_name(us), us.market_rating]],
+		["Results", _money(float(r["results"])), "expected #%d, finished #%d" % [int(r["expected"]), int(r["finish"])]],
+		["Playoffs", _money(float(r["playoffs"])), "$5M per playoff win, $15M for the title"],
+		["Awards", _money(float(r["awards"])), "$2M per award or All-League pick"],
+		["Development", _money(float(r["development"])), "$1M per dev-star gain or rookie beating his slot"],
+		["Cap savings", _money(float(r["savings"])), "5% of room under the soft cap"],
+		["Confidence", "x%.2f" % float(r["confidence"]), "fund below $0 (x0.90) or 3 straight seasons below expectations (x0.75)"],
+		["Grant", _money(float(r["grant"])), "fund before: %s" % _money(float(r["cash_before"]))]]
+	var colors := {1: {1: UiKit.GOOD if float(r["results"]) >= 0.0 else UiKit.BAD}, 6: {1: UiKit.BAD if float(r["confidence"]) < 1.0 else UiKit.MUTED}, 7: {1: UiKit.GOOD}}
+	v.add_child(UiKit.label("After the %d season" % y, 15, Color.WHITE))
+	v.add_child(UiKit.table(["TERM", "AMOUNT", "WHY"], rows, [170, 120, 520], {}, colors))
 
 
 # --- market and buzz ------------------------------------------------------------------

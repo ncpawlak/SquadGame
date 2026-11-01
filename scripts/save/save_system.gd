@@ -149,6 +149,7 @@ static func from_text(text: String) -> Season:
 	var s := root as Season
 	if s != null and s.has_method("_stamp_log"):
 		s._stamp_log()
+		s.ensure_economy()
 		s.market.ensure(s)
 		s.revenue.ensure(s)
 		s.ensure_history()
