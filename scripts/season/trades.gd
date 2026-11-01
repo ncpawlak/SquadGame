@@ -4,6 +4,10 @@ extends RefCounted
 ## must pass (window, cap, roster, asset limit), counter-offers, "what would it take?", AI offers
 ## to the user and AI-to-AI deals. Season owns one instance and passes itself in.
 ##
+## Cap rules (issue #41): a team that ends a trade over the soft cap may take back at most
+## SALARY_MATCH (125%) of the salary it sends out, and nobody may end one over the apron. Signing
+## bonuses are sunk: they were paid from the old club's fund and never move with the player.
+##
 ## An asset is a Dictionary: {"soldier": Soldier} or {"pick": true, "year", "round", "orig": Team}.
 
 const DEADLINE_WEEK := 8
@@ -25,6 +29,14 @@ const OFFER_CHANCE := 0.35
 const BLOCK_OFFER_CHANCE := 0.6
 const AI_TRADE_CHANCE := 0.3
 const AI_TRADE_CHANCE_OFFSEASON := 0.12
+## Salary matching (issue #41): a team that would end a trade over the soft cap may take back at
+## most this share of the salary it sends out. Under the cap a team may absorb salary up to it, and
+## a player on a minimum deal always fits. Nobody may end a trade over the apron.
+const SALARY_MATCH := 1.25
+## $K of contract surplus (market value minus salary, summed over up to 3 seasons) worth one point
+## of trade value; a team over the soft cap weighs it SURPLUS_OVER_CAP times as much.
+const SURPLUS_SCALE := 1200.0
+const SURPLUS_OVER_CAP := 1.3
 
 const CONTENDER := &"contender"
 const BALANCED := &"balanced"
@@ -227,7 +239,9 @@ static func curve(ovr: float) -> float:
 	return pow(maxf(ovr - 37.0, 0.0) / 10.0, 2.2) * 10.0
 
 
-## What `s` is worth to `team` (receiving him, or giving him up when `giving`).
+## What `s` is worth to `team` (receiving him, or giving him up when `giving`): his rating on the
+## convex curve, plus his contract surplus (Contracts.market_value minus salary, up to 3 seasons),
+## so an overpaid player is worth less and a cheap productive or rookie deal more.
 func player_value(season: Season, s: Soldier, team: Team, giving := false) -> float:
 	var m := mode(season, team)
 	var ovr := float(s.best_ovr())
@@ -240,7 +254,8 @@ func player_value(season: Season, s: Soldier, team: Team, giving := false) -> fl
 	var v := curve(eff)
 	if s.contract != null:
 		var surplus := float(Contracts.market_value(s) - s.contract.salary) * mini(maxi(s.contract.years, 0), 3)
-		v += surplus / 1050.0 * float({CONTENDER: 0.7, BALANCED: 1.0, REBUILDING: 1.3}[m])
+		var cap_w := SURPLUS_OVER_CAP if Contracts.payroll(team, season.cap_year()) > Contracts.SALARY_CAP else 1.0
+		v += surplus / SURPLUS_SCALE * cap_w * float({CONTENDER: 0.7, BALANCED: 1.0, REBUILDING: 1.3}[m])
 	if s.is_injured() and season.phase != Season.PHASE_OFFSEASON:
 		v *= maxf(0.5, 1.0 - 0.07 * s.injury_weeks * (1.3 if m == CONTENDER else 1.0))
 	if not giving:
@@ -359,13 +374,50 @@ static func _players(list: Array) -> int:
 	return list.filter(func(a): return not is_pick(a)).size()
 
 
+## Salary that counts for matching: players on more than a minimum deal (a minimum deal always fits).
+static func _matched_salary(list: Array) -> int:
+	var total := 0
+	for a in list:
+		if not is_pick(a) and a["soldier"].contract != null and a["soldier"].contract.salary > Contracts.MIN_SALARY:
+			total += a["soldier"].contract.salary
+	return total
+
+
+## Salary matching for `team` sending `out_list` and taking back `in_list` (this cap year's
+## salaries, like the apron check): {out, in (all incoming salary), matched (incoming minus minimum
+## deals), max_in (-1 = no limit: it stays under the soft cap or sheds salary), ok}.
+static func salary_match(season: Season, team: Team, out_list: Array, in_list: Array) -> Dictionary:
+	var outgoing := _salary(out_list)
+	var incoming := _salary(in_list)
+	var matched := _matched_salary(in_list)
+	var after := Contracts.payroll(team, season.cap_year()) + incoming - outgoing
+	var max_in := -1
+	if incoming > outgoing and after > Contracts.SALARY_CAP:
+		max_in = floori(outgoing * SALARY_MATCH)
+	return {"out": outgoing, "in": incoming, "matched": matched, "max_in": max_in, "ok": max_in < 0 or matched <= max_in}
+
+
+## "" when `team` passes salary matching, otherwise why not.
+static func matching_error(season: Season, team: Team, out_list: Array, in_list: Array) -> String:
+	var m := salary_match(season, team, out_list, in_list)
+	if m["ok"]:
+		return ""
+	var over := Contracts.payroll(team, season.cap_year()) > Contracts.SALARY_CAP
+	var who := "%s %s" % [team.name, "is over the cap" if over else "would end up over the cap"]
+	if m["out"] == 0:
+		return "%s and must send salary back to take any on (up to %d%% of what it sends out)." % [who, roundi(SALARY_MATCH * 100.0)]
+	return "%s and can take back at most %s (%d%% of %s sent out)." % [who, Contracts.money(m["max_in"]),
+		roundi(SALARY_MATCH * 100.0), Contracts.money(m["out"])]
+
+
 static func min_roster(season: Season) -> int:
 	return MIN_ROSTER_OFFSEASON if season.phase == Season.PHASE_OFFSEASON or season.preseason_camp else MIN_ROSTER
 
 
 ## "" when the deal is legal, otherwise why not. Rosters may go over the limit (cut before the
-## next match); they may not drop below min_roster().
-func validate(season: Season, a: Team, a_give: Array, b: Team, b_give: Array) -> String:
+## next match); they may not drop below min_roster(). Salary matching (SALARY_MATCH) is skipped for
+## `unmatched` while the AI is still building that team's side of a package.
+func validate(season: Season, a: Team, a_give: Array, b: Team, b_give: Array, unmatched: Team = null) -> String:
 	if not window_open(season):
 		return "The trade window is closed."
 	if a_give.is_empty() and b_give.is_empty():
@@ -401,6 +453,10 @@ func validate(season: Season, a: Team, a_give: Array, b: Team, b_give: Array) ->
 		if incoming > outgoing and payroll > Contracts.TAX_LINE and season.revenue.frozen(t):
 			return "%s's board has frozen spending (club fund below $0): the trade would put them %s over the tax line." % [
 				t.name, Contracts.money(payroll - Contracts.TAX_LINE)]
+		if t != unmatched:
+			var merr := matching_error(season, t, side[1], side[2])
+			if merr != "":
+				return merr
 	return ""
 
 
@@ -501,9 +557,10 @@ func what_would_it_take(season: Season, ai: Team, user_give: Array, ai_give: Arr
 		var best: Dictionary = {}
 		for x in pool:
 			var g: Array = cur + [x]
-			if validate(season, user, g, ai, ai_give) != "":
+			# The user's own salary matching may still be short: another piece can fix it.
+			if validate(season, user, g, ai, ai_give, user) != "":
 				continue
-			if interest(season, ai, g, ai_give) >= 1.0:
+			if interest(season, ai, g, ai_give) >= 1.0 and validate(season, user, g, ai, ai_give) == "":
 				return g
 			best = x
 		if best.is_empty():
@@ -557,7 +614,8 @@ static func _when(season: Season) -> String:
 ## An AI team over `limit` (default Team.ROSTER_SIZE) gets back under it: it first shops its
 ## least valuable players (Team.keep_value: OVR, upside, age, depth, dead money, contract) to AI
 ## teams with roster room for a draft pick, and cuts whoever nobody wants. Returns
-## {traded: [Soldier], cut: [Soldier]}.
+## {traded: [Soldier], cut: [Soldier]}. A dump must pass the buyer's salary matching, so it goes to
+## a team with cap room (or is a minimum deal).
 func restructure(season: Season, team: Team, limit := Team.ROSTER_SIZE) -> Dictionary:
 	var out := {"traded": [], "cut": []}
 	if team.user_controlled or _restructuring:
@@ -688,7 +746,20 @@ func _payment(season: Season, payer: Team, other: Team, target: Array, other_giv
 		appeal[key_of(x)] = value(season, x, other)
 	pool = pool.filter(func(x): return cost[key_of(x)] <= budget)
 	pool.sort_custom(func(p, q): return appeal[key_of(p)] / cost[key_of(p)] > appeal[key_of(q)] / cost[key_of(q)])
+	var out := _fill_payment(season, payer, other, other_gives, pool, cost, budget)
+	if out.is_empty() and not salary_match(season, payer, [], other_gives)["ok"]:
+		# Over the cap: `payer` must send salary back, so try its salaried players first.
+		var paid: Array = pool.filter(func(x): return _matched_salary([x]) > 0)
+		out = _fill_payment(season, payer, other, other_gives, paid + pool.filter(func(x): return not paid.has(x)), cost, budget)
+	return out
+
+
+## Greedy fill for _payment: adds assets from `pool` in order while they fit `budget` and the deal
+## stays legal (the payer's own salary matching may be short until the end). Returns the most
+## valuable fully legal package found, or [].
+func _fill_payment(season: Season, payer: Team, other: Team, other_gives: Array, pool: Array, cost: Dictionary, budget: float) -> Array:
 	var out: Array = []
+	var best: Array = []
 	var spent := 0.0
 	for x in pool:
 		if out.size() >= MAX_ASSETS:
@@ -697,11 +768,13 @@ func _payment(season: Season, payer: Team, other: Team, target: Array, other_giv
 		if spent + c > budget:
 			continue
 		var trial: Array = out + [x]
-		if validate(season, payer, trial, other, other_gives) != "":
+		if validate(season, payer, trial, other, other_gives, payer) != "":
 			continue
 		out = trial
 		spent += c
-	return out
+		if validate(season, payer, out, other, other_gives) == "":
+			best = out
+	return best
 
 
 ## An AI team makes the user an offer for one of his players (block players first).
