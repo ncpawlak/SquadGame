@@ -339,14 +339,19 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
 - **Your team stands out**: your team and players get a gold-bordered row in standings, league leaders, league and
   team stats, mock draft, draft order, awards and rankings. The Trade Center shows the partner's full name in a
   fixed-size box.
-- **Portraits** are procedurally generated per soldier (`Look` + `Portrait`): skin tone; headgear (boonie hat,
-  infantry helmet, helmet with goggles, beanie, beanie with headset, forward/backward ball cap or hair); eyewear
-  (clear/tinted goggles, sunglasses, night vision on helmets, or brown/black/blue eyes); face (normal, balaclava,
-  face paint, eye black); and lower face (bandana, half mask, shemagh, or shaved/goatee/short/big beard). The roll
-  is mostly random, lightly biased by role (Frontmen wear more armour and masks, Centers boonies and shemaghs, Flexes
-  caps and headsets) and age (older players grow more beards and go gray). Headgear, masks and the uniform use the
-  team's primary colour and straps, frames, brims and trim its secondary (auto-picked to contrast), so a traded
-  player changes colours at once. Free agents and prospects wear neutral khaki and gray.
+- **Portraits** are photo faces (`FaceSpec` + `Portrait`), rolled per soldier from his id and name and never saved. The
+  name picks a skin group (`FacePrior`: "Jalen" leans dark, "Luca" and "Finn" light, "Diego" brown, "Kenji" east-Asian;
+  ambiguous names like "Max" or "Tyler" fall back to the roster-wide mix; first and last name multiply, so mixed
+  pairings are possible but rare). Then a head is drawn from that group's baked library (`assets/portraits/heads/`),
+  mirrored or not, with a hair tint (and graying with age), an eye colour, and ten morph sliders (eye x/y/size, brow
+  y, nose y/width, mouth y/width/lip height, head width) inside hand-approved limits. The head is warped by a small
+  anchor grid (`FaceWarp`), tinted by `portrait_face.gdshader`, and clipped to a disc in the team's colours; the white
+  jersey takes the team colour. Free agents and prospects get a neutral disc.
+- **Portrait tools** (`tools/portraits/`, Python 3.14 venv, not needed to run the game): `add_sheets.py <sheet>...`
+  adds new 5x2 head sheets (copies them to `assets/portraits/source/`, cuts tiles, removes the backdrop, skips
+  duplicates, proposes a skin group per head in `groups_extra.json`, writes `work/new_heads_review.png`, and re-bakes);
+  `bake.py` rebuilds `assets/portraits/heads/` and `heads.json`; `warp.py` / `tint.py` are the Python prototypes of the
+  morph and tints. Preview real portraits with `godot --path . --script res://tests/portrait_preview.gd -- out.png`.
 - **Roster** (2K style): a big preview pane on top (portrait, name and callsign, salary, contract, OVR/POT, fatigue
   and morale rings, group ratings) that follows the hovered/focused row. Below it is a table you can sort by any
   column (click a header; click again to flip). Free Agents, Progression and Contracts use the same sortable tables.
