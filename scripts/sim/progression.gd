@@ -190,19 +190,21 @@ static func auto_spend(soldier: Soldier, role: Scheme.Role, rng: RandomNumberGen
 	return raised
 
 
-## Awards post-match XP to every soldier who played. Returns soldier_id -> gain_xp report.
-## `ctx` carries the fixture: {playoffs: bool}. Without a `year` nothing is added to the season lines.
+## Awards post-match XP to every soldier who played (a Gear Sponsor upgrade adds to the impact part).
+## Returns soldier_id -> gain_xp report. `ctx` carries the fixture: {playoffs: bool}. Without a `year`
+## nothing is added to the season lines.
 static func award_match_xp(result: MatchResult, year := 0, ctx := {}) -> Dictionary:
 	var reports := {}
 	for team_index in 2:
 		var team: Team = result.teams[team_index]
+		var gear := Facilities.gear_mult(team)
 		for soldier in team.starters():
 			var line := result.box_for(soldier)
 			if line.is_empty():
 				continue
 			# Impact per game played, so a 3-game match isn't worth more than a sweep.
 			var per_game := MatchResult.impact(line) / maxf(1.0, float(line.get("games", 1)))
-			var xp := MATCH_BASE_XP + maxf(0.0, per_game) * MATCH_IMPACT_XP_SCALE
+			var xp := MATCH_BASE_XP + maxf(0.0, per_game) * MATCH_IMPACT_XP_SCALE * gear
 			if team_index == result.winner_index:
 				xp += MATCH_WIN_XP
 			if soldier.id == result.mvp_id:

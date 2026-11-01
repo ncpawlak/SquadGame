@@ -46,6 +46,8 @@ var market_rating := 50
 var buzz := 45.0
 var heat := 0.0
 var market_log: Array = []
+## Facility id -> level 2..5 (see Facilities; a missing facility is level 1).
+var facility_levels: Dictionary = {}
 
 
 ## Removed fields from older saves. The salary floor is gone (issue #41): its pending penalties

@@ -94,6 +94,18 @@ const MARKET_RATINGS := {
 	"REN": 18, "LOU": 14, "LRK": 8,
 }
 
+## Starting facility levels by abbrev (1-5), in Facilities.IDS order: Training, Drill Rooms, Scouting,
+## Medical, Marketing, Gear, Sports Science Lab, Performance Institute. Teams not listed start at 1.
+const FACILITY_LEVELS := {
+	"NYE": [3, 2, 1, 4, 5, 4, 2, 1], "CHA": [4, 4, 2, 3, 2, 2, 3, 2], "DET": [4, 3, 2, 2, 2, 2, 3, 2],
+	"LAS": [2, 2, 1, 3, 4, 4, 1, 1], "CHI": [3, 3, 2, 1, 3, 2, 2, 2], "BOS": [2, 1, 4, 3, 3, 2, 2, 1],
+	"SEA": [2, 2, 4, 1, 2, 2, 3, 2], "STL": [3, 3, 3, 1, 1, 1, 2, 2], "ARL": [2, 2, 1, 2, 2, 3, 1, 1],
+	"IND": [2, 3, 2, 1, 1, 2, 2, 1], "MIA": [1, 1, 2, 2, 3, 3, 1, 1], "ATL": [2, 2, 1, 3, 2, 1, 1, 1],
+	"BKN": [2, 1, 3, 1, 2, 1, 2, 1], "SDV": [2, 2, 1, 1, 2, 2, 1, 1], "REN": [1, 1, 4, 1, 1, 1, 2, 1],
+	"NSH": [2, 2, 2, 1, 1, 1, 2, 1], "ORL": [1, 2, 2, 1, 2, 2, 1, 1], "DEN": [1, 1, 1, 3, 2, 1, 1, 1],
+	"LOU": [1, 1, 3, 1, 1, 1, 1, 1], "LRK": [1, 1, 1, 1, 1, 1, 1, 1],
+}
+
 ## Opening buzz by abbrev (0-100), from each backstory; every new franchise starts the same. Teams not
 ## listed start at their market's resting buzz.
 const START_BUZZ := {

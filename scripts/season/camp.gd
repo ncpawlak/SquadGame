@@ -7,6 +7,7 @@ extends RefCounted
 ## group caps: a capped group can't be drilled and points stop landing at the cap. The
 ## Durability drill (no cap) is the only way to raise Injury/Toughness. Each drill also has a small,
 ## age-scaled chance (DEV_UP_CHANCE) to earn the soldier a dev star (at most one star change a season).
+## Drill Rooms upgrades add points to every drill; a Sports Science Lab raises the star chance.
 
 const DRILLS := {
 	Stats.ACCURACY: {"name": "Marksmanship Range", "blurb": "Live-fire lanes at every distance."},
@@ -96,7 +97,7 @@ func run(team: Team, group: StringName, s: Soldier, rng: RandomNumberGenerator) 
 	if check(team, group, s) != "":
 		return {}
 	var pool: Array = pool_range(s.dev)
-	var rolled := rng.randi_range(pool[0], pool[1])
+	var rolled := rng.randi_range(pool[0], pool[1]) + Facilities.camp_points(team)
 	var points := 0
 	var capped := s.group_caps.has(group)
 	var cap := s.group_cap(group)
@@ -124,10 +125,13 @@ func run(team: Team, group: StringName, s: Soldier, rng: RandomNumberGenerator) 
 		gains[pick] += 1
 		points += 1
 	var dev_from := s.dev
-	var dev_up := rng.randf() < dev_up_chance(s)
+	# One roll against the boosted chance: a star the baseline chance would have missed is the Lab's.
+	var roll := rng.randf()
+	var chance := dev_up_chance(s)
+	var dev_up := roll < minf(0.95, chance * Facilities.lab_gain_mult(team))
 	if dev_up:
 		s.change_dev(1, year)
-		s.log_progress("Training camp: %s" % drill_name(group), gains, ovr_before, dev_from, s.dev)
+		s.log_progress("Training camp: %s%s" % [drill_name(group), " (Sports Science Lab)" if roll >= chance else ""], gains, ovr_before, dev_from, s.dev)
 	else:
 		s.log_progress("Training camp: %s" % drill_name(group), gains, ovr_before)
 	var res := {"soldier": s, "group": group, "gains": gains, "before": before, "points": points, "rolled": rolled,

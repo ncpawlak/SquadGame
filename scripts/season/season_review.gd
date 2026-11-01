@@ -6,6 +6,9 @@ extends RefCounted
 ## injuries, riding the bench, underperforming and age (30+) a chance to lose one. Stars move at
 ## most one a season (camp drills share that limit) and never touch the caps: Potential (A-F)
 ## comes from the caps alone, so this only changes how fast he grows toward them.
+## Facilities (issue #38): a Marketing Team upgrade turns every honor (Player of the Week, an award, an
+## All-League pick, a stat-leader title) into one-time XP; a Sports Science Lab raises star-gain chances and
+## lowers star-loss chances (the roll is the same one, so stars the Lab earned or saved are noted as its).
 
 const MIN_MATCHES := 4
 ## Performance percentile minus rating percentile that counts as out/underplaying his rating.
@@ -30,6 +33,8 @@ const BREAKOUT_GAIN := 4
 const MENTOR_AGE := 30
 const MENTOR_OVR := 85
 const ALL_LEAGUE_ROLES := [Scheme.Role.FRONTMAN, Scheme.Role.FRONTMAN, Scheme.Role.CENTER, Scheme.Role.FLEX, Scheme.Role.FLEX]
+## Season stat-leader titles: [stat key, title].
+const LEADER_STATS := [["kills", "Kills leader"], ["assists", "Assists leader"], ["saves", "Saves leader"], ["damage", "Damage leader"]]
 
 var year: int
 ## Array of {award: String, soldier, team, line: String}.
@@ -38,6 +43,8 @@ var awards: Array = []
 var all_league: Array = []
 ## Dev-star changes: Array of {soldier, team, from: int, to: int, reasons: Array[String]}.
 var dev_changes: Array = []
+## Stat leaders (at least MIN_MATCHES played): Array of {title, stat, soldier, team, value}.
+var stat_leaders: Array = []
 
 
 ## Per-soldier totals for a season's played matches: Array of dicts
@@ -155,6 +162,15 @@ static func run(season: Season, rng: RandomNumberGenerator) -> SeasonReview:
 		var n_potw: int = potw[so]
 		_reason(gains, so, "Player of the Week" + (" x%d" % n_potw if n_potw > 1 else ""), minf(POTW_CHANCE * n_potw, POTW_MAX))
 
+	for st in LEADER_STATS:
+		var lead: Dictionary = rows[0]
+		for t in rows:
+			if t[st[0]] > lead[st[0]]:
+				lead = t
+		if lead[st[0]] > 0:
+			rev.stat_leaders.append({"title": st[1], "stat": st[0], "soldier": lead["soldier"], "team": lead["team"], "value": lead[st[0]]})
+	rev._marketing_xp(season, potw)
+
 	# Performance vs expectation: percentile of impact/match vs percentile of rating.
 	var n := rows.size()
 	if n >= 4:
@@ -208,17 +224,37 @@ static func run(season: Season, rng: RandomNumberGenerator) -> SeasonReview:
 				continue
 			var delta := 0
 			var reasons: Array = []
-			if gains.has(so) and so.dev < Soldier.DEV_MAX and rng.randf() < gain_chance(so, gains[so]):
+			var lab := ""
+			# The same rolls as without a Lab: a gain roll between the base and the boosted chance is the
+			# Lab's star; a loss roll between the reduced and the base chance is a star the Lab kept.
+			var g_roll := 2.0
+			if gains.has(so) and so.dev < Soldier.DEV_MAX:
+				g_roll = rng.randf()
+			var g_base := gain_chance(so, gains[so]) if gains.has(so) else 0.0
+			if g_roll < g_base:
 				delta = 1
 				reasons = gains[so].keys()
-			elif losses.has(so) and not honored.has(so) and so.dev > Soldier.DEV_MIN and rng.randf() < _combine(losses[so]):
-				delta = -1
-				reasons = losses[so].keys()
+			elif losses.has(so) and not honored.has(so) and so.dev > Soldier.DEV_MIN:
+				var l_roll := rng.randf()
+				var l_base := _combine(losses[so])
+				if g_roll < minf(0.95, g_base * Facilities.lab_gain_mult(t)):
+					delta = 1
+					reasons = gains[so].keys()
+					lab = " (Sports Science Lab)"
+				elif l_roll < l_base * Facilities.lab_loss_mult(t):
+					delta = -1
+					reasons = losses[so].keys()
+				elif l_roll < l_base:
+					so.log_note("Sports Science Lab: kept his dev star (%s)" % ", ".join(losses[so].keys()))
+			elif g_roll < minf(0.95, g_base * Facilities.lab_gain_mult(t)):
+				delta = 1
+				reasons = gains[so].keys()
+				lab = " (Sports Science Lab)"
 			if delta == 0:
 				continue
 			var from := so.dev
 			so.change_dev(delta, season.year)
-			so.log_progress("Dev re-grade: " + ", ".join(reasons), {}, so.best_ovr(), from, so.dev)
+			so.log_progress("Dev re-grade: " + ", ".join(reasons) + lab, {}, so.best_ovr(), from, so.dev)
 			rev.dev_changes.append({"soldier": so, "team": t, "from": from, "to": so.dev, "reasons": reasons})
 	rev.dev_changes.sort_custom(func(a, b): return a["to"] - a["from"] > b["to"] - b["from"])
 	return rev
@@ -250,6 +286,19 @@ func award_for(so: Soldier) -> Array:
 		if a["soldier"] == so:
 			out.append("All-League")
 	return out
+
+
+## Marketing Team: one-time XP for each honor, paid to the honoree's current club's level.
+func _marketing_xp(season: Season, potw: Dictionary) -> void:
+	for so: Soldier in potw:
+		var team := _team_of(season.league, so)
+		if team != null and Facilities.potw_xp(team) > 0.0:
+			Progression.gain_xp(so, Facilities.potw_xp(team) * int(potw[so]))
+	for list in [awards, all_league, stat_leaders]:
+		for a in list:
+			var team := _team_of(season.league, a["soldier"])
+			if team != null and Facilities.honor_xp(team) > 0.0:
+				Progression.gain_xp(a["soldier"], Facilities.honor_xp(team))
 
 
 func _add_award(award: String, t: Dictionary) -> void:

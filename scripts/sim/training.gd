@@ -32,16 +32,17 @@ static func xp_for(intensity: StringName) -> float:
 	return BASE_XP * float(INTENSITY_INFO[intensity]["xp"])
 
 
-## Returns soldier_id -> gain_xp report (with an added "intensity").
+## Returns soldier_id -> gain_xp report (with an added "intensity"). A Training Facility upgrade adds XP.
 static func run_week(team: Team) -> Dictionary:
 	var reports := {}
+	var mult := Facilities.training_mult(team)
 	for soldier in team.roster:
 		if soldier.is_injured():
-			var film := Progression.gain_xp(soldier, BASE_XP * FILM_STUDY_XP)
+			var film := Progression.gain_xp(soldier, BASE_XP * FILM_STUDY_XP * mult)
 			film["intensity"] = &"film"
 			reports[soldier.id] = film
 			continue
-		var report := Progression.gain_xp(soldier, xp_for(soldier.intensity))
+		var report := Progression.gain_xp(soldier, xp_for(soldier.intensity) * mult)
 		report["intensity"] = soldier.intensity
 		reports[soldier.id] = report
 	return reports

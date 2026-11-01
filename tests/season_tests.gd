@@ -65,6 +65,8 @@ func _init() -> void:
 		"test_legacy_salary_migration",
 		"test_board_review",
 		"test_signing_bonuses",
+		"test_facilities",
+		"test_facility_effects",
 		"test_hometown_pull",
 		"test_region_and_auto_scout",
 		"test_league_news",
@@ -2619,6 +2621,168 @@ func test_signing_bonuses() -> void:
 	check(s2 != null and s2.revenue.bonuses_paid(s.year, s2.user_team()) == 4000, "bonus ledger survives a save")
 
 
+func test_facilities() -> void:
+	check(Facilities.price(Facilities.MARKETING, 2) == 10000 and Facilities.price(Facilities.GEAR, 5) == 55000, "cheap tier: $10M .. $55M")
+	check(Facilities.price(Facilities.TRAINING, 3) == 40000 and Facilities.price(Facilities.MEDICAL, 5) == 110000, "standard tier: $20M .. $110M")
+	check(Facilities.price(Facilities.LAB, 4) == 100000 and Facilities.cost_to(Facilities.INSTITUTE, 5) == 350000, "premium tier: $30M .. $160M")
+	# Authored starting levels for the fixed league; generated test leagues start at level 1.
+	var s := _fixed(91)
+	var nye: Team = s.league.team_by_abbrev("NYE")
+	var row: Array = LeagueData.FACILITY_LEVELS["NYE"]
+	var authored := true
+	for i in Facilities.IDS.size():
+		authored = authored and Facilities.level(nye, Facilities.IDS[i]) == int(row[i])
+	check(authored, "NYE starts at its authored levels")
+	check(LeagueData.FACILITY_LEVELS.size() == 20, "every fixed club has starting levels")
+	var gen := Season.new_franchise(91)
+	check(gen.league.teams.all(func(t: Team): return t.facility_levels.is_empty()), "generated leagues start at level 1")
+	# An older save gets the authored levels.
+	nye.facility_levels.clear()
+	s.facilities.seeded = false
+	var old := SaveSystem.from_text(SaveSystem.to_text(s))
+	check(old != null and Facilities.level(old.league.team_by_abbrev("NYE"), Facilities.MEDICAL) == int(row[3]), "old saves are seeded on load")
+	nye.facility_levels = {}
+	for i in Facilities.IDS.size():
+		if int(row[i]) > 1:
+			nye.facility_levels[Facilities.IDS[i]] = int(row[i])
+
+	# Buying: offseason only, one level per facility, two per club, never frozen or short.
+	var us := s.user_team()
+	var rv := s.revenue
+	var fx := s.facilities
+	us.facility_levels.clear()
+	rv.cash[us.abbrev] = 500000.0
+	check(fx.upgrade_error(s, us, Facilities.GEAR).contains("offseason"), "no upgrades during the season")
+	s.phase = Season.PHASE_OFFSEASON
+	rv.cash[us.abbrev] = 5000.0
+	check(fx.upgrade_error(s, us, Facilities.GEAR).contains("Not enough"), "the fund must cover the price")
+	rv.cash[us.abbrev] = -1.0
+	check(fx.upgrade_error(s, us, Facilities.GEAR).contains("frozen"), "a frozen fund buys nothing")
+	rv.cash[us.abbrev] = 100000.0
+	check(fx.upgrade(s, us, Facilities.GEAR) == "" and Facilities.level(us, Facilities.GEAR) == 2, "Gear Sponsor to level 2")
+	check(is_equal_approx(rv.cash_of(us), 90000.0) and fx.purchases_of(s.year, us) == 10000, "paid from the fund, on the ledger")
+	check(fx.upgrade_error(s, us, Facilities.GEAR).contains("already"), "one level per facility an offseason")
+	check(fx.upgrade(s, us, Facilities.TRAINING) == "" and fx.purchases_of(s.year, us) == 30000, "a second upgrade")
+	check(fx.upgrades_left(s, us) == 0 and fx.upgrade_error(s, us, Facilities.MEDICAL).contains("2 upgrades"), "two upgrades an offseason")
+	us.facility_levels[Facilities.LAB] = 5
+	check(fx.upgrade_error(s, us, Facilities.LAB).contains("top level"), "level 5 is the top")
+	fx.bought.erase(s.year)
+	check(fx.upgrades_left(s, us) == 2, "the limit resets each offseason")
+	check(s.news.items.any(func(it): return it["kind"] == "facility" and String(it["headline"]).contains("Gear Sponsor")), "upgrade news")
+
+	# Upkeep: 5% of what's invested (starting levels count), capped at 25% of the grant.
+	us.facility_levels = {Facilities.TRAINING: 3, Facilities.GEAR: 3}
+	check(Facilities.invested(us) == 60000 + 30000, "invested counts every level bought")
+	rv.grants[s.year] = {us.abbrev: {"grant": 100000.0}}
+	check(Facilities.upkeep_due(s, us) == 4500, "upkeep: 5%% of invested (%d)" % Facilities.upkeep_due(s, us))
+	rv.grants[s.year][us.abbrev]["grant"] = 8000.0
+	check(Facilities.upkeep_due(s, us) == 2000, "upkeep capped at 25%% of the grant (%d)" % Facilities.upkeep_due(s, us))
+	rv.grants[s.year][us.abbrev]["grant"] = 100000.0
+	rv.cash[us.abbrev] = 10000.0
+	var drops := fx.charge_upkeep(s)
+	check(is_equal_approx(rv.cash_of(us), 5500.0) and fx.upkeep_of(s.year, us) == 4500, "upkeep paid from the fund")
+	check(not drops.any(func(d): return d["team"] == us), "a paid club keeps its levels")
+	rv.cash[us.abbrev] = 1000.0
+	drops = fx.charge_upkeep(s)
+	check(drops.any(func(d): return d["team"] == us and d["facility"] == Facilities.TRAINING and d["level"] == 2), "unpaid upkeep: the dearest facility drops a level")
+	check(Facilities.level(us, Facilities.TRAINING) == 2 and Facilities.level(us, Facilities.GEAR) == 3 and is_equal_approx(rv.cash_of(us), 1000.0), "one level, no debt")
+	check(fx.drop_of(s.year, us) == Facilities.TRAINING and fx.upkeep_of(s.year, us) == 0 and Facilities.invested(us) == 20000 + 30000, "the drop is recorded and invested falls")
+
+	# AI clubs buy by direction and keep a reserve.
+	var ai: Team = s.league.team_by_abbrev("LRK")
+	ai.facility_levels.clear()
+	rv.cash[ai.abbrev] = 1000.0
+	fx.ai_spend_team(s, ai)
+	check(fx.bought_ids(s, ai).is_empty(), "a poor AI club buys nothing")
+	rv.cash[ai.abbrev] = 400000.0
+	fx.ai_spend_team(s, ai)
+	var mode: StringName = s.trades.mode(s, ai)
+	var got: Array = fx.bought_ids(s, ai)
+	check(got.size() == 2 and got.all(func(id): return Facilities.AI_FOCUS[mode].has(id)), "a rich AI club buys two from its %s focus (%s)" % [mode, got])
+	check(rv.cash_of(ai) >= float(Facilities.AI_BONUS_RESERVE[mode]), "AI keeps its reserve")
+
+	# Saves keep levels and the ledgers.
+	var s2 := SaveSystem.from_text(SaveSystem.to_text(s))
+	var us2 := s2.user_team()
+	check(s2 != null and Facilities.level(us2, Facilities.GEAR) == 3 and Facilities.level(us2, Facilities.TRAINING) == 2, "levels survive a save")
+	check(s2.facilities.purchases_of(s.year, us2) == 30000 and s2.facilities.drop_of(s.year, us2) == Facilities.TRAINING, "facility ledgers survive a save")
+	check(s2.facilities.bought_ids(s2, s2.league.team_by_abbrev("LRK")).size() == 2, "this offseason's upgrades survive a save")
+
+
+func test_facility_effects() -> void:
+	var s := _fixed(92)
+	var us := s.user_team()
+	us.facility_levels.clear()
+	# Level 1 changes nothing.
+	check(Facilities.training_mult(us) == 1.0 and Facilities.drill_mult(us) == 1.0 and Facilities.camp_points(us) == 0 and Facilities.gear_mult(us) == 1.0, "level 1: no XP effects")
+	check(Facilities.injury_weeks(us, 7) == 7 and Facilities.recovery_bonus(us) == 0.0 and Facilities.potw_xp(us) == 0.0 and Facilities.honor_xp(us) == 0.0, "level 1: no medical or marketing effects")
+	check(Facilities.lab_gain_mult(us) == 1.0 and Facilities.lab_loss_mult(us) == 1.0 and Facilities.institute_chance(us) == 0.0, "level 1: no lab or institute effects")
+	check(s.scout_points_per_week() == Draft.POINTS_PER_WEEK, "level 1: base scout points")
+	# Level 5 is four steps.
+	for id in Facilities.IDS:
+		us.facility_levels[id] = 5
+	check(is_equal_approx(Facilities.training_mult(us), 1.2) and is_equal_approx(Facilities.drill_mult(us), 1.2), "level 5: +20% training and offseason XP")
+	var pts: Array = []
+	for lvl in range(1, 6):
+		us.facility_levels[Facilities.DRILL] = lvl
+		pts.append(Facilities.camp_points(us))
+	check(pts == [0, 0, 1, 1, 2], "Drill Rooms camp points %s" % [pts])
+	check(s.scout_points_per_week() == 28, "level 5: 28 scout points a week")
+	check(Facilities.injury_weeks(us, 10) == 8 and Facilities.injury_weeks(us, 1) == 1 and is_equal_approx(Facilities.recovery_bonus(us), 0.04), "level 5: injuries -20%, recovery +4%")
+	check(Facilities.potw_xp(us) == 200.0 and Facilities.honor_xp(us) == 1000.0, "level 5: marketing XP")
+	check(is_equal_approx(Facilities.gear_mult(us), 1.5), "level 5: impact XP x1.5")
+	check(is_equal_approx(Facilities.lab_gain_mult(us), 1.4) and is_equal_approx(Facilities.lab_loss_mult(us), 0.4), "level 5: lab gains +40%, losses -60%")
+	check(is_equal_approx(Facilities.institute_chance(us), 0.12), "level 5: 12% institute chance")
+	var so: Soldier = us.roster[0]
+	so.fatigue = 50.0
+	check(Conditioning.weekly_recovery(so, false, Facilities.recovery_bonus(us)) > Conditioning.weekly_recovery(so, false), "Medical Center speeds recovery")
+	# Training and offseason XP scale with the facility.
+	us.facility_levels = {}
+	for st in us.roster:
+		st.intensity = Soldier.INTENSITY_NORMAL
+	var r1 := Training.run_week(us)
+	us.facility_levels = {Facilities.TRAINING: 5}
+	var r5 := Training.run_week(us)
+	check(absi(int(r5[so.id]["xp"]) - roundi(int(r1[so.id]["xp"]) * 1.2)) <= 2, "Training Facility: +20%% weekly XP (%d vs %d)" % [r5[so.id]["xp"], r1[so.id]["xp"]])
+	us.facility_levels = {}
+	var o1 := s.offseason_xp(100.0)
+	us.facility_levels = {Facilities.DRILL: 5}
+	var o5 := s.offseason_xp(100.0)
+	check(absi(int(o5[so.id]["xp"]) - roundi(int(o1[so.id]["xp"]) * 1.2)) <= 2, "Drill Rooms: +20%% offseason XP (%d vs %d)" % [o5[so.id]["xp"], o1[so.id]["xp"]])
+	# Marketing: one-time XP for honors on a club with the upgrade.
+	var rev := SeasonReview.new()
+	rev.awards = [{"award": "MVP", "soldier": so, "team": us, "line": ""}]
+	var before := Vector2i(so.level, so.xp)
+	us.facility_levels = {}
+	rev._marketing_xp(s, {so: 2})
+	check(Vector2i(so.level, so.xp) == before, "level 1 Marketing: no honor XP")
+	us.facility_levels = {Facilities.MARKETING: 5}
+	rev._marketing_xp(s, {so: 2})
+	check(so.level > before.x or so.xp > before.y, "Marketing Team: honor XP")
+	# Lab notes don't count as rating or grade changes.
+	var n := so.history.size()
+	so.log_note("Sports Science Lab: kept his dev star (Age)")
+	var e: Dictionary = so.history[-1]
+	check(so.history.size() == n + 1 and e["changes"].is_empty() and not Soldier.history_has_grade_change(e), "a lab note is history only")
+	# Performance Institute: raises one group cap 1-2, only on clubs above level 1.
+	for t in s.league.teams:
+		t.facility_levels.erase(Facilities.INSTITUTE)
+	us.facility_levels[Facilities.INSTITUTE] = 5
+	var hits: Array = []
+	var rng := RandomNumberGenerator.new()
+	for k in 40:
+		rng.seed = 1000 + k
+		hits.append_array(s.facilities.institute(s, rng))
+		if not hits.is_empty():
+			break
+	check(not hits.is_empty() and hits.all(func(h): return h["team"] == us), "only an Institute club raises caps")
+	if not hits.is_empty():
+		var h: Dictionary = hits[0]
+		var hs: Soldier = h["soldier"]
+		var last: Dictionary = hs.history[-1]
+		check(int(h["to"]) - int(h["from"]) in [1, 2] and hs.group_cap(h["group"]) == int(h["to"]), "cap +1-2 (%d -> %d)" % [h["from"], h["to"]])
+		check(String(last["reason"]).begins_with("Performance Institute") and last["caps"][h["group"]] == [int(h["from"]), int(h["to"])], "the cap change is in his history")
+
 func test_hometown_pull() -> void:
 	var s := _fixed(41)
 	var det: Team = s.league.team_by_abbrev("DET")
@@ -3043,7 +3207,7 @@ func test_revenue() -> void:
 		check(int(l["home_games"]) >= 4, "%s played home games" % t.abbrev)
 		var g := s2.revenue.grant_of(s2.year, t)
 		check(not g.is_empty() and float(g["grant"]) > 0.0, "%s gets a board grant" % t.abbrev)
-		check(is_equal_approx(s2.revenue.cash_of(t), float(g["cash_before"]) + float(g["grant"])), "%s grant goes into the fund" % t.abbrev)
+		check(is_equal_approx(s2.revenue.cash_of(t), float(g["cash_before"]) + float(g["grant"]) - s2.facilities.upkeep_of(s2.year, t)), "%s grant goes into the fund (less facility upkeep)" % t.abbrev)
 	check(total / 20.0 > 120000.0 * Revenue.scale() and total / 20.0 < 280000.0 * Revenue.scale(), "the league averages sensible revenue (%.0f)" % (total / 20.0))
 	var cg := s2.revenue.grant_of(s2.year, s2.champion)
 	check(float(cg["playoffs"]) >= Revenue.TITLE_GRANT + 2 * Revenue.PLAYOFF_WIN_GRANT, "the champion's grant includes the title")
