@@ -145,53 +145,201 @@ func _board_section(v: VBoxContainer, s: Season, us: Team) -> void:
 
 # --- facilities -----------------------------------------------------------------------
 
-## Facilities (issue #38): the eight upgrades, what each level does, and buying the next one.
+const UPKEEP_COLOR := Color("#f59e0b")
+const BONUS_COLOR := Color("#38bdf8")
+const UPGRADE_COLOR := Color("#a78bfa")
+const PIP_EMPTY := Color("#05070c")
+
+
+## Where the club fund has gone since the latest board grant (or since the club opened, before the first
+## review): {since, total, upkeep, upgrades, bonuses, left} in $K. Upkeep and upgrades come from the
+## facility ledgers; signing bonuses are everything else that left the fund (the luxury tax is charged
+## before the grant, so it is never in the period).
+static func fund_breakdown(s: Season, us: Team) -> Dictionary:
+	var rv := s.revenue
+	var left := rv.cash_of(us)
+	var years: Array = rv.grants.keys()
+	years.sort()
+	var g := -1
+	for y in years:
+		if not rv.grant_of(int(y), us).is_empty():
+			g = int(y)
+	if g < 0:
+		var b0 := float(rv.bonuses_paid(s.year, us))
+		var u0 := float(s.facilities.purchases_of(s.year, us))
+		return {"since": -1, "total": maxf(0.0, left) + b0 + u0, "upkeep": 0.0, "upgrades": u0, "bonuses": b0, "left": left}
+	var r := rv.grant_of(g, us)
+	var total := maxf(0.0, float(r["cash_before"]) + float(r["grant"]))
+	var upkeep := float(s.facilities.upkeep_of(g, us))
+	var upgrades := float(s.facilities.purchases_of(g, us))
+	var bonuses := maxf(0.0, total - left - upkeep - upgrades)
+	return {"since": g, "total": maxf(total, maxf(0.0, left) + upkeep + upgrades + bonuses), "upkeep": upkeep, "upgrades": upgrades, "bonuses": bonuses, "left": left}
+
+
+## Facilities (issues #38, #73): the club fund ring, then one wide card per facility with its 5-level bar,
+## what it does now and next, and buying the next level.
 func facilities() -> Control:
 	var s := _season()
 	var us := s.user_team()
 	var fx := s.facilities
-	var v := _vbox(14)
+	var v := _vbox(16)
 	var offseason := s.phase == Season.PHASE_OFFSEASON
-	var fund := s.revenue.cash_of(us)
 	v.add_child(_section("%s  -  FACILITIES" % us.name.to_upper()))
-	v.add_child(UiKit.rich("CLUB FUND [color=%s]%s[/color]   -   INVESTED [color=white]%s[/color]   -   UPKEEP [color=white]%s[/color] a year   -   %s" % [
-		UiKit.hex(UiKit.BAD if fund < 0.0 else Color.WHITE), _money(fund), _money(float(Facilities.invested(us))),
-		_money(float(Facilities.upkeep_due(s, us))),
-		("UPGRADES LEFT [color=white]%d of %d[/color] this offseason" % [fx.upgrades_left(s, us), Facilities.MAX_UPGRADES]) if offseason else "upgrades open in the offseason"], 18))
+	v.add_child(_fund_panel(s, us, offseason))
 	var last := s.year if offseason else s.year - 1
 	var paid := fx.upkeep_of(last, us)
 	var dropped := fx.drop_of(last, us)
 	if dropped != &"":
-		v.add_child(UiKit.label("The %d board review: the fund couldn't cover upkeep, so the %s lost a level." % [last, Facilities.facility_name(dropped)], 15, UiKit.BAD))
+		v.add_child(UiKit.label("The %d board review: the fund couldn't cover upkeep, so the %s lost a level." % [last, Facilities.facility_name(dropped)], 18, UiKit.BAD))
 	elif paid > 0:
-		v.add_child(UiKit.label("The %d board review took %s in upkeep." % [last, _money(float(paid))], 15, UiKit.MUTED))
+		v.add_child(UiKit.label("The %d board review took %s in upkeep." % [last, _money(float(paid))], 18, UiKit.MUTED))
+	for id in Facilities.IDS:
+		v.add_child(_facility_card(s, us, id))
 	var help := UiKit.label("Upgrades are bought in the offseason from the club fund and work at once. One level per facility and %d upgrades a club each offseason. Upkeep is %d%% of everything invested (your starting levels count), at most %d%% of the year's board grant, and is charged right after the grant. If the fund can't cover it, a facility loses a level instead." % [
-		Facilities.MAX_UPGRADES, roundi(100.0 * Facilities.UPKEEP_SHARE), roundi(100.0 * Facilities.UPKEEP_GRANT_CAP)], 14, UiKit.MUTED)
+		Facilities.MAX_UPGRADES, roundi(100.0 * Facilities.UPKEEP_SHARE), roundi(100.0 * Facilities.UPKEEP_GRANT_CAP)], 16, UiKit.MUTED)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(help)
-	for id in Facilities.IDS:
-		var lvl := Facilities.level(us, id)
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 14)
-		var name_l := UiKit.label(Facilities.facility_name(id), 17, Color.WHITE)
-		name_l.custom_minimum_size.x = 230
-		row.add_child(name_l)
-		var lvl_l := UiKit.label("LEVEL %d" % lvl, 16, UiKit.GOOD if lvl >= Facilities.MAX_LEVEL else UiKit.TEXT)
-		lvl_l.custom_minimum_size.x = 90
-		row.add_child(lvl_l)
-		var nxt := "[color=#8b97ab]top level[/color]" if lvl >= Facilities.MAX_LEVEL else "[color=#8b97ab]next:[/color] [color=white]%s[/color] for %s" % [
-			Facilities.effect_text(id, lvl + 1), _money(float(Facilities.next_price(us, id)))]
-		var fx_l := UiKit.rich("%s\n%s" % [Facilities.effect_text(id, lvl), nxt], 14)
-		fx_l.custom_minimum_size.x = 560
-		fx_l.fit_content = true
-		row.add_child(fx_l)
-		var err := fx.upgrade_error(s, us, id)
-		var b := UiKit.button("Upgrade", _buy.bind(id), 15)
+	return v
+
+
+## The ring (fund since the last grant: upkeep, signing bonuses, upgrades, left), its legend, and the
+## facility totals.
+func _fund_panel(s: Season, us: Team, offseason: bool) -> Control:
+	var f := fund_breakdown(s, us)
+	var p := UiKit.panel(UiKit.PANEL, 10)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 48)
+	p.add_child(h)
+	var parts := [["Facility upkeep", "yearly", float(f["upkeep"]), UPKEEP_COLOR],
+		["Signing bonuses", "one-time", float(f["bonuses"]), BONUS_COLOR],
+		["Facility upgrades", "one-time", float(f["upgrades"]), UPGRADE_COLOR]]
+	var slices: Array = []
+	for pt in parts:
+		slices.append([pt[2], pt[3]])
+	var ring := FundRing.new(float(f["total"]), slices, float(f["left"]))
+	ring.set_meta(&"fund_ring", true)
+	h.add_child(ring)
+
+	var legend := _vbox(12)
+	legend.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	legend.add_child(UiKit.display("SINCE THE %d BOARD REVIEW" % int(f["since"]) if int(f["since"]) >= 0 else "SINCE THE CLUB OPENED", 22, UiKit.MUTED))
+	for pt in parts:
+		legend.add_child(_legend_row(pt[0], pt[1], float(pt[2]), pt[3]))
+	legend.add_child(_legend_row("Left in the fund", "", float(f["left"]), FundRing.TRACK))
+	h.add_child(legend)
+
+	var stats := _vbox(14)
+	stats.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	stats.add_child(_stat("INVESTED IN FACILITIES", _money(float(Facilities.invested(us))), Color.WHITE))
+	stats.add_child(_stat("UPKEEP AT NEXT REVIEW", _money(float(Facilities.upkeep_due(s, us))), UPKEEP_COLOR))
+	if offseason:
+		stats.add_child(_stat("UPGRADES LEFT THIS OFFSEASON", "%d of %d" % [s.facilities.upgrades_left(s, us), Facilities.MAX_UPGRADES], UiKit.GOOD))
+	else:
+		stats.add_child(_stat("UPGRADES", "Open in the offseason", UiKit.MUTED))
+	h.add_child(stats)
+	return p
+
+
+func _legend_row(title: String, tag: String, amount: float, color: Color) -> Control:
+	var r := HBoxContainer.new()
+	r.add_theme_constant_override("separation", 12)
+	var sw := Panel.new()
+	sw.add_theme_stylebox_override("panel", UiKit.flat(color, 3, 1 if color == FundRing.TRACK else 0, UiKit.LINE))
+	sw.custom_minimum_size = Vector2(20, 20)
+	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	r.add_child(sw)
+	var name_l := UiKit.label(title, 20, UiKit.TEXT)
+	name_l.custom_minimum_size.x = 200
+	r.add_child(name_l)
+	var amt := UiKit.display(_money(amount), 26, UiKit.BAD if amount < 0.0 else Color.WHITE)
+	amt.custom_minimum_size.x = 130
+	amt.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	r.add_child(amt)
+	if tag != "":
+		var t := UiKit.label(tag.to_upper(), 14, UiKit.MUTED)
+		t.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		r.add_child(t)
+	return r
+
+
+func _stat(title: String, value: String, color: Color) -> Control:
+	var b := _vbox(0)
+	b.add_child(UiKit.label(title, 15, UiKit.MUTED))
+	b.add_child(UiKit.display(value, 32, color))
+	return b
+
+
+## One facility: name and 5-level bar, what it does now and at the next level, and its price and button.
+func _facility_card(s: Season, us: Team, id: StringName) -> Control:
+	var lvl := Facilities.level(us, id)
+	var maxed := lvl >= Facilities.MAX_LEVEL
+	var p := UiKit.panel(UiKit.PANEL, 8)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 28)
+	p.add_child(row)
+
+	var left := _vbox(8)
+	left.custom_minimum_size.x = 340
+	left.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	left.add_child(UiKit.display(Facilities.facility_name(id).to_upper(), 28, Color.WHITE))
+	var bar := HBoxContainer.new()
+	bar.add_theme_constant_override("separation", 6)
+	for i in range(1, Facilities.MAX_LEVEL + 1):
+		bar.add_child(_level_pip(i, lvl, maxed))
+	var lv := UiKit.display("LV %d / %d" % [lvl, Facilities.MAX_LEVEL], 20, UiKit.GOOD if maxed else UiKit.TEXT)
+	lv.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bar.add_child(lv)
+	left.add_child(bar)
+	row.add_child(left)
+
+	var mid := _vbox(6)
+	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mid.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	mid.add_child(UiKit.rich("[color=%s]NOW[/color]   [color=white]%s[/color]" % [UiKit.hex(UiKit.MUTED), Facilities.effect_text(id, lvl)], 19))
+	if maxed:
+		mid.add_child(UiKit.rich("[color=%s]TOP LEVEL[/color]" % UiKit.hex(UiKit.GOOD), 19))
+	else:
+		mid.add_child(UiKit.rich("[color=%s]NEXT[/color]   [color=%s]%s[/color]" % [UiKit.hex(UiKit.MUTED), UiKit.hex(UiKit.ACCENT), Facilities.effect_text(id, lvl + 1)], 19))
+	row.add_child(mid)
+
+	var right := _vbox(6)
+	right.custom_minimum_size.x = 170
+	right.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	if not maxed:
+		var price := UiKit.display(_money(float(Facilities.next_price(us, id))), 28, Color.WHITE)
+		price.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		right.add_child(price)
+		var err := s.facilities.upgrade_error(s, us, id)
+		var b := UiKit.button("Upgrade", _buy.bind(id), 18)
 		b.disabled = err != ""
 		b.tooltip_text = err
-		row.add_child(b)
-		v.add_child(row)
-	return v
+		b.set_meta(&"facility_id", id)
+		right.add_child(b)
+	else:
+		var m := UiKit.display("MAXED", 28, UiKit.GOOD)
+		m.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		right.add_child(m)
+	row.add_child(right)
+	return p
+
+
+## Segment `i` of a facility's level bar: filled up to the level, the next level outlined, the rest dark.
+func _level_pip(i: int, lvl: int, maxed: bool) -> Control:
+	var pip := Panel.new()
+	var sb: StyleBoxFlat
+	if i <= lvl:
+		sb = UiKit.flat(UiKit.GOOD if maxed else UiKit.ACCENT, 2)
+	elif i == lvl + 1:
+		sb = UiKit.flat(Color(UiKit.ACCENT, 0.18), 2, 2, Color(UiKit.ACCENT, 0.7))
+	else:
+		sb = UiKit.flat(PIP_EMPTY, 2, 1, UiKit.LINE)
+	sb.skew = Vector2(UiKit.SKEW, 0)
+	pip.add_theme_stylebox_override("panel", sb)
+	pip.custom_minimum_size = Vector2(52, 16)
+	pip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pip.set_meta(&"facility_pip_filled", i <= lvl)
+	return pip
 
 
 func _buy(id: StringName) -> void:

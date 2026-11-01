@@ -196,6 +196,38 @@ func _init() -> void:
 	_check(hub.go_back(), "back pops page")
 	_check(not hub.go_back(), "back at tab root does nothing")
 
+	# Facilities (issue #73): the fund ring, a 5-level bar per facility, and buying moves both.
+	var fac_us: Team = hub.season.user_team()
+	var fac_cash: float = hub.season.revenue.cash_of(fac_us)
+	hub.season.revenue.cash[fac_us.abbrev] = 500000.0
+	hub.open("Facilities", hub.club.facilities)
+	await process_frame
+	_check(_with_meta(hub._content, &"fund_ring").size() == 1, "facilities page shows the fund ring")
+	var pips := _with_meta(hub._content, &"facility_pip_filled")
+	var lv_sum := 0
+	for fid in Facilities.IDS:
+		lv_sum += Facilities.level(fac_us, fid)
+	_check(pips.size() == Facilities.IDS.size() * Facilities.MAX_LEVEL and pips.filter(func(n): return n.get_meta(&"facility_pip_filled")).size() == lv_sum, "facility level bars match the levels")
+	var buy_btn: Button = null
+	for b in _with_meta(hub._content, &"facility_id"):
+		if not b.disabled:
+			buy_btn = b
+			break
+	_check(buy_btn != null, "an upgrade can be bought in the offseason")
+	if buy_btn != null:
+		var bid: StringName = buy_btn.get_meta(&"facility_id")
+		var before_lvl := Facilities.level(fac_us, bid)
+		var before_up := float(ClubPages.fund_breakdown(hub.season, fac_us)["upgrades"])
+		buy_btn.pressed.emit()
+		await process_frame
+		var fb := ClubPages.fund_breakdown(hub.season, fac_us)
+		_check(Facilities.level(fac_us, bid) == before_lvl + 1 and float(fb["upgrades"]) > before_up, "buying an upgrade raises the level and the ring's upgrades slice")
+		_check(is_equal_approx(float(fb["total"]), float(fb["upkeep"]) + float(fb["bonuses"]) + float(fb["upgrades"]) + float(fb["left"])), "ring slices add up to the fund")
+	hub.season.revenue.cash[fac_us.abbrev] = fac_cash
+	hub.page_stack.clear()
+	hub.refresh()
+	await process_frame
+
 	# Re-sign negotiation room: make a case, put an offer in, then walk away from the page.
 	var talker: Soldier = hub.season.user_team().roster[1]
 	talker.contract.years = 0
@@ -410,6 +442,11 @@ func _extension_flow(hub) -> void:
 
 
 func _visit_pages(hub, phase: String) -> void:
+	var all_tiles: Array = hub._todo_tiles(hub.season.user_team())
+	var fac_tiles := all_tiles.filter(func(t): return t.has_meta(&"facilities_todo"))
+	_check(fac_tiles.size() == (1 if hub.season.phase == Season.PHASE_OFFSEASON else 0), "Home facilities to-do only in the offseason (%s)" % phase)
+	for t in all_tiles:
+		t.free()
 	var p = hub.pages
 	var builders := {
 		"standings": p.standings, "schedule": p.schedule, "roster": p.roster, "progression": p.progression,
