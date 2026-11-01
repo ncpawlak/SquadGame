@@ -1720,6 +1720,7 @@ func _player_stats(s: Soldier) -> Control:
 	v.add_child(toggle)
 	v.add_child(_player_game_log(s) if _stats_season else _player_career(s))
 	v.add_child(_player_next_gen(s))
+	v.add_child(_player_conditions(s))
 	return v
 
 
@@ -1734,6 +1735,34 @@ func _player_next_gen(s: Soldier) -> Control:
 		return v
 	v.add_child(UiKit.table(["STAT", "VALUE"], StatRegistry.telemetry_rows(line), [320, 120]))
 	v.add_child(UiKit.label("Tracked from the first match played with Next Gen telemetry; earlier matches count as zero.", 13, UiKit.MUTED))
+	return v
+
+
+## Career splits by weather, home or away, and the home field's surface, plus where he stands out.
+func _player_conditions(s: Soldier) -> Control:
+	var v := _vbox(12)
+	v.add_child(_section("WEATHER AND FIELD  -  CAREER"))
+	var rows: Array = []
+	var add := func(label: String, line: Dictionary):
+		if int(line.get("matches", 0)) > 0:
+			var m := int(line["matches"])
+			rows.append([label, m, line.get("kills", 0), line.get("deaths", 0), "%.2f" % (float(line.get("kills", 0)) / maxf(1.0, float(line.get("deaths", 0)))),
+				roundi(float(line.get("damage", 0)) / m)])
+	for c in StatRegistry.CONDITIONS:
+		add.call(c[2], StatRegistry.weather_line(s, c[0], c[1]))
+	add.call("At home", StatRegistry.weather_line(s, "", -1, "home"))
+	add.call("Away", StatRegistry.weather_line(s, "", -1, "away"))
+	for surface in ArenaMap.SURFACES:
+		add.call("On %s" % surface, StatRegistry.surface_line(s, surface))
+	if rows.is_empty():
+		v.add_child(UiKit.label("No matches recorded with weather yet.", 16, UiKit.MUTED))
+		return v
+	v.add_child(UiKit.table(["CONDITION", "M", "K", "D", "K/D", "DMG/M"], rows, [200, 50, 60, 60, 70, 80]))
+	for e: Dictionary in StatRegistry.weather_edges(s):
+		var text := "%s %s in the %s: %.2f kills per death over %d matches, against %.2f in clear weather." % [
+			s.display_name(), "plays well" if e["well"] else "struggles", e["kind"], e["kd"], e["matches"], e["base_kd"]]
+		v.add_child(UiKit.label(text, 15, UiKit.GOOD if e["well"] else UiKit.BAD))
+	v.add_child(UiKit.label("Counts matches from the first one played with condition splits; earlier matches are not split.", 13, UiKit.MUTED))
 	return v
 
 

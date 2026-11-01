@@ -24,6 +24,8 @@ func _init() -> void:
 		"test_records_phase",
 		"test_record_save_and_news",
 		"test_team_totals",
+		"test_weather_splits",
+		"test_weather_edges",
 		"test_telemetry_box",
 		"test_telemetry_lines",
 		"test_award_stories",
@@ -406,6 +408,66 @@ func test_team_totals() -> void:
 	for abbrev in regular:
 		most = maxi(most, int(regular[abbrev]["wins"]))
 	check(not wins_top.is_empty() and wins_top[0]["value"] == float(most), "the wins leader has the most wins")
+
+## Every match lands in one weather bucket and one surface bucket, home or away, and they add up to the career.
+func test_weather_splits() -> void:
+	var s := _season(96)
+	var so: Soldier = s.league.all_soldiers().filter(func(x: Soldier): return x.season_lines.has(s.year))[0]
+	var home := 0
+	var away := 0
+	for m: ScheduledMatch in _regular(s) + s.playoff_matches:
+		if m.is_played() and m.result.box.has(so.id):
+			if int(m.result.box[so.id]["team"]) == 0:
+				home += 1
+			else:
+				away += 1
+	var all := StatRegistry.weather_line(so)
+	check(int(all["matches"]) == int(so.career["matches"]) and int(all["kills"]) == int(so.career["kills"]), "weather buckets add up to the career")
+	var surfaces := StatRegistry.surface_line(so)
+	check(int(surfaces["matches"]) == int(so.career["matches"]) and int(surfaces["damage"]) == int(so.career["damage"]), "surface buckets add up to the career")
+	check(int(StatRegistry.weather_line(so, "", -1, "home").get("matches", 0)) == home, "home matches (%d)" % home)
+	check(int(StatRegistry.weather_line(so, "", -1, "away").get("matches", 0)) == away, "away matches (%d)" % away)
+	# A rainy, sandy match goes to its own buckets.
+	var m: ScheduledMatch = _regular(s)[0]
+	var r := m.result
+	r.weather_kind = Weather.RAIN
+	r.weather_level = 2
+	r.surface = "sand"
+	var star: Soldier = r.teams[1].starters()[0]
+	var kills_before := int(StatRegistry.weather_line(star, "rain", 2, "away").get("kills", 0))
+	Progression.award_match_xp(r, 0)
+	var rain := StatRegistry.weather_line(star, "rain", 2, "away")
+	check(int(rain["matches"]) == 1 and int(rain["kills"]) == kills_before + int(r.box[star.id]["kills"]), "a rainy match counts toward rain")
+	check(int(StatRegistry.surface_line(star, "sand", "away")["matches"]) == 1, "and toward sand")
+	check(StatRegistry.weather_line(star, "snow").is_empty(), "not toward snow")
+	var loaded := SaveSystem.from_text(SaveSystem.to_text(s))
+	check(loaded != null, "season loads")
+	if loaded != null:
+		var twin: Soldier = loaded.league.all_soldiers().filter(func(x: Soldier): return x.id == star.id)[0]
+		check(twin.split_career == star.split_career, "splits survive a save")
+
+
+## Playing well or badly in rain or snow needs a real sample in both, and a clear gap.
+func test_weather_edges() -> void:
+	var so := Soldier.new()
+	so.split_career = {
+		"wx|clear|0|home": {"matches": 10, "kills": 20, "deaths": 20},
+		"wx|rain|1|home": {"matches": 4, "kills": 10, "deaths": 4},
+		"wx|rain|2|away": {"matches": 4, "kills": 12, "deaths": 4},
+		"wx|snow|1|home": {"matches": 7, "kills": 7, "deaths": 14},
+	}
+	var edges := StatRegistry.weather_edges(so)
+	var by_kind := {}
+	for e in edges:
+		by_kind[e["kind"]] = e
+	check(by_kind.has(&"rain") and by_kind[&"rain"]["well"] and by_kind[&"rain"]["matches"] == 8, "light and inclement rain add up, and he plays well in it")
+	check(by_kind.has(&"snow") and not by_kind[&"snow"]["well"], "he struggles in snow")
+	so.split_career["wx|clear|0|home"]["matches"] = 5
+	check(StatRegistry.weather_edges(so).is_empty(), "too few clear matches says nothing")
+	so.split_career["wx|clear|0|home"]["matches"] = 10
+	so.split_career["wx|rain|1|home"] = {"matches": 4, "kills": 4, "deaths": 4}
+	so.split_career["wx|rain|2|away"] = {"matches": 4, "kills": 4, "deaths": 4}
+	check(not StatRegistry.weather_edges(so).any(func(e): return e["kind"] == &"rain"), "an ordinary gap is no edge")
 
 ## Telemetry counters in every box line agree with each other and with the match.
 func test_telemetry_box() -> void:
