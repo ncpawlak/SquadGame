@@ -331,6 +331,9 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   - **Team leaders** (`scripts/season/team_stats.gd`): League Leaders has a TEAMS view: wins, game differential,
     kills, kills per death, damage, assists, saves, headshots, team wipes and hill time and captures, summed for this
     season from the box scores (combined, regular season or playoffs).
+  - **Head-to-head** (`StatLedger.head_to_head`): every league match also updates its pair's series: wins, games,
+    current streak and the last 10 meetings. The rivalry badge tooltip, League Wire rivalry stories and the Weekly
+    News read it (`Rivalries` keeps only heat); older saves move their records over on load.
   - **Condition splits**: each soldier's career is also kept by weather (clear, light/inclement rain and snow), home
     or away, and the home field's floor surface (`Soldier.split_career`). The player's Stats tab has a WEATHER AND
     FIELD table and calls out rain or snow where his kills per death clearly beat or trail his clear-weather ratio

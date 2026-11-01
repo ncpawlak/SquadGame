@@ -8,6 +8,8 @@ extends RefCounted
 ## kept per match, so a save from before it starts with an empty book. `seed_records` fills the books
 ## with the fixed marks of RecordSeed, so every league starts with the same targets.
 
+## Meetings kept per pair of teams in its head-to-head history.
+const MEETINGS_KEPT := 10
 ## Entries kept per record list (the same depth as the season and career books).
 const KEEP := 5
 ## A record only makes news once its list is full and this many matches are on the books, so the first
@@ -29,6 +31,10 @@ var run := {}
 ## Team abbrev -> its longest {length, year, week} (the week it was reached).
 var best_win := {}
 var best_lose := {}
+## "ABC|XYZ" (abbrevs, sorted) -> the pair's head-to-head: {n: meetings, w: {abbrev: wins}, g: {abbrev: games won},
+## streak_team, streak, last, meetings}. `last` is {year, week, stage, winner, score, snapped} (snapped = the length of a
+## streak it ended); `meetings` is the last MEETINGS_KEPT of those, oldest first.
+var head_to_head := {}
 
 
 ## Records one finished league match and stamps the records it broke on `m.records`.
@@ -84,12 +90,21 @@ func record_match(season: Season, m: ScheduledMatch) -> void:
 		elif not playoff.is_empty():
 			m.records.append(playoff)
 	_streaks(season, m)
+	_head_to_head(season, m)
 
 
-## Saves from before the ledger existed load with it empty and get the seeded marks.
-func ensure(_season: Season) -> void:
+## Saves from before the ledger existed load with it empty and get the seeded marks; head-to-head records that
+## older saves kept on `Rivalries` move here.
+func ensure(season: Season) -> void:
 	if Season.seed_records:
 		seed_records()
+	if season.rivalries != null and not season.rivalries.records.is_empty():
+		for k in season.rivalries.records:
+			if not head_to_head.has(k):
+				var rec: Dictionary = season.rivalries.records[k]
+				rec["meetings"] = [] if (rec["last"] as Dictionary).is_empty() else [rec["last"]]
+				head_to_head[k] = rec
+		season.rivalries.records = {}
 
 
 ## Puts RecordSeed's single-match marks and streaks on the books (once).
@@ -148,6 +163,39 @@ func _offer(key: String, snap: Dictionary) -> int:
 	return at
 
 
+## The pair's head-to-head, or {} if they have never met.
+func head_to_head_of(a: Team, b: Team) -> Dictionary:
+	return head_to_head.get(Rivalries.key(a.abbrev, b.abbrev), {})
+
+
+## "DET lead the series 5-3, and have won 2 straight" / "Series tied 2-2" / "No meetings yet".
+func series_text(a: Team, b: Team) -> String:
+	var rec := head_to_head_of(a, b)
+	if rec.is_empty():
+		return "No meetings yet"
+	var wa := int(rec["w"].get(a.abbrev, 0))
+	var wb := int(rec["w"].get(b.abbrev, 0))
+	var text := "Series tied %d-%d" % [wa, wb]
+	if wa > wb:
+		text = "%s lead the series %d-%d" % [a.abbrev, wa, wb]
+	elif wb > wa:
+		text = "%s lead the series %d-%d" % [b.abbrev, wb, wa]
+	if int(rec["streak"]) >= 2:
+		text += ", %s have won %d straight" % [rec["streak_team"], int(rec["streak"])]
+	return text
+
+
+## "DET won 2-1 in the 2026 Final" for the pair's latest meeting ("" before the first).
+func last_meeting_text(a: Team, b: Team) -> String:
+	var last: Dictionary = head_to_head_of(a, b).get("last", {})
+	if last.is_empty():
+		return ""
+	var where := "%d Week %d" % [int(last["year"]), int(last["week"])]
+	if StringName(last["stage"]) != Season.STAGE_REGULAR:
+		where = "the %d %s" % [int(last["year"]), String(last["stage"]).capitalize()]
+	return "%s won %s in %s" % [last["winner"], last["score"], where]
+
+
 func _event(stat: Dictionary, phase: String, v: float, id: int, who: String, team: String, previous: Dictionary) -> Dictionary:
 	return {"stat": stat["id"], "label": stat["label"], "noun": stat["noun"], "fmt": stat["fmt"], "phase": phase,
 		"value": v, "id": id, "name": who, "team": team, "previous": previous}
@@ -162,6 +210,37 @@ func _streaks(season: Season, m: ScheduledMatch) -> void:
 	run[lose.abbrev] = mini(-1, int(run.get(lose.abbrev, 0)) - 1)
 	_extend(season, m, win.abbrev, int(run[win.abbrev]), best_win, StatRegistry.STREAKS[0])
 	_extend(season, m, lose.abbrev, -int(run[lose.abbrev]), best_lose, StatRegistry.STREAKS[1])
+
+
+## Folds one finished match into its pair's head-to-head.
+func _head_to_head(season: Season, m: ScheduledMatch) -> void:
+	var w := m.winner()
+	var l := m.loser()
+	if w == null or l == null:
+		return
+	var k := Rivalries.key(m.home.abbrev, m.away.abbrev)
+	if not head_to_head.has(k):
+		head_to_head[k] = {"n": 0, "w": {m.home.abbrev: 0, m.away.abbrev: 0}, "g": {m.home.abbrev: 0, m.away.abbrev: 0},
+			"streak_team": "", "streak": 0, "last": {}, "meetings": []}
+	var rec: Dictionary = head_to_head[k]
+	var ended_streak := 0
+	if rec["streak_team"] == l.abbrev:
+		ended_streak = int(rec["streak"])
+	rec["n"] += 1
+	rec["w"][w.abbrev] += 1
+	rec["g"][w.abbrev] += m.games_for(w)
+	rec["g"][l.abbrev] += m.games_for(l)
+	if rec["streak_team"] == w.abbrev:
+		rec["streak"] += 1
+	else:
+		rec["streak_team"] = w.abbrev
+		rec["streak"] = 1
+	rec["last"] = {"year": season.year, "week": m.week, "stage": m.stage, "winner": w.abbrev,
+		"score": "%d-%d" % [m.games_for(w), m.games_for(l)], "snapped": ended_streak}
+	var meetings: Array = rec["meetings"]
+	meetings.append(rec["last"])
+	if meetings.size() > MEETINGS_KEPT:
+		meetings.remove_at(0)
 
 
 ## Notes `abbrev`'s run of `length` and, when it passes every team's best, stamps a record on the match.

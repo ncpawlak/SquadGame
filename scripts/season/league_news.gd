@@ -709,7 +709,7 @@ func _rivalry(season: Season, m: ScheduledMatch, when: String) -> void:
 		s.add_morale(swing)
 	for s in l.roster:
 		s.add_morale(-swing)
-	var rec := rv.record_of(w, l)
+	var rec := season.ledger.head_to_head_of(w, l)
 	var snapped_streak := int(rec.get("last", {}).get("snapped", 0))
 	var notable := (rv.flags(w, l) & Rivalries.TEAM) != 0 or m.stage != Season.STAGE_REGULAR \
 		or rv.heat_of(w, l) >= HOT_HEAT or snapped_streak >= Rivalries.STREAK_STORY
@@ -721,7 +721,7 @@ func _rivalry(season: Season, m: ScheduledMatch, when: String) -> void:
 		head = "%s snap a %d-game skid against %s, %s" % [w.name, snapped_streak, l.nickname, games]
 	_add(season, when, "rivalry", [w.abbrev, l.abbrev], 0, head,
 		"Bragging rights to the %s. %s. The %s will hear about this one until the rematch." % [
-			w.nickname, rv.record_text(w, l), l.nickname])
+			w.nickname, season.ledger.series_text(w, l), l.nickname])
 
 
 func _rivalry_change(season: Season, when: String, e: Dictionary) -> void:

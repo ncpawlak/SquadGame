@@ -8,8 +8,7 @@ extends RefCounted
 ## trade between the two adds some too); heat decays weekly and more over the offseason. Once a
 ## pair's heat passes FORM_HEAT it becomes an emergent TEAM rivalry, and it ends when the heat
 ## falls below FADE_HEAT. Intensity (base for the kinds + heat) scales the morale swing.
-## Head-to-head records, streaks and last meetings live here for now and move into the stat
-## ledger (issue #11) once that exists.
+## Head-to-head records, streaks and last meetings live in the stat ledger (StatLedger.head_to_head).
 
 const DIVISIONAL := 1
 const TEAM := 2
@@ -50,8 +49,7 @@ const STREAK_STORY := 3
 var heat := {}
 ## "ABC|XYZ" -> year the emergent team rivalry formed.
 var emergent := {}
-## "ABC|XYZ" -> {n: meetings, w: {abbrev: wins}, g: {abbrev: games won}, streak_team, streak, last}.
-## `last` is {year, week, stage, winner, score, snapped} (snapped = the length of a streak it ended).
+## Saves from before the stat ledger kept head-to-head records here; StatLedger.ensure moves them out on load.
 var records := {}
 ## {kind: &"formed" | &"ended", a, b} from the most recent record_week (read by LeagueNews).
 var last_events: Array = []
@@ -124,29 +122,7 @@ func title(a: Team, b: Team) -> String:
 	return t[0] if not t.is_empty() else ""
 
 
-## The pair's head-to-head, or {} if they have never met.
-func record_of(a: Team, b: Team) -> Dictionary:
-	return records.get(key(a.abbrev, b.abbrev), {})
-
-
-## "DET lead the series 5-3, and have won 2 straight" / "Series tied 2-2" / "No meetings yet".
-func record_text(a: Team, b: Team) -> String:
-	var rec := record_of(a, b)
-	if rec.is_empty():
-		return "No meetings yet"
-	var wa := int(rec["w"].get(a.abbrev, 0))
-	var wb := int(rec["w"].get(b.abbrev, 0))
-	var text := "Series tied %d-%d" % [wa, wb]
-	if wa > wb:
-		text = "%s lead the series %d-%d" % [a.abbrev, wa, wb]
-	elif wb > wa:
-		text = "%s lead the series %d-%d" % [b.abbrev, wb, wa]
-	if int(rec["streak"]) >= 2:
-		text += ", %s have won %d straight" % [rec["streak_team"], int(rec["streak"])]
-	return text
-
-
-## Folds a week of results into the records and heat, then forms or ends emergent rivalries.
+## Folds a week of results into the heat, then forms or ends emergent rivalries.
 func record_week(season: Season, played: Array) -> void:
 	last_events = []
 	for k in heat.keys():
@@ -156,26 +132,9 @@ func record_week(season: Season, played: Array) -> void:
 	for m: ScheduledMatch in played:
 		if not m.is_played():
 			continue
-		var w := m.winner()
-		var l := m.loser()
 		var k := key(m.home.abbrev, m.away.abbrev)
-		var rec := _rec(k, m.home, m.away)
-		var ended_streak := 0
-		if rec["streak_team"] == l.abbrev:
-			ended_streak = int(rec["streak"])
-		rec["n"] += 1
-		rec["w"][w.abbrev] += 1
-		rec["g"][w.abbrev] += m.games_for(w)
-		rec["g"][l.abbrev] += m.games_for(l)
-		if rec["streak_team"] == w.abbrev:
-			rec["streak"] += 1
-		else:
-			rec["streak_team"] = w.abbrev
-			rec["streak"] = 1
-		rec["last"] = {"year": season.year, "week": m.week, "stage": m.stage, "winner": w.abbrev,
-			"score": "%d-%d" % [m.games_for(w), m.games_for(l)], "snapped": ended_streak}
 		var gain := MEETING_HEAT
-		if m.games_for(l) > 0:
+		if m.games_for(m.loser()) > 0:
 			gain += CLOSE_HEAT
 		if m.stage != Season.STAGE_REGULAR:
 			gain += PLAYOFF_HEAT
@@ -212,10 +171,3 @@ func _cool_off() -> void:
 
 func _add_heat(k: String, amount: float) -> void:
 	heat[k] = minf(MAX_HEAT, float(heat.get(k, 0.0)) + amount)
-
-
-func _rec(k: String, a: Team, b: Team) -> Dictionary:
-	if not records.has(k):
-		records[k] = {"n": 0, "w": {a.abbrev: 0, b.abbrev: 0}, "g": {a.abbrev: 0, b.abbrev: 0},
-			"streak_team": "", "streak": 0, "last": {}}
-	return records[k]

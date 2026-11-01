@@ -589,3 +589,43 @@ func test_telemetry_records() -> void:
 	var ev: Dictionary = m.records.filter(func(r): return r["stat"] == "distance")[0]
 	check(ev["noun"] == "of ground covered" and not ev["previous"].is_empty(), "it names what it passed")
 
+
+## Every league match lands in its pair's head-to-head, once, with the last meetings kept.
+func test_head_to_head() -> void:
+	var s := _season(99)
+	var played := 0
+	for m: ScheduledMatch in _regular(s) + s.playoff_matches:
+		played += 1
+	var meetings := 0
+	for k in s.ledger.head_to_head:
+		var rec: Dictionary = s.ledger.head_to_head[k]
+		meetings += int(rec["n"])
+		var wins := 0
+		for abbrev in rec["w"]:
+			wins += int(rec["w"][abbrev])
+		check(wins == int(rec["n"]), "%s: wins add up to meetings" % k)
+		check((rec["meetings"] as Array).size() == mini(int(rec["n"]), StatLedger.MEETINGS_KEPT), "%s: the last meetings are kept" % k)
+		check(rec["last"] == rec["meetings"][-1], "%s: last is the latest meeting" % k)
+	check(meetings == played, "every match is in a head-to-head (%d vs %d)" % [meetings, played])
+	var m0: ScheduledMatch = _regular(s)[0]
+	var rec0 := s.ledger.head_to_head_of(m0.home, m0.away)
+	check(not rec0.is_empty() and s.ledger.series_text(m0.home, m0.away) == s.ledger.series_text(m0.away, m0.home), "the series reads the same from either side")
+	# A long series keeps only the latest meetings.
+	var a: Team = m0.home
+	var b: Team = m0.away
+	var key := Rivalries.key(a.abbrev, b.abbrev)
+	var before := int(s.ledger.head_to_head[key]["n"])
+	for i in StatLedger.MEETINGS_KEPT + 3:
+		var extra := ScheduledMatch.new()
+		extra.week = 1
+		extra.stage = Season.STAGE_REGULAR
+		extra.home = a
+		extra.away = b
+		extra.result = MatchResult.new()
+		extra.result.teams.assign([a, b])
+		extra.result.score.assign([2, 1])
+		extra.result.winner_index = 0
+		s.ledger.record_match(s, extra)
+	var rec1: Dictionary = s.ledger.head_to_head[key]
+	check(int(rec1["n"]) == before + StatLedger.MEETINGS_KEPT + 3 and (rec1["meetings"] as Array).size() == StatLedger.MEETINGS_KEPT, "history is capped at %d" % StatLedger.MEETINGS_KEPT)
+
