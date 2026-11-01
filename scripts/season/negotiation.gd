@@ -12,13 +12,16 @@ extends RefCounted
 ##   time, and promising to keep his closest teammate for loyal players with a strong bond.
 ## - He signs when the offer's value reaches his demand AND the cash per year (salary + bonus /
 ##   years) reaches his floor (what he believes the open market would pay). Terms can't buy him
-##   below his floor.
-## - Every action costs patience; at 0 he walks into free agency. Below his demand he counters
-##   (closing part of the gap); lowballs cost extra patience and trust with thin-skinned players.
+##   below his floor. Short of his ask he can still sign on a roll (see below).
+## - Every action costs patience; at 0 he walks into free agency. Below his demand he may still
+##   sign: accept_chance() is the odds (0 under a lowball or his cash floor, 100% at his ask) and
+##   the roll is seeded, so it can't be re-rolled by reloading. A miss is a counter (closing part
+##   of the gap); lowballs cost extra patience and trust with thin-skinned players.
 ## - Arguments (SELL and HARDBALL tabs) only exist when the data backs them up. Strength =
 ##   evidence x DNA fit x leverage. A poor fit backfires (trust and patience drop, demand rises);
 ##   weak evidence gets rebutted by savvy players. Each can be used once; later ones have
-##   diminishing returns.
+##   diminishing returns. One rides on each offer or final offer as its tactic and costs no
+##   patience of its own.
 ## - Tactics: Ask what it'll take (reveals a floor range and his favourite term), Smooth it over
 ##   (repairs trust after a misstep), Sleep on it (patience back, but his demand drifts toward
 ##   where it opened) and Final offer (take it or leave it: he signs or walks).
@@ -52,6 +55,8 @@ const EXT_WALK_PATIENCE := 20.0
 const EXT_WALK_DEMAND := 0.03
 ## Extra patience lost when "Test the market" backfires (he might just do it).
 const TEST_MARKET_COST := 10.0
+## A final offer's odds are the regular odds to this power (< 1.0 odds shrink).
+const FINAL_POW := 1.25
 
 const OPEN := &"open"
 const SIGNED := &"signed"
@@ -79,6 +84,8 @@ var talk: Array = []
 var revealed := {}
 var smoothed := false
 var slept := false
+## Offers put on the table so far (seeds each offer's roll).
+var rounds := 0
 ## Backfires and insults not yet smoothed over.
 var missteps := 0
 ## In-season extension talks (see the class notes).
@@ -110,7 +117,12 @@ static func start(p_season: Season, p_team: Team, s: Soldier, ext := false) -> N
 # --- terms ---------------------------------------------------------------------
 
 func demand(years: int) -> int:
-	return Contracts._round_salary(Contracts.resign_asking(soldier, years) * demand_mult)
+	return demand_at(years, demand_mult)
+
+
+## His ask for `years` at a given multiplier (what it would be after a tactic).
+func demand_at(years: int, mult: float) -> int:
+	return Contracts._round_salary(Contracts.resign_asking(soldier, years) * mult)
 
 
 func floor_salary(years: int) -> int:
@@ -195,6 +207,36 @@ func accepts(salary: int, years: int, terms := {}) -> bool:
 	return value_to_him(salary, years, terms) >= demand(years) - 0.5 and cash_per_year(salary, years, terms) >= floor_salary(years) - 0.5
 
 
+## Odds he signs this offer right now. 1.0 at his ask, 0 if the cash is under his floor or it's a
+## lowball, and in between a curve over how close it gets (savvy and thin-skinned players are
+## harder to land with a near miss). A miss means a counter, not a walkout.
+func accept_chance(salary: int, years: int, terms := {}) -> float:
+	if accepts(salary, years, terms):
+		return 1.0
+	if cash_per_year(salary, years, terms) < floor_salary(years) - 0.5:
+		return 0.0
+	var share := offer_share(salary, years, terms)
+	if share < LOWBALL_SHARE:
+		return 0.0
+	var d := soldier.get_dna()
+	var t := (share - LOWBALL_SHARE) / (1.0 - LOWBALL_SHARE)
+	var k := 0.8 + 0.8 * d.n(&"savvy") + 0.4 * d.n(&"temperament")
+	return clampf(pow(t, k), 0.0, 0.99)
+
+
+## Odds as a final offer: a little lower, since he knows he can walk.
+func final_chance(salary: int, years: int, terms := {}) -> float:
+	var c := accept_chance(salary, years, terms)
+	return c if c >= 1.0 else pow(c, FINAL_POW)
+
+
+## Fixed roll in 0..1 for this offer in this round, so reloading a save can't re-roll it.
+func _roll(kind: String, salary: int, years: int, terms: Dictionary) -> float:
+	var h := hash([soldier.id, season.year, season.week, rounds, kind, salary, years, int(terms.get("bonus", 0)),
+		has_term(terms, &"no_trade"), has_term(terms, &"promise"), has_term(terms, &"keep")])
+	return float(absi(h) % 10000) / 10000.0
+
+
 ## The lowest salary that signs him with these terms.
 func required_salary(years: int, terms := {}) -> int:
 	var extras := value_to_him(0, years, terms)
@@ -256,7 +298,7 @@ func wake() -> void:
 # --- actions -------------------------------------------------------------------
 
 ## Why this offer can't be made ("" = it can).
-func offer_error(salary: int, years: int, terms := {}) -> String:
+func offer_error(salary: int, years: int, terms := {}, tactic: StringName = &"") -> String:
 	if not can_act():
 		return _closed_text()
 	if years < 1 or years > Contracts.MAX_YEARS:
@@ -287,7 +329,7 @@ func offer_error(salary: int, years: int, terms := {}) -> String:
 			return "He has no close teammate under contract to promise to keep."
 		if extension and not soldier.keep_promise.is_empty():
 			return "He already has a keep-the-core promise. It has to play out first."
-	return ""
+	return tactic_error(tactic)
 
 
 ## Starter promises `team` has out for the season this deal starts.
@@ -302,16 +344,26 @@ func promises_out() -> int:
 
 
 ## Puts an offer on the table. Returns {ok: bool, result: "signed" | "countered" | "insulted" |
-## "walked" | "error", text}.
-func make_offer(salary: int, years: int, terms := {}) -> Dictionary:
-	var err := offer_error(salary, years, terms)
+## "walked" | "error", text}. One tactic (an argument id) can ride on the offer: it is played first
+## and costs no patience of its own.
+func make_offer(salary: int, years: int, terms := {}, tactic: StringName = &"") -> Dictionary:
+	var err := offer_error(salary, years, terms, tactic)
 	if err != "":
 		return {"ok": false, "result": "error", "text": err}
 	var d := soldier.get_dna()
+	var walked := _play_tactic(tactic)
+	if not walked.is_empty():
+		return walked
 	_say("you", offer_text(salary, years, terms) + ".")
+	rounds += 1
 	if accepts(salary, years, terms):
 		_sign(salary, years, terms)
 		_say("him", "Deal. Let's get to work.")
+		return {"ok": true, "result": "signed", "text": "%s accepts." % soldier.full_name()}
+	var chance := accept_chance(salary, years, terms)
+	if chance > 0.0 and _roll("offer", salary, years, terms) < chance:
+		_sign(salary, years, terms)
+		_say("him", "You know what? That works. Let's get to work.")
 		return {"ok": true, "result": "signed", "text": "%s accepts." % soldier.full_name()}
 	patience -= ROUND_COST
 	var share := offer_share(salary, years, terms)
@@ -330,8 +382,12 @@ func make_offer(salary: int, years: int, terms := {}) -> Dictionary:
 		_walk()
 		return {"ok": true, "result": "walked", "text": "%s has broken off talks." % soldier.full_name()}
 	if result == "countered":
-		_say("him", "I can come down to %s a year for %d year%s%s." % [Contracts.money(required_salary(years, terms)), years,
-			"" if years == 1 else "s", " with those terms" if value_to_him(0, years, terms) > 0.0 else ""])
+		# Always quote his standing ask (it only ever falls from his arguments and your offers), never
+		# a number that shifts with the terms in this offer. The Accept button prices the terms.
+		var near := share >= 0.95
+		_say("him", "%s My number is %s a year for %d year%s.%s" % ["Close, but not quite." if near else "Not there yet.",
+			Contracts.money(demand(years)), years, "" if years == 1 else "s",
+			" That's as low as I go." if demand_mult <= floor_mult + 0.0005 else ""])
 	return {"ok": true, "result": result, "text": _say_last()}
 
 
@@ -340,17 +396,19 @@ func accept(years: int, terms := {}) -> Dictionary:
 	return make_offer(required_salary(years, terms), years, terms)
 
 
-## Take it or leave it. Signs if the offer meets his demand, or comes close enough (savvy and
-## thick-skinned players hold out for more) with the cash at his floor. Otherwise he walks.
-func final_offer(salary: int, years: int, terms := {}) -> Dictionary:
-	var err := offer_error(salary, years, terms)
+## Take it or leave it. Signs if the offer meets his demand, or rolls under final_chance (a near
+## miss can go either way, a lowball never does). Otherwise he walks. A tactic can ride on it too.
+func final_offer(salary: int, years: int, terms := {}, tactic: StringName = &"") -> Dictionary:
+	var err := offer_error(salary, years, terms, tactic)
 	if err != "":
 		return {"ok": false, "result": "error", "text": err}
-	var d := soldier.get_dna()
+	var walked := _play_tactic(tactic)
+	if not walked.is_empty():
+		return walked
 	_say("you", "Final offer: %s. Take it or leave it." % offer_text(salary, years, terms))
-	var need := 0.90 + 0.06 * d.n(&"savvy") + 0.04 * d.n(&"temperament")
-	var cash_ok := cash_per_year(salary, years, terms) >= floor_salary(years) - 0.5
-	if accepts(salary, years, terms) or (cash_ok and offer_share(salary, years, terms) >= need):
+	rounds += 1
+	var chance := final_chance(salary, years, terms)
+	if accepts(salary, years, terms) or (chance > 0.0 and _roll("final", salary, years, terms) < chance):
 		_sign(salary, years, terms)
 		_say("him", "Alright. You've got a deal.")
 		return {"ok": true, "result": "signed", "text": "%s accepts your final offer." % soldier.full_name()}
@@ -496,12 +554,57 @@ func use_argument(id: StringName) -> Dictionary:
 		return {"ok": false, "result": "error", "cut": 0.0, "text": "You don't have the evidence for that."}
 	if a["used"]:
 		return {"ok": false, "result": "error", "cut": 0.0, "text": "You already made that point."}
-	var d := soldier.get_dna()
-	var prior := used.size()
-	_say("you", a["pitch"])
 	patience -= ROUND_COST
+	var res := _apply_argument(a)
+	if patience <= 0.0:
+		_walk()
+		return {"ok": true, "result": "walked", "cut": 0.0, "text": "%s has broken off talks." % soldier.full_name()}
+	return {"ok": true, "result": res["result"], "cut": res["cut"], "text": _say_last()}
+
+
+## Why this tactic can't ride on an offer ("" = it can, or none was picked).
+func tactic_error(id: StringName) -> String:
+	if id == &"":
+		return ""
+	var a := argument(id)
+	if a.is_empty():
+		return "You don't have the evidence for that."
+	if a["used"]:
+		return "You already made that point."
+	return ""
+
+
+## His ask multiplier if `id` were played now (a backfire raises it, a landed argument cuts it).
+func tactic_mult(id: StringName) -> float:
+	var a := argument(id)
+	if a.is_empty() or a["used"]:
+		return demand_mult
+	if a["fit"] < BACKFIRE_FIT:
+		return demand_mult * BACKFIRE_MULT
+	return maxf(floor_mult, demand_mult * (1.0 - _argument_cut(a)))
+
+
+## What an offer would look like with `tactic` riding on it: {share, chance, final} (share of his
+## ask, odds he signs now, odds as a final offer).
+func preview(salary: int, years: int, terms := {}, tactic: StringName = &"") -> Dictionary:
+	var saved := demand_mult
+	if tactic != &"":
+		demand_mult = tactic_mult(tactic)
+	var out := {"share": offer_share(salary, years, terms), "chance": accept_chance(salary, years, terms),
+		"final": final_chance(salary, years, terms)}
+	demand_mult = saved
+	return out
+
+
+## Plays an argument that was already checked: pitch, his reaction, trust, his new ask. Costs no
+## ROUND_COST (the caller charges it); a backfire still costs extra patience.
+## Returns {result: "landed" | "rebutted" | "backfired", cut}.
+func _apply_argument(a: Dictionary) -> Dictionary:
+	var id: StringName = a["id"]
+	var d := soldier.get_dna()
 	var before := demand_mult
 	var result := "landed"
+	_say("you", a["pitch"])
 	if a["fit"] < BACKFIRE_FIT:
 		result = "backfired"
 		soldier.add_trust(-6.0 - 6.0 * (1.0 - d.n(&"temperament")))
@@ -513,13 +616,10 @@ func use_argument(id: StringName) -> Dictionary:
 		_say("him", _backfire_line(id))
 		season.log_talk(soldier, team, &"backfired", "%s took offense in talks with %s: \"%s\"" % [soldier.full_name(), team.abbrev, a["title"]])
 	else:
-		var strength: float = a["evidence"] * a["fit"] * leverage()
-		var cut := ARG_CUT * strength * pow(DIMINISH, prior)
-		if a["evidence"] < REBUT_EVIDENCE and d.savvy >= 60:
+		if _is_rebutted(a):
 			result = "rebutted"
-			cut *= 0.3
 			_say("him", _rebuttal_line(id))
-		demand_mult = maxf(floor_mult, demand_mult * (1.0 - cut))
+		demand_mult = maxf(floor_mult, demand_mult * (1.0 - _argument_cut(a)))
 		if a["tone"] == "hard":
 			soldier.add_trust(-3.0 * (1.0 - d.n(&"temperament")))
 		else:
@@ -527,10 +627,18 @@ func use_argument(id: StringName) -> Dictionary:
 		if result == "landed":
 			_say("him", _concede_line(id) if demand_mult < before - 0.001 else "I hear you, but I'm already at my number.")
 	used[id] = result
-	if patience <= 0.0:
-		_walk()
-		return {"ok": true, "result": "walked", "cut": 0.0, "text": "%s has broken off talks." % soldier.full_name()}
-	return {"ok": true, "result": result, "cut": maxf(0.0, 1.0 - demand_mult / before), "text": _say_last()}
+	return {"result": result, "cut": maxf(0.0, 1.0 - demand_mult / before)}
+
+
+func _is_rebutted(a: Dictionary) -> bool:
+	return a["evidence"] < REBUT_EVIDENCE and soldier.get_dna().savvy >= 60
+
+
+## Share of his ask `a` would remove if played now.
+func _argument_cut(a: Dictionary) -> float:
+	var strength: float = a["evidence"] * a["fit"] * leverage()
+	var cut := ARG_CUT * strength * pow(DIMINISH, used.size())
+	return cut * 0.3 if _is_rebutted(a) else cut
 
 
 ## Your bargaining position: lower for your best players, higher for backups.
@@ -610,6 +718,18 @@ func _opening() -> void:
 		var pal := season.relationships.best_bond(s, team)
 		if pal != null:
 			_say("note", "Agent: He's close with %s. That counts for something." % pal.short_name())
+
+
+## Plays the tactic riding on an offer. Returns {} to carry on, or the walked result when a
+## backfire used up his patience.
+func _play_tactic(tactic: StringName) -> Dictionary:
+	if tactic == &"":
+		return {}
+	_apply_argument(argument(tactic))
+	if patience > 0.0:
+		return {}
+	_walk()
+	return {"ok": true, "result": "walked", "text": "%s has broken off talks." % soldier.full_name()}
 
 
 func _sign(salary: int, years: int, terms: Dictionary) -> void:
