@@ -23,6 +23,7 @@ func _init() -> void:
 		"test_streak_events",
 		"test_records_phase",
 		"test_record_save_and_news",
+		"test_team_totals",
 		"test_weather_splits",
 		"test_weather_edges",
 		"test_telemetry_box",
@@ -365,6 +366,48 @@ func test_record_save_and_news() -> void:
 	var lm: ScheduledMatch = _regular(loaded)[0]
 	check(lm.records.size() == m.records.size() and lm.records[0]["value"] == m.records[0]["value"], "records on the match kept")
 
+
+## Team totals add up to the box scores and the standings, by phase, and the leaderboards sort them.
+func test_team_totals() -> void:
+	var s := _season(98)
+	var combined := TeamStats.season_totals(s)
+	var regular := TeamStats.season_totals(s, StatRegistry.PHASE_REGULAR)
+	var playoffs := TeamStats.season_totals(s, StatRegistry.PHASE_PLAYOFFS)
+	var box_kills := 0
+	var matches := 0
+	for m: ScheduledMatch in _regular(s) + s.playoff_matches:
+		matches += 1
+		for sid in m.result.box:
+			box_kills += int(m.result.box[sid]["kills"])
+	var wins := 0
+	var losses := 0
+	var kills := 0
+	var deaths := 0
+	for abbrev in combined:
+		wins += int(combined[abbrev]["wins"])
+		losses += int(combined[abbrev]["losses"])
+		kills += int(combined[abbrev]["kills"])
+		deaths += int(combined[abbrev]["deaths"])
+		for k in combined[abbrev]:
+			check(is_equal_approx(float(combined[abbrev][k]), float(regular[abbrev][k]) + float(playoffs[abbrev][k])), "%s: combined is regular plus playoffs (%s)" % [abbrev, k])
+	check(kills == box_kills and kills == deaths, "team kills add up to the box scores (%d vs %d)" % [kills, box_kills])
+	check(wins == matches and losses == matches, "every match has one winner and one loser")
+	for row: StandingRow in s.standings():
+		check(int(regular[row.team.abbrev]["wins"]) == row.wins and int(regular[row.team.abbrev]["losses"]) == row.losses, "%s regular record matches the standings" % row.team.abbrev)
+	var sum_diff := 0
+	for abbrev in combined:
+		sum_diff += int(combined[abbrev]["game_diff"])
+	check(sum_diff == 0, "game differentials cancel out")
+	for stat: Dictionary in TeamStats.LEADERS:
+		var rows := TeamStats.top(s, stat)
+		check(rows.size() <= TeamStats.TOP_N, "%s list is capped" % stat["id"])
+		for i in range(1, rows.size()):
+			check(rows[i - 1]["value"] >= rows[i]["value"], "%s list is sorted" % stat["id"])
+	var wins_top := TeamStats.top(s, TeamStats.LEADERS[0], StatRegistry.PHASE_REGULAR)
+	var most := 0
+	for abbrev in regular:
+		most = maxi(most, int(regular[abbrev]["wins"]))
+	check(not wins_top.is_empty() and wins_top[0]["value"] == float(most), "the wins leader has the most wins")
 
 ## Every match lands in one weather bucket and one surface bucket, home or away, and they add up to the career.
 func test_weather_splits() -> void:

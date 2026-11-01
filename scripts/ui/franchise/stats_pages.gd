@@ -12,12 +12,17 @@ var hub: Control  # hub.gd
 var pages: FranchisePages
 var scope := StatRegistry.SCOPE_SEASON
 var phase := StatRegistry.PHASE_COMBINED
+## Players (default) or teams: team leaders are for this season only.
+var teams_view := false
 
 
 func leaders() -> Control:
 	var s: Season = hub.season
 	var v := pages._vbox(14)
 	v.add_child(_chips())
+	if teams_view:
+		v.add_child(_team_leaders(s))
+		return v
 	var pool := _pool(s)
 	if pool.is_empty():
 		v.add_child(UiKit.label("No matches recorded here yet.", 18, UiKit.MUTED))
@@ -51,20 +56,63 @@ func leaders() -> Control:
 
 func _chips() -> Control:
 	var row := pages._row(8)
-	for o in SCOPES:
-		var val: String = o[0]
-		row.add_child(pages._seg(o[1], scope == val, func():
-			scope = val
+	for o in [[false, "PLAYERS"], [true, "TEAMS"]]:
+		var on: bool = o[0]
+		row.add_child(pages._seg(o[1], teams_view == on, func():
+			teams_view = on
 			hub._fill_league_box(), 14))
 	var gap := Control.new()
 	gap.custom_minimum_size.x = 24
 	row.add_child(gap)
+	if not teams_view:
+		for o in SCOPES:
+			var val: String = o[0]
+			row.add_child(pages._seg(o[1], scope == val, func():
+				scope = val
+				hub._fill_league_box(), 14))
+		var gap2 := Control.new()
+		gap2.custom_minimum_size.x = 24
+		row.add_child(gap2)
 	for o in PHASES:
 		var val: String = o[0]
 		row.add_child(pages._seg(o[1], phase == val, func():
 			phase = val
 			hub._fill_league_box(), 14))
 	return row
+
+
+## The best teams in each category this season, summed from the box scores of the chosen phase.
+func _team_leaders(s: Season) -> Control:
+	var v := pages._vbox(14)
+	var totals := TeamStats.season_totals(s, phase)
+	var played := 0
+	for abbrev in totals:
+		played += int(totals[abbrev]["matches"])
+	if played == 0:
+		v.add_child(UiKit.label("No matches recorded here yet.", 18, UiKit.MUTED))
+		return v
+	v.add_child(UiKit.label("Team totals for the %d season, from every match played so far." % s.year, 13, UiKit.MUTED))
+	var user_abbrev := s.user_team().abbrev
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 20)
+	flow.add_theme_constant_override("v_separation", 20)
+	for stat: Dictionary in TeamStats.LEADERS:
+		var rows: Array = []
+		var hl := {}
+		var targets: Array = []
+		for r in TeamStats.top(s, stat, phase, totals):
+			var t: Team = r["team"]
+			if t.abbrev == user_abbrev:
+				hl[rows.size()] = UiKit.MINE
+			targets.append(t)
+			rows.append([rows.size() + 1, t.name, t.abbrev, StatRegistry.format(stat, r["value"])])
+		var col := pages._vbox(6)
+		col.add_child(pages._section(stat["label"]))
+		col.add_child(UiKit.table(["#", "TEAM", "TM", stat["short"]], rows, [24, 190, 50, 60], hl, {},
+			func(i: int): hub.open(targets[i].name, func(): return pages.team_roster(targets[i]))))
+		flow.add_child(col)
+	v.add_child(flow)
+	return v
 
 
 ## Everyone with a stat line for the chosen scope and phase: [{soldier, line, team: abbrev}].

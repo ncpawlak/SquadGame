@@ -397,6 +397,15 @@ func _visit_pages(hub, phase: String) -> void:
 			var c: Control = hub.stats_pages.leaders()
 			hub.stats_pages.phase = StatRegistry.PHASE_COMBINED
 			return c,
+		"leaders_teams": func():
+			hub.stats_pages.teams_view = true
+			var c: Control = hub.stats_pages.leaders()
+			hub.stats_pages.phase = StatRegistry.PHASE_PLAYOFFS
+			var d: Control = hub.stats_pages.leaders()
+			hub.stats_pages.teams_view = false
+			hub.stats_pages.phase = StatRegistry.PHASE_COMBINED
+			c.add_child(d)
+			return c,
 		"playoffs": p.playoffs, "rankings": p.team_rankings, "news": p.news, "sim_options": p.sim_options,
 		"injuries": p.injuries, "scouting": p.scouting, "draft_room": p.draft_room, "mock_draft": p.mock_draft,
 		"awards": p.awards, "teams": p.teams, "free_agents": p.free_agents, "contracts": p.contracts,
