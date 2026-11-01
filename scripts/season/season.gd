@@ -119,7 +119,7 @@ var facilities := Facilities.new()
 var trades := Trades.new()
 ## Signings from the most recent resolution (free-agency day or week).
 var last_signings: Array = []
-## Every retirement, oldest first: Retirement.run records.
+## Every retirement, oldest first: Retirement.run and run_unsigned records.
 var retirements: Array = []
 ## Every re-signing: {soldier, team, salary, years, year}.
 var resign_log: Array = []
@@ -722,7 +722,6 @@ func start_next_season() -> void:
 	_stamp_log()
 	while offseason_stage != OFF_DONE:
 		advance_offseason()
-	RetiredCallsigns.resolve_all(self)
 	# Last call for free agency: pending offers (the user's too) are answered. The user's roster
 	# is left as is - he must reach exactly ROSTER_SIZE before Week 1 (user_roster_error).
 	fa.resolve(self, _rng, "Preseason")
@@ -733,6 +732,13 @@ func start_next_season() -> void:
 		fa.fill_roster(self, t, Team.ROSTER_SIZE, "Preseason")
 	fa.offers.clear()
 	negotiations.clear()
+	# Free agents who sat out a full year may now retire (after the last free-agent calls).
+	var urng := RandomNumberGenerator.new()
+	urng.seed = _mix([league.league_seed, year, 0x2E72])
+	var unsigned := Retirement.run_unsigned(self, urng)
+	retirements.append_array(unsigned)
+	RetiredCallsigns.process(self, unsigned)
+	RetiredCallsigns.resolve_all(self)
 	var arng := RandomNumberGenerator.new()
 	arng.seed = _mix([league.league_seed, year, 0xA6E])
 	Soldier.log_year = year + 1

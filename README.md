@@ -284,8 +284,10 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   cap room chases free agents who would upgrade its weakest starter or depth (so top free agents draw several offers).
   A full AI roster releases its least valuable player to make room. "Keep value" weighs OVR, age, dev stars, ceiling and
   salary, so a late-20s 2-star depth player is cut long before a young 3-4 star prospect.
-- **Retirement** (`scripts/season/retirement.gd`): soldiers retire from age 35 (always by 39), more likely as
-  they decline. Free agents unsigned for a season retire if they're weak or 33+, which keeps the pool churning.
+- **Retirement** (`scripts/season/retirement.gd`): after the Final, soldiers may retire from age 35 (always at 40).
+  The odds scale with OVR and role, so a soldier who is still 80+ and starting nearly always plays on until he falls off.
+  Free agents unsigned for a full year (a season plus the offseason after it) may retire when the offseason closes:
+  always below 55 OVR, never at 70+, in between more likely the lower they are. If the pool is still too big, the worst of them retire too.
   Home/League → Retirements lists them by year, toggling between your team and the league.
 - **Other teams**: League → Teams lists every club's division, record, OVR, payroll and cap space; click one for its roster.
   League → **Team Stats** compares all 20 teams (record, games and point differential, kills, deaths, K/D, hit%,

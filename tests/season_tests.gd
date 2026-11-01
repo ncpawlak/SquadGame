@@ -691,21 +691,60 @@ func test_free_agency_bidding() -> void:
 	check(not pool.has(other) or Contracts.asking(other, 2) < before or Contracts.asking(other, 2) <= Contracts.MIN_SALARY, "unsigned asking price drops")
 
 
+## Good starters play into their late 30s; age only forces retirement at ALWAYS_AGE; unsigned
+## free agents only retire after a full year in the pool, and never while still good.
+func test_retirement_odds() -> void:
+	var s := Season.new_franchise(64)
+	var so: Soldier = s.league.teams[1].roster[0]
+	var set_ovr := func(v: int):
+		for st in so.stats:
+			so.stats[st] = v
+	set_ovr.call(85)
+	var survive := 1.0
+	for age in range(35, Retirement.ALWAYS_AGE):
+		so.age = age
+		survive *= 1.0 - Retirement.chance(so, true)
+	check(survive > 0.75, "an 80+ starter usually plays to %d (%.0f%% do)" % [Retirement.ALWAYS_AGE, survive * 100.0])
+	so.age = 34
+	check(Retirement.chance(so, true) == 0.0, "nobody retires for age at 34")
+	so.age = 36
+	var elite := Retirement.chance(so, true)
+	set_ovr.call(58)
+	check(Retirement.chance(so, false, true) > elite * 5.0, "a weak free agent retires far more readily than a good starter")
+	so.age = Retirement.ALWAYS_AGE
+	set_ovr.call(90)
+	check(Retirement.chance(so, true) == 1.0, "everyone retires at %d" % Retirement.ALWAYS_AGE)
+	so.age = 36
+	set_ovr.call(Retirement.FA_KEEP_OVR + 5)
+	check(Retirement.unsigned_chance(so) == 0.0, "a good free agent doesn't retire for going unsigned")
+	set_ovr.call(Retirement.FA_MIN_OVR - 5)
+	check(Retirement.unsigned_chance(so) == 1.0, "a weak free agent a year unsigned retires")
+	so.fa_since = s.year
+	check(not Retirement.unsigned_full_year(s, so), "joining the pool this year isn't a full year unsigned")
+	so.fa_since = s.year - 1
+	check(Retirement.unsigned_full_year(s, so), "unsigned since last year is a full year")
+
+
 func test_retirement_and_offseason_flow() -> void:
 	var s := Season.new_franchise(63)
 	var vet: Soldier = s.league.teams[1].roster[0]
 	vet.age = Retirement.ALWAYS_AGE
 	var stale: Soldier = s.league.free_agents[0]
 	stale.fa_since = s.year - 1
+	stale.age = 27
 	for st in stale.stats:
 		stale.stats[st] = 40
+	var fresh: Soldier = s.league.free_agents[1]
+	fresh.age = 34
+	for st in fresh.stats:
+		fresh.stats[st] = 40
 	s.sim_to_end_of_season()
+	fresh.fa_since = s.year
 	check(s.offseason_stage == Season.OFF_RESIGN, "offseason starts with re-signing")
 	check(vet.retired_year == s.year and not s.league.teams[1].roster.has(vet), "%d-year-old retired" % Retirement.ALWAYS_AGE)
-	check(stale.retired_year == s.year and not s.league.free_agents.has(stale), "low-OVR unsigned free agent retired")
+	check(stale.retired_year == 0 and s.league.free_agents.has(stale), "unsigned free agents aren't retired until the offseason closes")
 	var ret := s.retirements_in(s.year)
 	check(ret.any(func(r): return r["soldier"] == vet and r["reason"] == "Age"), "age retirement logged")
-	check(ret.any(func(r): return r["soldier"] == stale and r["reason"] == "Unsigned"), "unsigned retirement logged")
 	var user := s.user_team()
 	var expiring := Contracts.expiring(user)
 	if not expiring.is_empty():
@@ -718,6 +757,9 @@ func test_retirement_and_offseason_flow() -> void:
 	var y := s.year
 	s.start_next_season()
 	check(s.year == y + 1 and s.phase == Season.PHASE_REGULAR, "season rolled over")
+	check(stale.retired_year == y and not s.league.free_agents.has(stale), "low-OVR free agent unsigned a full year retired as the offseason closed")
+	check(s.retirements_in(y).any(func(r): return r["soldier"] == stale and r["reason"] == "Unsigned"), "unsigned retirement logged")
+	check(fresh.retired_year == 0, "a new free agent isn't retired before a full year unsigned")
 	for t in s.league.teams:
 		if t.user_controlled:
 			continue
