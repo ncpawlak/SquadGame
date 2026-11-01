@@ -320,6 +320,9 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   longest win and losing streak. A match that beats a full book stamps a record on `ScheduledMatch.records`, which
   feeds a League Wire story, a box score banner and a line in the Weekly News. Records only make news once 100
   matches are on the books, and single-match records count from the first match played with the ledger.
+  League Leaders also has a TEAMS view (`scripts/season/team_stats.gd`): wins, game differential, kills, kills per
+  death, damage, assists, saves, headshots, team wipes and hill time and captures, summed for this season from the box
+  scores (combined, regular season or playoffs).
 - **Save / Load** (`scripts/save/save_system.gd`, Settings → Save Franchise / Load Franchise, title → Load Franchise): 3 manual slots
   plus an **autosave** after every week, the season rollover and camp. A save is the whole league graph (shared
   objects, RNG states) as compressed text, so a loaded game continues exactly as the original would have.
