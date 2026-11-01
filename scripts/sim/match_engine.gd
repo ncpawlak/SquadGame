@@ -82,6 +82,8 @@ const FRONT_PUSH_RANGE := 11.0
 ## How far a soldier under fire will run for cover, and how long he stays there.
 const COVER_SEARCH_RADIUS := 9.0
 const COVER_TICKS := 10
+## Squared distance from the cover spot that counts as being in cover (telemetry).
+const COVER_REACHED_SQ := 2.25
 const REPATH_TICKS := 4
 ## Vision (line of sight) is refreshed every this many ticks.
 const VISION_EVERY := 2
@@ -138,6 +140,9 @@ class Combatant:
 	var hunting := false
 	var cover_spot := Vector2.ZERO
 	var cover_until := -1
+	## Tick of this life's start, and whether he has fired since (telemetry only).
+	var spawn_tick := 0
+	var engaged := false
 	var waypoint := Vector2.ZERO
 	var waypoint_goal := Vector2.INF
 	var repath_tick := 0
@@ -207,6 +212,8 @@ var _need_game := true
 var _need_round := false
 var _holder := -1
 var _clutch_candidate: Combatant = null
+## True until the first kill of a game (or sudden-death round): that kill is the opening kill.
+var _opening_open := false
 ## Per squad accuracy edge from the scheme matchup: [tdm/sudden death, koth].
 var _scheme_edge: Array = [[0.0, 0.0], [0.0, 0.0]]
 
@@ -356,6 +363,8 @@ func _build_squad(team: Team, index: int) -> Array:
 			"team": index, "slot": slot_id, "kills": 0, "deaths": 0, "assists": 0, "shots": 0,
 			"hits": 0, "headshots": 0, "damage": 0.0, "rounds_played": 0, "rounds_survived": 0,
 			"clutches": 0, "saves": 0, "games": 0, "wipes": 0, "hill_s": 0.0, "caps": 0, "contest_s": 0.0,
+			"opening_kills": 0, "kills_short": 0, "kills_medium": 0, "kills_long": 0, "kill_dist": 0.0,
+			"bursts": 0, "fire_dist": 0.0, "distance": 0.0, "cover_s": 0.0, "first_shot_s": 0.0, "first_shot_n": 0,
 		}
 	return squad
 
@@ -365,6 +374,7 @@ func _build_squad(team: Team, index: int) -> Array:
 func _begin_game() -> void:
 	_mode = GAME_ORDER[_game_number]
 	_game_number += 1
+	_opening_open = true
 	for c: Combatant in _everyone:
 		c.fatigue *= GAME_RECOVERY
 		_result.box[c.soldier.id]["games"] += 1
@@ -421,6 +431,7 @@ func _begin_round() -> void:
 	_round_number += 1
 	_tick = 0
 	_clutch_candidate = null
+	_opening_open = true
 	for c: Combatant in _everyone:
 		_reset_life(c)
 		c.fatigue *= 0.6  # partial recovery between rounds
@@ -452,6 +463,8 @@ func _reset_life(c: Combatant) -> void:
 	c.pinned_tick = -100
 	c.visible.clear()
 	c.last_contact_tick = _tick
+	c.spawn_tick = _tick
+	c.engaged = false
 	c.hunting = false
 	c.cover_until = -1
 	c.waypoint_goal = Vector2.INF
@@ -714,6 +727,8 @@ func _goal(c: Combatant, enemies: Array) -> Vector2:
 
 
 func _move(c: Combatant, enemies: Array) -> void:
+	if c.cover_until >= _tick and c.pos.distance_squared_to(c.cover_spot) < COVER_REACHED_SQ:
+		_result.box[c.soldier.id]["cover_s"] += TICK_SECONDS
 	var goal := _goal(c, enemies)
 	if c.pos.distance_squared_to(goal) < 0.04:
 		return
@@ -748,6 +763,7 @@ func _move(c: Combatant, enemies: Array) -> void:
 			if arena.blocked(np):
 				np = c.pos
 		c.repath_tick = _tick
+	_result.box[c.soldier.id]["distance"] += c.pos.distance_to(np)
 	c.pos = np
 
 
@@ -840,6 +856,12 @@ func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band:
 	var acc_stat: StringName = RANGE_STAT[band]
 	var box: Dictionary = _result.box[c.soldier.id]
 	box["shots"] += shots
+	box["bursts"] += 1
+	box["fire_dist"] += dist
+	if not c.engaged:
+		c.engaged = true
+		box["first_shot_s"] += (_tick - c.spawn_tick) * TICK_SECONDS
+		box["first_shot_n"] += 1
 	c.soldier.add_usage(acc_stat, shots * 0.5)
 
 	var p: float = RANGE_BASE_HIT[band] * (0.35 + c.stat(acc_stat) / 100.0 * 0.75)
@@ -947,6 +969,11 @@ func _kill(killer: Combatant, victim: Combatant, killer_allies: Array, victim_al
 	victim.hp = 0.0
 	_result.box[killer.soldier.id]["kills"] += 1
 	_result.box[victim.soldier.id]["deaths"] += 1
+	_result.box[killer.soldier.id]["kills_%s" % band] += 1
+	_result.box[killer.soldier.id]["kill_dist"] += dist
+	if _opening_open:
+		_opening_open = false
+		_result.box[killer.soldier.id]["opening_kills"] += 1
 	var saved: Array[String] = []
 	for a: Combatant in killer_allies:
 		if a != killer and a.alive and a.endangered_by == victim and _tick - a.endangered_tick <= SAVE_WINDOW_TICKS:

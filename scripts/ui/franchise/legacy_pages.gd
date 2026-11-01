@@ -216,7 +216,7 @@ func _records() -> Control:
 	var abbrev := records_team
 	var phase := records_phase
 	var who := "LEAGUE" if abbrev == "" else s.league.team_by_abbrev(abbrev).name.to_upper()
-	v.add_child(UiKit.label("The best mark in each category. Click a row for the top %d. Counts every season played, including this one." % Records.TOP_N, 13, UiKit.MUTED))
+	v.add_child(UiKit.label("The best mark in each category. Click a row for the top %d. Every league starts with the same marks from earlier years; every season played here counts too." % Records.TOP_N, 13, UiKit.MUTED))
 
 	v.add_child(pages._section("%s SEASON RECORDS" % who))
 	v.add_child(_holders(Records.PLAYER_STATS, func(stat): return Records.player_seasons(s, stat, abbrev, phase), "season"))
@@ -224,7 +224,7 @@ func _records() -> Control:
 	v.add_child(_holders(Records.PLAYER_STATS, func(stat): return Records.player_careers(s, stat, abbrev, phase), "career"))
 	v.add_child(pages._section("%s SINGLE-MATCH RECORDS" % who))
 	v.add_child(_holders(StatRegistry.SINGLE_MATCH, func(stat): return Records.single_matches(s, stat, phase, abbrev), "match"))
-	v.add_child(UiKit.label("Single-match records and streaks count from the first match played with this version of the game.", 13, UiKit.MUTED))
+	v.add_child(UiKit.label("Single-match records and streaks start from those marks; matches played here count from the first one.", 13, UiKit.MUTED))
 	v.add_child(pages._section("%s TEAM RECORDS" % who))
 	v.add_child(_holders(Records.TEAM_STATS, func(stat): return Records.team_seasons(s, stat, abbrev), "team"))
 	v.add_child(_holders(StatRegistry.STREAKS, func(stat): return Records.streaks(s, stat["id"], abbrev), "team"))
@@ -258,11 +258,9 @@ func _holder_cells(e: Dictionary, kind: String) -> Array:
 		"match":
 			return [e["name"], e["team"], "%d  Wk %d" % [e["year"], e["week"]]]
 		"career":
-			var so: Soldier = e["soldier"]
-			return [so.full_name(), "", str(e["first"]) if e["first"] == e["last"] else "%d-%d" % [e["first"], e["last"]]]
+			return [Records.holder_name(e), e.get("team", ""), str(e["first"]) if e["first"] == e["last"] else "%d-%d" % [e["first"], e["last"]]]
 		_:
-			var so: Soldier = e["soldier"]
-			return [so.full_name(), e["team"] if e["team"] != "" else "-", str(e["year"])]
+			return [Records.holder_name(e), e["team"] if e["team"] != "" else "-", str(e["year"])]
 
 
 ## The top entries of one record.
@@ -277,8 +275,9 @@ func record_page(stat: Dictionary, top: Array, kind: String) -> Control:
 	v.add_child(UiKit.table(["#", "VALUE", "HOLDER", "TEAM", "YEAR"], rows, [40, 80, 260, 70, 110], {}, {},
 		func(i: int):
 			if kind == "team":
-				var t: Team = top[i]["team"]
-				hub.open(t.name, func(): return pages.team_roster(t))
+				if top[i]["team"] is Team:
+					var t: Team = top[i]["team"]
+					hub.open(t.name, func(): return pages.team_roster(t))
 			elif top[i]["soldier"] != null:
 				pages.open_player(top[i]["soldier"])))
 	return v

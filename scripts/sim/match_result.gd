@@ -22,7 +22,9 @@ var games: Array[Dictionary] = []
 var rounds: Array[Dictionary] = []
 var events: Array[String] = []
 ## soldier_id -> { team, slot, kills, deaths, assists, shots, hits, headshots, damage,
-##                 rounds_played, rounds_survived, clutches, saves, games, wipes, hill_s, caps, contest_s }
+##                 rounds_played, rounds_survived, clutches, saves, games, wipes, hill_s, caps, contest_s,
+##                 telemetry: opening_kills, kills_short/medium/long, kill_dist, bursts, fire_dist, distance,
+##                 cover_s, first_shot_s, first_shot_n }
 var box: Dictionary = {}
 var mvp_id: int = -1
 

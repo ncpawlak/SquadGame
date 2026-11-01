@@ -1719,7 +1719,22 @@ func _player_stats(s: Soldier) -> Control:
 		toggle.add_child(b)
 	v.add_child(toggle)
 	v.add_child(_player_game_log(s) if _stats_season else _player_career(s))
+	v.add_child(_player_next_gen(s))
 	v.add_child(_player_conditions(s))
+	return v
+
+
+## Next Gen telemetry for the selected scope and phase (totals and averages from the stat line).
+func _player_next_gen(s: Soldier) -> Control:
+	var v := _vbox(12)
+	var scope := StatRegistry.SCOPE_SEASON if _stats_season else StatRegistry.SCOPE_CAREER
+	var line := StatRegistry.line_for(s, scope, _stats_phase, hub.season.year)
+	v.add_child(_section("NEXT GEN  -  %s" % ("%d SEASON" % hub.season.year if _stats_season else "CAREER")))
+	if int(line.get("matches", 0)) <= 0:
+		v.add_child(UiKit.label("No matches here yet.", 16, UiKit.MUTED))
+		return v
+	v.add_child(UiKit.table(["STAT", "VALUE"], StatRegistry.telemetry_rows(line), [320, 120]))
+	v.add_child(UiKit.label("Tracked from the first match played with Next Gen telemetry; earlier matches count as zero.", 13, UiKit.MUTED))
 	return v
 
 
