@@ -1180,7 +1180,10 @@ func _roster_status(team: Team) -> Dictionary:
 func _rivalry_tip(a: Team, b: Team) -> String:
 	var lines: Array[String] = []
 	lines.append_array(season.rivalries.titles(a, b))
-	lines.append(season.rivalries.record_text(a, b))
+	lines.append(season.ledger.series_text(a, b))
+	var last := season.ledger.last_meeting_text(a, b)
+	if last != "":
+		lines.append("Last meeting: %s" % last)
 	lines.append("Intensity %d" % roundi(season.rivalries.intensity(a, b)))
 	return "\n".join(lines)
 

@@ -2878,15 +2878,21 @@ func test_rivalries() -> void:
 	# Records, streaks and heat.
 	var det: Team = by.call("DET")
 	var bos: Team = by.call("BOS")
-	check(rv.record_text(det, bos) == "No meetings yet", "no meetings at first")
+	var lg := s.ledger
+	check(lg.series_text(det, bos) == "No meetings yet", "no meetings at first")
 	for w in 3:
-		rv.record_week(s, [_meeting(det, bos, 2, 1, &"regular", w + 1)])
-	var rec := rv.record_of(det, bos)
+		var meeting := _meeting(det, bos, 2, 1, &"regular", w + 1)
+		lg.record_match(s, meeting)
+		rv.record_week(s, [meeting])
+	var rec := lg.head_to_head_of(det, bos)
 	check(int(rec["n"]) == 3 and int(rec["w"]["DET"]) == 3 and int(rec["g"]["DET"]) == 6 and int(rec["g"]["BOS"]) == 3, "series tallies %s" % [rec])
-	check(rv.record_text(det, bos) == "DET lead the series 3-0, DET have won 3 straight", rv.record_text(det, bos))
-	rv.record_week(s, [_meeting(bos, det, 2, 0, &"regular", 4)])
-	check(int(rv.record_of(det, bos)["last"]["snapped"]) == 3, "a 3-game streak snapped")
-	check(rv.record_text(bos, det) == "DET lead the series 3-1", rv.record_text(bos, det))
+	check(lg.series_text(det, bos) == "DET lead the series 3-0, DET have won 3 straight", lg.series_text(det, bos))
+	var snap := _meeting(bos, det, 2, 0, &"regular", 4)
+	lg.record_match(s, snap)
+	rv.record_week(s, [snap])
+	check(int(lg.head_to_head_of(det, bos)["last"]["snapped"]) == 3, "a 3-game streak snapped")
+	check(lg.series_text(bos, det) == "DET lead the series 3-1", lg.series_text(bos, det))
+	check(lg.head_to_head_of(det, bos)["meetings"].size() == 4 and lg.last_meeting_text(det, bos) == "BOS won 2-0 in 2026 Week 4", "the meetings are kept: %s" % lg.last_meeting_text(det, bos))
 	check(rv.heat_of(det, bos) > 0.0, "meetings build heat")
 	# An emergent rivalry: two playoff classics between strangers, then it cools and ends.
 	var sea: Team = by.call("SEA")
@@ -2908,6 +2914,7 @@ func test_rivalries() -> void:
 	var snake: Team = by.call("SDV")
 	var rattler: Team = by.call("NSH")
 	var m := _meeting(snake, rattler, 2, 1, &"regular", 5)
+	s.ledger.record_match(s, m)
 	rv.record_week(s, [m])
 	var w_morale := snake.roster[0].morale
 	var l_morale := rattler.roster[0].morale
@@ -2919,11 +2926,24 @@ func test_rivalries() -> void:
 	var s2 := _fixed(82)
 	s2.sim_week()
 	var meetings := 0
-	for k in s2.rivalries.records:
-		meetings += int(s2.rivalries.records[k]["n"])
+	for k in s2.ledger.head_to_head:
+		meetings += int(s2.ledger.head_to_head[k]["n"])
 	check(meetings == s2.matches_for_week(1).size(), "every played match is recorded (%d)" % meetings)
 	var loaded := SaveSystem.from_text(SaveSystem.to_text(s2))
-	check(loaded != null and str(loaded.rivalries.records) == str(s2.rivalries.records), "records survive a save")
+	check(loaded != null and str(loaded.ledger.head_to_head) == str(s2.ledger.head_to_head), "records survive a save")
+	check(s2.rivalries.records.is_empty(), "rivalries no longer keep records")
+	# A save from before the ledger kept them on the rivalries: they move over on load.
+	var old := _fixed(83)
+	var a: Team = old.league.teams[0]
+	var b: Team = old.league.teams[1]
+	var legacy := {"n": 2, "w": {a.abbrev: 2, b.abbrev: 0}, "g": {a.abbrev: 4, b.abbrev: 1}, "streak_team": a.abbrev, "streak": 2,
+		"last": {"year": 2025, "week": 3, "stage": &"regular", "winner": a.abbrev, "score": "2-1", "snapped": 0}}
+	old.rivalries.records = {Rivalries.key(a.abbrev, b.abbrev): legacy}
+	var moved := SaveSystem.from_text(SaveSystem.to_text(old))
+	var ma := moved.league.team_by_abbrev(a.abbrev)
+	var mb := moved.league.team_by_abbrev(b.abbrev)
+	check(moved != null and moved.rivalries.records.is_empty() and int(moved.ledger.head_to_head_of(ma, mb)["n"]) == 2, "old head-to-head records move to the ledger")
+	check(moved.ledger.series_text(ma, mb).begins_with("%s lead the series 2-0" % a.abbrev) and moved.ledger.head_to_head_of(ma, mb)["meetings"].size() == 1, "and read the same")
 	check(loaded != null and loaded.rivalries.heat == s2.rivalries.heat, "heat survives a save")
 
 

@@ -514,7 +514,7 @@ func _team_star(t: Team) -> Soldier:
 
 ## "Boston leads the series 3-1 and has won the last two" ("" before the first meeting).
 func _series(them: Team) -> String:
-	var rec := _s.rivalries.record_of(_us, them)
+	var rec := _s.ledger.head_to_head_of(_us, them)
 	if rec.is_empty():
 		return ""
 	var wu := int(rec["w"].get(_us.abbrev, 0))
