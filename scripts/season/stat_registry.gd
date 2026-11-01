@@ -121,6 +121,72 @@ static func line_for(so: Soldier, scope: String, phase: String, year := 0) -> Di
 	return out
 
 
+## Conditions on the player page: [weather kind, level, label]; clear has level 0.
+const CONDITIONS := [
+	[&"clear", 0, "Clear"], [&"rain", 1, "Light rain"], [&"rain", 2, "Inclement rain"],
+	[&"snow", 1, "Light snow"], [&"snow", 2, "Inclement snow"],
+]
+## A condition needs this many matches (and so does clear weather) before it says anything about a player.
+const MIN_SPLIT_MATCHES := 6
+## Kills per death in a condition over his clear-weather ratio: at or above EDGE_WELL he plays well in it, at or
+## below EDGE_POORLY he struggles.
+const EDGE_WELL := 1.25
+const EDGE_POORLY := 0.8
+
+
+## A soldier's career line over the matches in one weather: `kind` "" is any, `level` -1 is any, `site` "" is
+## home and away. Sums the stored buckets; {} when none match.
+static func weather_line(so: Soldier, kind := "", level := -1, site := "") -> Dictionary:
+	var parts: Array = []
+	for key: String in so.split_career:
+		var p := key.split("|")
+		if p[0] == "wx" and (kind == "" or p[1] == kind) and (level < 0 or int(p[2]) == level) and (site == "" or p[3] == site):
+			parts.append(so.split_career[key])
+	return _merge(parts)
+
+
+## The same over the home field's surface ("" is any surface), by home/away.
+static func surface_line(so: Soldier, surface := "", site := "") -> Dictionary:
+	var parts: Array = []
+	for key: String in so.split_career:
+		var p := key.split("|")
+		if p[0] == "sf" and (surface == "" or p[1] == surface) and (site == "" or p[2] == site):
+			parts.append(so.split_career[key])
+	return _merge(parts)
+
+
+static func _merge(parts: Array) -> Dictionary:
+	if parts.is_empty():
+		return {}
+	var out := {}
+	for d: Dictionary in parts:
+		for k in d:
+			out[k] = int(out.get(k, 0)) + int(d[k])
+	return out
+
+
+static func _kd(line: Dictionary) -> float:
+	return float(line.get("kills", 0)) / maxf(1.0, float(line.get("deaths", 0)))
+
+
+## Rain and snow where he stands out: [{kind, well: bool, kd, base_kd, matches}], only with enough matches in
+## the weather and in clear weather to say so.
+static func weather_edges(so: Soldier) -> Array:
+	var out: Array = []
+	var base := weather_line(so, "clear")
+	if int(base.get("matches", 0)) < MIN_SPLIT_MATCHES:
+		return out
+	var base_kd := _kd(base)
+	for kind in [&"rain", &"snow"]:
+		var line := weather_line(so, kind)
+		if int(line.get("matches", 0)) < MIN_SPLIT_MATCHES:
+			continue
+		var ratio := _kd(line) / maxf(0.01, base_kd)
+		if ratio >= EDGE_WELL or ratio <= EDGE_POORLY:
+			out.append({"kind": kind, "well": ratio >= EDGE_WELL, "kd": _kd(line), "base_kd": base_kd, "matches": int(line["matches"])})
+	return out
+
+
 ## The value as shown: whole numbers, "m:ss" hill time, or two decimals for a ratio.
 static func format(stat: Dictionary, v: float) -> String:
 	match stat.get("fmt", "int"):

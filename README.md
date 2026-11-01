@@ -327,6 +327,10 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   and count from the first match played with telemetry.
   Opening kills, long-range kills and distance covered also have record books (single-match, season and career) with
   seeded targets like the rest.
+  Condition splits: each soldier's career is also kept by weather (clear, light/inclement rain and snow), home or away, and
+  the home field's floor surface (`Soldier.split_career`). The player's Stats tab has a WEATHER AND FIELD table and calls
+  out rain or snow where his kills per death clearly beat or trail his clear-weather ratio (6+ matches in both).
+  Splits count from the first match played with them.
 - **Save / Load** (`scripts/save/save_system.gd`, Settings → Save Franchise / Load Franchise, title → Load Franchise): 3 manual slots
   plus an **autosave** after every week, the season rollover and camp. A save is the whole league graph (shared
   objects, RNG states) as compressed text, so a loaded game continues exactly as the original would have.
