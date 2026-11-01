@@ -1998,7 +1998,7 @@ func _dna_color(v: float) -> Color:
 ## Every rating / dev star change, newest first, grouped by season, with the reason.
 func _player_progression(s: Soldier) -> Control:
 	var v := _vbox(10)
-	var tip := UiKit.label("Every rating change this soldier has had and why: level-ups from performance (skill points), training camp drills, age decline, dev star changes (season review and camp) and facility effects (Sports Science Lab, Performance Institute cap raises).", 15, UiKit.MUTED)
+	var tip := UiKit.label("Every rating change this soldier has had and why: level-ups from performance (skill points), training camp drills, age decline, dev star changes (season review and camp), honor XP (season awards, All-League, stat titles) and facility effects (Sports Science Lab, Performance Institute cap raises).", 15, UiKit.MUTED)
 	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(tip)
 	if s.history.is_empty():
@@ -2046,6 +2046,12 @@ func _progress_entry(e: Dictionary) -> Control:
 	if pf != pt and pf >= 0 and pt >= 0:
 		bits.append("POT [color=%s]%s[/color] -> [color=%s]%s[/color]" % [UiKit.hex(potential_color(pf)), Soldier.POTENTIAL_LETTERS[pf],
 			UiKit.hex(potential_color(pt)), Soldier.POTENTIAL_LETTERS[pt]])
+	var xp := int(e.get("xp", 0))
+	if xp > 0:
+		bits.append("[color=%s]+%d XP[/color]" % [UiKit.hex(UiKit.GOOD), xp])
+	var sp := int(e.get("sp", 0))
+	if sp > 0:
+		bits.append("[color=%s]+%d SP[/color]" % [UiKit.hex(UiKit.GOOD), sp])
 	var chips := UiKit.rich("   ".join(bits), 15)
 	chips.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	h.add_child(chips)
