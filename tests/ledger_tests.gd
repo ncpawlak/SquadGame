@@ -9,29 +9,11 @@ var _current := ""
 
 
 func _init() -> void:
-	var tests := [
-		"test_phase_split",
-		"test_recorded_once",
-		"test_exhibition_not_recorded",
-		"test_save_round_trip",
-		"test_determinism",
-		"test_registry_matches_records",
-		"test_line_for_phases",
-		"test_format",
-		"test_single_match_book",
-		"test_record_events",
-		"test_streak_events",
-		"test_records_phase",
-		"test_record_save_and_news",
-		"test_team_totals",
-		"test_weather_splits",
-		"test_weather_edges",
-		"test_telemetry_box",
-		"test_telemetry_lines",
-		"test_award_stories",
-		"test_seeded_books",
-		"test_telemetry_records",
-	]
+	# Every test_* method runs, in declaration order: adding a test needs no edit here.
+	var tests: Array = []
+	for method in get_method_list():
+		if String(method["name"]).begins_with("test_"):
+			tests.append(String(method["name"]))
 	Season.fixture_teams = 5
 	Season.backfill_careers = false
 	Season.seed_records = false
