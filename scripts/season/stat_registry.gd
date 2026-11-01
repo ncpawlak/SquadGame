@@ -11,6 +11,9 @@ const PLAYER := [
 	{"id": "clutches", "label": "Clutches", "kind": "sum"},
 	{"id": "headshots", "label": "Headshots", "kind": "sum"},
 	{"id": "kd", "label": "Kills per death", "kind": "kd"},
+	{"id": "opening_kills", "label": "Opening kills", "kind": "sum"},
+	{"id": "kills_long", "label": "Long-range kills", "kind": "sum"},
+	{"id": "distance", "label": "Distance covered", "kind": "sum", "fmt": "metres"},
 ]
 
 
@@ -64,6 +67,9 @@ const SINGLE_MATCH := [
 	{"id": "caps", "label": "Hill captures in a match", "noun": "hill captures", "fmt": "int"},
 	{"id": "hill_s", "label": "Hill time in a match", "noun": "of hill time", "fmt": "secs"},
 	{"id": "impact", "label": "Impact in a match", "noun": "impact points", "fmt": "int"},
+	{"id": "opening_kills", "label": "Opening kills in a match", "noun": "opening kills", "fmt": "int"},
+	{"id": "kills_long", "label": "Long-range kills in a match", "noun": "long-range kills", "fmt": "int"},
+	{"id": "distance", "label": "Distance covered in a match", "noun": "of ground covered", "fmt": "metres"},
 ]
 
 ## Team streak records, kept by the ledger.
