@@ -86,6 +86,7 @@ func _init() -> void:
 	# tests switch to the fixed 20-team league themselves.
 	Season.fixture_teams = 5
 	Season.backfill_careers = false
+	Season.seed_records = false
 	var only := OS.get_environment("ONLY")
 	if only != "":
 		tests = tests.filter(func(x): return only.split(",").has(x))
@@ -1996,7 +1997,7 @@ func test_records() -> void:
 	s.start_next_season()
 	s.sim_to_end_of_season()
 	var kills: Dictionary = Records.PLAYER_STATS[0]
-	var kd: Dictionary = Records.PLAYER_STATS[-1]
+	var kd: Dictionary = Records.PLAYER_STATS.filter(func(d): return d["id"] == "kd")[0]
 	var everyone := Records.soldiers(s)
 	for r in s.retirements:
 		check(everyone.has(r["soldier"]), "retired soldiers are in the record pool")

@@ -16,6 +16,9 @@ extends RefCounted
 ##   record_broken    a player beats the league's best in a single-match stat (see StatLedger), once per
 ##                    player, stat and phase a season. No effect.
 ##   streak_record    a team's win or losing streak passes every other team's best. No effect.
+##   season_record    season end: a player's season tops the league's single-season book for a stat
+##                    (needs an earlier mark to pass), once per player a year. No effect.
+##   mvp              season end: the Season MVP is named. No effect.
 ##   champion / floor season-end headlines (title, salary-floor penalties).
 ## Offseason stories (filed under the season just finished), each capped per year:
 ##   mega_deal        a signing or re-signing at MEGA_SALARY or more a year.
@@ -198,6 +201,7 @@ func end_season(season: Season, penalties: Array) -> void:
 				_add(season, "Final", "last_ride", [champ.abbrev], s.id,
 					"%s gets his ring" % s.display_name(),
 					"%s chased one more title and got it. Whatever he decides next, he goes out a champion." % s.full_name())
+	_award_stories(season)
 	var legends: Array = season.retirements_in(season.year).filter(func(r): return r["reason"] == Retirement.REASON_AGE \
 		and (int(r["ovr"]) >= LEGEND_OVR or not (r["awards"] as Array).is_empty()))
 	legends.sort_custom(func(a, b): return int(a["ovr"]) > int(b["ovr"]))
@@ -575,6 +579,36 @@ func _wrote(season: Season, kind: String) -> bool:
 
 ## Every rivalry game moves morale; team-specific, playoff and hot games (and snapped streaks)
 ## make the wire, quiet divisional ones only while the week has room.
+## Season-end stories from the review and the record book: the MVP, and any player whose season set a
+## new league mark (only when an earlier mark exists to pass, so a young league stays quiet).
+func _award_stories(season: Season) -> void:
+	if season.review != null:
+		for a: Dictionary in season.review.awards:
+			var so: Soldier = a["soldier"]
+			if a["award"] != "Season MVP" or not _tag(so, "mvp", season.year):
+				continue
+			var t: Team = a["team"]
+			_add(season, "Final", "mvp", [t.abbrev] if t != null else [], so.id,
+				"%s is the %d Season MVP" % [so.display_name(), season.year],
+				"%s takes the league's top individual honor after a season of %s." % [so.full_name(), a["line"]])
+	for stat: Dictionary in Records.PLAYER_STATS:
+		if not _year_room(season, "season_record"):
+			return
+		var rows := Records.player_seasons(season, stat)
+		var prev := rows.filter(func(r): return r["year"] != season.year)
+		if rows.is_empty() or rows[0]["year"] != season.year or prev.is_empty():
+			continue
+		var so: Soldier = rows[0]["soldier"]
+		if not _tag(so, "season_record", season.year):
+			continue
+		var value := Records.format_value(stat, rows[0]["value"])
+		var old := Records.format_value(stat, prev[0]["value"])
+		_add(season, "Final", "season_record", [rows[0]["team"]], so.id,
+			"%s sets a league season record for %s: %s" % [so.display_name(), String(stat["label"]).to_lower(), value],
+			"%s finished %d with %s, passing the old mark of %s set by %s in %d." % [
+				so.full_name(), season.year, value, old, Records.holder_name(prev[0]), int(prev[0]["year"])])
+
+
 ## Stories for the records this week's matches broke (stamped on each match by the ledger).
 func _record_stories(season: Season, played: Array, when: String, counts: Dictionary) -> void:
 	for m: ScheduledMatch in played:
@@ -586,7 +620,8 @@ func _record_stories(season: Season, played: Array, when: String, counts: Dictio
 					continue
 				var held := ""
 				if not prev.is_empty():
-					held = " The old mark was %d, set by the %s." % [int(prev["value"]), season.league.team_by_abbrev(prev["team"]).nickname]
+					var holder_team := season.league.team_by_abbrev(prev["team"])
+					held = " The old mark was %d, set by the %s." % [int(prev["value"]), holder_team.nickname if holder_team != null else prev["team"]]
 				var t := season.league.team_by_abbrev(rec["team"])
 				_add(season, when, "streak_record", [t.abbrev], -1,
 					"%s reach a league record %s" % [t.nickname, "%s %s" % [value, rec["noun"]]],

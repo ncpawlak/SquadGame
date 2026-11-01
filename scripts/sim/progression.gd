@@ -218,6 +218,11 @@ static func _record_career(soldier: Soldier, line: Dictionary, mvp := false, yea
 		"headshots": line["headshots"], "shots": line["shots"], "hits": line["hits"], "mvps": 1 if mvp else 0,
 		"clutches": line["clutches"], "games": line.get("games", 0), "wipes": line.get("wipes", 0),
 		"hill_s": roundi(line.get("hill_s", 0.0)), "caps": line.get("caps", 0)}
+	# Next Gen telemetry: whole metres and seconds, so averages are sums of these over matches.
+	for k in ["opening_kills", "kills_short", "kills_medium", "kills_long", "bursts", "first_shot_n"]:
+		add[k] = line.get(k, 0)
+	for k in ["kill_dist", "fire_dist", "distance", "cover_s", "first_shot_s", "contest_s"]:
+		add[k] = roundi(line.get(k, 0.0))
 	var targets: Array = [soldier.career]
 	if year > 0:
 		if not soldier.season_lines.has(year):

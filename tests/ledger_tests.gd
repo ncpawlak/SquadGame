@@ -24,9 +24,15 @@ func _init() -> void:
 		"test_records_phase",
 		"test_record_save_and_news",
 		"test_team_totals",
+		"test_telemetry_box",
+		"test_telemetry_lines",
+		"test_award_stories",
+		"test_seeded_books",
+		"test_telemetry_records",
 	]
 	Season.fixture_teams = 5
 	Season.backfill_careers = false
+	Season.seed_records = false
 	var only := OS.get_environment("ONLY")
 	if only != "":
 		tests = tests.filter(func(x): return only.split(",").has(x))
@@ -234,7 +240,7 @@ func test_single_match_book() -> void:
 	for t: Team in s.league.teams:
 		for e in Records.single_matches(s, kills, StatRegistry.PHASE_COMBINED, t.abbrev):
 			check(e["team"] == t.abbrev, "franchise book only holds that club's players")
-	var impact: Dictionary = StatRegistry.SINGLE_MATCH[-1]
+	var impact: Dictionary = StatRegistry.SINGLE_MATCH.filter(func(d): return d["id"] == "impact")[0]
 	check(Records.single_matches(s, impact)[0]["value"] > 0.0, "impact is recorded too")
 
 
@@ -400,4 +406,142 @@ func test_team_totals() -> void:
 	for abbrev in regular:
 		most = maxi(most, int(regular[abbrev]["wins"]))
 	check(not wins_top.is_empty() and wins_top[0]["value"] == float(most), "the wins leader has the most wins")
+
+## Telemetry counters in every box line agree with each other and with the match.
+func test_telemetry_box() -> void:
+	var s := _season(94)
+	var moved := 0.0
+	var cover := 0.0
+	var opening_matches := 0
+	var total_matches := 0
+	for m: ScheduledMatch in _regular(s):
+		var openings := 0
+		for sid in m.result.box:
+			var b: Dictionary = m.result.box[sid]
+			check(int(b["kills_short"]) + int(b["kills_medium"]) + int(b["kills_long"]) == int(b["kills"]), "kills by range add up to kills")
+			check(int(b["bursts"]) >= int(b["first_shot_n"]) and (int(b["bursts"]) == 0 or int(b["first_shot_n"]) > 0), "first shots come from bursts")
+			check(float(b["fire_dist"]) >= 0.0 and float(b["distance"]) >= 0.0 and float(b["cover_s"]) >= 0.0, "telemetry is never negative")
+			if int(b["bursts"]) > 0:
+				var avg := float(b["fire_dist"]) / int(b["bursts"])
+				check(avg > 0.0 and avg < 150.0, "average engagement range is plausible (%s)" % avg)
+			openings += int(b["opening_kills"])
+			moved += float(b["distance"])
+			cover += float(b["cover_s"])
+		total_matches += 1
+		opening_matches += 1 if openings >= 1 else 0
+	check(opening_matches == total_matches, "every match has an opening kill")
+	check(moved > 0.0 and cover > 0.0, "soldiers moved and took cover (%s m, %s s)" % [moved, cover])
+
+
+## Telemetry flows into season and career lines (rounded per match), then into the registry's readings.
+func test_telemetry_lines() -> void:
+	var s := _season(95)
+	var so: Soldier = s.league.all_soldiers().filter(func(x: Soldier): return x.season_lines.has(s.year))[0]
+	var want := {"distance": 0, "kills_long": 0, "opening_kills": 0, "bursts": 0, "first_shot_s": 0}
+	for m: ScheduledMatch in _regular(s) + s.playoff_matches:
+		if m.is_played() and m.result.box.has(so.id):
+			var b: Dictionary = m.result.box[so.id]
+			for k in want:
+				want[k] += roundi(float(b[k]))
+	for k in want:
+		check(int(so.career[k]) == want[k] and int(so.season_lines[s.year][k]) == want[k], "%s totals the matches (%s vs %s)" % [k, so.career[k], want[k]])
+	var line := {"matches": 10, "kills": 20, "kills_short": 8, "kills_medium": 8, "kills_long": 4, "kill_dist": 400, "bursts": 50, "fire_dist": 1500,
+		"first_shot_s": 60, "first_shot_n": 20, "contest_s": 30, "hill_s": 90, "distance": 12345, "cover_s": 75, "opening_kills": 3}
+	var rows := {}
+	for r in StatRegistry.telemetry_rows(line):
+		rows[r[0]] = r[1]
+	check(rows["Average kill range"] == "20.0 m" and rows["Average engagement range"] == "30.0 m", "ranges average over tracked kills and bursts")
+	check(rows["Distance covered"] == "12345 m" and rows["Time in cover"] == "1:15" and rows["Average time to first shot"] == "3.0 s", "totals and times read well")
+	check(rows["Share of hill time contested"] == "25%" and rows["Opening kills"] == "3", "share and count")
+	var empty := {}
+	for r in StatRegistry.telemetry_rows({"matches": 1}):
+		empty[r[0]] = r[1]
+	check(empty["Average kill range"] == "-" and empty["Share of hill time contested"] == "-", "nothing to average reads as a dash")
+	var avg: Dictionary = StatRegistry.LEADERS.filter(func(d): return d["id"] == "kill_range")[0]
+	check(StatRegistry.value_of(avg, line, 5) == 20.0 and StatRegistry.value_of(avg, {"matches": 9}, 5) == -1.0, "average leaders skip lines with nothing tracked")
+## Season end names the MVP, and a season that tops the league's single-season book makes news once.
+func test_award_stories() -> void:
+	var s := _season(91)
+	var mvp: Dictionary = s.review.awards.filter(func(a): return a["award"] == "Season MVP")[0]
+	var mvp_news: Array = s.news.items.filter(func(n): return n["kind"] == "mvp" and n["year"] == s.year)
+	check(mvp_news.size() == 1 and mvp_news[0]["soldier_id"] == mvp["soldier"].id, "the Season MVP makes the wire once")
+	var year := s.year
+	var kills: Dictionary = StatRegistry.PLAYER[0]
+	var rows: Array = s.league.all_soldiers().filter(func(so: Soldier): return so.season_lines.has(year))
+	var star: Soldier = rows[0]
+	var old: Soldier = rows[1]
+	old.season_lines[year - 3] = (old.season_lines[year] as Dictionary).duplicate()
+	old.season_lines[year - 3]["kills"] = 400
+	star.season_lines[year]["kills"] = 500
+	s.news.items = s.news.items.filter(func(n): return n["kind"] != "season_record")
+	star.news_tags.erase("season_record")
+	s.news._award_stories(s)
+	var rec: Array = s.news.items.filter(func(n): return n["kind"] == "season_record" and n["soldier_id"] == star.id)
+	check(rec.size() == 1 and rec[0]["headline"].contains("500"), "a new season record is a story naming the value")
+	s.news._award_stories(s)
+	check(s.news.items.filter(func(n): return n["kind"] == "season_record" and n["soldier_id"] == star.id).size() == 1, "written once a year")
+	check(Records.player_seasons(s, kills)[0]["soldier"] == star, "setup: he holds the book")
+
+
+## A new franchise starts with the same fixed books, a bigger book than the sim's first season, and a
+## player can still break them.
+func test_seeded_books() -> void:
+	Season.seed_records = true
+	var a := Season.new_franchise(92, 0)
+	var b := Season.new_franchise(93, 1)
+	Season.seed_records = false
+	check(a.ledger.seeded and b.ledger.seeded, "new franchises are seeded")
+	check(str(a.ledger.single_match) == str(b.ledger.single_match) and str(a.ledger.best_win) == str(b.ledger.best_win), "every league starts with the same books")
+	for stat: Dictionary in StatRegistry.SINGLE_MATCH:
+		if stat["id"] == "hill_s":
+			continue
+		var all := a.ledger.top(stat["id"], StatRegistry.PHASE_COMBINED)
+		var po := a.ledger.top(stat["id"], StatRegistry.PHASE_PLAYOFFS)
+		check(all.size() == StatLedger.KEEP and po.size() == StatLedger.KEEP, "%s books are full" % stat["id"])
+		check(po[0]["value"] <= all[0]["value"], "%s playoff mark within the all-time mark" % stat["id"])
+	for stat: Dictionary in Records.PLAYER_STATS:
+		check(Records.player_seasons(a, stat).size() == Records.TOP_N, "%s season book is full" % stat["id"])
+		check(Records.player_careers(a, stat).size() == Records.TOP_N, "%s career book is full" % stat["id"])
+		check(str(Records.player_seasons(a, stat).map(func(r): return [r["name"], r["value"]])) == str(Records.player_seasons(b, stat).map(func(r): return [r["name"], r["value"]])), "%s season book is the same in both leagues" % stat["id"])
+	check(Records.team_seasons(a, Records.TEAM_STATS[0]).size() == Records.TOP_N, "team seasons are seeded")
+	check(Records.streaks(a, "win_streak").size() > 0, "streaks are seeded")
+	# Early matches are held to the seeded marks: a modest game is not a record, a huge one is.
+	var m: ScheduledMatch = _regular(a)[0]
+	a.sim_week()
+	m = _regular(a)[0]
+	check(m.records.is_empty(), "an ordinary week breaks no seeded record")
+	var so: Soldier = m.home.starters()[0]
+	m.result.box[so.id]["kills"] = 60
+	a.ledger.record_match(a, m)
+	var rec: Array = m.records.filter(func(r): return r["stat"] == "kills")
+	check(rec.size() == 1 and rec[0]["value"] == 60.0 and not rec[0]["previous"].is_empty(), "a player can break a seeded record")
+	var scoped := Records.single_matches(a, StatRegistry.SINGLE_MATCH[0], StatRegistry.PHASE_COMBINED, "NYE")
+	check(scoped.all(func(r): return r["team"] == "NYE"), "franchise books hold only that club")
+	var loaded := SaveSystem.from_text(SaveSystem.to_text(a))
+	check(loaded != null and loaded.ledger.seeded and str(loaded.ledger.single_match) == str(a.ledger.single_match), "seeded books survive a save")
+
+
+## Telemetry stats have record books too: seeded targets that a big match, season or career can pass.
+func test_telemetry_records() -> void:
+	Season.seed_records = true
+	var a := Season.new_franchise(97, 0)
+	Season.seed_records = false
+	var ids := ["opening_kills", "kills_long", "distance"]
+	for id in ids:
+		var match_stat: Dictionary = StatRegistry.SINGLE_MATCH.filter(func(d): return d["id"] == id)[0]
+		check(Records.single_matches(a, match_stat).size() == Records.TOP_N, "%s single-match book is seeded" % id)
+		var player_stat: Dictionary = StatRegistry.PLAYER.filter(func(d): return d["id"] == id)[0]
+		check(Records.player_seasons(a, player_stat).size() == Records.TOP_N and Records.player_careers(a, player_stat).size() == Records.TOP_N, "%s season and career books are seeded" % id)
+	var dist: Dictionary = StatRegistry.PLAYER.filter(func(d): return d["id"] == "distance")[0]
+	check(Records.format_value(dist, 11800.0) == "11800 m", "distance reads in metres")
+	a.sim_week()
+	var m: ScheduledMatch = _regular(a)[0]
+	var so: Soldier = m.home.starters()[0]
+	m.result.box[so.id]["kills_long"] = 40
+	m.result.box[so.id]["distance"] = 9000.0
+	a.ledger.record_match(a, m)
+	var hit := m.records.map(func(r): return r["stat"])
+	check(hit.has("kills_long") and hit.has("distance"), "a huge match breaks the telemetry records (%s)" % [hit])
+	var ev: Dictionary = m.records.filter(func(r): return r["stat"] == "distance")[0]
+	check(ev["noun"] == "of ground covered" and not ev["previous"].is_empty(), "it names what it passed")
 
