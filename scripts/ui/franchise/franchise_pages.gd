@@ -1998,7 +1998,7 @@ func _dna_color(v: float) -> Color:
 ## Every rating / dev star change, newest first, grouped by season, with the reason.
 func _player_progression(s: Soldier) -> Control:
 	var v := _vbox(10)
-	var tip := UiKit.label("Every rating change this soldier has had and why: level-ups from performance (skill points), training camp drills, age decline and dev star changes (season review and camp).", 15, UiKit.MUTED)
+	var tip := UiKit.label("Every rating change this soldier has had and why: level-ups from performance (skill points), training camp drills, age decline, dev star changes (season review and camp) and facility effects (Sports Science Lab, Performance Institute cap raises).", 15, UiKit.MUTED)
 	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(tip)
 	if s.history.is_empty():
@@ -2035,7 +2035,12 @@ func _progress_entry(e: Dictionary) -> Control:
 	if df != dt and df > 0 and dt > 0:
 		bits.append("DEV [color=%s]%s[/color] -> [color=%s]%s[/color]" % [UiKit.hex(UiKit.MUTED), Soldier.dev_stars(df),
 			UiKit.hex(UiKit.GOOD if dt > df else UiKit.BAD), Soldier.dev_stars(dt)])
-	# Old saves: the retired F..A potential grade.
+	var caps: Dictionary = e.get("caps", {})
+	for g in caps:
+		var c: Array = caps[g]
+		bits.append("%s CAP %d -> [color=%s]%d[/color]" % [String(Stats.GROUP_LABELS.get(StringName(g), String(g))).to_upper(), int(c[0]),
+			UiKit.hex(UiKit.GOOD if int(c[1]) > int(c[0]) else UiKit.BAD), int(c[1])])
+	# The F..A potential grade: a cap change, or the retired grade in old saves.
 	var pf := int(e.get("pot_from", -1))
 	var pt := int(e.get("pot_to", -1))
 	if pf != pt and pf >= 0 and pt >= 0:
@@ -3400,12 +3405,12 @@ func scouting() -> Control:
 	var d := _season().draft
 	var v := _vbox(10)
 	v.add_child(UiKit.rich("[font_size=22][color=white]%d DRAFT CLASS[/color][/font_size]     [color=#38bdf8]%d scout points[/color] available  (+%d per week, unspent points carry over)" % [
-		d.year, d.scout_points, Draft.POINTS_PER_WEEK], 16))
+		d.year, d.scout_points, _season().scout_points_per_week()], 16))
 	var help := UiKit.label("SCOUT is the grade from your area scouts: a quick read on where he ranks in the whole class (A = top 5%%, F = bottom of the class) - a noisy hint, not a guarantee, marked with a '?'. Scout him to %d points and the '?' drops: that's his true grade. Each point scouts 2 random stat groups: the first look at a group shows a 3-grade range, a second narrows it to 2. Once every group is down to 2 grades, each point pins 1 group to its exact grade. Up to %d points per prospect. Projected rounds are the league consensus - potential stays hidden until draft day." % [Draft.MAX_POINTS_PER_PROSPECT, Draft.MAX_POINTS_PER_PROSPECT], 14, UiKit.MUTED)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(help)
 	if _season().preseason_camp:
-		v.add_child(UiKit.label("Scouting opens in Week 1. Your first %d points arrive when training camp ends." % Draft.POINTS_PER_WEEK, 18, UiKit.ACCENT))
+		v.add_child(UiKit.label("Scouting opens in Week 1. Your first %d points arrive when training camp ends." % _season().scout_points_per_week(), 18, UiKit.ACCENT))
 	v.add_child(_grade_legend())
 	var nav := _row()
 	nav.add_child(UiKit.button("Mock Draft", hub.open_mock_draft, 15))

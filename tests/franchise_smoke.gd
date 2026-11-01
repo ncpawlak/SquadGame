@@ -29,7 +29,7 @@ func _init() -> void:
 	hub.cycle_tab(1)
 	_check(hub.tab_index == 0, "tab cycling wraps")
 	# The Club pages build and read the ledger and buzz.
-	for pg in [["Finances", hub.club.finances], ["Market & Buzz", hub.club.market_buzz]]:
+	for pg in [["Finances", hub.club.finances], ["Market & Buzz", hub.club.market_buzz], ["Facilities", hub.club.facilities]]:
 		hub.open(pg[0], pg[1])
 		await process_frame
 		_check(hub._content.get_child_count() > 0, "%s page builds" % pg[0])

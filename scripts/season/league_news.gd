@@ -233,6 +233,28 @@ func luxury_tax(season: Season, bills: Array) -> void:
 				"$%.2f" % Contracts.TAX_RATE])
 
 
+## A facility upgrade (Facilities.upgrade): always the user's, a few AI clubs' a year.
+func facility_upgrade(season: Season, team: Team, id: StringName, lvl: int, cost: int) -> void:
+	if not team.user_controlled and not _year_room(season, "facility"):
+		return
+	_add(season, _offseason_when(season), "facility", [team.abbrev], 0,
+		"%s upgrade their %s" % [team.name, Facilities.facility_name(id)],
+		"The %s spent %s from the club fund to take their %s to level %d: %s. Club fund now %s." % [
+			team.nickname, Contracts.money(cost), Facilities.facility_name(id), lvl, Facilities.effect_text(id, lvl).to_lower(),
+			Contracts.money(roundi(season.revenue.cash_of(team)))])
+
+
+## Board review: clubs that couldn't pay facility upkeep lose a level ([{team, facility, level, due}]).
+func facility_drops(season: Season, drops: Array) -> void:
+	for d in drops:
+		var t: Team = d["team"]
+		var id: StringName = d["facility"]
+		_add(season, "Offseason", "facility", [t.abbrev], 0,
+			"%s let their %s slip" % [t.name, Facilities.facility_name(id)],
+			"With %s in the club fund the %s couldn't cover %s in facility upkeep, and their %s drops to level %d." % [
+				Contracts.money(roundi(season.revenue.cash_of(t))), t.nickname, Contracts.money(int(d["due"])),
+				Facilities.facility_name(id), int(d["level"])])
+
 ## Season end: the board review (Revenue.board_review entries, biggest grant first). Your club's
 ## grant, the league's biggest, and any board that has lost confidence.
 func board_review(season: Season, reviews: Array) -> void:

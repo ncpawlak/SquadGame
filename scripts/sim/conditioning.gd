@@ -66,8 +66,9 @@ static func weekly_load(soldier: Soldier, played_match: bool) -> float:
 	return load * endurance_mult(soldier) * (1.0 + age_years(soldier) * AGE_LOAD_PER_YEAR)
 
 
-static func weekly_recovery(soldier: Soldier, bye: bool) -> float:
-	var r := RECOVERY_RATE + float(Training.INTENSITY_INFO[soldier.intensity]["recovery_bonus"])
+## onus: extra share shed (a Medical Center upgrade).
+static func weekly_recovery(soldier: Soldier, bye: bool, bonus := 0.0) -> float:
+	var r := RECOVERY_RATE + float(Training.INTENSITY_INFO[soldier.intensity]["recovery_bonus"]) + bonus
 	if bye:
 		r += BYE_RECOVERY_BONUS
 	return clampf(r * (1.0 - age_years(soldier) * AGE_RECOVERY_PER_YEAR), 0.05, 0.95)
@@ -104,9 +105,11 @@ static func injury_label(weeks: int, rng: RandomNumberGenerator) -> String:
 
 
 ## End-of-week update for one team. played_ids: soldier ids who started a match this week.
-## Returns new injuries as Array of {soldier, weeks, name}.
+## Returns new injuries as Array of {soldier, weeks, name}. A Medical Center upgrade shortens injuries and
+## speeds recovery.
 static func end_week(team: Team, played_ids: Dictionary, bye: bool, rng: RandomNumberGenerator) -> Array:
 	var injuries: Array = []
+	var bonus := Facilities.recovery_bonus(team)
 	for soldier in team.roster:
 		if soldier.is_injured():
 			soldier.injury_weeks -= 1
@@ -115,10 +118,10 @@ static func end_week(team: Team, played_ids: Dictionary, bye: bool, rng: RandomN
 			soldier.fatigue *= 0.4
 			continue
 		var played := played_ids.has(soldier.id)
-		soldier.fatigue = clampf(soldier.fatigue * (1.0 - weekly_recovery(soldier, bye)) + weekly_load(soldier, played), 0.0, 100.0)
+		soldier.fatigue = clampf(soldier.fatigue * (1.0 - weekly_recovery(soldier, bye, bonus)) + weekly_load(soldier, played), 0.0, 100.0)
 		var active := played or soldier.intensity != Soldier.INTENSITY_REST
 		if active and rng.randf() < injury_chance(soldier, played):
-			soldier.injury_weeks = roll_injury_weeks(soldier.stats[Stats.TOUGHNESS], rng)
+			soldier.injury_weeks = Facilities.injury_weeks(team, roll_injury_weeks(soldier.stats[Stats.TOUGHNESS], rng))
 			soldier.injury_name = injury_label(soldier.injury_weeks, rng)
 			injuries.append({"soldier": soldier, "weeks": soldier.injury_weeks, "name": soldier.injury_name})
 	return injuries

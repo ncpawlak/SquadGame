@@ -3,8 +3,9 @@ extends RefCounted
 ## Club revenue (issue #8, phase 2) and the club fund (issue #50). Money is in $K, like contracts.
 ## Revenue is a ledger only: each team earns money from four streams, and the board reads it. It never
 ## credits cash. Cash (the club fund) changes only at the yearly board review (the grant) and when
-## money is spent (signing bonuses, the luxury tax; later facilities, issue #38). It carries
-## over with no limit and may go below $0.
+## money is spent: signing bonuses, the luxury tax, and facilities (issue #38: upgrades bought in the offseason
+## and yearly upkeep charged right after the grant; see Facilities). It carries over with no limit and may
+## go below $0 (facility spending never takes it there).
 ##
 ##   tickets   each home game: the team's gate at an average crowd, scaled by how full the stadium is
 ##             (buzz, the opponent's buzz, a rivalry); playoff gates are a share of that by round.

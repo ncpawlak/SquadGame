@@ -114,6 +114,8 @@ var rivalries := Rivalries.new()
 var market := Market.new()
 ## Club revenue and cash (behind the scenes: nothing in contracts or the cap reads it).
 var revenue := Revenue.new()
+## Club facilities (issue #38): upgrades bought with the club fund.
+var facilities := Facilities.new()
 var trades := Trades.new()
 ## Signings from the most recent resolution (free-agency day or week).
 var last_signings: Array = []
@@ -578,7 +580,7 @@ func finish_week() -> Array:
 	last_prospect_news = []
 	if phase != PHASE_OFFSEASON:
 		last_prospect_news = draft.weekly_news(news_week)
-		draft.scout_points += Draft.POINTS_PER_WEEK
+		draft.scout_points += scout_points_per_week()
 		fa.ai_offers(self, _rng, true)
 	_trade_tick()
 	return played
@@ -736,6 +738,9 @@ func start_next_season() -> void:
 	Soldier.log_year = year + 1
 	Soldier.log_when = "Preseason"
 	aging_report = Aging.age_league(league, arng)
+	var irng := RandomNumberGenerator.new()
+	irng.seed = _mix([league.league_seed, year, 0x1A57])
+	facilities.institute(self, irng)
 	var active_ids := {}
 	for so in league.all_soldiers():
 		active_ids[so.id] = true
@@ -783,6 +788,11 @@ func rookie_reserve(team: Team) -> int:
 	return total
 
 
+## The user's scout points per week (Draft.POINTS_PER_WEEK, more with a Scouting Office upgrade).
+func scout_points_per_week() -> int:
+	return Facilities.scout_points(user_team())
+
+
 ## Why the user can't leave the roster-review week yet ("" = he can): payroll must be under
 ## the apron before training camp (rookie deals always sign, so a team can end up over).
 func user_cap_error() -> String:
@@ -809,7 +819,7 @@ func close_preseason_camp() -> void:
 	_camp_star_news()
 	offseason_xp(CAMP_WEEK_XP)
 	preseason_camp = false
-	draft.scout_points += Draft.POINTS_PER_WEEK
+	draft.scout_points += scout_points_per_week()
 
 
 ## Sends `s` to the user's `group` drill. Returns the Camp result ({} if refused; see camp_check).
@@ -912,6 +922,7 @@ func _advance_offseason_step() -> Array:
 				_cut_to_cap(t)
 			offseason_stage = OFF_CAMP
 		OFF_CAMP:
+			facilities.ai_spend(self)
 			for t in league.teams:
 				if not t.user_controlled:
 					camp.ai_run(t, _rng)
@@ -929,13 +940,14 @@ func _advance_offseason_step() -> Array:
 	return signed
 
 
-## One offseason week of XP for every rostered soldier (potential-scaled); AI teams spend it.
+## One offseason week of XP for every rostered soldier (potential-scaled, more with Drill Rooms); AI teams spend it.
 ## Returns soldier_id -> gain_xp report.
 func offseason_xp(base_xp: float) -> Dictionary:
 	var reports := {}
 	for t in league.teams:
+		var xp := base_xp * Facilities.drill_mult(t)
 		for so in t.roster:
-			reports[so.id] = Progression.gain_xp(so, base_xp)
+			reports[so.id] = Progression.gain_xp(so, xp)
 		Progression.auto_spend_team(t, _rng)
 	return reports
 
@@ -1304,7 +1316,8 @@ func _begin_season() -> void:
 	draft = Draft.generate(_mix([league.league_seed, year, 0xD2AF]), year, league.next_soldier_id)
 	draft.league = league
 	league.next_soldier_id += Draft.CLASS_SIZE
-	draft.scout_points = Draft.POINTS_PER_WEEK
+	facilities.ensure(self)
+	draft.scout_points = scout_points_per_week()
 	league.ensure_callsigns()
 	market.begin_season(self)
 	revenue.begin_season(self)
@@ -1341,6 +1354,7 @@ func _advance() -> void:
 		news.end_season(self)
 		news.luxury_tax(self, revenue.charge_tax(self))
 		news.board_review(self, revenue.board_review(self))
+		news.facility_drops(self, facilities.charge_upkeep(self))
 		news.dev_changes(self, review.dev_changes)
 		Contracts.rollover(league, year)
 		offseason_stage = OFF_RESIGN
