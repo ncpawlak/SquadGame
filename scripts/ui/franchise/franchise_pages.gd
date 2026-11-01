@@ -5729,8 +5729,8 @@ func retirements() -> Control:
 			UiKit.style_primary(b)
 		toggle.add_child(b)
 	v.add_child(toggle)
-	var help := UiKit.label("Soldiers retire from age %d (always by %d). Free agents who go a full season unsigned retire if they're below %d OVR or %d+." % [
-		Retirement.AGE_CHANCE.keys().min(), Retirement.ALWAYS_AGE, Retirement.FA_MIN_OVR, Retirement.FA_MAX_AGE], 14, UiKit.MUTED)
+	var help := UiKit.label("Soldiers may retire from age %d (always at %d), rarely while they're still good and starting. Free agents unsigned for a full year may retire when the offseason closes: always below %d OVR, never at %d+." % [
+		Retirement.AGE_CHANCE.keys().min(), Retirement.ALWAYS_AGE, Retirement.FA_MIN_OVR, Retirement.FA_KEEP_OVR], 14, UiKit.MUTED)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(help)
 	var list: Array = s.retirements.filter(func(r): return not retire_scope_team or r["team"] == user)
