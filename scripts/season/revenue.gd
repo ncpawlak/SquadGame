@@ -3,7 +3,7 @@ extends RefCounted
 ## Club revenue (issue #8, phase 2) and the club fund (issue #50). Money is in $K, like contracts.
 ## Revenue is a ledger only: each team earns money from four streams, and the board reads it. It never
 ## credits cash. Cash (the club fund) changes only at the yearly board review (the grant) and when
-## money is spent (the luxury tax; later signing bonuses and facilities, issues #41 and #38). It carries
+## money is spent (signing bonuses, the luxury tax; later facilities, issue #38). It carries
 ## over with no limit and may go below $0.
 ##
 ##   tickets   each home game: the team's gate at an average crowd, scaled by how full the stadium is
@@ -110,6 +110,8 @@ var taxes := {}
 ## Season year -> {abbrev -> board review}: {market, results, playoffs, awards, development, savings,
 ## confidence, grant, expected, finish, cash_before}.
 var grants := {}
+## Season year -> {abbrev -> signing bonuses paid ($K)}.
+var bonuses := {}
 
 
 # --- scale ----------------------------------------------------------------------------
@@ -322,6 +324,36 @@ func charge_tax(season: Season) -> Array:
 			taxes.erase(y)
 	out.sort_custom(func(a, b): return int(a["amount"]) > int(b["amount"]))
 	return out
+
+
+## Why `team` can't promise a `bonus` now ("" = it can). `committed` is bonus money already promised in
+## pending offers.
+func bonus_error(team: Team, bonus: int, committed := 0) -> String:
+	if bonus <= 0:
+		return ""
+	if frozen(team):
+		return "The board has frozen bonuses while the club fund is below $0."
+	if bonus + committed > cash_of(team):
+		return "Not enough in the club fund: %s available%s." % [Contracts.money(roundi(cash_of(team) - committed)),
+			" after pending offers" if committed > 0 else ""]
+	return ""
+
+
+## Pays a signing bonus out of the club fund (it never counts on the cap).
+func pay_bonus(season: Season, team: Team, amount: int) -> void:
+	if amount <= 0:
+		return
+	cash[team.abbrev] = cash_of(team) - amount
+	if not bonuses.has(season.year):
+		bonuses[season.year] = {}
+	bonuses[season.year][team.abbrev] = int(bonuses[season.year].get(team.abbrev, 0)) + amount
+	for y in bonuses.keys():
+		if int(y) <= season.year - LEDGER_YEARS:
+			bonuses.erase(y)
+
+
+func bonuses_paid(year: int, team: Team) -> int:
+	return int((bonuses.get(year, {}) as Dictionary).get(team.abbrev, 0))
 
 
 func tax_paid(year: int, team: Team) -> int:

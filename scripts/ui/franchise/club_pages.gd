@@ -3,7 +3,7 @@ extends RefCounted
 ## Club tab pages (issue #8): the club's finances and its market and buzz. Each returns a Control that
 ## the hub wraps in a titled, scrollable frame. Pages read Season state fresh every time they are built.
 ## Nothing here changes the league. Revenue is a ledger the board reads; cash is the club fund, filled by the
-## yearly board grant (issue #50) and spent on the luxury tax.
+## yearly board grant (issue #50) and spent on signing bonuses and the luxury tax.
 
 var hub: Control  # hub.gd; a Node, so no RefCounted cycle
 
@@ -59,8 +59,10 @@ func finances() -> Control:
 	v.add_child(UiKit.rich("REVENUE [color=white]%s[/color]   -   OPERATING COST [color=white]%s[/color]   -   NET [color=%s]%s[/color]   -   CLUB FUND [color=%s]%s[/color]   -   #%d of %d in revenue" % [
 		_money(float(l["revenue"])), _money(float(l["operations"])), UiKit.hex(UiKit.GOOD if net >= 0.0 else UiKit.BAD), _money(net),
 		UiKit.hex(UiKit.BAD if fund < 0.0 else Color.WHITE), _money(fund), rank, table_rows.size()], 18))
-	v.add_child(UiKit.label("The club fund is filled once a year by the board grant and pays the luxury tax (and later signing bonuses and facilities). It carries over with no limit. Revenue doesn't go into it: the board reads it. Player pay comes under the salary cap and is not taken from this money.%s" % (
-		"  While the fund is below $0 the board freezes spending: no deal may take payroll over the tax line." if fund < 0.0 else ""), 14, UiKit.BAD if fund < 0.0 else UiKit.MUTED))
+	v.add_child(UiKit.rich("SPENT IN %d   signing bonuses [color=white]%s[/color]   -   luxury tax [color=white]%s[/color]" % [
+		s.year, _money(float(rv.bonuses_paid(s.year, us))), _money(float(rv.tax_paid(s.year, us)))], 16))
+	v.add_child(UiKit.label("The club fund is filled once a year by the board grant and pays signing bonuses and the luxury tax (and later facilities). It carries over with no limit. Revenue doesn't go into it: the board reads it. Player pay comes under the salary cap and is not taken from this money; a signing bonus is paid from the fund in full when he signs and never counts on the cap (at most half the deal's total salary).%s" % (
+		"  While the fund is below $0 the board freezes spending: no bonuses, and no deal may take payroll over the tax line." if fund < 0.0 else ""), 14, UiKit.BAD if fund < 0.0 else UiKit.MUTED))
 	_board_section(v, s, us)
 
 	v.add_child(_section("WHERE IT COMES FROM"))
