@@ -91,6 +91,27 @@ func _init() -> void:
 	_check(scouted.points == 4, "scouted from report")
 	hub.page_stack.clear()
 	hub.refresh()
+	# Player Progression: only players who can afford an upgrade are listed; clicking a group spends SP.
+	for so in hub.season.user_team().roster:
+		so.skill_points = 0
+	var prog_guy: Soldier = hub.season.user_team().roster.filter(func(x: Soldier): return not Progression.is_capped(x, Stats.ACCURACY))[0]
+	prog_guy.skill_points = Progression.upgrade_cost(prog_guy, Stats.ACCURACY)
+	hub.open("Player Progression", hub.pages.progression)
+	await process_frame
+	var listed := _with_meta(hub._content, &"prog_sid")
+	_check(listed.size() == 1 and listed[0].get_meta(&"prog_sid") == prog_guy.id, "progression lists only players who can level up")
+	var acc: Button = null
+	for b in _with_meta(hub._content, &"prog_group"):
+		if b.get_meta(&"prog_group") == Stats.ACCURACY:
+			acc = b
+	_check(acc != null and not acc.disabled, "progression group row is clickable")
+	if acc != null:
+		acc.pressed.emit()
+		await process_frame
+	_check(prog_guy.skill_points == 0, "clicking a group spends SP")
+	_check(_with_meta(hub._content, &"prog_sid").is_empty(), "spent-out player leaves the progression list")
+	hub.page_stack.clear()
+	hub.refresh()
 	# Auto-progress all.
 	for so in hub.season.user_team().roster:
 		so.skill_points += 3
@@ -571,6 +592,15 @@ func _find_button(n: Node, prefix: String) -> Button:
 		if found != null:
 			return found
 	return null
+
+
+func _with_meta(n: Node, key: StringName) -> Array:
+	var out := []
+	if n.has_meta(key):
+		out.append(n)
+	for c in n.get_children():
+		out.append_array(_with_meta(c, key))
+	return out
 
 
 func _check(cond: bool, msg: String) -> void:
