@@ -1638,6 +1638,148 @@ func test_trade_need_factor() -> void:
 	check(s.trades.player_value(s, scrub, t, false) < s.trades.player_value(s, scrub, t, true), "receiving a buried player is worth less than giving him")
 
 
+## Sets `t`'s payroll for `cy` to `target` through its dead-money line (test-only shortcut).
+func _set_payroll(t: Team, cy: int, target: int) -> void:
+	t.dead_money[cy] = 0
+	t.dead_money[cy] = target - Contracts.payroll(t, cy)
+
+
+func _first_tradeable(t: Team) -> Soldier:
+	return t.roster.filter(func(x: Soldier): return Trades.tradeable(x))[0]
+
+
+func test_trade_salary_matching() -> void:
+	var s := _fixed(77)
+	var tr := s.trades
+	var cy := s.cap_year()
+	var ais: Array = s.league.teams.filter(func(t: Team): return not t.user_controlled)
+	var a: Team = ais[0]
+	var b: Team = ais[1]
+	var pa := _first_tradeable(a)
+	var pb := _first_tradeable(b)
+	var give := [Trades.player_asset(pa)]
+	var get := [Trades.player_asset(pb)]
+	pa.contract.salary = 10000
+	pb.contract.salary = 12500
+	_set_payroll(b, cy, Contracts.SALARY_CAP + 40000)
+	# Over the cap: 125% of the salary sent out, no more.
+	_set_payroll(a, cy, Contracts.SALARY_CAP + 50000)
+	check(tr.validate(s, a, give, b, get) == "", "over the cap: 125%% of outgoing salary fits (%s)" % tr.validate(s, a, give, b, get))
+	pb.contract.salary = 12510
+	var err := tr.validate(s, a, give, b, get)
+	check(err.contains("is over the cap") and err.contains("125%"), "over the cap: more than 125%% is blocked (%s)" % err)
+	var m := Trades.salary_match(s, a, give, get)
+	check(m["max_in"] == 12500 and not m["ok"] and m["out"] == 10000 and m["in"] == 12510, "salary_match reports the limit")
+	check(Trades.salary_match(s, b, get, give)["max_in"] == -1, "shedding salary has no limit")
+	# Over the cap, a player for a pick only works for a minimum deal.
+	var pick := Trades.pick_asset(s.draft.year, 2, a)
+	check(tr.validate(s, a, [pick], b, get) != "", "over the cap: can't take salary back for a pick")
+	pb.contract.salary = Contracts.MIN_SALARY
+	check(tr.validate(s, a, [pick], b, get) == "", "a minimum deal always fits")
+	# Under the cap: absorb salary up to it; ending over it falls back to 125%.
+	pb.contract.salary = 30000
+	_set_payroll(a, cy, Contracts.SALARY_CAP - 30000)
+	check(tr.validate(s, a, [pick], b, get) == "", "under the cap: absorb salary up to the cap")
+	check(tr.validate(s, a, give, b, get) == "", "under the cap: take back over 125% while staying under it")
+	_set_payroll(a, cy, Contracts.SALARY_CAP - 10000)
+	check(tr.validate(s, a, [pick], b, get).contains("would end up over the cap"), "under the cap: ending over it needs matching")
+	check(tr.validate(s, a, give, b, get) != "", "under the cap: ending over it caps intake at 125%")
+	pb.contract.salary = 12500
+	_set_payroll(a, cy, Contracts.SALARY_CAP - 1000)
+	check(tr.validate(s, a, give, b, get) == "", "ending over the cap within 125% is fine")
+	# The apron still blocks.
+	_set_payroll(a, cy, Contracts.APRON - 2000)
+	err = tr.validate(s, a, give, b, get)
+	check(err.contains("apron"), "the apron still blocks (%s)" % err)
+	# The partner's side is matched too.
+	_set_payroll(a, cy, Contracts.SALARY_CAP)
+	pa.contract.salary = 20000
+	pb.contract.salary = 10000
+	check(tr.validate(s, a, give, b, get).begins_with(b.name), "the partner over the cap is held to 125% too")
+	# AI packages respect matching: whatever _payment builds is legal.
+	pa.contract.salary = 10000
+	pb.contract.salary = 15000
+	_set_payroll(a, cy, Contracts.SALARY_CAP + 20000)
+	var pay := tr._payment(s, a, b, get, get)
+	check(pay.is_empty() or tr.validate(s, a, pay, b, get) == "", "AI payment passes matching")
+	check(pay.is_empty() or Trades.salary_match(s, a, pay, get)["ok"], "AI payment sends enough salary back")
+	# Restructure dumps only go to a team that can absorb the salary.
+	var seller: Team = ais[2]
+	var dump := _first_tradeable(seller)
+	dump.contract.salary = 20000
+	ais[4].release(ais[4].roster[-1])
+	for t: Team in ais:
+		if t != seller:
+			_set_payroll(t, cy, Contracts.SALARY_CAP + 20000)
+	check(tr._dump_deal(s, seller, dump).is_empty(), "no over-cap team takes a salary dump for a pick")
+	var room: Team = ais[3]
+	room.release(room.roster[-1])
+	_set_payroll(room, cy, Contracts.SALARY_CAP - 80000)
+	var deal := tr._dump_deal(s, seller, dump)
+	check(deal.is_empty() or deal["buyer"] == room, "only the team with cap room can take the dump")
+
+
+func test_trade_bonus_sunk() -> void:
+	var s := _fixed(78)
+	var tr := s.trades
+	var rv := s.revenue
+	var cy := s.cap_year()
+	var ais: Array = s.league.teams.filter(func(t: Team): return not t.user_controlled)
+	var a: Team = ais[0]
+	var b: Team = ais[1]
+	b.release(b.roster[-1])
+	var x := _first_tradeable(a)
+	x.contract.salary = 8000
+	_set_payroll(b, cy, Contracts.SALARY_CAP - 60000)
+	rv.cash[a.abbrev] = 20000.0
+	rv.cash[b.abbrev] = 20000.0
+	x.contract.bonus = 6000
+	rv.pay_bonus(s, a, 6000)
+	a.bonus_money[cy] = 3000
+	var cash_a := rv.cash_of(a)
+	var cash_b := rv.cash_of(b)
+	var pay_a := Contracts.payroll(a, cy)
+	var pay_b := Contracts.payroll(b, cy)
+	check(is_equal_approx(cash_a, 14000.0), "the bonus came out of the signing club's fund")
+	var pick := Trades.pick_asset(s.draft.year, 2, b)
+	check(tr.validate(s, a, [Trades.player_asset(x)], b, [pick]) == "", "the deal is legal")
+	tr.execute(s, a, [Trades.player_asset(x)], b, [pick])
+	check(b.roster.has(x), "player moved")
+	check(is_equal_approx(rv.cash_of(a), cash_a) and is_equal_approx(rv.cash_of(b), cash_b), "nobody pays or is refunded the bonus")
+	check(Contracts.payroll(b, cy) == pay_b + 8000, "the new club carries only his salary (+%d)" % (Contracts.payroll(b, cy) - pay_b))
+	check(Contracts.payroll(a, cy) == pay_a - 8000, "the old club keeps its legacy bonus money on the cap")
+	check(int(b.bonus_money.get(cy, 0)) == 0, "no bonus money follows him")
+
+
+func test_trade_value_salary() -> void:
+	var s := _fixed(79)
+	var tr := s.trades
+	var cy := s.cap_year()
+	var t: Team = s.league.teams.filter(func(x: Team): return not x.user_controlled)[0]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var p := PlayerGenerator.generate(rng, 9101, Scheme.Role.FLEX, 80.0, 27)
+	var fair := Contracts.market_value(p)
+	var vals := {}
+	_set_payroll(t, cy, Contracts.SALARY_CAP - 50000)
+	for k in [["over", 1.5], ["fair", 1.0], ["cheap", 0.4]]:
+		p.contract = Contract.make(Contracts._round_salary(fair * k[1]), 3, s.year)
+		vals[k[0]] = tr.player_value(s, p, t, true)
+	check(vals["over"] < vals["fair"] and vals["fair"] < vals["cheap"], "overpaid < fair < cheap (%.0f / %.0f / %.0f)" % [vals["over"], vals["fair"], vals["cheap"]])
+	check(vals["cheap"] < vals["fair"] * 1.6 and vals["over"] > vals["fair"] * 0.6, "the contract shifts value; the rating still leads")
+	# A star outranks a scrub whatever the contracts.
+	var scrub := PlayerGenerator.generate(rng, 9102, Scheme.Role.FLEX, 60.0, 27)
+	scrub.contract = Contract.make(Contracts.MIN_SALARY, 3, s.year)
+	p.contract = Contract.make(Contracts._round_salary(fair * 1.3), 3, s.year)
+	check(tr.player_value(s, p, t, true) > tr.player_value(s, scrub, t, true), "an overpaid star still beats a cheap scrub")
+	# Over the cap, a team weighs cheap deals more.
+	p.contract = Contract.make(Contracts._round_salary(fair * 0.4), 3, s.year)
+	var under := tr.player_value(s, p, t, true)
+	_set_payroll(t, cy, Contracts.SALARY_CAP + 50000)
+	var over := tr.player_value(s, p, t, true)
+	check(over > under, "an over-cap team values a cheap deal more (%.0f vs %.0f)" % [over, under])
+
+
 func test_trades() -> void:
 	# The real 20-team league: pick values are keyed to the 60-pick board.
 	var s := _fixed(123)
@@ -1677,7 +1819,8 @@ func test_trades() -> void:
 	check(not tr.window_open(s) and tr.validate(s, user, [p2], ai, [Trades.pick_asset(s.draft.year, 2, ai)]) != "", "deadline closes the window")
 	s.week = wk
 	# Lopsided offers are refused and cost patience; at zero they stop listening.
-	var space := Contracts.apron_room(user, s.cap_year())
+	_set_payroll(user, s.cap_year(), Contracts.SALARY_CAP - 60000)
+	var space := Contracts.cap_space(user, s.cap_year())
 	var star: Soldier = by_ovr.call(ai).filter(func(x: Soldier): return x.contract.salary <= space)[0]
 	var low := [Trades.pick_asset(s.draft.year + 1, Draft.ROUNDS, user)]
 	var r := tr.propose(s, ai, low, [Trades.player_asset(star)])

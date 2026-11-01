@@ -232,12 +232,17 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   (expiring contracts can't be traded). The window is open in preseason camp, through Week 8 (the deadline), and
   for the whole offseason, from the re-sign week on (including during the live draft); closed for the rest of the season and the
   playoffs. Trades can push a roster past 12 (you must cut before your next match; AI teams restructure right away:
-  shop their least valuable surplus to teams with room for a pick, else cut, weighing OVR, potential, age, years
+  shop their least valuable surplus to teams with room for a pick (the buyer must pass salary matching), else cut, weighing OVR, potential, age, years
   left, dead money and depth at his role). AI teams value incoming players by **need**: a would-be starter is worth
   full value, a top backup 85%, and a player buried behind better, higher-potential players at his role far less
-  (young A/B prospects are discounted less); AI offers only target players who'd start or be the top backup. A trade can't drop a team below 8 in-season or 5 in the offseason, and
-  teams can't go over the cap by taking on salary; contracts and picks
-  just move (no salary retention). Each AI team is a **Contender**, **Balanced** or **Rebuilding** (team OVR plus
+  (young A/B prospects are discounted less); AI offers only target players who'd start or be the top backup. Player
+  value also weighs his contract: market value minus salary over up to 3 seasons, so overpaid players are worth
+  less and cheap productive or rookie deals more (teams over the cap weigh it more). A trade can't drop a team below 8 in-season or 5 in the offseason, and
+  **salary matching** applies: a team that ends the trade over the $250M soft cap may take back at most **125%** of
+  the salary it sends out (under the cap a team may absorb salary up to it; a minimum deal always fits), and nobody
+  may end a trade over the $380M apron. The Trade Center shows each side's salary out / in and the 125% limit, and
+  why a deal fails. Contracts and picks just move (no salary retention); a signing bonus is sunk: it was paid from
+  the old club's fund, and the new club owes nothing and carries only his salary. Each AI team is a **Contender**, **Balanced** or **Rebuilding** (team OVR plus
   record): contenders pay for starters who fit their weakest role, rebuilders pay for youth, picks and cheap
   contracts and sell their 30+ veterans. The **Trade Center** shows a hidden-math interest bar and the GM's
   one-liner; **Propose** (accepted, countered, or refused), **What would it take?** (the cheapest package of yours

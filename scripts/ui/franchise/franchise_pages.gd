@@ -5709,8 +5709,8 @@ func trade_center() -> Control:
 	top.add_child(pat)
 	v.add_child(top)
 	var open := tr.window_open(s)
-	v.add_child(UiKit.rich("TRADE WINDOW  [color=%s]%s[/color]   -   max %d assets a side   -   a team taking on salary must stay under the apron" % [
-		"#22c55e" if open else "#ef4444", tr.window_text(s), Trades.MAX_ASSETS], 15))
+	v.add_child(UiKit.rich("TRADE WINDOW  [color=%s]%s[/color]   -   max %d assets a side   -   a team ending over the cap takes back at most %d%% of the salary it sends out; nobody may cross the apron" % [
+		"#22c55e" if open else "#ef4444", tr.window_text(s), Trades.MAX_ASSETS, roundi(Trades.SALARY_MATCH * 100.0)], 15))
 	var sides := _row(16)
 	sides.add_child(_trade_side("YOU GIVE", user, _trade_give))
 	sides.add_child(_trade_side("YOU GET", ai, _trade_get))
@@ -5726,7 +5726,7 @@ func trade_center() -> Control:
 	irow.add_child(q)
 	v.add_child(irow)
 	var err := "" if both_empty else tr.validate(s, user, _trade_give, ai, _trade_get)
-	v.add_child(UiKit.rich(_trade_after_text(user, _trade_give, _trade_get) + "        " + _trade_after_text(ai, _trade_get, _trade_give), 15))
+	v.add_child(UiKit.rich(_trade_after_text(user, _trade_give, _trade_get) + "\n" + _trade_after_text(ai, _trade_get, _trade_give), 15))
 	if err != "":
 		v.add_child(UiKit.label(err, 15, UiKit.BAD))
 	var actions := _row(10)
@@ -5811,8 +5811,14 @@ func _trade_after_text(t: Team, out_assets: Array, in_assets: Array) -> String:
 	var note := ""
 	if roster > Team.ROSTER_SIZE:
 		note = "  [color=#ef4444](%s)[/color]" % ("must cut %d before the next match" % (roster - Team.ROSTER_SIZE) if t.user_controlled else "will shop or cut %d" % (roster - Team.ROSTER_SIZE))
-	return "[color=#8b97ab]%s AFTER[/color]  cap space [color=%s]%s[/color]  -  roster [color=%s]%d[/color]/%d%s" % [
-		t.abbrev, "#22c55e" if space >= 0 else ("#f59e0b" if Contracts.SALARY_CAP - space <= Contracts.TAX_LINE else "#ef4444"), Contracts.money(space), "#ef4444" if roster > Team.ROSTER_SIZE else "white", roster, Team.ROSTER_SIZE, note]
+	var m := Trades.salary_match(s, t, out_assets, in_assets)
+	var match_text := ""
+	if not out_assets.is_empty() or not in_assets.is_empty():
+		match_text = "  -  salary out [color=white]%s[/color] / in [color=%s]%s[/color]" % [Contracts.money(m["out"]), "white" if m["ok"] else "#ef4444", Contracts.money(m["in"])]
+		if m["max_in"] >= 0:
+			match_text += " [color=%s](max %s)[/color]" % ["#8b97ab" if m["ok"] else "#ef4444", Contracts.money(m["max_in"])]
+	return "[color=#8b97ab]%s AFTER[/color]  cap space [color=%s]%s[/color]%s  -  roster [color=%s]%d[/color]/%d%s" % [
+		t.abbrev, "#22c55e" if space >= 0 else ("#f59e0b" if Contracts.SALARY_CAP - space <= Contracts.TAX_LINE else "#ef4444"), Contracts.money(space), match_text, "#ef4444" if roster > Team.ROSTER_SIZE else "white", roster, Team.ROSTER_SIZE, note]
 
 
 ## Fixed-width partner name (logo + full name) so paging teams never moves the arrows;

@@ -9,6 +9,8 @@ extends RefCounted
 ##   count). Minimum deals, re-signing your own expiring players (Bird rights; his cap hold is
 ##   freed), extensions and rookie deals may go over it, up to the APRON.
 ## - Apron: a hard ceiling nothing may cross (signings, re-signs, extensions, trades).
+## - Trades: a team ending a trade over the soft cap takes back at most Trades.SALARY_MATCH (125%)
+##   of the salary it sends out (see Trades.salary_match).
 ## - Luxury tax: payroll over TAX_LINE at season end costs TAX_RATE in club cash per $1 over.
 ## - There is no salary floor (issue #41): hoarding cap room is allowed.
 ## - Releasing a soldier leaves DEAD_MONEY_SHARE of each remaining year on the cap.
