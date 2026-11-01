@@ -442,6 +442,11 @@ func _extension_flow(hub) -> void:
 
 
 func _visit_pages(hub, phase: String) -> void:
+	var all_tiles: Array = hub._todo_tiles(hub.season.user_team())
+	var fac_tiles := all_tiles.filter(func(t): return t.has_meta(&"facilities_todo"))
+	_check(fac_tiles.size() == (1 if hub.season.phase == Season.PHASE_OFFSEASON else 0), "Home facilities to-do only in the offseason (%s)" % phase)
+	for t in all_tiles:
+		t.free()
 	var p = hub.pages
 	var builders := {
 		"standings": p.standings, "schedule": p.schedule, "roster": p.roster, "progression": p.progression,

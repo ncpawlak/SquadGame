@@ -865,6 +865,13 @@ Leave it and they are retired when the season starts." % [proposals, "" if propo
 			else:
 				out.append(_todo("Roster Review", "%d / %d players  -  cap space %s\nMake your cuts and moves before camp." % [team.roster.size(), Team.ROSTER_SIZE, Contracts.money(space)],
 					Color("#f97316"), open_contracts))
+		var ups := season.facilities.upgrades_left(season, team)
+		var buyable := Facilities.IDS.filter(func(id): return season.facilities.upgrade_error(season, team, id) == "").size()
+		var fac := _todo("Upgrade Facilities", ("[color=#38bdf8]%d of %d upgrades left[/color]\n%d affordable  -  fund %s" % [ups, Facilities.MAX_UPGRADES, buyable,
+			Contracts.money(roundi(season.revenue.cash_of(team)))]) if ups > 0 else "No upgrades left this offseason.",
+			UiKit.TRIM, func(): open("Facilities", club.facilities), buyable == 0)
+		fac.set_meta(&"facilities_todo", true)
+		out.append(fac)
 		if season.free_agency_open():
 			var offers := season.fa.offers_by(team).size()
 			out.append(_todo("Free Agency", "%d available  -  [color=#38bdf8]%d pending offer%s[/color]\nCap space %s" % [season.league.free_agents.size(), offers,
