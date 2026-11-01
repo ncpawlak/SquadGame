@@ -13,12 +13,14 @@ COLS, ROWS = 5, 2
 
 
 def content_rows(cell: np.ndarray) -> tuple[int, int]:
-    """First/last row of the cell that is the blue backdrop (not the navy label bar or border)."""
+    """First/last row of the cell that is the blue backdrop (not the navy label strip or the card border above it)."""
     blue = cell[:, :, 2].astype(float).mean(axis=1)
-    ok = blue > 90
-    # Skip the card border and the dark label strip: content starts at the first row that begins a solid run of backdrop rows.
-    top = next((y for y in range(len(ok) - 6) if ok[y:y + 6].all()), 0)
-    return top, int(np.where(ok)[0][-1]) + 1
+    bright = np.where(blue > 90)[0]
+    # Every cell starts with a ~35-row navy label strip, sometimes under a bright border line. Content begins at the
+    # first bright row after the strip's first dark row.
+    dark = next((y for y in range(min(80, len(blue))) if blue[y] < 75), None)
+    top = int(bright[0]) if dark is None else int(next((y for y in bright if y > dark), bright[0]))
+    return top, int(bright[-1]) + 1
 
 
 def cut_sheet(sheet: Path, number: int, out_dir: Path) -> list[str]:
