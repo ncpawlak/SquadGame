@@ -1,8 +1,10 @@
 class_name Revenue
 extends RefCounted
-## Club revenue (issue #8, phase 2). Behind the curtain: nothing in contracts, the cap, negotiation or free
-## agency reads or changes it. Each team earns money from four streams and keeps a cash balance for the
-## club budget (facilities and the like, issue #38). Money is in $K, like contracts.
+## Club revenue (issue #8, phase 2) and the club fund (issue #50). Money is in $K, like contracts.
+## Revenue is a ledger only: each team earns money from four streams, and the board reads it. It never
+## credits cash. Cash (the club fund) changes only at the yearly board review (the grant) and when
+## money is spent (the luxury tax; later signing bonuses and facilities, issues #41 and #38). It carries
+## over with no limit and may go below $0.
 ##
 ##   tickets   each home game: the team's gate at an average crowd, scaled by how full the stadium is
 ##             (buzz, the opponent's buzz, a rivalry); playoff gates are a share of that by round.
@@ -13,15 +15,26 @@ extends RefCounted
 ##   bonus     playoff qualification, each playoff win, the title and the runner-up.
 ## The market rating sets the size of the first three (a small market earns about 100M, a big one about
 ## 300M at average buzz); buzz moves them between 0.75x (cold) and 1.25x (Electric). Payroll is NOT paid
-## out of this money: the salary cap is its own rule, so the budget is what a club keeps after its fixed
-## operating cost.
+## out of this money: the salary cap is its own rule.
+##
+## Board review (season end, after the luxury tax): every club gets next season's grant from one formula
+## (AI clubs too):
+##   grant = (market + results + playoffs + awards + development + cap savings) x confidence
+##   market       GRANT_BASE .. GRANT_BASE + GRANT_MARKET, linear in market rating (LRK $15M, NYE $90M)
+##   results      RESULTS_PER_PLACE per place finished above the preseason team-rating rank, +/- RESULTS_CAP
+##   playoffs     PLAYOFF_WIN_GRANT per playoff win, plus TITLE_GRANT for the title
+##   awards       AWARD_GRANT per season award or All-League pick, up to AWARD_CAP
+##   development  DEV_GRANT per dev-star gain and per rookie-deal player worth ROOKIE_BEAT over his slot, up to DEV_CAP
+##   cap savings  SAVINGS_SHARE of the payroll room under the soft cap
+##   confidence   CONF_BROKE if the fund is below $0, CONF_SLUMP after SLUMP_SEASONS straight seasons
+##                below expectations (the lower applies), else 1
 ##
 ## Every figure scales off REFERENCE_PAYROLL, so a new salary scale (issue #41) changes one number.
 ## No RNG. Saved with the Season.
 
 ## The payroll all dollar figures are sized against (today's salary cap). The design figures below are
-## for 150000.
-const REFERENCE_PAYROLL := 150000
+## for DESIGN_PAYROLL (the pre-#41 cap).
+const REFERENCE_PAYROLL := 250000
 const DESIGN_PAYROLL := 150000
 ## Yearly revenue of the smallest and biggest market (ratings RATING_LOW and RATING_HIGH) at average buzz.
 const SMALL_TOTAL := 100000
@@ -61,11 +74,22 @@ const BONUS_RUNNER_UP := 6000
 const MERCH_SUPERSTAR := 0.04
 const MERCH_STAR := 0.02
 const MERCH_STAR_CAP := 0.2
-## Cash: a new club starts with SEED_SHARE of its average-buzz yearly revenue, and the balance stays within
-## [CASH_FLOOR_SHARE, CASH_CAP_SHARE] times it.
-const SEED_SHARE := 0.25
-const CASH_CAP_SHARE := 2.0
-const CASH_FLOOR_SHARE := -0.5
+## Board grant terms (see the header). A new club opens with its market term.
+const GRANT_BASE := 15000
+const GRANT_MARKET := 75000
+const RESULTS_PER_PLACE := 1000
+const RESULTS_CAP := 10000
+const PLAYOFF_WIN_GRANT := 5000
+const TITLE_GRANT := 15000
+const AWARD_GRANT := 2000
+const AWARD_CAP := 10000
+const DEV_GRANT := 1000
+const DEV_CAP := 10000
+const ROOKIE_BEAT := 3000
+const SAVINGS_SHARE := 0.05
+const CONF_BROKE := 0.9
+const CONF_SLUMP := 0.75
+const SLUMP_SEASONS := 3
 ## Seasons of ledger kept.
 const LEDGER_YEARS := 10
 ## A sponsor story needs the deal to grow by this much.
@@ -81,6 +105,11 @@ var ledgers := {}
 var deals := {}
 ## Abbrev -> last season's sponsor deal.
 var last_deals := {}
+## Season year -> {abbrev -> luxury tax paid ($K)} (only teams that paid).
+var taxes := {}
+## Season year -> {abbrev -> board review}: {market, results, playoffs, awards, development, savings,
+## confidence, grant, expected, finish, cash_before}.
+var grants := {}
 
 
 # --- scale ----------------------------------------------------------------------------
@@ -131,13 +160,9 @@ static func gate(rating: int, fill_share: float, stage: StringName) -> float:
 	return per_game * fill_share / FILL_AVERAGE * float(STAGE_GATE.get(stage, 1.0))
 
 
-## Yearly cash limit for a club: CASH_CAP_SHARE of its average-buzz revenue.
-static func cash_cap(rating: int) -> float:
-	return neutral_total(rating) * CASH_CAP_SHARE
-
-
-static func cash_floor(rating: int) -> float:
-	return neutral_total(rating) * CASH_FLOOR_SHARE
+## The market term of the board grant (and a new club's opening fund).
+static func market_grant(rating: int) -> float:
+	return GRANT_BASE + GRANT_MARKET * clampf(float(rating - RATING_LOW) / float(RATING_HIGH - RATING_LOW), 0.0, 1.0)
 
 
 ## This year's ledger line for `team` ({} before the season has opened).
@@ -162,13 +187,13 @@ func table(season: Season) -> Array:
 
 # --- setup ----------------------------------------------------------------------------
 
-## Opening cash. Also runs on loading an older save that predates revenue.
+## Opening fund (the market term of the grant). Also runs on loading an older save that predates revenue.
 func ensure(season: Season) -> void:
 	if seeded:
 		return
 	seeded = true
 	for t: Team in season.league.teams:
-		cash[t.abbrev] = neutral_total(t.market_rating) * SEED_SHARE
+		cash[t.abbrev] = market_grant(t.market_rating)
 	_set_deals(season)
 	_open_ledger(season)
 
@@ -259,7 +284,7 @@ func _game(season: Season, m: ScheduledMatch) -> Dictionary:
 	return {"team": home, "fill": f, "sold_out": f >= 1.0}
 
 
-## The final is played: title money, then the ledgers close and cash is held within its limits.
+## The final is played: title money closes the ledgers.
 func _season_over(season: Season) -> void:
 	var champ := season.champion
 	if champ != null:
@@ -267,23 +292,136 @@ func _season_over(season: Season) -> void:
 		for m in season.playoff_matches:
 			if m.stage == Season.STAGE_FINAL and m.is_played() and m.loser() != null:
 				_book(season, m.loser(), "bonus", BONUS_RUNNER_UP * scale())
-	for t: Team in season.league.teams:
-		var l := ledger_of(season.year, t)
-		if l.is_empty():
-			continue
-		cash[t.abbrev] = clampf(float(cash.get(t.abbrev, 0.0)), cash_floor(t.market_rating), cash_cap(t.market_rating))
 
 
-## Adds `amount` to a ledger line and to the club's cash (operating cost counts against both).
+## Adds `amount` to a ledger line (ledger only: revenue never credits the club fund).
 func _book(season: Season, team: Team, key: String, amount: float) -> void:
 	var l := ledger_of(season.year, team)
 	if l.is_empty() or is_zero_approx(amount):
 		return
 	l[key] = float(l[key]) + amount
-	var delta := -amount if key == "operations" else amount
 	l["revenue"] = float(l["tickets"]) + float(l["sponsors"]) + float(l["merch"]) + float(l["media"]) + float(l["bonus"])
 	l["net"] = float(l["revenue"]) - float(l["operations"])
-	cash[team.abbrev] = float(cash.get(team.abbrev, 0.0)) + delta
+
+
+## Season end: every team over the tax line pays the luxury tax on this season's payroll out of
+## club cash (it may go below $0). Returns [{team, over, amount}], biggest bill first.
+func charge_tax(season: Season) -> Array:
+	var out: Array = []
+	var paid := {}
+	for t: Team in season.league.teams:
+		var due := Contracts.tax_due(t, season.year)
+		if due <= 0:
+			continue
+		cash[t.abbrev] = float(cash.get(t.abbrev, 0.0)) - due
+		paid[t.abbrev] = due
+		out.append({"team": t, "over": Contracts.tax_overage(t, season.year), "amount": due})
+	taxes[season.year] = paid
+	for y in taxes.keys():
+		if int(y) <= season.year - LEDGER_YEARS:
+			taxes.erase(y)
+	out.sort_custom(func(a, b): return int(a["amount"]) > int(b["amount"]))
+	return out
+
+
+func tax_paid(year: int, team: Team) -> int:
+	return int((taxes.get(year, {}) as Dictionary).get(team.abbrev, 0))
+
+
+# --- board review (issue #50) -----------------------------------------------------------
+
+## Season end, after the luxury tax: every club's grant for next season is added to its fund.
+## Returns [{team, review}], biggest grant first.
+func board_review(season: Season) -> Array:
+	var finish := {}
+	var rows := season.standings()
+	for i in rows.size():
+		finish[(rows[i].team as Team).abbrev] = i + 1
+	var expected := _expected_ranks(season)
+	var wins := {}
+	for m in season.playoff_matches:
+		if m.is_played() and m.winner() != null:
+			wins[m.winner().abbrev] = int(wins.get(m.winner().abbrev, 0)) + 1
+	var honors := {}
+	var gains := {}
+	if season.review != null:
+		for list in [season.review.awards, season.review.all_league]:
+			for a in list:
+				if a.get("team") != null:
+					honors[(a["team"] as Team).abbrev] = int(honors.get((a["team"] as Team).abbrev, 0)) + 1
+		for d in season.review.dev_changes:
+			if d.get("team") != null and int(d["to"]) > int(d["from"]):
+				gains[(d["team"] as Team).abbrev] = int(gains.get((d["team"] as Team).abbrev, 0)) + 1
+	var year_grants := {}
+	var out: Array = []
+	for t: Team in season.league.teams:
+		var k := t.abbrev
+		var r := {}
+		r["expected"] = int(expected.get(k, finish.get(k, 0)))
+		r["finish"] = int(finish.get(k, r["expected"]))
+		r["market"] = market_grant(t.market_rating)
+		r["results"] = clampf(RESULTS_PER_PLACE * (r["expected"] - r["finish"]), -RESULTS_CAP, RESULTS_CAP)
+		r["playoffs"] = PLAYOFF_WIN_GRANT * int(wins.get(k, 0)) + (TITLE_GRANT if season.champion == t else 0)
+		r["awards"] = minf(AWARD_CAP, AWARD_GRANT * int(honors.get(k, 0)))
+		var dev := int(gains.get(k, 0))
+		for so in t.roster:
+			if so.contract != null and so.contract.rookie and Contracts.market_value(so) >= so.contract.salary + ROOKIE_BEAT:
+				dev += 1
+		r["development"] = minf(DEV_CAP, DEV_GRANT * dev)
+		r["savings"] = SAVINGS_SHARE * maxi(0, Contracts.SALARY_CAP - Contracts.payroll(t, season.year))
+		r["cash_before"] = cash_of(t)
+		r["confidence"] = _confidence(season, t, float(r["results"]) < 0.0)
+		var total: float = r["market"] + r["results"] + r["playoffs"] + r["awards"] + r["development"] + r["savings"]
+		r["grant"] = float(roundi(maxf(0.0, total) * r["confidence"] / 10.0) * 10)
+		cash[k] = cash_of(t) + r["grant"]
+		year_grants[k] = r
+		out.append({"team": t, "review": r})
+	grants[season.year] = year_grants
+	for y in grants.keys():
+		if int(y) <= season.year - LEDGER_YEARS:
+			grants.erase(y)
+	out.sort_custom(func(a, b): return float(a["review"]["grant"]) > float(b["review"]["grant"]))
+	return out
+
+
+func grant_of(year: int, team: Team) -> Dictionary:
+	return (grants.get(year, {}) as Dictionary).get(team.abbrev, {})
+
+
+## The board's preseason expectations: team-rating rank when the season began (today's rating for an
+## older save that never recorded it).
+func _expected_ranks(season: Season) -> Dictionary:
+	if not season.market.preseason_rank.is_empty():
+		return season.market.preseason_rank
+	var list: Array = season.league.teams.duplicate()
+	list.sort_custom(func(a: Team, b: Team): return a.team_ovr() > b.team_ovr())
+	var out := {}
+	for i in list.size():
+		out[(list[i] as Team).abbrev] = i + 1
+	return out
+
+
+## CONF_BROKE when the fund is below $0, CONF_SLUMP when this and the previous SLUMP_SEASONS - 1
+## reviews all finished below expectations; the lower applies.
+func _confidence(season: Season, t: Team, below_now: bool) -> float:
+	var c := 1.0
+	if cash_of(t) < 0.0:
+		c = CONF_BROKE
+	if below_now:
+		var streak := 1
+		for back in range(1, SLUMP_SEASONS):
+			var g := grant_of(season.year - back, t)
+			if g.is_empty() or float(g["results"]) >= 0.0:
+				break
+			streak += 1
+		if streak >= SLUMP_SEASONS:
+			c = minf(c, CONF_SLUMP)
+	return c
+
+
+## The board freezes spending while the fund is below $0: no deal may take payroll over the tax line.
+func frozen(team: Team) -> bool:
+	return cash_of(team) < 0.0
 
 
 # --- news -----------------------------------------------------------------------------
