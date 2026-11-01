@@ -22,6 +22,7 @@ func _init() -> void:
 		"test_slot_api",
 		"test_extension_round_trip",
 		"test_legacy_potential_migrates",
+		"test_facilities_round_trip",
 	]
 	var only := OS.get_environment("ONLY")
 	if only != "":
@@ -118,6 +119,9 @@ func test_primitives_round_trip() -> void:
 	# A started franchise always has its markets seeded (loading seeds older saves), so seed the bare graph too.
 	s.market.ensure(s)
 	s.revenue.ensure(s)
+	s.facilities.ensure(s)
+	s.ledger.ensure(s)
+	s.economy_version = Contracts.ECONOMY_VERSION
 	s.injury_log = [t.roster[0], t.roster[0], &"name", Vector2i(3, 4), 1, 1.0, PackedInt32Array([1, 2])]
 	s.negotiations = {t: {t.roster[1]: [1.5, "x"]}}
 	var s2 := SaveSystem.from_text(SaveSystem.to_text(s))
@@ -351,6 +355,31 @@ func test_extension_round_trip() -> void:
 	check(n2 != null and n2.extension and n2.is_resting() and n2.wake_week == n.wake_week, "paused extension talks lost")
 	check(SaveSystem.to_text(s2) == SaveSystem.to_text(s), "re-serialization not stable")
 
+
+func test_facilities_round_trip() -> void:
+	var s := Season.new_franchise(327)
+	var us := s.user_team()
+	us.facility_levels[Facilities.SCOUTING] = 4
+	s.facilities.purchases[s.year] = {us.abbrev: 70000}
+	s.facilities.upkeep[s.year] = {us.abbrev: 4500}
+	var so := us.roster[0]
+	var g: StringName = Stats.UPGRADABLE_GROUPS[0]
+	var from := so.group_cap(g)
+	so.group_caps[g] = from + 1
+	so.log_cap("Performance Institute: test", g, from, from + 1, so.best_ovr(), so.potential_grade())
+	var s2 := SaveSystem.from_text(SaveSystem.to_text(s))
+	check(s2 != null, "facilities save loads")
+	if s2 == null:
+		return
+	var us2 := s2.user_team()
+	var lv := true
+	for id in Facilities.IDS:
+		lv = lv and Facilities.level(us2, id) == Facilities.level(us, id)
+	check(lv and Facilities.level(us2, Facilities.SCOUTING) == 4, "facility levels differ after load")
+	check(s2.scout_points_per_week() == s.scout_points_per_week(), "scout points differ after load")
+	check(s2.facilities.purchases_of(s.year, us2) == 70000 and s2.facilities.upkeep_of(s.year, us2) == 4500, "facility ledgers differ after load")
+	var e: Dictionary = soldier_by_id(s2, so.id).history[-1]
+	check(e.has("caps") and Array(e["caps"].values()[0]) == [from, from + 1], "cap history entry differs after load")
 
 func test_slot_api() -> void:
 	const SLOT := 2

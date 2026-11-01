@@ -16,7 +16,13 @@ extends RefCounted
 ##   record_broken    a player beats the league's best in a single-match stat (see StatLedger), once per
 ##                    player, stat and phase a season. No effect.
 ##   streak_record    a team's win or losing streak passes every other team's best. No effect.
-##   champion / floor season-end headlines (title, salary-floor penalties).
+##   season_record    season end: a player's season tops the league's single-season book for a stat
+##                    (needs an earlier mark to pass), once per player a year. No effect.
+##   mvp              season end: the Season MVP is named. No effect.
+##   champion         season-end headline (the title).
+##   tax              season-end luxury-tax bills (see Revenue.charge_tax).
+##   board            season-end board review: your club's grant, the biggest grant, and boards
+##                    that lost confidence (see Revenue.board_review).
 ## Offseason stories (filed under the season just finished), each capped per year:
 ##   mega_deal        a signing or re-signing at MEGA_SALARY or more a year.
 ##   fa_signing       a free agent of BIG_SIGNING_OVR+ lands with a new team.
@@ -42,7 +48,7 @@ const BUST_OVR := 80
 ## Rivalry heat at which even a divisional game makes the wire.
 const HOT_HEAT := 25.0
 ## Offseason story thresholds (see the header).
-const MEGA_SALARY := 12000
+const MEGA_SALARY := 35000
 const BIG_SIGNING_OVR := 84
 const DEFECTION_OVR := 78
 const HOMECOMING_OVR := 76
@@ -182,8 +188,8 @@ func week_stories(season: Season, played: Array, wk: int) -> void:
 							t.nickname, int(season.playoff_seeds[t]), s.full_name()])
 
 
-## Season-end headlines: the champion (and any last ride that ended with a ring), floor penalties.
-func end_season(season: Season, penalties: Array) -> void:
+## Season-end headlines: the champion (and any last ride that ended with a ring).
+func end_season(season: Season) -> void:
 	var champ := season.champion
 	if champ != null:
 		var runner: Team = null
@@ -198,6 +204,7 @@ func end_season(season: Season, penalties: Array) -> void:
 				_add(season, "Final", "last_ride", [champ.abbrev], s.id,
 					"%s gets his ring" % s.display_name(),
 					"%s chased one more title and got it. Whatever he decides next, he goes out a champion." % s.full_name())
+	_award_stories(season)
 	var legends: Array = season.retirements_in(season.year).filter(func(r): return r["reason"] == Retirement.REASON_AGE \
 		and (int(r["ovr"]) >= LEGEND_OVR or not (r["awards"] as Array).is_empty()))
 	legends.sort_custom(func(a, b): return int(a["ovr"]) > int(b["ovr"]))
@@ -213,13 +220,57 @@ func end_season(season: Season, penalties: Array) -> void:
 		_add(season, "Re-signing", "retired", [rt.abbrev] if rt != null else [], s.id,
 			"%s retires at %d" % [s.display_name(), int(r["age"])],
 			"%s hangs it up after a career of %s." % [s.full_name(), line])
-	for p in penalties:
-		var t: Team = p["team"]
-		_add(season, "Offseason", "floor", [t.abbrev], 0,
-			"%s fined for spending under the salary floor" % t.name,
-			"The %s finished under the %s floor and owe the %s shortfall next season." % [
-				t.nickname, Contracts.money(Contracts.SALARY_FLOOR), Contracts.money(p["amount"])])
 
+
+## Season end: the luxury-tax bills (Revenue.charge_tax entries).
+func luxury_tax(season: Season, bills: Array) -> void:
+	for b in bills:
+		var t: Team = b["team"]
+		_add(season, "Offseason", "tax", [t.abbrev], 0,
+			"%s pay %s in luxury tax" % [t.name, Contracts.money(b["amount"])],
+			"The %s finished %s over the %s tax line and pay %s in club cash (%s per $1 over)." % [
+				t.nickname, Contracts.money(b["over"]), Contracts.money(Contracts.TAX_LINE), Contracts.money(b["amount"]),
+				"$%.2f" % Contracts.TAX_RATE])
+
+
+## A facility upgrade (Facilities.upgrade): always the user's, a few AI clubs' a year.
+func facility_upgrade(season: Season, team: Team, id: StringName, lvl: int, cost: int) -> void:
+	if not team.user_controlled and not _year_room(season, "facility"):
+		return
+	_add(season, _offseason_when(season), "facility", [team.abbrev], 0,
+		"%s upgrade their %s" % [team.name, Facilities.facility_name(id)],
+		"The %s spent %s from the club fund to take their %s to level %d: %s. Club fund now %s." % [
+			team.nickname, Contracts.money(cost), Facilities.facility_name(id), lvl, Facilities.effect_text(id, lvl).to_lower(),
+			Contracts.money(roundi(season.revenue.cash_of(team)))])
+
+
+## Board review: clubs that couldn't pay facility upkeep lose a level ([{team, facility, level, due}]).
+func facility_drops(season: Season, drops: Array) -> void:
+	for d in drops:
+		var t: Team = d["team"]
+		var id: StringName = d["facility"]
+		_add(season, "Offseason", "facility", [t.abbrev], 0,
+			"%s let their %s slip" % [t.name, Facilities.facility_name(id)],
+			"With %s in the club fund the %s couldn't cover %s in facility upkeep, and their %s drops to level %d." % [
+				Contracts.money(roundi(season.revenue.cash_of(t))), t.nickname, Contracts.money(int(d["due"])),
+				Facilities.facility_name(id), int(d["level"])])
+
+## Season end: the board review (Revenue.board_review entries, biggest grant first). Your club's
+## grant, the league's biggest, and any board that has lost confidence.
+func board_review(season: Season, reviews: Array) -> void:
+	for i in reviews.size():
+		var t: Team = reviews[i]["team"]
+		var r: Dictionary = reviews[i]["review"]
+		var low := float(r["confidence"]) < 1.0
+		if not (t.user_controlled or i == 0 or low):
+			continue
+		var why := "the board's confidence is shaken" if low else ("a reward for beating expectations" if float(r["results"]) > 0.0
+			else ("short of what the board expected" if float(r["results"]) < 0.0 else "in line with expectations"))
+		_add(season, "Offseason", "board", [t.abbrev], 0,
+			"%s board grants %s for next season" % [t.name, Contracts.money(roundi(float(r["grant"])))],
+			"Expected to finish #%d, the %s finished #%d: %s. Club fund now %s.%s" % [int(r["expected"]), t.nickname, int(r["finish"]), why,
+				Contracts.money(roundi(season.revenue.cash_of(t))),
+				(" The board cut the grant to %d%%." % roundi(float(r["confidence"]) * 100)) if low else ""])
 
 ## A soldier signs with a team (free agency, camp fill-ins, in-season pickups). `entry` is a
 ## FreeAgency history entry. One story at most, the biggest angle first.
@@ -235,7 +286,9 @@ func signing(season: Season, entry: Dictionary) -> void:
 	if moved:
 		teams.append(from.abbrev)
 	var rival := moved and season.rivalries.is_rivalry(from, t)
-	var deal := "%s a year for %d year%s (%s in all)" % [Contracts.money(salary), years, "" if years == 1 else "s", Contracts.money(salary * years)]
+	var bonus := int(entry.get("bonus", 0))
+	var deal := "%s a year for %d year%s (%s in all%s)" % [Contracts.money(salary), years, "" if years == 1 else "s", Contracts.money(salary * years + bonus),
+		", with a %s signing bonus" % Contracts.money(bonus) if bonus > 0 else ""]
 	var kind := ""
 	var head := ""
 	var body := ""
@@ -575,6 +628,36 @@ func _wrote(season: Season, kind: String) -> bool:
 
 ## Every rivalry game moves morale; team-specific, playoff and hot games (and snapped streaks)
 ## make the wire, quiet divisional ones only while the week has room.
+## Season-end stories from the review and the record book: the MVP, and any player whose season set a
+## new league mark (only when an earlier mark exists to pass, so a young league stays quiet).
+func _award_stories(season: Season) -> void:
+	if season.review != null:
+		for a: Dictionary in season.review.awards:
+			var so: Soldier = a["soldier"]
+			if a["award"] != "Season MVP" or not _tag(so, "mvp", season.year):
+				continue
+			var t: Team = a["team"]
+			_add(season, "Final", "mvp", [t.abbrev] if t != null else [], so.id,
+				"%s is the %d Season MVP" % [so.display_name(), season.year],
+				"%s takes the league's top individual honor after a season of %s." % [so.full_name(), a["line"]])
+	for stat: Dictionary in Records.PLAYER_STATS:
+		if not _year_room(season, "season_record"):
+			return
+		var rows := Records.player_seasons(season, stat)
+		var prev := rows.filter(func(r): return r["year"] != season.year)
+		if rows.is_empty() or rows[0]["year"] != season.year or prev.is_empty():
+			continue
+		var so: Soldier = rows[0]["soldier"]
+		if not _tag(so, "season_record", season.year):
+			continue
+		var value := Records.format_value(stat, rows[0]["value"])
+		var old := Records.format_value(stat, prev[0]["value"])
+		_add(season, "Final", "season_record", [rows[0]["team"]], so.id,
+			"%s sets a league season record for %s: %s" % [so.display_name(), String(stat["label"]).to_lower(), value],
+			"%s finished %d with %s, passing the old mark of %s set by %s in %d." % [
+				so.full_name(), season.year, value, old, Records.holder_name(prev[0]), int(prev[0]["year"])])
+
+
 ## Stories for the records this week's matches broke (stamped on each match by the ledger).
 func _record_stories(season: Season, played: Array, when: String, counts: Dictionary) -> void:
 	for m: ScheduledMatch in played:
@@ -586,7 +669,8 @@ func _record_stories(season: Season, played: Array, when: String, counts: Dictio
 					continue
 				var held := ""
 				if not prev.is_empty():
-					held = " The old mark was %d, set by the %s." % [int(prev["value"]), season.league.team_by_abbrev(prev["team"]).nickname]
+					var holder_team := season.league.team_by_abbrev(prev["team"])
+					held = " The old mark was %d, set by the %s." % [int(prev["value"]), holder_team.nickname if holder_team != null else prev["team"]]
 				var t := season.league.team_by_abbrev(rec["team"])
 				_add(season, when, "streak_record", [t.abbrev], -1,
 					"%s reach a league record %s" % [t.nickname, "%s %s" % [value, rec["noun"]]],

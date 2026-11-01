@@ -7,6 +7,8 @@ var match_seed: int
 ## The weather it was played in (Weather.CLEAR, RAIN or SNOW; level 0 = clear, 1 light, 2 inclement).
 var weather_kind: StringName = Weather.CLEAR
 var weather_level := 0
+## The home field's floor surface ("" for results saved before it was kept).
+var surface := ""
 ## Rating points the home crowd added to the home squad (0 when there was no crowd effect).
 var crowd := 0.0
 var teams: Array[Team] = []
@@ -20,7 +22,9 @@ var games: Array[Dictionary] = []
 var rounds: Array[Dictionary] = []
 var events: Array[String] = []
 ## soldier_id -> { team, slot, kills, deaths, assists, shots, hits, headshots, damage,
-##                 rounds_played, rounds_survived, clutches, saves, games, wipes, hill_s, caps, contest_s }
+##                 rounds_played, rounds_survived, clutches, saves, games, wipes, hill_s, caps, contest_s,
+##                 telemetry: opening_kills, kills_short/medium/long, kill_dist, bursts, fire_dist, distance,
+##                 cover_s, first_shot_s, first_shot_n }
 var box: Dictionary = {}
 var mvp_id: int = -1
 

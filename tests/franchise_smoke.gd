@@ -29,7 +29,7 @@ func _init() -> void:
 	hub.cycle_tab(1)
 	_check(hub.tab_index == 0, "tab cycling wraps")
 	# The Club pages build and read the ledger and buzz.
-	for pg in [["Finances", hub.club.finances], ["Market & Buzz", hub.club.market_buzz]]:
+	for pg in [["Finances", hub.club.finances], ["Market & Buzz", hub.club.market_buzz], ["Facilities", hub.club.facilities]]:
 		hub.open(pg[0], pg[1])
 		await process_frame
 		_check(hub._content.get_child_count() > 0, "%s page builds" % pg[0])
@@ -396,6 +396,15 @@ func _visit_pages(hub, phase: String) -> void:
 			hub.stats_pages.phase = StatRegistry.PHASE_REGULAR
 			var c: Control = hub.stats_pages.leaders()
 			hub.stats_pages.phase = StatRegistry.PHASE_COMBINED
+			return c,
+		"leaders_teams": func():
+			hub.stats_pages.teams_view = true
+			var c: Control = hub.stats_pages.leaders()
+			hub.stats_pages.phase = StatRegistry.PHASE_PLAYOFFS
+			var d: Control = hub.stats_pages.leaders()
+			hub.stats_pages.teams_view = false
+			hub.stats_pages.phase = StatRegistry.PHASE_COMBINED
+			c.add_child(d)
 			return c,
 		"playoffs": p.playoffs, "rankings": p.team_rankings, "news": p.news, "sim_options": p.sim_options,
 		"injuries": p.injuries, "scouting": p.scouting, "draft_room": p.draft_room, "mock_draft": p.mock_draft,

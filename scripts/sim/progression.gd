@@ -190,34 +190,52 @@ static func auto_spend(soldier: Soldier, role: Scheme.Role, rng: RandomNumberGen
 	return raised
 
 
-## Awards post-match XP to every soldier who played. Returns soldier_id -> gain_xp report.
-## `ctx` carries the fixture: {playoffs: bool}. Without a `year` nothing is added to the season lines.
+## Awards post-match XP to every soldier who played (a Gear Sponsor upgrade adds to the impact part).
+## Returns soldier_id -> gain_xp report. `ctx` carries the fixture: {playoffs: bool}. Without a `year`
+## nothing is added to the season lines.
 static func award_match_xp(result: MatchResult, year := 0, ctx := {}) -> Dictionary:
 	var reports := {}
 	for team_index in 2:
 		var team: Team = result.teams[team_index]
+		var gear := Facilities.gear_mult(team)
 		for soldier in team.starters():
 			var line := result.box_for(soldier)
 			if line.is_empty():
 				continue
 			# Impact per game played, so a 3-game match isn't worth more than a sweep.
 			var per_game := MatchResult.impact(line) / maxf(1.0, float(line.get("games", 1)))
-			var xp := MATCH_BASE_XP + maxf(0.0, per_game) * MATCH_IMPACT_XP_SCALE
+			var xp := MATCH_BASE_XP + maxf(0.0, per_game) * MATCH_IMPACT_XP_SCALE * gear
 			if team_index == result.winner_index:
 				xp += MATCH_WIN_XP
 			if soldier.id == result.mvp_id:
 				xp += MVP_XP
 			reports[soldier.id] = gain_xp(soldier, xp)
-			_record_career(soldier, line, soldier.id == result.mvp_id, year, team.abbrev, ctx.get("playoffs", false))
+			_record_career(soldier, line, soldier.id == result.mvp_id, year, team.abbrev, ctx.get("playoffs", false),
+				_split_keys(result, team_index))
 	return reports
 
 
-static func _record_career(soldier: Soldier, line: Dictionary, mvp := false, year := 0, team_abbrev := "", playoffs := false) -> void:
+## The condition buckets a match counts toward for the side `team_index` (0 is the home side).
+static func _split_keys(result: MatchResult, team_index: int) -> Array[String]:
+	var site := "home" if team_index == 0 else "away"
+	var keys: Array[String] = ["wx|%s|%d|%s" % [result.weather_kind, result.weather_level, site]]
+	if result.surface != "":
+		keys.append("sf|%s|%s" % [result.surface, site])
+	return keys
+
+
+static func _record_career(soldier: Soldier, line: Dictionary, mvp := false, year := 0, team_abbrev := "", playoffs := false,
+		splits: Array[String] = []) -> void:
 	var add := {"matches": 1, "rounds": line["rounds_played"], "kills": line["kills"], "deaths": line["deaths"],
 		"assists": line["assists"], "damage": roundi(line["damage"]), "saves": line.get("saves", 0),
 		"headshots": line["headshots"], "shots": line["shots"], "hits": line["hits"], "mvps": 1 if mvp else 0,
 		"clutches": line["clutches"], "games": line.get("games", 0), "wipes": line.get("wipes", 0),
 		"hill_s": roundi(line.get("hill_s", 0.0)), "caps": line.get("caps", 0)}
+	# Next Gen telemetry: whole metres and seconds, so averages are sums of these over matches.
+	for k in ["opening_kills", "kills_short", "kills_medium", "kills_long", "bursts", "first_shot_n"]:
+		add[k] = line.get(k, 0)
+	for k in ["kill_dist", "fire_dist", "distance", "cover_s", "first_shot_s", "contest_s"]:
+		add[k] = roundi(line.get(k, 0.0))
 	var targets: Array = [soldier.career]
 	if year > 0:
 		if not soldier.season_lines.has(year):
@@ -234,6 +252,10 @@ static func _record_career(soldier: Soldier, line: Dictionary, mvp := false, yea
 				soldier.playoff_season_lines[year] = {"team": team_abbrev}
 			soldier.playoff_season_lines[year]["team"] = team_abbrev
 			targets.append(soldier.playoff_season_lines[year])
+	for key in splits:
+		if not soldier.split_career.has(key):
+			soldier.split_career[key] = {}
+		targets.append(soldier.split_career[key])
 	for d: Dictionary in targets:
 		for k in add:
 			d[k] = int(d.get(k, 0)) + int(add[k])

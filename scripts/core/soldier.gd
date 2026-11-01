@@ -89,7 +89,7 @@ var promise: Dictionary = {}
 ## name}: his club won't trade or release that teammate this season. {} = none.
 var keep_promise: Dictionary = {}
 ## Agreed in-season extension, applied when his current deal runs out (Contracts.rollover):
-## yearly salary ($K) and years (0 = none), signing bonus (already booked on the cap) and
+## yearly salary ($K) and years (0 = none), signing bonus (already paid from the club fund) and
 ## no-trade clause.
 var ext_salary: int = 0
 var ext_years: int = 0
@@ -121,19 +121,27 @@ const MORALE_EXCLUDED: Array[StringName] = [&"injury", &"toughness"]
 
 # Career totals
 const STAT_LINE_KEYS: Array[String] = ["matches", "rounds", "kills", "deaths", "assists", "damage", "saves",
-	"headshots", "shots", "hits", "mvps", "clutches", "games", "wipes", "hill_s", "caps"]
+	"headshots", "shots", "hits", "mvps", "clutches", "games", "wipes", "hill_s", "caps",
+	"opening_kills", "kills_short", "kills_medium", "kills_long", "kill_dist", "bursts", "fire_dist", "distance",
+	"cover_s", "first_shot_s", "first_shot_n", "contest_s"]
 var career := {"matches": 0, "rounds": 0, "kills": 0, "deaths": 0, "assists": 0, "damage": 0, "saves": 0,
-	"headshots": 0, "shots": 0, "hits": 0, "mvps": 0, "clutches": 0, "games": 0, "wipes": 0, "hill_s": 0, "caps": 0}
+	"headshots": 0, "shots": 0, "hits": 0, "mvps": 0, "clutches": 0, "games": 0, "wipes": 0, "hill_s": 0, "caps": 0,
+	"opening_kills": 0, "kills_short": 0, "kills_medium": 0, "kills_long": 0, "kill_dist": 0, "bursts": 0, "fire_dist": 0,
+	"distance": 0, "cover_s": 0, "first_shot_s": 0, "first_shot_n": 0, "contest_s": 0}
 ## Season year -> totals with the same keys as `career` (plus "team" abbrev).
 var season_lines: Dictionary = {}
 ## Playoff-only share of `career` and `season_lines` (same shape, empty until a playoff match is played).
 ## Regular season = combined minus playoffs. Totals from before the split stay combined.
 var playoff_career := {}
 var playoff_season_lines: Dictionary = {}
+## Career totals split by match conditions, keys "wx|<kind>|<level>|<home/away>" (weather) and "sf|<surface>|<home/away>"
+## (the home field's floor). Each value has the STAT_LINE_KEYS shape; read them with StatRegistry.weather_line / surface_line.
+var split_career: Dictionary = {}
 
 ## Progression history, oldest first. Each: {year, when, reason, changes: stat -> delta,
 ## ovr_from, ovr_to, dev_from, dev_to (-1 when his stars didn't move)}. Entries from older saves
-## carry pot_from / pot_to (the old F..A grade) instead.
+## carry pot_from / pot_to (the old F..A grade) instead. A group-cap change adds caps: group -> [from, to]
+## (and pot_from / pot_to if the grade moved); a note (log_note) changes nothing.
 var history: Array = []
 ## Where new history entries are stamped; Season keeps this current ("Week 3", "Offseason", ...).
 static var log_year := 0
@@ -415,6 +423,24 @@ func log_progress(reason: String, changes: Dictionary, ovr_before: int, dev_from
 		"ovr_from": ovr_before, "ovr_to": best_ovr(), "dev_from": dev_from, "dev_to": dev_to})
 
 
-## True if a history entry moved his dev stars (or, in old saves, his potential grade).
+## Records a note with no rating change (e.g. a dev star the Sports Science Lab kept).
+func log_note(reason: String) -> void:
+	history.append({"year": log_year, "when": log_when, "reason": reason, "changes": {},
+		"ovr_from": best_ovr(), "ovr_to": best_ovr(), "dev_from": -1, "dev_to": -1})
+
+
+## Records a group-cap change (applied already): "caps" holds group -> [from, to], plus the potential
+## grade if it moved. `ovr_before` / `pot_before` are best_ovr() / potential_grade() before the change.
+func log_cap(reason: String, group: StringName, from: int, to: int, ovr_before: int, pot_before: int) -> void:
+	var e := {"year": log_year, "when": log_when, "reason": reason, "changes": {}, "caps": {group: [from, to]},
+		"ovr_from": ovr_before, "ovr_to": best_ovr(), "dev_from": -1, "dev_to": -1}
+	if potential_grade() != pot_before:
+		e["pot_from"] = pot_before
+		e["pot_to"] = potential_grade()
+	history.append(e)
+
+
+## True if a history entry moved his dev stars or his potential grade (a cap change, or the retired
+## grade in old saves).
 static func history_has_grade_change(e: Dictionary) -> bool:
 	return int(e.get("dev_from", -1)) != int(e.get("dev_to", -1)) or int(e.get("pot_from", -1)) != int(e.get("pot_to", -1))

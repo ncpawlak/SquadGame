@@ -225,12 +225,19 @@ func deal_year() -> int:
 	return season.year + 1 if extension else season.cap_year()
 
 
-## Cap room for his new deal: next season's space for an extension, else this cap year's space
-## with his cap hold freed.
+## Room for his new deal under the apron (Bird rights: a re-sign may go over the soft cap): next
+## season's room for an extension, else this cap year's room with his cap hold freed.
 func cap_room() -> int:
 	if extension:
-		return Contracts.next_cap_space(team, season.year)
-	return Contracts.cap_space(team, season.cap_year()) + Contracts.cap_hold(soldier)
+		return Contracts.next_apron_room(team, season.year)
+	return Contracts.apron_room(team, season.cap_year()) + Contracts.cap_hold(soldier)
+
+
+## Room under the tax line for his new deal (same years as cap_room).
+func tax_room() -> int:
+	if extension:
+		return Contracts.TAX_LINE - Contracts.payroll(team, season.year, 1)
+	return Contracts.TAX_LINE - Contracts.payroll(team, season.cap_year()) + Contracts.cap_hold(soldier)
 
 
 ## Extension mode: a sleeping player comes back to the table once the week turns (patience back,
@@ -257,16 +264,19 @@ func offer_error(salary: int, years: int, terms := {}) -> String:
 	if salary < Contracts.MIN_SALARY or salary > Contracts.MAX_SALARY:
 		return "Salary must be %s - %s." % [Contracts.money(Contracts.MIN_SALARY), Contracts.money(Contracts.MAX_SALARY)]
 	var bonus := int(terms.get("bonus", 0))
-	if bonus < 0 or bonus > Contracts.MAX_SALARY:
-		return "Signing bonus must be %s - %s." % [Contracts.money(0), Contracts.money(Contracts.MAX_SALARY)]
+	if bonus < 0 or bonus > Contracts.max_bonus(salary, years):
+		return "A signing bonus can be at most half the deal's total salary (%s on this offer)." % Contracts.money(Contracts.max_bonus(salary, years))
 	if extension:
-		if not Contracts.extension_fits(team, season.year, salary, bonus):
-			return "Not enough %d cap space (%s left next season%s)." % [deal_year(), Contracts.money(cap_room()),
-				"; the bonus counts on that year" if bonus > 0 else ""]
-	elif not Contracts.resign_fits(team, season.cap_year(), soldier, salary + bonus):
-		return "Not enough cap space (%s left, counting his %s cap hold%s)." % [
-			Contracts.money(Contracts.cap_space(team, season.cap_year()) + Contracts.cap_hold(soldier)), Contracts.money(Contracts.cap_hold(soldier)),
-			"; the bonus counts this year" if bonus > 0 else ""]
+		if not Contracts.extension_fits(team, season.year, salary):
+			return "Not enough room under the %d apron (%s left next season)." % [deal_year(), Contracts.money(cap_room())]
+	elif not Contracts.resign_fits(team, season.cap_year(), soldier, salary):
+		return "Not enough room under the apron (%s left, counting his %s cap hold)." % [
+			Contracts.money(cap_room()), Contracts.money(Contracts.cap_hold(soldier))]
+	if season.revenue.frozen(team) and salary > Contracts.MIN_SALARY and salary > tax_room():
+		return "The board has frozen spending while the club fund is below $0: this deal would take payroll %s over the tax line." % Contracts.money(salary - tax_room())
+	var berr := season.revenue.bonus_error(team, bonus, season.fa.committed_bonus(team))
+	if berr != "":
+		return berr
 	if has_term(terms, &"promise"):
 		if extension and not soldier.promise.is_empty():
 			return "He already has a starter promise. It has to play out first."
@@ -615,8 +625,7 @@ func _sign(salary: int, years: int, terms: Dictionary) -> void:
 		soldier.contract = Contract.make(salary, years, season.year)
 		soldier.contract.bonus = bonus
 		soldier.contract.no_trade = no_trade
-	if bonus > 0:
-		team.bonus_money[dy] = int(team.bonus_money.get(dy, 0)) + bonus
+	season.revenue.pay_bonus(season, team, bonus)
 	soldier.morale = maxf(soldier.morale, 82.0)
 	soldier.add_trust(SIGN_TRUST)
 	var promise := has_term(terms, &"promise")
@@ -845,13 +854,14 @@ func _build_arguments() -> Array:
 			"evidence": clampf(cont, 0.0, 1.0), "evidence_text": "%s this season%s." % [record[2], ", reached the Final" if finalist else ""],
 			"fit": 0.1 + 1.2 * d.n(&"winning")})
 
-	# Cap squeeze.
-	var space := cap_room() - ask_now
+	# Tax squeeze.
+	var space := tax_room() - ask_now
 	var tight := Contracts.SALARY_CAP * 0.08
 	if space < tight:
 		out.append({"id": &"cap", "title": "Cap is tight", "tone": "soft",
-			"pitch": "Paying your ask leaves us %s under the cap. I need help to keep this roster together." % Contracts.money(space),
-			"evidence": clampf(1.0 - space / tight, 0.2, 1.0), "evidence_text": "Cap space after his ask: %s." % Contracts.money(space),
+			"pitch": ("Paying your ask leaves us %s under the luxury tax. I need help to keep this roster together." % Contracts.money(space)) if space >= 0
+				else ("Paying your ask puts us %s into the luxury tax. I need help to keep this roster together." % Contracts.money(-space)),
+			"evidence": clampf(1.0 - space / tight, 0.2, 1.0), "evidence_text": "Room under the tax line after his ask: %s." % Contracts.money(space),
 			"fit": 0.2 + 0.9 * d.n(&"loyalty") - 0.3 * d.n(&"money") + 0.2 * savvy_n})
 
 	# Years with the club.

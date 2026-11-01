@@ -11,6 +11,9 @@ const PLAYER := [
 	{"id": "clutches", "label": "Clutches", "kind": "sum"},
 	{"id": "headshots", "label": "Headshots", "kind": "sum"},
 	{"id": "kd", "label": "Kills per death", "kind": "kd"},
+	{"id": "opening_kills", "label": "Opening kills", "kind": "sum"},
+	{"id": "kills_long", "label": "Long-range kills", "kind": "sum"},
+	{"id": "distance", "label": "Distance covered", "kind": "sum", "fmt": "metres"},
 ]
 
 
@@ -27,6 +30,28 @@ const LEADERS := [
 	{"id": "hill_s", "label": "HILL TIME", "short": "TIME", "kind": "sum", "fmt": "secs"},
 	{"id": "caps", "label": "HILL CAPTURES", "short": "CAPS", "kind": "sum", "fmt": "int"},
 	{"id": "kd", "label": "KILLS PER DEATH", "short": "K/D", "kind": "kd", "fmt": "ratio"},
+	{"id": "opening_kills", "label": "OPENING KILLS", "short": "OPEN", "kind": "sum", "fmt": "int"},
+	{"id": "kills_long", "label": "LONG-RANGE KILLS", "short": "LONG", "kind": "sum", "fmt": "int"},
+	{"id": "distance", "label": "DISTANCE COVERED", "short": "DIST", "kind": "sum", "fmt": "metres"},
+	{"id": "cover_s", "label": "TIME IN COVER", "short": "TIME", "kind": "sum", "fmt": "secs"},
+	{"id": "kill_range", "label": "AVG KILL RANGE", "short": "RNG", "kind": "avg", "num": "kill_dist", "den": ["kills_short", "kills_medium", "kills_long"], "fmt": "metres1"},
+	{"id": "engage_range", "label": "AVG ENGAGEMENT RANGE", "short": "RNG", "kind": "avg", "num": "fire_dist", "den": "bursts", "fmt": "metres1"},
+]
+
+## Next Gen telemetry shown on the player page: a label and how to read it from a stat line (see `telemetry_rows`).
+## "sum" is a line key, "avg" is num / den (a key or a list of keys to add up), "share" is num / (num + den).
+const NEXT_GEN := [
+	{"label": "Opening kills", "kind": "sum", "id": "opening_kills", "fmt": "int"},
+	{"label": "Kills at short range", "kind": "sum", "id": "kills_short", "fmt": "int"},
+	{"label": "Kills at medium range", "kind": "sum", "id": "kills_medium", "fmt": "int"},
+	{"label": "Kills at long range", "kind": "sum", "id": "kills_long", "fmt": "int"},
+	{"label": "Average kill range", "kind": "avg", "num": "kill_dist", "den": ["kills_short", "kills_medium", "kills_long"], "fmt": "metres1"},
+	{"label": "Average engagement range", "kind": "avg", "num": "fire_dist", "den": "bursts", "fmt": "metres1"},
+	{"label": "Distance covered", "kind": "sum", "id": "distance", "fmt": "metres"},
+	{"label": "Time in cover", "kind": "sum", "id": "cover_s", "fmt": "secs"},
+	{"label": "Average time to first shot", "kind": "avg", "num": "first_shot_s", "den": "first_shot_n", "fmt": "secs1"},
+	{"label": "Time contesting the hill", "kind": "sum", "id": "contest_s", "fmt": "secs"},
+	{"label": "Share of hill time contested", "kind": "share", "num": "contest_s", "den": "hill_s", "fmt": "pct"},
 ]
 
 ## Single-match records. `noun` finishes a sentence ("31 kills", "2:15 of hill time"); impact is
@@ -42,6 +67,9 @@ const SINGLE_MATCH := [
 	{"id": "caps", "label": "Hill captures in a match", "noun": "hill captures", "fmt": "int"},
 	{"id": "hill_s", "label": "Hill time in a match", "noun": "of hill time", "fmt": "secs"},
 	{"id": "impact", "label": "Impact in a match", "noun": "impact points", "fmt": "int"},
+	{"id": "opening_kills", "label": "Opening kills in a match", "noun": "opening kills", "fmt": "int"},
+	{"id": "kills_long", "label": "Long-range kills in a match", "noun": "long-range kills", "fmt": "int"},
+	{"id": "distance", "label": "Distance covered in a match", "noun": "of ground covered", "fmt": "metres"},
 ]
 
 ## Team streak records, kept by the ledger.
@@ -63,6 +91,11 @@ static func value_of(stat: Dictionary, line: Dictionary, min_matches: int) -> fl
 		if int(line.get("matches", 0)) < min_matches:
 			return -1.0
 		return float(line.get("kills", 0)) / maxf(1.0, float(line.get("deaths", 0)))
+	if stat["kind"] == "avg":
+		var den := _total(line, stat["den"])
+		if int(line.get("matches", 0)) < min_matches or den <= 0.0:
+			return -1.0
+		return float(line.get(stat["num"], 0)) / den
 	return float(line.get(stat["id"], 0))
 
 
@@ -88,6 +121,72 @@ static func line_for(so: Soldier, scope: String, phase: String, year := 0) -> Di
 	return out
 
 
+## Conditions on the player page: [weather kind, level, label]; clear has level 0.
+const CONDITIONS := [
+	[&"clear", 0, "Clear"], [&"rain", 1, "Light rain"], [&"rain", 2, "Inclement rain"],
+	[&"snow", 1, "Light snow"], [&"snow", 2, "Inclement snow"],
+]
+## A condition needs this many matches (and so does clear weather) before it says anything about a player.
+const MIN_SPLIT_MATCHES := 6
+## Kills per death in a condition over his clear-weather ratio: at or above EDGE_WELL he plays well in it, at or
+## below EDGE_POORLY he struggles.
+const EDGE_WELL := 1.25
+const EDGE_POORLY := 0.8
+
+
+## A soldier's career line over the matches in one weather: `kind` "" is any, `level` -1 is any, `site` "" is
+## home and away. Sums the stored buckets; {} when none match.
+static func weather_line(so: Soldier, kind := "", level := -1, site := "") -> Dictionary:
+	var parts: Array = []
+	for key: String in so.split_career:
+		var p := key.split("|")
+		if p[0] == "wx" and (kind == "" or p[1] == kind) and (level < 0 or int(p[2]) == level) and (site == "" or p[3] == site):
+			parts.append(so.split_career[key])
+	return _merge(parts)
+
+
+## The same over the home field's surface ("" is any surface), by home/away.
+static func surface_line(so: Soldier, surface := "", site := "") -> Dictionary:
+	var parts: Array = []
+	for key: String in so.split_career:
+		var p := key.split("|")
+		if p[0] == "sf" and (surface == "" or p[1] == surface) and (site == "" or p[2] == site):
+			parts.append(so.split_career[key])
+	return _merge(parts)
+
+
+static func _merge(parts: Array) -> Dictionary:
+	if parts.is_empty():
+		return {}
+	var out := {}
+	for d: Dictionary in parts:
+		for k in d:
+			out[k] = int(out.get(k, 0)) + int(d[k])
+	return out
+
+
+static func _kd(line: Dictionary) -> float:
+	return float(line.get("kills", 0)) / maxf(1.0, float(line.get("deaths", 0)))
+
+
+## Rain and snow where he stands out: [{kind, well: bool, kd, base_kd, matches}], only with enough matches in
+## the weather and in clear weather to say so.
+static func weather_edges(so: Soldier) -> Array:
+	var out: Array = []
+	var base := weather_line(so, "clear")
+	if int(base.get("matches", 0)) < MIN_SPLIT_MATCHES:
+		return out
+	var base_kd := _kd(base)
+	for kind in [&"rain", &"snow"]:
+		var line := weather_line(so, kind)
+		if int(line.get("matches", 0)) < MIN_SPLIT_MATCHES:
+			continue
+		var ratio := _kd(line) / maxf(0.01, base_kd)
+		if ratio >= EDGE_WELL or ratio <= EDGE_POORLY:
+			out.append({"kind": kind, "well": ratio >= EDGE_WELL, "kd": _kd(line), "base_kd": base_kd, "matches": int(line["matches"])})
+	return out
+
+
 ## The value as shown: whole numbers, "m:ss" hill time, or two decimals for a ratio.
 static func format(stat: Dictionary, v: float) -> String:
 	match stat.get("fmt", "int"):
@@ -95,4 +194,43 @@ static func format(stat: Dictionary, v: float) -> String:
 			return MatchEngine._fmt_secs(v)
 		"ratio":
 			return "%.2f" % v
+		"metres":
+			return "%d m" % roundi(v)
+		"metres1":
+			return "%.1f m" % v
+		"secs1":
+			return "%.1f s" % v
+		"pct":
+			return "%d%%" % roundi(v * 100.0)
 	return str(int(v))
+
+
+## A line's value for a key, or the sum over a list of keys (kills are only counted by range from telemetry on).
+static func _total(line: Dictionary, keys: Variant) -> float:
+	if keys is Array:
+		var t := 0.0
+		for k in keys:
+			t += float(line.get(k, 0))
+		return t
+	return float(line.get(keys, 0))
+
+
+## The Next Gen rows for one stat line: [[label, text]], with "-" where a line has nothing to average.
+static func telemetry_rows(line: Dictionary) -> Array:
+	var rows: Array = []
+	for d: Dictionary in NEXT_GEN:
+		var text := "-"
+		match d["kind"]:
+			"sum":
+				text = format(d, float(line.get(d["id"], 0)))
+			"avg":
+				var den := _total(line, d["den"])
+				if den > 0.0:
+					text = format(d, float(line.get(d["num"], 0)) / den)
+			"share":
+				var num := float(line.get(d["num"], 0))
+				var total := num + _total(line, d["den"])
+				if total > 0.0:
+					text = format(d, num / total)
+		rows.append([d["label"], text])
+	return rows

@@ -316,10 +316,24 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   once (exhibitions never are), split into regular season and playoffs (`Soldier.playoff_career` and
   `playoff_season_lines`; regular is combined minus playoffs, and seasons from before the split stay combined).
   League Leaders and the player Stats tab take season/career and combined/regular/playoffs filters. The ledger keeps
-  the top 5 single-match performances for 10 stats (league-wide and per franchise, in each phase) and each team's
+  the top 5 single-match performances for 13 stats (league-wide and per franchise, in each phase) and each team's
   longest win and losing streak. A match that beats a full book stamps a record on `ScheduledMatch.records`, which
-  feeds a League Wire story, a box score banner and a line in the Weekly News. Records only make news once 100
-  matches are on the books, and single-match records count from the first match played with the ledger.
+  feeds a League Wire story, a box score banner and a line in the Weekly News. Every new franchise starts with the
+  same fixed record books (`scripts/season/record_seed.gd`: single-match, season, career, team and streak marks from
+  made-up earlier years), so those are the targets your players can break; older saves are seeded on load.
+  Next Gen telemetry: the match engine also counts opening kills, kills by range, average kill and engagement range,
+  distance covered, time in cover, time to first shot and time contesting the hill (pure bookkeeping, no random numbers;
+  `tests/engine_golden.gd` guards the sim). They show in League Leaders and on a NEXT GEN panel on the player's Stats tab,
+  and count from the first match played with telemetry.
+  Opening kills, long-range kills and distance covered also have record books (single-match, season and career) with
+  seeded targets like the rest.
+  League Leaders also has a TEAMS view (`scripts/season/team_stats.gd`): wins, game differential, kills, kills per
+  death, damage, assists, saves, headshots, team wipes and hill time and captures, summed for this season from the box
+  scores (combined, regular season or playoffs).
+  Condition splits: each soldier's career is also kept by weather (clear, light/inclement rain and snow), home or away, and
+  the home field's floor surface (`Soldier.split_career`). The player's Stats tab has a WEATHER AND FIELD table and calls
+  out rain or snow where his kills per death clearly beat or trail his clear-weather ratio (6+ matches in both).
+  Splits count from the first match played with them.
 - **Save / Load** (`scripts/save/save_system.gd`, Settings → Save Franchise / Load Franchise, title → Load Franchise): 3 manual slots
   plus an **autosave** after every week, the season rollover and camp. A save is the whole league graph (shared
   objects, RNG states) as compressed text, so a loaded game continues exactly as the original would have.
@@ -420,6 +434,7 @@ godot --headless --path . --script res://tests/ui_smoke.gd      # debug UI smoke
 godot --headless --path . --script res://tests/franchise_smoke.gd  # franchise menus through a full season
 godot --headless --path . --script res://tests/save_tests.gd    # save/load round trips and determinism after load
 godot --headless --path . --script res://tests/ledger_tests.gd  # stat ledger: phase split, once-only recording, saves (fast; ONLY=test_a,test_b)
+godot --headless --path . --script res://tests/engine_golden.gd  # match engine golden: fixed seeds keep their results (GOLDEN_WRITE=1 only when the sim should change)
 ```
 
 ```powershell
@@ -529,5 +544,6 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
 - Trades: in-season (Week 8 deadline), offseason and draft-day, trade block and AI offers (done)
 - Best-of-3 match modes (done; next: more modes and per-mode schemes)
 - Weekly News: your club's beat writer files a generated newspaper article every week and offseason step (done)
+- Stat ledger (#11): phase splits, league leaders, single-match records and streaks, record and MVP stories (done; next: Next Gen telemetry, weather splits)
 - Visual combat
 - Android and PC exports
