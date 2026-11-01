@@ -10,34 +10,11 @@ var _current := ""
 
 
 func _init() -> void:
-	var tests := [
-		"test_generator_ranges",
-		"test_ovr_depends_on_position",
-		"test_auto_lineup_fills_scheme",
-		"test_assign_swaps_players",
-		"test_match_structure",
-		"test_arena_scoring",
-		"test_looks",
-		"test_match_is_deterministic",
-		"test_live_engine_matches_sim",
-		"test_spawn_zone_is_safe",
-		"test_team_fields",
-		"test_weather",
-		"test_different_seeds_vary",
-		"test_better_team_wins_more",
-		"test_each_combat_stat_matters",
-		"test_xp_levels_and_points",
-		"test_dev_scales_xp",
-		"test_potential_is_ceiling",
-		"test_aging_decline",
-		"test_stat_groups",
-		"test_group_upgrade_rules",
-		"test_auto_spend_prefers_role_groups",
-		"test_training_intensity",
-		"test_fatigue_model",
-		"test_injury_model",
-		"test_match_awards_xp",
-	]
+	# Every test_* method runs, in declaration order: adding a test needs no edit here.
+	var tests: Array = []
+	for method in get_method_list():
+		if String(method["name"]).begins_with("test_"):
+			tests.append(String(method["name"]))
 	# TEST_ONLY=substring runs a subset (e.g. TEST_ONLY=live).
 	var only := OS.get_environment("TEST_ONLY")
 	if only != "":

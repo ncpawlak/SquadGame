@@ -313,27 +313,28 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   matchup the big VS / @ becomes a flame (team-specific) and/or clashing chevrons (divisional), stacked when both
   apply, with the rivalry name, series record and intensity on hover.
 - **Stat ledger** (`scripts/season/stat_ledger.gd`, `stat_registry.gd`, issue #11): every league match is recorded
-  once (exhibitions never are), split into regular season and playoffs (`Soldier.playoff_career` and
-  `playoff_season_lines`; regular is combined minus playoffs, and seasons from before the split stay combined).
-  League Leaders and the player Stats tab take season/career and combined/regular/playoffs filters. The ledger keeps
-  the top 5 single-match performances for 13 stats (league-wide and per franchise, in each phase) and each team's
-  longest win and losing streak. A match that beats a full book stamps a record on `ScheduledMatch.records`, which
-  feeds a League Wire story, a box score banner and a line in the Weekly News. Every new franchise starts with the
-  same fixed record books (`scripts/season/record_seed.gd`: single-match, season, career, team and streak marks from
-  made-up earlier years), so those are the targets your players can break; older saves are seeded on load.
-  Next Gen telemetry: the match engine also counts opening kills, kills by range, average kill and engagement range,
-  distance covered, time in cover, time to first shot and time contesting the hill (pure bookkeeping, no random numbers;
-  `tests/engine_golden.gd` guards the sim). They show in League Leaders and on a NEXT GEN panel on the player's Stats tab,
-  and count from the first match played with telemetry.
-  Opening kills, long-range kills and distance covered also have record books (single-match, season and career) with
-  seeded targets like the rest.
-  League Leaders also has a TEAMS view (`scripts/season/team_stats.gd`): wins, game differential, kills, kills per
-  death, damage, assists, saves, headshots, team wipes and hill time and captures, summed for this season from the box
-  scores (combined, regular season or playoffs).
-  Condition splits: each soldier's career is also kept by weather (clear, light/inclement rain and snow), home or away, and
-  the home field's floor surface (`Soldier.split_career`). The player's Stats tab has a WEATHER AND FIELD table and calls
-  out rain or snow where his kills per death clearly beat or trail his clear-weather ratio (6+ matches in both).
-  Splits count from the first match played with them.
+  once (exhibitions never are). One bullet per feature, so a new one is a new line here and never an edit to another.
+  - **Phases**: split into regular season and playoffs (`Soldier.playoff_career` and `playoff_season_lines`; regular
+    is combined minus playoffs, and seasons from before the split stay combined). League Leaders and the player Stats
+    tab take season/career and combined/regular/playoffs filters.
+  - **Records**: the ledger keeps the top 5 single-match performances for 13 stats (league-wide and per franchise, in
+    each phase) and each team's longest win and losing streak. A match that beats a full book stamps a record on
+    `ScheduledMatch.records`, which feeds a League Wire story, a box score banner and a line in the Weekly News.
+  - **Seeded books** (`scripts/season/record_seed.gd`): every new franchise starts with the same fixed single-match,
+    season, career, team and streak marks from made-up earlier years, so those are the targets your players can
+    break; older saves are seeded on load.
+  - **Next Gen telemetry**: the match engine also counts opening kills, kills by range, average kill and engagement
+    range, distance covered, time in cover, time to first shot and time contesting the hill (pure bookkeeping, no
+    random numbers; `tests/engine_golden.gd` guards the sim). They show in League Leaders and on a NEXT GEN panel on
+    the player's Stats tab, and count from the first match played with telemetry. Opening kills, long-range kills
+    and distance covered also have record books (single-match, season and career) with seeded targets.
+  - **Team leaders** (`scripts/season/team_stats.gd`): League Leaders has a TEAMS view: wins, game differential,
+    kills, kills per death, damage, assists, saves, headshots, team wipes and hill time and captures, summed for this
+    season from the box scores (combined, regular season or playoffs).
+  - **Condition splits**: each soldier's career is also kept by weather (clear, light/inclement rain and snow), home
+    or away, and the home field's floor surface (`Soldier.split_career`). The player's Stats tab has a WEATHER AND
+    FIELD table and calls out rain or snow where his kills per death clearly beat or trail his clear-weather ratio
+    (6+ matches in both). Splits count from the first match played with them.
 - **Save / Load** (`scripts/save/save_system.gd`, Settings → Save Franchise / Load Franchise, title → Load Franchise): 3 manual slots
   plus an **autosave** after every week, the season rollover and camp. A save is the whole league graph (shared
   objects, RNG states) as compressed text, so a loaded game continues exactly as the original would have.
@@ -420,6 +421,9 @@ The old debug UI is still available from the title screen or Settings → Debug 
 - Batch-sim 200 matches.
 
 ## Tests
+
+run_tests, season_tests, save_tests and ledger_tests run every `test_*` method in their file, in the order written, so a new
+test is just a new function (no list to edit).
 
 ```powershell
 godot --headless --path . --import                              # first run: builds class cache

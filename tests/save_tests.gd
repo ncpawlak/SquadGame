@@ -9,20 +9,11 @@ var _current := ""
 
 
 func _init() -> void:
-	var tests := [
-		"test_primitives_round_trip",
-		"test_round_trip_identity",
-		"test_determinism_after_load",
-		"test_news_round_trip",
-		"test_newsroom_round_trip",
-		"test_history_round_trip",
-		"test_retired_callsigns_round_trip",
-		"test_hall_of_fame_round_trip",
-		"test_load_repairs_callsigns",
-		"test_slot_api",
-		"test_extension_round_trip",
-		"test_legacy_potential_migrates",
-	]
+	# Every test_* method runs, in declaration order: adding a test needs no edit here.
+	var tests: Array = []
+	for method in get_method_list():
+		if String(method["name"]).begins_with("test_"):
+			tests.append(String(method["name"]))
 	var only := OS.get_environment("ONLY")
 	if only != "":
 		tests = tests.filter(func(x): return only.split(",").has(x))
