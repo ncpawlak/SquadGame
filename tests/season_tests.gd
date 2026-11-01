@@ -1997,7 +1997,7 @@ func test_records() -> void:
 	s.start_next_season()
 	s.sim_to_end_of_season()
 	var kills: Dictionary = Records.PLAYER_STATS[0]
-	var kd: Dictionary = Records.PLAYER_STATS[-1]
+	var kd: Dictionary = Records.PLAYER_STATS.filter(func(d): return d["id"] == "kd")[0]
 	var everyone := Records.soldiers(s)
 	for r in s.retirements:
 		check(everyone.has(r["soldier"]), "retired soldiers are in the record pool")

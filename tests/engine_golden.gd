@@ -25,7 +25,8 @@ func _init() -> void:
 		print("golden written")
 		quit(0)
 		return
-	var want := FileAccess.get_file_as_string(PATH).strip_edges().split("\n")
+	# Git may check the file out with CRLF line endings, so compare lines stripped.
+	var want := Array(FileAccess.get_file_as_string(PATH).strip_edges().split("\n")).map(func(l: String): return l.strip_edges())
 	var ok := want.size() == lines.size()
 	for i in lines.size():
 		if i >= want.size() or want[i] != lines[i]:

@@ -27,6 +27,7 @@ func _init() -> void:
 		"test_telemetry_lines",
 		"test_award_stories",
 		"test_seeded_books",
+		"test_telemetry_records",
 	]
 	Season.fixture_teams = 5
 	Season.backfill_careers = false
@@ -238,7 +239,7 @@ func test_single_match_book() -> void:
 	for t: Team in s.league.teams:
 		for e in Records.single_matches(s, kills, StatRegistry.PHASE_COMBINED, t.abbrev):
 			check(e["team"] == t.abbrev, "franchise book only holds that club's players")
-	var impact: Dictionary = StatRegistry.SINGLE_MATCH[-1]
+	var impact: Dictionary = StatRegistry.SINGLE_MATCH.filter(func(d): return d["id"] == "impact")[0]
 	check(Records.single_matches(s, impact)[0]["value"] > 0.0, "impact is recorded too")
 
 
@@ -475,4 +476,29 @@ func test_seeded_books() -> void:
 	check(scoped.all(func(r): return r["team"] == "NYE"), "franchise books hold only that club")
 	var loaded := SaveSystem.from_text(SaveSystem.to_text(a))
 	check(loaded != null and loaded.ledger.seeded and str(loaded.ledger.single_match) == str(a.ledger.single_match), "seeded books survive a save")
+
+
+## Telemetry stats have record books too: seeded targets that a big match, season or career can pass.
+func test_telemetry_records() -> void:
+	Season.seed_records = true
+	var a := Season.new_franchise(97, 0)
+	Season.seed_records = false
+	var ids := ["opening_kills", "kills_long", "distance"]
+	for id in ids:
+		var match_stat: Dictionary = StatRegistry.SINGLE_MATCH.filter(func(d): return d["id"] == id)[0]
+		check(Records.single_matches(a, match_stat).size() == Records.TOP_N, "%s single-match book is seeded" % id)
+		var player_stat: Dictionary = StatRegistry.PLAYER.filter(func(d): return d["id"] == id)[0]
+		check(Records.player_seasons(a, player_stat).size() == Records.TOP_N and Records.player_careers(a, player_stat).size() == Records.TOP_N, "%s season and career books are seeded" % id)
+	var dist: Dictionary = StatRegistry.PLAYER.filter(func(d): return d["id"] == "distance")[0]
+	check(Records.format_value(dist, 11800.0) == "11800 m", "distance reads in metres")
+	a.sim_week()
+	var m: ScheduledMatch = _regular(a)[0]
+	var so: Soldier = m.home.starters()[0]
+	m.result.box[so.id]["kills_long"] = 40
+	m.result.box[so.id]["distance"] = 9000.0
+	a.ledger.record_match(a, m)
+	var hit := m.records.map(func(r): return r["stat"])
+	check(hit.has("kills_long") and hit.has("distance"), "a huge match breaks the telemetry records (%s)" % [hit])
+	var ev: Dictionary = m.records.filter(func(r): return r["stat"] == "distance")[0]
+	check(ev["noun"] == "of ground covered" and not ev["previous"].is_empty(), "it names what it passed")
 
