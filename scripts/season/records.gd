@@ -54,6 +54,8 @@ static func player_seasons(season: Season, stat: Dictionary, abbrev := "", phase
 			var v := value_of(stat, line, min_matches)
 			if v > 0.0:
 				rows.append({"soldier": so, "team": line.get("team", ""), "year": int(year), "value": v})
+	if season.ledger.seeded:
+		rows.append_array(RecordSeed.player_rows("season", stat, abbrev, phase))
 	return _top(rows)
 
 
@@ -81,6 +83,8 @@ static func player_careers(season: Season, stat: Dictionary, abbrev := "", phase
 		var v := value_of(stat, line, min_matches)
 		if v > 0.0:
 			rows.append({"soldier": so, "first": first, "last": last, "value": v})
+	if season.ledger.seeded:
+		rows.append_array(RecordSeed.player_rows("career", stat, abbrev, phase))
 	return _top(rows)
 
 
@@ -98,13 +102,12 @@ static func single_matches(season: Season, stat: Dictionary, phase := StatRegist
 	return rows
 
 
-## Longest team streaks from the ledger: Array of {team: Team, year, week, value}. `kind` is a STREAKS id.
+## Longest team streaks from the ledger: Array of {team: Team (or the abbreviation of a club this league lacks), year, week, value}. `kind` is a STREAKS id.
 static func streaks(season: Season, kind: String, abbrev := "") -> Array:
 	var rows: Array = []
 	for e: Dictionary in season.ledger.streaks(kind, abbrev):
 		var t := season.league.team_by_abbrev(e["team"])
-		if t != null:
-			rows.append({"team": t, "year": e["year"], "week": e["week"], "value": e["value"]})
+		rows.append({"team": t if t != null else e["team"], "year": e["year"], "week": e["week"], "value": e["value"]})
 	return rows
 
 
@@ -126,6 +129,10 @@ static func team_seasons(season: Season, stat: Dictionary, abbrev := "") -> Arra
 			var v := float(r["wins"] if stat["id"] == "wins" else r["point_diff"])
 			if v > 0.0:
 				rows.append({"team": t, "year": snap.year, "value": v})
+	if season.ledger.seeded:
+		for r: Dictionary in RecordSeed.team_rows(stat["id"], abbrev):
+			var club := season.league.team_by_abbrev(r["team"])
+			rows.append({"team": club if club != null else r["team"], "year": r["year"], "value": r["value"]})
 	return _top(rows)
 
 
@@ -139,8 +146,8 @@ static func _top(rows: Array) -> Array:
 		var yb: int = b.get("year", b.get("last", 0))
 		if ya != yb:
 			return ya < yb
-		var ia: int = a["soldier"].id if a.has("soldier") else 0
-		var ib: int = b["soldier"].id if b.has("soldier") else 0
+		var ia: int = a["soldier"].id if a.get("soldier") != null else 0
+		var ib: int = b["soldier"].id if b.get("soldier") != null else 0
 		if ia != ib:
 			return ia < ib
 		return _abbrev(a) < _abbrev(b))
@@ -150,6 +157,11 @@ static func _top(rows: Array) -> Array:
 static func _abbrev(row: Dictionary) -> String:
 	var t = row.get("team")
 	return t.abbrev if t is Team else str(t)
+
+
+## Who holds a record row: the soldier, or the name of a seeded holder from before the league began.
+static func holder_name(e: Dictionary) -> String:
+	return e["soldier"].full_name() if e.get("soldier") != null else String(e["name"])
 
 
 static func format_value(stat: Dictionary, v: float) -> String:
