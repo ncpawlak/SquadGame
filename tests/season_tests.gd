@@ -613,7 +613,7 @@ func test_draft_order_and_picks() -> void:
 func test_contracts_and_cap() -> void:
 	var s := Season.new_franchise(61)
 	for t in s.league.teams:
-		check(Contracts.payroll(t, s.year) <= Contracts.SALARY_CAP, "%s starts under the cap" % t.abbrev)
+		check(Contracts.payroll(t, s.year) <= Contracts.TAX_LINE, "%s starts under the tax line" % t.abbrev)
 		for so in t.roster:
 			check(so.contract != null and so.contract.years >= 1, "initial contract")
 	var t := s.user_team()
@@ -646,7 +646,7 @@ func test_contracts_and_cap() -> void:
 	h.roster.append(other)
 	check(Contracts.payroll(h, 2027) == 21000, "expiring deal is a cap hold (21M)")
 	check(Contracts.payroll(h, 2027, 1) == 1000, "holds don't count in later years")
-	var room := Contracts.SALARY_CAP - 1000
+	var room := Contracts.APRON - 1000
 	check(Contracts.resign_fits(h, 2027, vet, room) and not Contracts.resign_fits(h, 2027, vet, room + 1), "his new deal replaces his hold")
 	check(not Contracts.fits(h, 2027, room), "his hold blocks other signings")
 	vet.contract = Contract.make(25000, 3, 2027)
@@ -1438,29 +1438,38 @@ func test_negotiation_terms() -> void:
 	d.money = 5
 	check(greedy > n.term_value(&"bonus", 3, {"bonus": 3000}) and greedy > 1000.0, "money-driven players value a bonus above its cash")
 	var all := {"bonus": 1500, "no_trade": true, "promise": true}
+	s.revenue.cash[user.abbrev] = 50000.0
 	var cheap := n.required_salary(3, all)
 	check(cheap <= base, "terms lower the salary he needs")
 	check(n.cash_per_year(cheap, 3, all) >= n.floor_salary(3) - 10, "terms never buy him below his floor")
 	check(not n.accepts(cheap - 100, 3, all), "just below the required salary doesn't sign")
-	# Signing books the bonus and the clause.
+	# Signing pays the bonus from the club fund (off the cap) and books the clause.
 	var cy := s.cap_year()
 	var before := Contracts.payroll(user, cy) - Contracts.cap_hold(so)
 	var res := n.accept(3, all)
 	check(res["result"] == "signed", "accepting with terms signs (%s)" % res["text"])
 	if res["result"] == "signed":
 		check(so.contract.bonus == 1500 and so.contract.no_trade and so.contract.salary == cheap, "contract carries the terms")
-		check(int(user.bonus_money.get(cy, 0)) >= 1500, "bonus booked on the cap year")
-		check(Contracts.payroll(user, cy) == before + cheap + 1500, "payroll counts salary plus bonus")
+		check(int(user.bonus_money.get(cy, 0)) == 0, "the bonus is not booked on the cap")
+		check(Contracts.payroll(user, cy) == before + cheap, "payroll counts the salary only")
+		check(is_equal_approx(s.revenue.cash_of(user), 48500.0) and s.revenue.bonuses_paid(s.year, user) == 1500, "the bonus is paid from the club fund")
 		check(not so.promise.is_empty(), "starter promise tracked")
 		check(not Trades.tradeable(so), "no-trade clause blocks trades")
 		so.trade_request = true
 		check(Trades.tradeable(so), "a trade request waives the clause")
 		so.trade_request = false
-	# Bonus counts against this year's cap.
+	# The bonus limit (half the deal's salary) and the club fund.
 	r = _expiring_talks(85)
+	s = r[0]
+	user = r[1]
 	n = r[3]
-	check(n.offer_error(Contracts.MIN_SALARY, 2, {"bonus": Contracts.SALARY_CAP}) != "", "bonus over the cap rejected")
+	s.revenue.cash[user.abbrev] = 50000.0
+	check(n.offer_error(Contracts.MIN_SALARY, 2, {"bonus": Contracts.MIN_SALARY + 10}).contains("half"), "bonus over half the deal's salary rejected")
 	check(n.offer_error(1000, 2, {"bonus": -5}) != "", "negative bonus rejected")
+	s.revenue.cash[user.abbrev] = 500.0
+	check(n.offer_error(Contracts.MIN_SALARY, 2, {"bonus": 1000}).contains("club fund"), "bonus over the club fund rejected")
+	s.revenue.cash[user.abbrev] = -1.0
+	check(n.offer_error(Contracts.MIN_SALARY, 2, {"bonus": 100}).contains("frozen"), "a frozen fund blocks bonuses")
 
 
 func test_keep_the_core() -> void:
@@ -1662,7 +1671,7 @@ func test_trades() -> void:
 	check(not tr.window_open(s) and tr.validate(s, user, [p2], ai, [Trades.pick_asset(s.draft.year, 2, ai)]) != "", "deadline closes the window")
 	s.week = wk
 	# Lopsided offers are refused and cost patience; at zero they stop listening.
-	var space := Contracts.cap_space(user, s.cap_year())
+	var space := Contracts.apron_room(user, s.cap_year())
 	var star: Soldier = by_ovr.call(ai).filter(func(x: Soldier): return x.contract.salary <= space)[0]
 	var low := [Trades.pick_asset(s.draft.year + 1, Draft.ROUNDS, user)]
 	var r := tr.propose(s, ai, low, [Trades.player_asset(star)])
@@ -1890,7 +1899,7 @@ func test_fixed_league() -> void:
 		var names_a: Array = t.roster.map(func(x: Soldier): return x.full_name())
 		var names_b: Array = b.league.teams[i].roster.map(func(x: Soldier): return x.full_name())
 		check(names_a == names_b, "%s roster is fixed across seeds" % t.abbrev)
-		check(Contracts.payroll(t, a.cap_year()) <= Contracts.SALARY_CAP, "%s under the cap" % t.abbrev)
+		check(Contracts.payroll(t, a.cap_year()) <= Contracts.TAX_LINE, "%s under the tax line" % t.abbrev)
 	check(b.user_team() == b.league.teams[3], "user team index honoured")
 
 
@@ -2360,20 +2369,345 @@ func test_playoff_bracket() -> void:
 	check(s.week_label(s.regular_weeks + 1) == "Quarterfinals" and s.week_label(s.total_weeks()) == "Final", "playoff week labels")
 
 
-func test_salary_floor() -> void:
+func test_soft_cap_and_tax() -> void:
 	var s := _fixed(31)
+	var cy := s.cap_year()
+	check(Contracts.TAX_LINE == 320000 and Contracts.APRON == 380000, "tax line $320M, apron $380M")
 	var t: Team = s.league.teams[19]
 	for so in t.roster:
 		so.contract.salary = 1000
-	var short := Contracts.floor_shortfall(t, s.cap_year())
-	check(short == Contracts.SALARY_FLOOR - Contracts.payroll(t, s.cap_year()), "shortfall = floor - payroll")
-	var charged := Contracts.charge_floor(s.league, s.cap_year())
-	var mine: Array = charged.filter(func(e): return e["team"] == t)
-	check(mine.size() == 1 and int(mine[0]["amount"]) == short, "penalty charged for the shortfall")
-	check(int(t.floor_penalties.get(s.cap_year(), 0)) == short, "penalty recorded on the team")
-	var rich: Team = s.league.teams[0]
-	check(Contracts.floor_shortfall(rich, s.cap_year()) == 0, "teams above the floor pay nothing")
+	check(Contracts.tax_due(t, cy) == 0, "no floor and no tax for a cheap roster")
+	# Push one deal so the payroll sits $10M over the tax line.
+	var star: Soldier = t.roster[0]
+	star.contract.salary += Contracts.TAX_LINE + 10000 - Contracts.payroll(t, cy)
+	check(Contracts.tax_overage(t, cy) == 10000 and Contracts.tax_due(t, cy) == 15000, "tax is $1.50 per $1 over")
+	check(not Contracts.fits(t, cy, 5000), "free agents need soft-cap room")
+	check(Contracts.fits(t, cy, Contracts.MIN_SALARY), "minimum deals still fit over the cap")
+	star.contract.years = 0
+	var room := Contracts.apron_room(t, cy) + Contracts.cap_hold(star)
+	check(Contracts.resign_fits(t, cy, star, room) and not Contracts.resign_fits(t, cy, star, room + 10), "Bird rights stop at the apron")
+	var cash := s.revenue.cash_of(t)
+	star.contract.years = 1
+	var bills := s.revenue.charge_tax(s)
+	var mine: Array = bills.filter(func(e): return e["team"] == t)
+	check(mine.size() == 1 and int(mine[0]["amount"]) == Contracts.tax_due(t, s.year), "the tax bill is charged")
+	check(is_equal_approx(s.revenue.cash_of(t), cash - Contracts.tax_due(t, s.year)), "the tax comes out of club cash")
+	check(s.revenue.tax_paid(s.year, t) == Contracts.tax_due(t, s.year), "the tax is recorded")
+	check(bills.filter(func(e): return e["team"] == s.league.teams[0] and Contracts.tax_due(e["team"], s.year) == 0).is_empty(), "teams under the line pay nothing")
 
+
+func test_rookie_scale() -> void:
+	var n := 40
+	check(Contracts.rookie_salary(1, n) == Contracts.ROOKIE_TOP, "#1 pick earns $15M")
+	check(Contracts.rookie_salary(n, n) == Contracts.ROOKIE_BOTTOM, "last pick earns the minimum")
+	var prev := Contracts.ROOKIE_TOP + 1
+	for i in range(1, n + 1):
+		var v := Contracts.rookie_salary(i, n)
+		check(v <= prev, "rookie scale never rises (pick %d)" % i)
+		prev = v
+	check(Contracts.rookie_salary(n / 4, n) < Contracts.ROOKIE_TOP / 2, "the scale falls steeply through round 1")
+	var c := Contracts.rookie_contract(3, n, 2030)
+	check(c.years == Contracts.ROOKIE_YEARS and c.salary == Contracts.rookie_salary(3, n), "rookie deals are slotted %d-year deals" % Contracts.ROOKIE_YEARS)
+	var lo := PlayerGenerator.generate(RandomNumberGenerator.new(), 1, Scheme.Role.FLEX, 50.0, 30)
+	check(Contracts.curve_salary(95) >= 40000 and Contracts.curve_salary(85) >= 25000 and Contracts.curve_salary(85) <= 40000, "90s earn $40M+, 80s $25-40M")
+	check(Contracts.market_value(lo) >= Contracts.MIN_SALARY, "market value is at least the minimum")
+
+
+func test_legacy_salary_migration() -> void:
+	var s := _fixed(32)
+	var t: Team = s.league.teams[0]
+	var so: Soldier = t.roster[0]
+	var old_market := clampi(roundi(Contracts._market_raw(so, Contracts.LEGACY_CURVE) / 10.0) * 10, Contracts.LEGACY_MIN_SALARY, Contracts.LEGACY_MAX_SALARY)
+	so.contract.salary = old_market
+	check(absi(Contracts.rescale_legacy(so, old_market) - Contracts.market_value(so)) <= 10, "a market deal stays a market deal")
+	check(Contracts.rescale_legacy(so, old_market * 2) > Contracts.rescale_legacy(so, old_market), "overpays stay overpays")
+	# An old save: pre-#41 salaries, a stashed floor penalty, economy version 0.
+	for x in t.roster:
+		x.contract.salary = maxi(Contracts.LEGACY_MIN_SALARY, x.contract.salary * 3 / 5)
+	t.dead_money[s.cap_year() + 1] = 3000
+	t.set_meta(&"legacy_floor_penalties", {s.cap_year(): 2000})
+	s.economy_version = 0
+	var cash := s.revenue.cash_of(t)
+	s.ensure_economy()
+	check(s.economy_version == Contracts.ECONOMY_VERSION, "economy version stamped")
+	check(int(t.dead_money.get(s.cap_year() + 1, 0)) < 3000 and not t.has_meta(&"legacy_floor_penalties"), "floor penalty dropped")
+	check(Contracts.payroll(t, s.cap_year()) <= Contracts.APRON, "migrated payroll fits under the apron")
+	check(s.revenue.cash_of(t) > cash or cash <= 0.0, "club cash scaled to the new money")
+	var again := Contracts.payroll(t, s.cap_year())
+	s.ensure_economy()
+	check(Contracts.payroll(t, s.cap_year()) == again, "migration runs once")
+
+
+func test_board_review() -> void:
+	var s := _fixed(33)
+	var rv := s.revenue
+	var lrk: Team = s.league.team_by_abbrev("LRK")
+	var nye: Team = s.league.team_by_abbrev("NYE")
+	var rows := s.standings()
+	var finish := {}
+	for i in rows.size():
+		finish[(rows[i].team as Team).abbrev] = i + 1
+	# LRK way over expectations (clamped), NYE below them with an empty fund.
+	s.market.preseason_rank[lrk.abbrev] = int(finish[lrk.abbrev]) + 15
+	s.market.preseason_rank[nye.abbrev] = int(finish[nye.abbrev]) - 2
+	rv.cash[nye.abbrev] = -5000.0
+	# Two earlier seasons below expectations for NYE: this is the third.
+	for back in [1, 2]:
+		rv.grants[s.year - back] = {nye.abbrev: {"results": -3000.0}}
+	var lrk_cash := rv.cash_of(lrk)
+	rv.board_review(s)
+	var g := rv.grant_of(s.year, lrk)
+	check(is_equal_approx(float(g["market"]), Revenue.market_grant(lrk.market_rating)), "market term")
+	check(is_equal_approx(float(g["results"]), Revenue.RESULTS_CAP), "results are capped at +$10M")
+	check(is_equal_approx(float(g["savings"]), Revenue.SAVINGS_SHARE * maxi(0, Contracts.SALARY_CAP - Contracts.payroll(lrk, s.year))), "cap savings: 5% of room under the cap")
+	check(float(g["confidence"]) == 1.0, "a solvent club on target keeps full confidence")
+	var sum := float(g["market"]) + float(g["results"]) + float(g["playoffs"]) + float(g["awards"]) + float(g["development"]) + float(g["savings"])
+	check(absf(float(g["grant"]) - sum) <= 10.0, "the grant is the sum of its terms")
+	check(is_equal_approx(rv.cash_of(lrk), lrk_cash + float(g["grant"])), "the grant goes into the fund")
+	var n := rv.grant_of(s.year, nye)
+	check(is_equal_approx(float(n["results"]), -2000.0), "results: $1M per place below expectations")
+	check(is_equal_approx(float(n["confidence"]), Revenue.CONF_SLUMP), "three straight seasons below expectations: x0.75 (lower than the x0.90 for a fund below $0)")
+	rv.cash[nye.abbrev] = -1.0
+	check(rv.frozen(nye) and not rv.frozen(lrk), "a fund below $0 freezes spending")
+	rv.grants.erase(s.year - 1)
+	check(is_equal_approx(rv._confidence(s, nye, true), Revenue.CONF_BROKE), "a fund below $0 alone: x0.90")
+
+
+func test_signing_bonuses() -> void:
+	check(Contracts.max_bonus(10000, 3) == 15000 and Contracts.max_bonus(Contracts.MIN_SALARY, 1) == 500, "bonus limit: half the deal's total salary")
+	var s := Season.new_franchise(64)
+	var t := s.user_team()
+	t.release(t.roster[-1])
+	t.release(t.roster[-1])
+	for so in t.roster:
+		if so.contract != null:
+			so.contract.salary = Contracts.MIN_SALARY
+	var rv := s.revenue
+	var pool := s.league.free_agents
+	var a: Soldier = pool[0]
+	var b: Soldier = pool[1]
+	var sal := 4000
+	check(Contracts.fits(t, s.cap_year(), sal * 2), "room for two offers")
+	# Limit and fund, counting bonuses in other pending offers.
+	rv.cash[t.abbrev] = 5000.0
+	check(s.fa.offer_error(s, t, a, sal, 2, false, 4010).contains("half"), "FA bonus over the limit rejected")
+	check(s.fa.make_offer(s, t, a, sal, 2, false, 3000) == "", "bonus offer placed")
+	check(s.fa.committed_bonus(t) == 3000, "pending bonus counted")
+	check(s.fa.offer_error(s, t, b, sal, 2, false, 3000).contains("club fund"), "other pending bonuses hold the fund")
+	check(s.fa.offer_error(s, t, b, sal, 2, false, 2000) == "", "what's left in the fund can be offered")
+	check(s.fa.offer_error(s, t, a, sal, 2, false, 4000) == "", "replacing an offer frees its own bonus")
+	rv.cash[t.abbrev] = -1.0
+	check(s.fa.offer_error(s, t, b, sal, 2, false, 100).contains("frozen"), "frozen fund blocks FA bonuses")
+	check(s.fa.offer_error(s, t, b, sal, 2) == "", "a frozen fund still allows a deal without a bonus")
+	# A bonus is worth more to a money-driven player.
+	var d := a.get_dna()
+	var low := roundi(Contracts.asking(a, 2) * 0.6)
+	d.money = 95
+	var greedy := FreeAgency.score(t, a, low, 2, false, 2000) - FreeAgency.score(t, a, low, 2)
+	d.money = 5
+	check(greedy > FreeAgency.score(t, a, low, 2, false, 2000) - FreeAgency.score(t, a, low, 2) and greedy > 0.0, "money-driven players value a bonus more")
+	# Bonus needed to reach the asking price.
+	var ask := Contracts.asking(a, 2)
+	var part := roundi(ask * 0.8 / 10.0) * 10
+	var need := FreeAgency.bonus_to_ask(a, part, 2)
+	check(need > 0 and FreeAgency.yearly_value(a, part, 2, need) >= ask - 1, "bonus_to_ask reaches the asking price")
+	check(FreeAgency.bonus_to_ask(a, roundi(ask / 3.0), 2) == -1 or ask <= 3 * Contracts.MIN_SALARY, "too big a gap for the bonus limit")
+	# An AI club tops up its cap room with a bonus from its fund.
+	var ai: Team = s.league.teams[1] if s.league.teams[0] == t else s.league.teams[0]
+	if part > Contracts.MIN_SALARY:
+		var held := Contracts.cap_space(ai, s.cap_year()) - part
+		rv.cash[ai.abbrev] = 1000000.0
+		check(s.fa._ai_bonus_deal(s, ai, a, 2, held) == need, "AI bonus fills the gap to his ask")
+		rv.cash[ai.abbrev] = float(need)
+		check(s.fa._ai_bonus_deal(s, ai, a, 2, held) == 0, "AI keeps half its fund back")
+		rv.cash[ai.abbrev] = -1.0
+		check(s.fa._ai_bonus_deal(s, ai, a, 2, held) == 0, "a frozen AI club offers no bonus")
+	# Signing pays the fund, not the cap.
+	rv.cash[t.abbrev] = 20000.0
+	var cy := s.cap_year()
+	var before := Contracts.payroll(t, cy)
+	var entry := s.fa.sign_player(s, t, a, sal, 2, "test", false, 4000)
+	check(entry["bonus"] == 4000 and a.contract.bonus == 4000, "contract and history carry the bonus")
+	check(Contracts.payroll(t, cy) == before + sal, "the bonus is off the cap")
+	check(is_equal_approx(rv.cash_of(t), 16000.0) and rv.bonuses_paid(s.year, t) == 4000, "the bonus is paid from the fund")
+	# An offer whose bonus can no longer be paid is passed over.
+	d = b.get_dna()
+	d.money = 95
+	check(s.fa.make_offer(s, t, b, mini(Contracts.MAX_SALARY, roundi(Contracts.asking(b, 2) * 1.3)), 2, false, 3000) == "", "generous bonus offer placed")
+	for o in s.fa.offers_for(b).duplicate():
+		if o["team"] != t:
+			s.fa.withdraw(o["team"], b)
+	rv.cash[t.abbrev] = 1000.0
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3
+	s.fa.resolve(s, rng, "test")
+	check(not t.roster.has(b), "an unaffordable bonus offer doesn't sign")
+	# Saves keep the bonus ledger.
+	var s2 := SaveSystem.from_text(SaveSystem.to_text(s))
+	check(s2 != null and s2.revenue.bonuses_paid(s.year, s2.user_team()) == 4000, "bonus ledger survives a save")
+
+
+func test_facilities() -> void:
+	check(Facilities.price(Facilities.MARKETING, 2) == 10000 and Facilities.price(Facilities.GEAR, 5) == 55000, "cheap tier: $10M .. $55M")
+	check(Facilities.price(Facilities.TRAINING, 3) == 40000 and Facilities.price(Facilities.MEDICAL, 5) == 110000, "standard tier: $20M .. $110M")
+	check(Facilities.price(Facilities.LAB, 4) == 100000 and Facilities.cost_to(Facilities.INSTITUTE, 5) == 350000, "premium tier: $30M .. $160M")
+	# Authored starting levels for the fixed league; generated test leagues start at level 1.
+	var s := _fixed(91)
+	var nye: Team = s.league.team_by_abbrev("NYE")
+	var row: Array = LeagueData.FACILITY_LEVELS["NYE"]
+	var authored := true
+	for i in Facilities.IDS.size():
+		authored = authored and Facilities.level(nye, Facilities.IDS[i]) == int(row[i])
+	check(authored, "NYE starts at its authored levels")
+	check(LeagueData.FACILITY_LEVELS.size() == 20, "every fixed club has starting levels")
+	var gen := Season.new_franchise(91)
+	check(gen.league.teams.all(func(t: Team): return t.facility_levels.is_empty()), "generated leagues start at level 1")
+	# An older save gets the authored levels.
+	nye.facility_levels.clear()
+	s.facilities.seeded = false
+	var old := SaveSystem.from_text(SaveSystem.to_text(s))
+	check(old != null and Facilities.level(old.league.team_by_abbrev("NYE"), Facilities.MEDICAL) == int(row[3]), "old saves are seeded on load")
+	nye.facility_levels = {}
+	for i in Facilities.IDS.size():
+		if int(row[i]) > 1:
+			nye.facility_levels[Facilities.IDS[i]] = int(row[i])
+
+	# Buying: offseason only, one level per facility, two per club, never frozen or short.
+	var us := s.user_team()
+	var rv := s.revenue
+	var fx := s.facilities
+	us.facility_levels.clear()
+	rv.cash[us.abbrev] = 500000.0
+	check(fx.upgrade_error(s, us, Facilities.GEAR).contains("offseason"), "no upgrades during the season")
+	s.phase = Season.PHASE_OFFSEASON
+	rv.cash[us.abbrev] = 5000.0
+	check(fx.upgrade_error(s, us, Facilities.GEAR).contains("Not enough"), "the fund must cover the price")
+	rv.cash[us.abbrev] = -1.0
+	check(fx.upgrade_error(s, us, Facilities.GEAR).contains("frozen"), "a frozen fund buys nothing")
+	rv.cash[us.abbrev] = 100000.0
+	check(fx.upgrade(s, us, Facilities.GEAR) == "" and Facilities.level(us, Facilities.GEAR) == 2, "Gear Sponsor to level 2")
+	check(is_equal_approx(rv.cash_of(us), 90000.0) and fx.purchases_of(s.year, us) == 10000, "paid from the fund, on the ledger")
+	check(fx.upgrade_error(s, us, Facilities.GEAR).contains("already"), "one level per facility an offseason")
+	check(fx.upgrade(s, us, Facilities.TRAINING) == "" and fx.purchases_of(s.year, us) == 30000, "a second upgrade")
+	check(fx.upgrades_left(s, us) == 0 and fx.upgrade_error(s, us, Facilities.MEDICAL).contains("2 upgrades"), "two upgrades an offseason")
+	us.facility_levels[Facilities.LAB] = 5
+	check(fx.upgrade_error(s, us, Facilities.LAB).contains("top level"), "level 5 is the top")
+	fx.bought.erase(s.year)
+	check(fx.upgrades_left(s, us) == 2, "the limit resets each offseason")
+	check(s.news.items.any(func(it): return it["kind"] == "facility" and String(it["headline"]).contains("Gear Sponsor")), "upgrade news")
+
+	# Upkeep: 5% of what's invested (starting levels count), capped at 25% of the grant.
+	us.facility_levels = {Facilities.TRAINING: 3, Facilities.GEAR: 3}
+	check(Facilities.invested(us) == 60000 + 30000, "invested counts every level bought")
+	rv.grants[s.year] = {us.abbrev: {"grant": 100000.0}}
+	check(Facilities.upkeep_due(s, us) == 4500, "upkeep: 5%% of invested (%d)" % Facilities.upkeep_due(s, us))
+	rv.grants[s.year][us.abbrev]["grant"] = 8000.0
+	check(Facilities.upkeep_due(s, us) == 2000, "upkeep capped at 25%% of the grant (%d)" % Facilities.upkeep_due(s, us))
+	rv.grants[s.year][us.abbrev]["grant"] = 100000.0
+	rv.cash[us.abbrev] = 10000.0
+	var drops := fx.charge_upkeep(s)
+	check(is_equal_approx(rv.cash_of(us), 5500.0) and fx.upkeep_of(s.year, us) == 4500, "upkeep paid from the fund")
+	check(not drops.any(func(d): return d["team"] == us), "a paid club keeps its levels")
+	rv.cash[us.abbrev] = 1000.0
+	drops = fx.charge_upkeep(s)
+	check(drops.any(func(d): return d["team"] == us and d["facility"] == Facilities.TRAINING and d["level"] == 2), "unpaid upkeep: the dearest facility drops a level")
+	check(Facilities.level(us, Facilities.TRAINING) == 2 and Facilities.level(us, Facilities.GEAR) == 3 and is_equal_approx(rv.cash_of(us), 1000.0), "one level, no debt")
+	check(fx.drop_of(s.year, us) == Facilities.TRAINING and fx.upkeep_of(s.year, us) == 0 and Facilities.invested(us) == 20000 + 30000, "the drop is recorded and invested falls")
+
+	# AI clubs buy by direction and keep a reserve.
+	var ai: Team = s.league.team_by_abbrev("LRK")
+	ai.facility_levels.clear()
+	rv.cash[ai.abbrev] = 1000.0
+	fx.ai_spend_team(s, ai)
+	check(fx.bought_ids(s, ai).is_empty(), "a poor AI club buys nothing")
+	rv.cash[ai.abbrev] = 400000.0
+	fx.ai_spend_team(s, ai)
+	var mode: StringName = s.trades.mode(s, ai)
+	var got: Array = fx.bought_ids(s, ai)
+	check(got.size() == 2 and got.all(func(id): return Facilities.AI_FOCUS[mode].has(id)), "a rich AI club buys two from its %s focus (%s)" % [mode, got])
+	check(rv.cash_of(ai) >= float(Facilities.AI_BONUS_RESERVE[mode]), "AI keeps its reserve")
+
+	# Saves keep levels and the ledgers.
+	var s2 := SaveSystem.from_text(SaveSystem.to_text(s))
+	var us2 := s2.user_team()
+	check(s2 != null and Facilities.level(us2, Facilities.GEAR) == 3 and Facilities.level(us2, Facilities.TRAINING) == 2, "levels survive a save")
+	check(s2.facilities.purchases_of(s.year, us2) == 30000 and s2.facilities.drop_of(s.year, us2) == Facilities.TRAINING, "facility ledgers survive a save")
+	check(s2.facilities.bought_ids(s2, s2.league.team_by_abbrev("LRK")).size() == 2, "this offseason's upgrades survive a save")
+
+
+func test_facility_effects() -> void:
+	var s := _fixed(92)
+	var us := s.user_team()
+	us.facility_levels.clear()
+	# Level 1 changes nothing.
+	check(Facilities.training_mult(us) == 1.0 and Facilities.drill_mult(us) == 1.0 and Facilities.camp_points(us) == 0 and Facilities.gear_mult(us) == 1.0, "level 1: no XP effects")
+	check(Facilities.injury_weeks(us, 7) == 7 and Facilities.recovery_bonus(us) == 0.0 and Facilities.potw_xp(us) == 0.0 and Facilities.honor_xp(us) == 0.0, "level 1: no medical or marketing effects")
+	check(Facilities.lab_gain_mult(us) == 1.0 and Facilities.lab_loss_mult(us) == 1.0 and Facilities.institute_chance(us) == 0.0, "level 1: no lab or institute effects")
+	check(s.scout_points_per_week() == Draft.POINTS_PER_WEEK, "level 1: base scout points")
+	# Level 5 is four steps.
+	for id in Facilities.IDS:
+		us.facility_levels[id] = 5
+	check(is_equal_approx(Facilities.training_mult(us), 1.2) and is_equal_approx(Facilities.drill_mult(us), 1.2), "level 5: +20% training and offseason XP")
+	var pts: Array = []
+	for lvl in range(1, 6):
+		us.facility_levels[Facilities.DRILL] = lvl
+		pts.append(Facilities.camp_points(us))
+	check(pts == [0, 0, 1, 1, 2], "Drill Rooms camp points %s" % [pts])
+	check(s.scout_points_per_week() == 28, "level 5: 28 scout points a week")
+	check(Facilities.injury_weeks(us, 10) == 8 and Facilities.injury_weeks(us, 1) == 1 and is_equal_approx(Facilities.recovery_bonus(us), 0.04), "level 5: injuries -20%, recovery +4%")
+	check(Facilities.potw_xp(us) == 200.0 and Facilities.honor_xp(us) == 1000.0, "level 5: marketing XP")
+	check(is_equal_approx(Facilities.gear_mult(us), 1.5), "level 5: impact XP x1.5")
+	check(is_equal_approx(Facilities.lab_gain_mult(us), 1.4) and is_equal_approx(Facilities.lab_loss_mult(us), 0.4), "level 5: lab gains +40%, losses -60%")
+	check(is_equal_approx(Facilities.institute_chance(us), 0.12), "level 5: 12% institute chance")
+	var so: Soldier = us.roster[0]
+	so.fatigue = 50.0
+	check(Conditioning.weekly_recovery(so, false, Facilities.recovery_bonus(us)) > Conditioning.weekly_recovery(so, false), "Medical Center speeds recovery")
+	# Training and offseason XP scale with the facility.
+	us.facility_levels = {}
+	for st in us.roster:
+		st.intensity = Soldier.INTENSITY_NORMAL
+	var r1 := Training.run_week(us)
+	us.facility_levels = {Facilities.TRAINING: 5}
+	var r5 := Training.run_week(us)
+	check(absi(int(r5[so.id]["xp"]) - roundi(int(r1[so.id]["xp"]) * 1.2)) <= 2, "Training Facility: +20%% weekly XP (%d vs %d)" % [r5[so.id]["xp"], r1[so.id]["xp"]])
+	us.facility_levels = {}
+	var o1 := s.offseason_xp(100.0)
+	us.facility_levels = {Facilities.DRILL: 5}
+	var o5 := s.offseason_xp(100.0)
+	check(absi(int(o5[so.id]["xp"]) - roundi(int(o1[so.id]["xp"]) * 1.2)) <= 2, "Drill Rooms: +20%% offseason XP (%d vs %d)" % [o5[so.id]["xp"], o1[so.id]["xp"]])
+	# Marketing: one-time XP for honors on a club with the upgrade.
+	var rev := SeasonReview.new()
+	rev.awards = [{"award": "MVP", "soldier": so, "team": us, "line": ""}]
+	var before := Vector2i(so.level, so.xp)
+	us.facility_levels = {}
+	rev._marketing_xp(s, {so: 2})
+	check(Vector2i(so.level, so.xp) == before, "level 1 Marketing: no honor XP")
+	us.facility_levels = {Facilities.MARKETING: 5}
+	rev._marketing_xp(s, {so: 2})
+	check(so.level > before.x or so.xp > before.y, "Marketing Team: honor XP")
+	# Lab notes don't count as rating or grade changes.
+	var n := so.history.size()
+	so.log_note("Sports Science Lab: kept his dev star (Age)")
+	var e: Dictionary = so.history[-1]
+	check(so.history.size() == n + 1 and e["changes"].is_empty() and not Soldier.history_has_grade_change(e), "a lab note is history only")
+	# Performance Institute: raises one group cap 1-2, only on clubs above level 1.
+	for t in s.league.teams:
+		t.facility_levels.erase(Facilities.INSTITUTE)
+	us.facility_levels[Facilities.INSTITUTE] = 5
+	var hits: Array = []
+	var rng := RandomNumberGenerator.new()
+	for k in 40:
+		rng.seed = 1000 + k
+		hits.append_array(s.facilities.institute(s, rng))
+		if not hits.is_empty():
+			break
+	check(not hits.is_empty() and hits.all(func(h): return h["team"] == us), "only an Institute club raises caps")
+	if not hits.is_empty():
+		var h: Dictionary = hits[0]
+		var hs: Soldier = h["soldier"]
+		var last: Dictionary = hs.history[-1]
+		check(int(h["to"]) - int(h["from"]) in [1, 2] and hs.group_cap(h["group"]) == int(h["to"]), "cap +1-2 (%d -> %d)" % [h["from"], h["to"]])
+		check(String(last["reason"]).begins_with("Performance Institute") and last["caps"][h["group"]] == [int(h["from"]), int(h["to"])], "the cap change is in his history")
 
 func test_hometown_pull() -> void:
 	var s := _fixed(41)
@@ -2729,17 +3063,18 @@ func test_revenue() -> void:
 	var s := _fixed(95)
 	var rv := s.revenue
 	var by := func(ab: String) -> Team: return s.league.team_by_abbrev(ab)
-	# Scale: 100M for the smallest market, 300M for the biggest, at average buzz.
-	check(is_equal_approx(Revenue.neutral_total(8), 100000.0) and is_equal_approx(Revenue.neutral_total(98), 300000.0), "market revenue spans 100M to 300M")
+	# Scale: 100M for the smallest market, 300M for the biggest, at average buzz (design figures, scaled to today's cap).
+	check(is_equal_approx(Revenue.neutral_total(8), 100000.0 * Revenue.scale()) and is_equal_approx(Revenue.neutral_total(98), 300000.0 * Revenue.scale()), "market revenue spans 100M to 300M (scaled)")
 	check(Revenue.neutral_total(50) > Revenue.neutral_total(30) and Revenue.neutral_total(1) == Revenue.neutral_total(8), "bigger markets earn more, clamped at the ends")
 	check(is_equal_approx(Revenue.buzz_factor(0.0), 0.75) and is_equal_approx(Revenue.buzz_factor(50.0), 1.0) and is_equal_approx(Revenue.buzz_factor(100.0), 1.25), "buzz scales money 0.75x to 1.25x")
 	check(is_equal_approx(Revenue.market_part(50) + Revenue.media(), Revenue.neutral_total(50)), "media plus the market-driven part make the total")
 	check(is_equal_approx(Revenue.TICKET_SHARE + Revenue.SPONSOR_SHARE + Revenue.MERCH_SHARE, 1.0), "stream shares add up")
 	# Everything is sized off one reference payroll.
-	check(Revenue.scale() == 1.0, "the design scale is 1 at today's cap")
-	# Opening cash.
+	check(is_equal_approx(Revenue.scale(), float(Contracts.SALARY_CAP) / Revenue.DESIGN_PAYROLL), "revenue scales with the cap")
+	# Opening fund: the market term of the board grant (LRK $15M .. NYE $90M).
 	for t: Team in s.league.teams:
-		check(is_equal_approx(rv.cash_of(t), Revenue.neutral_total(t.market_rating) * Revenue.SEED_SHARE), "%s opening cash" % t.abbrev)
+		check(is_equal_approx(rv.cash_of(t), Revenue.market_grant(t.market_rating)), "%s opening fund" % t.abbrev)
+	check(is_equal_approx(Revenue.market_grant(8), 15000.0) and is_equal_approx(Revenue.market_grant(98), 90000.0), "market term spans $15M to $90M")
 	check(rv.cash_of(by.call("NYE")) > rv.cash_of(by.call("LRK")) * 2.0, "a big market starts with more cash")
 	# The gate: an average crowd earns the even share; hot teams, rivals and the playoffs earn more.
 	var avg_gate := Revenue.gate(50, Revenue.FILL_AVERAGE, &"regular")
@@ -2761,7 +3096,7 @@ func test_revenue() -> void:
 	check(is_zero_approx(float(rv.ledger_of(s.year, den)["tickets"])), "the visitors do not")
 	check(float(after["sponsors"]) > float(before["sponsors"]) and float(after["media"]) > float(before["media"]) and float(after["merch"]) > float(before["merch"]), "weekly streams accrue")
 	check(float(after["operations"]) > 0.0 and float(after["net"]) < float(after["revenue"]), "operating cost is booked")
-	check(rv.cash_of(sea) != cash0, "cash moves with the ledger")
+	check(is_equal_approx(rv.cash_of(sea), cash0), "revenue never credits the club fund")
 	check(is_equal_approx(float(after["media"]), Revenue.media() / s.regular_weeks), "media is paid evenly")
 	check(float(rv.ledger_of(s.year, den)["media"]) == float(after["media"]), "media is equal for every team")
 	# Merchandise rises with live buzz.
@@ -2776,11 +3111,11 @@ func test_revenue() -> void:
 	s.phase = Season.PHASE_PLAYOFFS
 	s.playoff_seeds = {sea: 1}
 	rv.week(s, [], s.regular_weeks)
-	check(is_equal_approx(float(ledger_final["bonus"]) - bonus0, Revenue.BONUS_QUALIFY), "a playoff berth pays")
+	check(is_equal_approx(float(ledger_final["bonus"]) - bonus0, Revenue.BONUS_QUALIFY * Revenue.scale()), "a playoff berth pays")
 	s.phase = Season.PHASE_REGULAR
 	# Payroll is not part of the ledger.
 	check(not rv.ledger_of(s.year, sea).has("payroll"), "payroll is not deducted: the cap is its own rule")
-	# A real season: every club's ledger is sane, the champion earns the title money, cash stays in range.
+	# A real season: every club's ledger is sane, the champion earns the title money, the board grants money.
 	var s2 := _fixed(96)
 	var table := {}
 	for t: Team in s2.league.teams:
@@ -2793,11 +3128,16 @@ func test_revenue() -> void:
 		var l: Dictionary = r["ledger"]
 		var t: Team = r["team"]
 		total += float(l["revenue"])
-		check(float(l["revenue"]) > 50000.0 and float(l["revenue"]) < 450000.0, "%s revenue is sane (%.0f)" % [t.abbrev, float(l["revenue"])])
+		check(float(l["revenue"]) > 50000.0 * Revenue.scale() and float(l["revenue"]) < 450000.0 * Revenue.scale(), "%s revenue is sane (%.0f)" % [t.abbrev, float(l["revenue"])])
 		check(absf(float(l["revenue"]) - (float(l["tickets"]) + float(l["sponsors"]) + float(l["merch"]) + float(l["media"]) + float(l["bonus"]))) < 0.01, "%s revenue is the sum of its streams" % t.abbrev)
 		check(int(l["home_games"]) >= 4, "%s played home games" % t.abbrev)
-		check(s2.revenue.cash_of(t) <= Revenue.cash_cap(t.market_rating) + 0.01 and s2.revenue.cash_of(t) >= Revenue.cash_floor(t.market_rating) - 0.01, "%s cash in range" % t.abbrev)
-	check(total / 20.0 > 120000.0 and total / 20.0 < 280000.0, "the league averages sensible revenue (%.0f)" % (total / 20.0))
+		var g := s2.revenue.grant_of(s2.year, t)
+		check(not g.is_empty() and float(g["grant"]) > 0.0, "%s gets a board grant" % t.abbrev)
+		check(is_equal_approx(s2.revenue.cash_of(t), float(g["cash_before"]) + float(g["grant"]) - s2.facilities.upkeep_of(s2.year, t)), "%s grant goes into the fund (less facility upkeep)" % t.abbrev)
+	check(total / 20.0 > 120000.0 * Revenue.scale() and total / 20.0 < 280000.0 * Revenue.scale(), "the league averages sensible revenue (%.0f)" % (total / 20.0))
+	var cg := s2.revenue.grant_of(s2.year, s2.champion)
+	check(float(cg["playoffs"]) >= Revenue.TITLE_GRANT + 2 * Revenue.PLAYOFF_WIN_GRANT, "the champion's grant includes the title")
+	check(s2.news.items.any(func(it): return it["kind"] == "board"), "the board review made the wire")
 	var big := 0.0
 	var big_n := 0
 	var small := 0.0
@@ -2817,11 +3157,12 @@ func test_revenue() -> void:
 	var loaded := SaveSystem.from_text(SaveSystem.to_text(s2))
 	check(loaded != null and is_equal_approx(loaded.revenue.cash_of(loaded.league.teams[0]), s2.revenue.cash_of(s2.league.teams[0])), "cash survives a save")
 	check(loaded != null and str(loaded.revenue.ledgers) == str(s2.revenue.ledgers), "ledgers survive a save")
+	check(loaded != null and str(loaded.revenue.grants) == str(s2.revenue.grants), "board reviews survive a save")
 	if loaded != null:
 		loaded.revenue.seeded = false
 		loaded.revenue.cash = {}
 		loaded.revenue.ensure(loaded)
-		check(is_equal_approx(loaded.revenue.cash_of(loaded.league.teams[0]), Revenue.neutral_total(loaded.league.teams[0].market_rating) * Revenue.SEED_SHARE), "an older save is seeded")
+		check(is_equal_approx(loaded.revenue.cash_of(loaded.league.teams[0]), Revenue.market_grant(loaded.league.teams[0].market_rating)), "an older save is seeded")
 	# A new season opens a new ledger and keeps the sponsors' step up for hot clubs.
 	var s3 := _fixed(97)
 	var hot: Team = s3.league.team_by_abbrev("NYE")

@@ -240,7 +240,7 @@ func player_value(season: Season, s: Soldier, team: Team, giving := false) -> fl
 	var v := curve(eff)
 	if s.contract != null:
 		var surplus := float(Contracts.market_value(s) - s.contract.salary) * mini(maxi(s.contract.years, 0), 3)
-		v += surplus / 420.0 * float({CONTENDER: 0.7, BALANCED: 1.0, REBUILDING: 1.3}[m])
+		v += surplus / 1050.0 * float({CONTENDER: 0.7, BALANCED: 1.0, REBUILDING: 1.3}[m])
 	if s.is_injured() and season.phase != Season.PHASE_OFFSEASON:
 		v *= maxf(0.5, 1.0 - 0.07 * s.injury_weeks * (1.3 if m == CONTENDER else 1.0))
 	if not giving:
@@ -396,8 +396,11 @@ func validate(season: Season, a: Team, a_give: Array, b: Team, b_give: Array) ->
 		var incoming := _salary(side[2])
 		var outgoing := _salary(side[1])
 		var payroll := Contracts.payroll(t, cy) + incoming - outgoing
-		if incoming > outgoing and payroll > Contracts.SALARY_CAP:
-			return "%s would be %s over the cap." % [t.name, Contracts.money(payroll - Contracts.SALARY_CAP)]
+		if incoming > outgoing and payroll > Contracts.APRON:
+			return "%s would be %s over the apron." % [t.name, Contracts.money(payroll - Contracts.APRON)]
+		if incoming > outgoing and payroll > Contracts.TAX_LINE and season.revenue.frozen(t):
+			return "%s's board has frozen spending (club fund below $0): the trade would put them %s over the tax line." % [
+				t.name, Contracts.money(payroll - Contracts.TAX_LINE)]
 	return ""
 
 

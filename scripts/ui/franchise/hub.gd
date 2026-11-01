@@ -361,7 +361,7 @@ func _advance_offseason() -> void:
 				return
 			season.advance_offseason()
 			_rebuild_and_open("Contracts & Payroll", pages.contracts)
-			app.toast("Roster review: undrafted prospects joined free agency. Set your roster and get under the cap before camp.")
+			app.toast("Roster review: undrafted prospects joined free agency. Set your roster and get under the apron before camp.")
 		Season.OFF_REVIEW:
 			var err := season.user_cap_error()
 			if err != "":
@@ -2048,8 +2048,7 @@ func _soon_strip() -> Control:
 	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	h.add_child(l)
 	for d in [["Scheme & Strategy", ["Alternate formations", "Aggression / pace sliders", "Per-mode round plans"]],
-			["Coaching Staff", ["Head coach and position coaches", "Training and progression boosts", "Staff contracts"]],
-			["Facilities", ["Training facility upgrades", "Medical centre (injury recovery)", "Costs from the yearly money pool"]]]:
+			["Coaching Staff", ["Head coach and position coaches", "Training and progression boosts", "Staff contracts"]]]:
 		var title: String = d[0]
 		var bullets: Array = d[1]
 		var b := UiKit.button(title, func(): coming_soon(title, bullets), 14)
@@ -2611,7 +2610,7 @@ func _personnel_cards() -> Control:
 			UiKit.INFO, open_mock_draft, "ON THE CLOCK" if d.is_started() and d.on_the_clock() == team else ""))
 
 	var pts := d.scout_points
-	cards.append(_stat_card("Scouting", str(pts), "SCOUT POINTS", "%d of %d prospects scouted\n+%d per week" % [_scouted_count(), Draft.CLASS_SIZE, Draft.POINTS_PER_WEEK],
+	cards.append(_stat_card("Scouting", str(pts), "SCOUT POINTS", "%d of %d prospects scouted\n+%d per week" % [_scouted_count(), Draft.CLASS_SIZE, season.scout_points_per_week()],
 		Color("#06b6d4"), open_scouting, "SPEND" if pts > 0 and not d.is_started() else ""))
 
 	var n := 0
@@ -2658,8 +2657,8 @@ func _personnel_strip() -> Control:
 	return _card_row("PersonnelMore", cards, 4)
 
 
-## The Club tab is a custom layout (see _tab_view): the club's money and its market and buzz, then
-## the spending screens that are still to come. No tile sections.
+## The Club tab is a custom layout (see _tab_view): the club's money, its market and buzz and its
+## facilities, then the spending screens that are still to come. No tile sections.
 func _club_sections() -> Array:
 	return []
 
@@ -2674,7 +2673,7 @@ func _club_view(v: VBoxContainer) -> void:
 		if table[i]["team"] == team:
 			rank = i + 1
 	var fin := _stat_card("Finances", Contracts.money(roundi(float(l.get("revenue", 0.0)))), "REVENUE %d" % season.year,
-		"Net [color=white]%s[/color]  ·  Cash [color=white]%s[/color]
+		"Net [color=white]%s[/color]  ·  Fund [color=white]%s[/color]
 #%d of %d in the league" % [
 			Contracts.money(roundi(float(l.get("net", 0.0)))), Contracts.money(roundi(rv.cash_of(team))), rank, table.size()],
 		UiKit.TRIM, func(): open("Finances", club.finances))
@@ -2685,7 +2684,16 @@ func _club_view(v: VBoxContainer) -> void:
 			"Rising" if trend == &"up" else ("Cooling" if trend == &"down" else "Holding steady")],
 		UiKit.TRIM, func(): open("Market & Buzz", club.market_buzz))
 	v.add_child(UiKit.heading("CLUB", 22))
-	v.add_child(_card_row("ClubCards", [fin, mb], 4))
+	var total := 0
+	for id in Facilities.IDS:
+		total += Facilities.level(team, id)
+	var offseason := season.phase == Season.PHASE_OFFSEASON
+	var fac := _stat_card("Facilities", "%d / %d" % [total, Facilities.IDS.size() * Facilities.MAX_LEVEL], "LEVELS",
+		"Upkeep [color=white]%s[/color] a year
+%s" % [Contracts.money(Facilities.upkeep_due(season, team)),
+			("%d upgrade%s left this offseason" % [season.facilities.upgrades_left(season, team), "" if season.facilities.upgrades_left(season, team) == 1 else "s"]) if offseason else "Upgrades open in the offseason"],
+		UiKit.TRIM, func(): open("Facilities", club.facilities))
+	v.add_child(_card_row("ClubCards", [fin, mb, fac], 4))
 	var gap := Control.new()
 	gap.custom_minimum_size.y = 10
 	v.add_child(gap)
@@ -2701,8 +2709,7 @@ func _club_soon_strip() -> Control:
 	var l := UiKit.display("COMING SOON", 15, UiKit.MUTED)
 	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	h.add_child(l)
-	for d in [["Facilities", ["Training facility upgrades (weekly training and camp XP)", "Scouting and medical upgrades", "Costs from the club budget"]],
-			["Stadium", ["Capacity and upgrades", "A bigger crowd effect"]],
+	for d in [["Stadium", ["Capacity and upgrades", "A bigger crowd effect"]],
 			["Ticket Pricing", ["Set your own prices", "Higher prices earn more per fan but cost attendance and buzz"]]]:
 		var title: String = d[0]
 		var bullets: Array = d[1]
@@ -2785,9 +2792,9 @@ func _status_info(team: Team) -> Dictionary:
 			Season.OFF_DRAFT:
 				next_step = "Draft day is here: make your picks."
 			Season.OFF_REVIEW:
-				var over := -Contracts.cap_space(team, season.cap_year())
+				var over := -Contracts.apron_room(team, season.cap_year())
 				next_step = "Roster review: undrafted prospects are in free agency. Make your cuts and moves%s, then advance to training camp." % (
-					(" ([color=#ef4444]%s over the cap[/color])" % Contracts.money(over)) if over > 0 else "")
+					(" ([color=#ef4444]%s over the apron[/color])" % Contracts.money(over)) if over > 0 else "")
 				target = open_contracts
 				cta = "Contracts & Payroll"
 			Season.OFF_CAMP:
