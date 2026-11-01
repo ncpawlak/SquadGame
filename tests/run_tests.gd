@@ -18,6 +18,7 @@ func _init() -> void:
 		"test_match_structure",
 		"test_arena_scoring",
 		"test_looks",
+		"test_faces",
 		"test_match_is_deterministic",
 		"test_live_engine_matches_sim",
 		"test_spawn_zone_is_safe",
@@ -230,6 +231,55 @@ func test_match_structure() -> void:
 
 
 ## TDM points = kills + wipe bonuses; KOTH hold time = what the players on the point banked.
+func test_faces() -> void:
+	var db := FaceSpec.db()
+	check(db.get("heads", {}).size() >= 120, "baked head library loads (%d)" % db.get("heads", {}).size())
+	for g in FacePrior.GROUPS:
+		check(FaceSpec.heads_in(g).size() > 0, "every group has baked heads: " + g)
+	for id in db["heads"]:
+		check(FileAccess.file_exists(FaceSpec.HEADS_DIR + id + ".webp") and FileAccess.file_exists(FaceSpec.HEADS_DIR + id + "_m.png"), "head files exist: " + id)
+	# Deterministic per id and name, and the morph stays inside the approved limits.
+	var keys := {}
+	for id in range(1, 1201):
+		var a := FaceSpec.generate(id, "Tyler", "Hart")
+		var b := FaceSpec.generate(id, "Tyler", "Hart")
+		check(a.key() == b.key(), "face is deterministic per id")
+		check(not keys.has(a.key()), "no two faces are identical")
+		keys[a.key()] = true
+		for k in FaceSpec.LIMITS:
+			var lim: Array = FaceSpec.LIMITS[k]
+			check(a.morph[k] >= lim[0] and a.morph[k] <= lim[1], "morph %s within limits" % k)
+	# Names steer the group the way they would in real life; ambiguous names fall back to the base mix.
+	var dist := {}
+	for pair in [["Jalen", "Brooks"], ["Luca", "Novak"], ["Kenji", "Tanaka"], ["Diego", "Reyes"], ["Max", "Stone"]]:
+		var n := {}
+		for id in range(1, 801):
+			var g := FaceSpec.generate(id, pair[0], pair[1]).group
+			n[g] = n.get(g, 0) + 1
+		dist[pair[0]] = n
+	check(dist["Jalen"].get("dark", 0) > 560, "Jalen Brooks is mostly the dark group (%s)" % dist["Jalen"])
+	check(dist["Luca"].get("light", 0) > 740, "Luca Novak is almost always light (%s)" % dist["Luca"])
+	check(dist["Kenji"].get("asian", 0) > 740, "Kenji Tanaka is almost always asian (%s)" % dist["Kenji"])
+	check(dist["Diego"].get("brown", 0) > 650, "Diego Reyes is mostly brown (%s)" % dist["Diego"])
+	check(dist["Max"].size() == 4, "an ambiguous name can land in any group (%s)" % dist["Max"])
+	# A soldier's face follows his final name, and every roster soldier resolves a face.
+	var s := make_soldier(7, 60)
+	s.first_name = "Kenji"
+	s.last_name = "Tanaka"
+	check(s.get_face().group == "asian" or FaceSpec.generate(7, "Kenji", "Tanaka").group == s.get_face().group, "soldier face matches his name")
+	# Static seeding: no team has two players on the same head, and re-rolling keeps the skin group.
+	var fixed := League.load_fixed(1)
+	for t in fixed.teams:
+		var heads := {}
+		for so in t.roster:
+			var h := so.get_face().head_id
+			check(not heads.has(h), "%s has a repeated head (%s)" % [t.abbrev, h])
+			heads[h] = true
+			check(so.get_face().group == FaceSpec.generate(so.id, so.first_name, so.last_name).group, "re-roll keeps the group (%s)" % so.full_name())
+	for pair in ["Alex", "Tyler", "Nate"]:
+		check(FacePrior.weights(pair, "Stone").size() == 4, "neutral names still produce weights")
+
+
 func test_looks() -> void:
 	var heads := {}
 	var lowers := {}

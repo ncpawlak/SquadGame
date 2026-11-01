@@ -73,6 +73,9 @@ var injury_name: String = ""
 var callsign: String = ""
 ## Procedural portrait appearance (see Look); rolled at creation.
 var look: Look = null
+var face: FaceSpec = null
+## Re-roll count that gives him a head no teammate has (set at league seeding; see FaceSpec.dedupe).
+var face_salt := 0
 
 # Off-field
 ## Contract personality (see Dna); rolled lazily from the id.
@@ -154,6 +157,13 @@ func get_look() -> Look:
 	if look == null:
 		look = Look.generate(id, age, Scheme.best_role(stats))
 	return look
+
+
+## Photo face (see FaceSpec): rolled lazily from id and name, so it always matches the final name.
+func get_face() -> FaceSpec:
+	if face == null:
+		face = FaceSpec.generate(id, first_name, last_name, face_salt)
+	return face
 
 
 func get_dna() -> Dna:

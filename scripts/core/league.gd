@@ -122,6 +122,7 @@ static func soldier_from_dict(d: Dictionary) -> Soldier:
 	else:
 		s._migrate_prop("potential", int(d.get("potential", 2)))
 	s.draft_year = int(d.get("draft_year", 0))
+	s.face_salt = int(d.get("face", 0))
 	var st: Dictionary = d["stats"]
 	for k in Stats.ALL:
 		s.stats[k] = int(st.get(Stats.ABBREV[k], 60))

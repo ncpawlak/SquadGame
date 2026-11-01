@@ -81,6 +81,7 @@ func _init() -> void:
 	league.ensure_callsigns()
 	var lines: PackedStringArray = []
 	for t in league.teams:
+		FaceSpec.dedupe(t.roster) # no two teammates share a head
 		for s in t.roster:
 			lines.append(JSON.stringify(_dict(s, t.abbrev)))
 	for s in league.free_agents:
@@ -377,6 +378,8 @@ func _dict(s: Soldier, team: String) -> Dictionary:
 	var d := {"id": s.id, "team": team, "first": s.first_name, "last": s.last_name, "callsign": s.callsign,
 		"age": s.age, "state": s.home_state, "dev": s.dev, "draft_year": s.draft_year,
 		"stats": stats, "caps": caps, "dna": dna}
+	if s.face_salt > 0:
+		d["face"] = s.face_salt
 	if s.contract != null:
 		d["salary"] = s.contract.salary
 		d["years"] = s.contract.years
