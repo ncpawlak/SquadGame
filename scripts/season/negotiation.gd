@@ -264,18 +264,19 @@ func offer_error(salary: int, years: int, terms := {}) -> String:
 	if salary < Contracts.MIN_SALARY or salary > Contracts.MAX_SALARY:
 		return "Salary must be %s - %s." % [Contracts.money(Contracts.MIN_SALARY), Contracts.money(Contracts.MAX_SALARY)]
 	var bonus := int(terms.get("bonus", 0))
-	if bonus < 0 or bonus > Contracts.MAX_SALARY:
-		return "Signing bonus must be %s - %s." % [Contracts.money(0), Contracts.money(Contracts.MAX_SALARY)]
+	if bonus < 0 or bonus > Contracts.max_bonus(salary, years):
+		return "A signing bonus can be at most half the deal's total salary (%s on this offer)." % Contracts.money(Contracts.max_bonus(salary, years))
 	if extension:
-		if not Contracts.extension_fits(team, season.year, salary, bonus):
-			return "Not enough room under the %d apron (%s left next season%s)." % [deal_year(), Contracts.money(cap_room()),
-				"; the bonus counts on that year" if bonus > 0 else ""]
-	elif not Contracts.resign_fits(team, season.cap_year(), soldier, salary + bonus):
-		return "Not enough room under the apron (%s left, counting his %s cap hold%s)." % [
-			Contracts.money(cap_room()), Contracts.money(Contracts.cap_hold(soldier)),
-			"; the bonus counts this year" if bonus > 0 else ""]
-	if season.revenue.frozen(team) and salary + bonus > Contracts.MIN_SALARY and salary + bonus > tax_room():
-		return "The board has frozen spending while the club fund is below $0: this deal would take payroll %s over the tax line." % Contracts.money(salary + bonus - tax_room())
+		if not Contracts.extension_fits(team, season.year, salary):
+			return "Not enough room under the %d apron (%s left next season)." % [deal_year(), Contracts.money(cap_room())]
+	elif not Contracts.resign_fits(team, season.cap_year(), soldier, salary):
+		return "Not enough room under the apron (%s left, counting his %s cap hold)." % [
+			Contracts.money(cap_room()), Contracts.money(Contracts.cap_hold(soldier))]
+	if season.revenue.frozen(team) and salary > Contracts.MIN_SALARY and salary > tax_room():
+		return "The board has frozen spending while the club fund is below $0: this deal would take payroll %s over the tax line." % Contracts.money(salary - tax_room())
+	var berr := season.revenue.bonus_error(team, bonus, season.fa.committed_bonus(team))
+	if berr != "":
+		return berr
 	if has_term(terms, &"promise"):
 		if extension and not soldier.promise.is_empty():
 			return "He already has a starter promise. It has to play out first."
@@ -624,8 +625,7 @@ func _sign(salary: int, years: int, terms: Dictionary) -> void:
 		soldier.contract = Contract.make(salary, years, season.year)
 		soldier.contract.bonus = bonus
 		soldier.contract.no_trade = no_trade
-	if bonus > 0:
-		team.bonus_money[dy] = int(team.bonus_money.get(dy, 0)) + bonus
+	season.revenue.pay_bonus(season, team, bonus)
 	soldier.morale = maxf(soldier.morale, 82.0)
 	soldier.add_trust(SIGN_TRUST)
 	var promise := has_term(terms, &"promise")

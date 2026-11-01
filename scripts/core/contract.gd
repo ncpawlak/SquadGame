@@ -8,7 +8,7 @@ var salary: int = 0
 var years: int = 1
 var signed_year: int = 0
 var rookie := false
-## Signing bonus paid when he signed ($K; booked on the signing team's cap via Team.bonus_money).
+## Signing bonus paid when he signed ($K; paid from the club fund, off the cap).
 var bonus: int = 0
 ## No-trade clause: he can't be traded for the life of the deal (unless he asks out).
 var no_trade := false
