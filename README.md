@@ -321,6 +321,10 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   feeds a League Wire story, a box score banner and a line in the Weekly News. Every new franchise starts with the
   same fixed record books (`scripts/season/record_seed.gd`: single-match, season, career, team and streak marks from
   made-up earlier years), so those are the targets your players can break; older saves are seeded on load.
+  Next Gen telemetry: the match engine also counts opening kills, kills by range, average kill and engagement range,
+  distance covered, time in cover, time to first shot and time contesting the hill (pure bookkeeping, no random numbers;
+  `tests/engine_golden.gd` guards the sim). They show in League Leaders and on a NEXT GEN panel on the player's Stats tab,
+  and count from the first match played with telemetry.
 - **Save / Load** (`scripts/save/save_system.gd`, Settings → Save Franchise / Load Franchise, title → Load Franchise): 3 manual slots
   plus an **autosave** after every week, the season rollover and camp. A save is the whole league graph (shared
   objects, RNG states) as compressed text, so a loaded game continues exactly as the original would have.
@@ -416,6 +420,7 @@ godot --headless --path . --script res://tests/ui_smoke.gd      # debug UI smoke
 godot --headless --path . --script res://tests/franchise_smoke.gd  # franchise menus through a full season
 godot --headless --path . --script res://tests/save_tests.gd    # save/load round trips and determinism after load
 godot --headless --path . --script res://tests/ledger_tests.gd  # stat ledger: phase split, once-only recording, saves (fast; ONLY=test_a,test_b)
+godot --headless --path . --script res://tests/engine_golden.gd  # match engine golden: fixed seeds keep their results (GOLDEN_WRITE=1 only when the sim should change)
 ```
 
 ```powershell

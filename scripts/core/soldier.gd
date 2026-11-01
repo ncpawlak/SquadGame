@@ -118,9 +118,13 @@ const MORALE_EXCLUDED: Array[StringName] = [&"injury", &"toughness"]
 
 # Career totals
 const STAT_LINE_KEYS: Array[String] = ["matches", "rounds", "kills", "deaths", "assists", "damage", "saves",
-	"headshots", "shots", "hits", "mvps", "clutches", "games", "wipes", "hill_s", "caps"]
+	"headshots", "shots", "hits", "mvps", "clutches", "games", "wipes", "hill_s", "caps",
+	"opening_kills", "kills_short", "kills_medium", "kills_long", "kill_dist", "bursts", "fire_dist", "distance",
+	"cover_s", "first_shot_s", "first_shot_n", "contest_s"]
 var career := {"matches": 0, "rounds": 0, "kills": 0, "deaths": 0, "assists": 0, "damage": 0, "saves": 0,
-	"headshots": 0, "shots": 0, "hits": 0, "mvps": 0, "clutches": 0, "games": 0, "wipes": 0, "hill_s": 0, "caps": 0}
+	"headshots": 0, "shots": 0, "hits": 0, "mvps": 0, "clutches": 0, "games": 0, "wipes": 0, "hill_s": 0, "caps": 0,
+	"opening_kills": 0, "kills_short": 0, "kills_medium": 0, "kills_long": 0, "kill_dist": 0, "bursts": 0, "fire_dist": 0,
+	"distance": 0, "cover_s": 0, "first_shot_s": 0, "first_shot_n": 0, "contest_s": 0}
 ## Season year -> totals with the same keys as `career` (plus "team" abbrev).
 var season_lines: Dictionary = {}
 ## Playoff-only share of `career` and `season_lines` (same shape, empty until a playoff match is played).
