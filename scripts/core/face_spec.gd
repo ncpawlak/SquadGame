@@ -89,6 +89,9 @@ static func generate(id: int, first: String, last: String, salt := 0) -> FaceSpe
 static func dedupe(roster: Array) -> void:
 	var used := {}
 	for s: Soldier in roster:
+		if not s.face_override.is_empty(): # a hand-picked head (Data Edit) is kept as is
+			used[s.get_face().head_id] = true
+			continue
 		var salt := s.face_salt
 		var f := generate(s.id, s.first_name, s.last_name, salt)
 		while used.has(f.head_id) and salt < 64:
@@ -97,6 +100,42 @@ static func dedupe(roster: Array) -> void:
 		s.face_salt = salt
 		s.face = f
 		used[f.head_id] = true
+
+
+## A hand-picked look for Data Edit, stored per player in league.json ("face_ov"): `head_id` with a flip, hair
+## tint, eye colour and morph sliders rolled from `seed_value` inside the approved limits.
+static func make_override(head_id: String, seed_value: int) -> Dictionary:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(seed_value * 48271 + 977)
+	var grp: String = db()["heads"][head_id]["group"]
+	var tints: Array = TINTS_BY_GROUP[grp]
+	return {
+		"head": head_id, "flip": rng.randf() < 0.5, "tint": tints[rng.randi_range(0, tints.size() - 1)],
+		"eye": _pick_name(rng, EYES_BY_GROUP[grp]), "morph": roll_morph(rng),
+	}
+
+
+static func roll_morph(rng: RandomNumberGenerator) -> Dictionary:
+	var m := {}
+	for k in LIMITS:
+		var lim: Array = LIMITS[k]
+		m[k] = snappedf(rng.randf_range(lim[0], lim[1]), 0.0001)
+	return m
+
+
+## The override that reproduces this face exactly (used to freeze a head before his name changes).
+func to_override() -> Dictionary:
+	return {"head": head_id, "flip": flip, "tint": tint, "eye": eye_color, "morph": morph.duplicate()}
+
+
+func apply_override(ov: Dictionary) -> void:
+	head_id = String(ov["head"])
+	group = db()["heads"][head_id]["group"]
+	flip = bool(ov.get("flip", false))
+	tint = int(ov.get("tint", 0))
+	eye_color = String(ov.get("eye", "brown"))
+	for k in LIMITS:
+		morph[k] = float(ov.get("morph", {}).get(k, 0.0))
 
 
 ## Hair gray amount 0..0.85 at `age`.
