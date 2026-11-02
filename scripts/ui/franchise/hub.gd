@@ -1910,7 +1910,6 @@ func _team_sections() -> Array:
 
 
 const TEAM_VIEWS := ["Roster", "Lineup"]
-const TEAM_PANE_H := 840  # Roster scrolls inside this; Lineup sizes to fit (field + bench) and never scrolls
 var team_view := 0  # 0 roster, 1 lineup
 var _team_box: VBoxContainer
 
@@ -1940,9 +1939,8 @@ func _fill_team_box(keep := false) -> void:
 	var scroll_pos := 0
 	var focus_index := -1
 	if keep:
-		var old := _team_box.find_child("TeamPaneScroll", true, false) as ScrollContainer
-		if old:
-			scroll_pos = old.scroll_vertical
+		if _scroll and is_instance_valid(_scroll):
+			scroll_pos = _scroll.scroll_vertical
 		focus_index = app.focusables(_team_box).find(get_viewport().gui_get_focus_owner())
 	for c in _team_box.get_children():
 		_team_box.remove_child(c)
@@ -1971,15 +1969,13 @@ func _fill_team_box(keep := false) -> void:
 	var sc := ScrollContainer.new()
 	sc.name = "TeamPaneScroll"
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	sc.custom_minimum_size.y = TEAM_PANE_H if team_view == 0 else 0
-	if team_view == 1:
-		sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	frame.add_child(sc)
 	var body: Control = pages.roster() if team_view == 0 else pages.lineup()
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sc.add_child(body)
-	if keep:
-		_restore_pane(sc, scroll_pos, focus_index, _team_box)
+	if keep and _scroll and is_instance_valid(_scroll):
+		_restore_pane(_scroll, scroll_pos, focus_index, _team_box)
 	else:
 		UiKit.fade_in(body, 0.0, 0.2)
 		sc.follow_focus = true
