@@ -310,8 +310,10 @@ func _make(role: Scheme.Role, ovr: int, age: int, groups: Dictionary, dev := -1)
 	var s := PlayerGenerator.generate(rng, next_id, role, float(ovr) - 4.0, age)
 	next_id += 1
 	while used_names.has(s.full_name()):
-		s.first_name = PlayerGenerator.FIRST_NAMES[rng.randi_range(0, PlayerGenerator.FIRST_NAMES.size() - 1)]
-		s.last_name = PlayerGenerator.LAST_NAMES[rng.randi_range(0, PlayerGenerator.LAST_NAMES.size() - 1)]
+		var firsts := PlayerGenerator.first_pool()
+		var lasts := PlayerGenerator.last_pool()
+		s.first_name = firsts[rng.randi_range(0, firsts.size() - 1)]
+		s.last_name = lasts[rng.randi_range(0, lasts.size() - 1)]
 	used_names[s.full_name()] = true
 	_shape(s, role, ovr, groups)
 	if dev >= 0:
