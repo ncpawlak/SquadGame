@@ -79,6 +79,7 @@ func show_title() -> void:
 	col.add_child(_menu_button("New Franchise", show_team_select))
 	col.add_child(_menu_button("Load Franchise", show_load_menu))
 	col.add_child(_menu_button("Exhibition Match", func(): toast("Exhibition mode is coming soon. Use Debug Sim Tools for now.")))
+	col.add_child(_menu_button("Data Edit", show_data_edit))
 	col.add_child(_menu_button("Debug Sim Tools", open_debug))
 	if not OS.has_feature("web"):
 		col.add_child(_menu_button("Quit", func(): get_tree().quit()))
@@ -365,6 +366,12 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(info)
 		top_col.add_child(row)
+
+
+func show_data_edit() -> void:
+	var de := DataEdit.new()
+	de.app = self
+	_set_screen(de)
 
 
 func show_load_menu() -> void:

@@ -123,6 +123,8 @@ static func soldier_from_dict(d: Dictionary) -> Soldier:
 		s._migrate_prop("potential", int(d.get("potential", 2)))
 	s.draft_year = int(d.get("draft_year", 0))
 	s.face_salt = int(d.get("face", 0))
+	if d.has("face_ov") and FaceSpec.db()["heads"].has(String(d["face_ov"].get("head", ""))):
+		s.face_override = d["face_ov"]
 	var st: Dictionary = d["stats"]
 	for k in Stats.ALL:
 		s.stats[k] = int(st.get(Stats.ABBREV[k], 60))

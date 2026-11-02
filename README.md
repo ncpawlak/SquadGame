@@ -374,6 +374,16 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   y, nose y/width, mouth y/width/lip height, head width) inside hand-approved limits. The head is warped by a small
   anchor grid (`FaceWarp`), tinted by `portrait_face.gdshader`, and clipped to a disc in the team's colours; the white
   jersey takes the team colour. Free agents and prospects get a neutral disc.
+- **Data Edit** (title screen, `scripts/ui/franchise/data_edit.gd`, model in `scripts/core/league_editor.gd`): edits every player
+  in `data/league.json`, the base league each New Franchise starts from (saved franchises keep their own copy). Editable: name,
+  callsign (duplicates are rejected), age, home state, dev stars, draft year, all 18 ratings and the 5 group caps, and the
+  picture. Contract, personality, career, morale and team are not editable. Change Picture opens a grid of all baked heads
+  (filter by skin group; heads already worn by a league player are tagged IN USE, with an option to hide them), previews the
+  morphed result, and applies it on Confirm; Reroll Morph re-rolls the ten sliders. A picked head is stored as `face_ov` in
+  the player's row (`FaceSpec.make_override`); renaming a player freezes his current head first so it doesn't change with the
+  name. Save writes only the changed players' lines, and only works when run from the project folder (`res://` is read-only
+  in exported builds). `tools/build_league.gd` regenerates the league and would discard these edits. Test:
+  `godot --headless --path . --script res://tests/data_edit_tests.gd`.
 - **Portrait tools** (`tools/portraits/`, Python 3.14 venv, not needed to run the game): `add_sheets.py <sheet>...`
   adds new 5x2 head sheets (copies them to `assets/portraits/source/`, cuts tiles, removes the backdrop, skips
   duplicates, proposes a skin group per head in `groups_extra.json`, writes `work/new_heads_review.png`, and re-bakes);

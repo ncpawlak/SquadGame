@@ -76,6 +76,8 @@ var look: Look = null
 var face: FaceSpec = null
 ## Re-roll count that gives him a head no teammate has (set at league seeding; see FaceSpec.dedupe).
 var face_salt := 0
+## Hand-picked head from Data Edit (see FaceSpec.make_override); {} = the rolled face.
+var face_override: Dictionary = {}
 
 # Off-field
 ## Contract personality (see Dna); rolled lazily from the id.
@@ -164,6 +166,8 @@ func get_look() -> Look:
 func get_face() -> FaceSpec:
 	if face == null:
 		face = FaceSpec.generate(id, first_name, last_name, face_salt)
+		if not face_override.is_empty():
+			face.apply_override(face_override)
 	return face
 
 

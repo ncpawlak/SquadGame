@@ -104,6 +104,11 @@ static func _tex(file: String) -> Texture2D:
 	return _tex_cache[file]
 
 
+## Forget a soldier's warped mesh (his face changed, e.g. in Data Edit).
+static func drop_cached_mesh(id: int) -> void:
+	_mesh_cache.erase(id)
+
+
 static func _mesh(id: int, f: FaceSpec, head: Dictionary) -> ArrayMesh:
 	if _mesh_cache.has(id):
 		return _mesh_cache[id]
