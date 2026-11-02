@@ -654,7 +654,7 @@ func _visit_pages(hub, phase: String) -> void:
 		"other_roster": func(): return p.team_roster(hub.season.league.teams[1]),
 		"signings": func(): return p.signings("Test", hub.season.fa.history.slice(-5)),
 		"training_camp": p.training_camp, "league_stats": p.league_stats, "negotiate": p.negotiate,
-		"trade_center": p.trade_center, "trade_offers": p.trade_offers, "trade_block": p.trade_block, "trade_log": p.trade_log,
+		"trade_center": p.trade_center, "trade_offers": p.trade_offers, "trade_block": p.trade_block, "league_block": p.league_block, "trade_hub": p.trade_hub, "trade_log": p.trade_log,
 		"trade_center_deal": func():
 			var ai: Team = p._ai_teams()[0]
 			p._trade_partner = ai

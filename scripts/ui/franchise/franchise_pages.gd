@@ -1063,7 +1063,6 @@ func _roster_table(team: Team = null, rebuild := Callable()) -> Control:
 	for s in list:
 		table.add_child(_roster_row(team, s, mode, pane))
 	v.add_child(table)
-	v.add_child(_potential_legend())
 	return v
 
 
@@ -6363,24 +6362,121 @@ func _counter_panel(ai: Team) -> Control:
 	return p
 
 
-## The Personnel pane's Trades view: incoming offers, the trade block, then a card into the
-## manual Trade Center builder. Offer/block actions refresh it via hub.replace("Trade Offers"/"Trade Block").
+## The Personnel pane's Trades view: a card into the manual Trade Center builder, incoming offers,
+## then the trade block (your blocked players + links to the league block and your block editor).
+## Offer/block actions refresh it via hub.replace("Trade Offers"/"Trade Block").
 func trade_hub() -> Control:
 	var s := _season()
 	var tr := s.trades
 	var v := _vbox(14)
 	v.add_child(UiKit.rich("[color=#8b97ab]TRADE WINDOW[/color]   [color=%s]%s[/color]" % [
 		"#22c55e" if tr.window_open(s) else "#ef4444", tr.window_text(s)], 17))
-	v.add_child(_section("Trade offers  (%d)" % tr.offers.size()))
-	v.add_child(trade_offers())
-	v.add_child(_section("Trade block"))
-	v.add_child(trade_block())
-	v.add_child(_section("Manual trade"))
 	var card: Button = hub._stat_card("Trade Center", str(s.league.teams.size() - 1), "TRADE PARTNERS",
 		"Build your own deal: players and draft picks with any team", Color("#f97316"),
 		func(): hub.open("Trade Center", trade_center), "OPEN" if tr.window_open(s) else "")
 	card.name = "TradeCenterCard"
 	v.add_child(card)
+	v.add_child(_section("Trade offers  (%d)" % tr.offers.size()))
+	v.add_child(trade_offers())
+	v.add_child(_section("Trade block"))
+	v.add_child(_my_block_summary())
+	return v
+
+
+## Two buttons into the block pages, then a compact list of your players on the block.
+func _my_block_summary() -> Control:
+	var s := _season()
+	var tr := s.trades
+	var user := s.user_team()
+	var v := _vbox(8)
+	var h := _row(10)
+	var league_btn := UiKit.button("League trade block  (%d)" % _league_block().size(), func(): hub.open("League Trade Block", league_block), 16)
+	league_btn.name = "LeagueBlockButton"
+	h.add_child(league_btn)
+	var add_btn := UiKit.button("Add players to your block", func(): hub.open("Trade Block", trade_block), 16)
+	add_btn.name = "EditBlockButton"
+	h.add_child(add_btn)
+	v.add_child(h)
+	var mine: Array = user.roster.filter(func(x: Soldier): return tr.block.has(x.id))
+	if mine.is_empty():
+		v.add_child(UiKit.label("None of your players are on the block. Add some to draw offers.", 16, UiKit.MUTED))
+	for so: Soldier in mine:
+		var p := so
+		var row := _row(10)
+		row.name = "MyBlockRow"
+		var info := UiKit.button("★ %s   ·   %s  ·  age %d  ·  OVR %d" % [so.display_name(),
+			Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], so.age, so.best_ovr()], func(): open_player(p), 16)
+		info.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(info)
+		row.add_child(UiKit.button("Shop him", func(): open_trade(null, {}, Trades.player_asset(p)), 15))
+		row.add_child(UiKit.button("Remove", func():
+			tr.block.erase(p.id)
+			hub.replace("Trade Block", trade_block), 15))
+		v.add_child(row)
+	return v
+
+
+## AI players currently on the block league-wide: [[team, soldier], ...] best first.
+func _league_block() -> Array:
+	var s := _season()
+	var out: Array = []
+	for t: Team in s.league.teams:
+		if t.user_controlled:
+			continue
+		for so: Soldier in t.roster:
+			if s.trades.on_block(s, t, so):
+				out.append([t, so])
+	out.sort_custom(func(a, b): return a[1].best_ovr() > b[1].best_ovr())
+	return out
+
+
+## Players other teams are shopping. Click for the card; "Shop him" opens the Trade Center with him asked for.
+func league_block() -> Control:
+	var v := _vbox(8)
+	v.add_child(UiKit.label("Players other teams have made available (rebuilding vets and trade requests).", 17, Color.WHITE))
+	var list := _league_block()
+	if list.is_empty():
+		v.add_child(UiKit.label("No other team is shopping anyone right now.", 16, UiKit.MUTED))
+	for e in list:
+		var t: Team = e[0]
+		var p: Soldier = e[1]
+		var row := _row(10)
+		row.name = "LeagueBlockRow"
+		var info := Button.new()
+		UiKit.style_button(info, UiKit.PANEL, UiKit.ACCENT, 4)
+		info.custom_minimum_size.y = 64
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		info.pressed.connect(func(): open_player(p))
+		var hb := _row(14)
+		hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hb.set_anchors_preset(Control.PRESET_FULL_RECT)
+		hb.offset_left = 14
+		hb.offset_right = -14
+		info.add_child(hb)
+		var por := Portrait.new(p, 48, t.color, t)
+		por.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		hb.add_child(por)
+		var sub := "%s  ·  age %d" % [Scheme.ROLE_NAMES[Scheme.best_role(p.stats)], p.age]
+		if p.trade_request:
+			sub += "  ·  [TRADE REQUESTED]"
+		hb.add_child(_two_lines(p.display_name(), Color.WHITE, sub, 300, 17))
+		var chip := UiKit.team_chip(t, 15)
+		chip.custom_minimum_size.x = 240
+		chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hb.add_child(chip)
+		var ol := _big_cell(str(p.best_ovr()), UiKit.ovr_color(p.best_ovr()), 64, 30)
+		ol.add_theme_font_override("font", UiKit.font_heavy)
+		hb.add_child(ol)
+		hb.add_child(_pot_cell(p, 64, 26))
+		hb.add_child(_contract_pips(p, 150))
+		row.add_child(info)
+		var shop := UiKit.button("Shop him", func(): open_trade(t, Trades.player_asset(p)), 15)
+		shop.custom_minimum_size = Vector2(120, 64)
+		shop.disabled = not Trades.tradeable(p)
+		row.add_child(shop)
+		v.add_child(row)
 	return v
 
 
