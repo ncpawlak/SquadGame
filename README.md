@@ -84,9 +84,9 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   game and the MVP with a Box Score button; future weeks show the matchup preview (two-tone team banner, logos, team OVRs
   and stat-comparison bars). **SIM TO ▾** and **PLAY WEEK X** sit in the week card's top bar next to Match Preview.
   Urgent to-dos come first in orange with a "!"; finished ones are greyed out with a check.
-- **Home news box**: a fixed-height scrolling feed under everything, filtered by All / Around the League (results,
-  Player of the Week, wire stories, trades, signings, injuries, player stories, retirements) / Prospect News /
-  Upcoming Matches (your next 3 plus this week's slate). After the trade deadline, < > arrows flip it to the
+- **Home news box**: a fixed-height scrolling feed under everything, filtered by All / Around the League (Player
+  of the Week with his season count, upsets - wins over a roster rated 4+ OVR higher - wire stories, trades, signings,
+  injuries, player stories, retirements) / Prospect News. After the trade deadline, < > arrows flip it to the
   **Playoff Picture**: a logo bracket (projected seeds in-season, live series in the playoffs) with a champion slot.
 - **Team tab**: one big pane (Lineup sizes to fit the field + bench; the Roster scrolls inside a fixed height) whose < > arrows flip between the full **Roster** and **Lineup** screens
 - **League tab**: one big pane whose < > arrows flip between **Standings** (the four divisions as a 2x2 grid of mini tables with logos, W-L, game record, diff, streak and playoff seed - or one whole-league table), **Scores** (a week of results with week arrows), **League Leaders** and the **Playoff Picture** bracket. Under it, live cards (your OVR rank, the kills leader, the latest headline, the MVP favourite, free agents) and a second row of cards (Schedule, Team Stats, Teams, Retirements)
