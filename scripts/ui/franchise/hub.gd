@@ -8,6 +8,7 @@ enum Tab { HOME, TEAM, PERSONNEL, LEAGUE, CLUB, SETTINGS }
 const TABS := ["Home", "Team", "Personnel", "League", "Club", "Settings"]
 const TILE := Vector2(290, 170)
 const SMALL := Vector2(290, 120)
+const TODO_SIZE := Vector2(437, 76)
 ## League tiles that list a division or several leaders.
 const TALL := Vector2(290, 236)
 
@@ -927,8 +928,8 @@ func _home_sections() -> Array:
 
 
 ## A to-do tile in the team trim colour. Done: greyed out with a check. Urgent: orange with a "!" in the corner.
-func _todo(title: String, body: String, _accent: Color, cb: Callable, done := false, urgent := false) -> Button:
-	var t := UiKit.tile(("\u2713  " if done else "") + title, body, SMALL, UiKit.MUTED.darkened(0.3) if done else (Color("#f97316") if urgent else UiKit.TRIM), cb)
+func _todo(title: String, _body: String, _accent: Color, cb: Callable, done := false, urgent := false) -> Button:
+	var t := UiKit.tile(("\u2713  " if done else "") + title, "", TODO_SIZE, UiKit.MUTED.darkened(0.3) if done else (Color("#f97316") if urgent else UiKit.TRIM), cb)
 	t.set_meta("todo_done", done)
 	t.set_meta("todo_urgent", urgent)
 	if done:
@@ -1049,7 +1050,9 @@ var _home_anchor := ""
 
 
 ## Fixed size of Home's week card; the news pane beside it matches its height.
-const CARD_SIZE := Vector2(760, 440)
+const CARD_SIZE := Vector2(760, 460)
+## The news pane under the week card: fixed height, same width (both fill the space right of the to-dos); it scrolls inside.
+const FEED_SIZE := Vector2(760, 440)
 
 
 ## Home: three columns. This week's to-dos (stack freely; the page scrolls when they run long),
@@ -1072,21 +1075,19 @@ func _home_top() -> Control:
 		UiKit.fade_in(t, 0.05 * i, 0.25)
 		i += 1
 	top.add_child(left)
-	var mid := VBoxContainer.new()
-	mid.name = "MatchColumn"
-	mid.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	mid.add_theme_constant_override("separation", 12)
+	var right := VBoxContainer.new()
+	right.name = "MatchColumn"
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	right.add_theme_constant_override("separation", 12)
 	var card := _week_card(team)
-	mid.add_child(card)
-	mid.add_child(_card_actions(_shown_match(team)))
-	top.add_child(mid)
+	right.add_child(card)
+	right.add_child(_card_actions(_shown_match(team)))
 	var feed := _home_feed()
-	feed.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	feed.custom_minimum_size = FEED_SIZE
 	feed.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	feed.custom_minimum_size.y = CARD_SIZE.y
-	# Rare tall bodies (e.g. a rivalry badge) can push the card past CARD_SIZE; keep the pane level with it.
-	card.resized.connect(func(): feed.custom_minimum_size.y = card.size.y)
-	top.add_child(feed)
+	right.add_child(feed)
+	top.add_child(right)
 	return top
 
 
@@ -1135,7 +1136,7 @@ func _week_card(team: Team) -> Control:
 		sb.set("content_margin_" + side, 0)
 	card.add_theme_stylebox_override("panel", sb)
 	card.custom_minimum_size = CARD_SIZE
-	card.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	card.size_flags_horizontal = Control.SIZE_FILL
 	card.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	card.clip_contents = true
 	var bd: UiKit.Backdrop
