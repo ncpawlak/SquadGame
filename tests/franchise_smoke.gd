@@ -28,6 +28,7 @@ func _init() -> void:
 		_check(hub._content.get_child_count() > 0, "tab %s builds" % hub.TABS[i])
 	hub.cycle_tab(1)
 	_check(hub.tab_index == 0, "tab cycling wraps")
+	_home_layout(hub)
 	await _subtab_flow(hub)
 	# The Club pages build and read the ledger and buzz.
 	for pg in [["Finances", hub.club.finances], ["Market & Buzz", hub.club.market_buzz], ["Facilities", hub.club.facilities]]:
@@ -393,6 +394,26 @@ func _init() -> void:
 
 
 ## Issue #82: sub-tab bars on Team / Personnel / League, per-tab memory, to-do jumps with Back to Home.
+## Home is three columns: to-dos | fixed week card with its actions under it | news pane.
+func _home_layout(hub) -> void:
+	var col: Node = hub._content.find_child("MatchColumn", true, false)
+	var card: Node = hub._content.find_child("WeekCard", true, false)
+	var acts: Node = hub._content.find_child("CardActions", true, false)
+	var feed: Node = hub._content.find_child("HomeFeed", true, false)
+	var todo: Node = hub._content.find_child("TodoColumn", true, false)
+	_check(col != null and card != null and acts != null and feed != null and todo != null, "Home has to-dos, week card, actions and news")
+	if col == null or card == null or acts == null or feed == null or todo == null:
+		return
+	var top: Node = col.get_parent()
+	_check(todo.get_parent() == top and feed.get_parent() == top and todo.get_index() < col.get_index() and col.get_index() < feed.get_index(),
+		"Home columns: to-dos | match | news")
+	_check(card.get_parent() == col and acts.get_parent() == col and card.get_index() < acts.get_index(), "actions sit under the week card")
+	_check(acts.find_child("PlayButton", true, false) != null and card.find_child("PlayButton", true, false) == null, "Play button moved under the card")
+	_check(card.find_child("WeekPrev", true, false) != null and card.find_child("WeekNext", true, false) != null, "week arrows stay in the card header")
+	_check(card.custom_minimum_size == hub.CARD_SIZE and feed.custom_minimum_size.y >= hub.CARD_SIZE.y, "card is fixed size; news pane matches its height")
+	_check(feed.find_children("*", "GridContainer", true, false).is_empty(), "news lists one item per row")
+
+
 func _subtab_flow(hub) -> void:
 	var tabs: Dictionary = hub.Tab
 	_check(hub.TABS == ["Home", "Team", "Personnel", "League", "Club", "Settings"], "Personnel sits before League")
