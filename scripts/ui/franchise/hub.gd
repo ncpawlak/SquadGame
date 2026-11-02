@@ -1747,7 +1747,9 @@ func _news_todo() -> Button:
 		return null
 	var a := nr.latest()
 	var fresh := nr.unread()
-	var body := "[color=white]%s[/color]\n%s" % [UiKit.esc(String(a["headline"])), UiKit.esc(String(a["when"]))]
+	var tags: Array = a.get("tags", [])
+	var body := "[color=white]%s[/color]\n%s%s" % [UiKit.esc(String(a["headline"])), UiKit.esc(String(a["when"])),
+		("  -  [color=#f59e0b]%s[/color]" % UiKit.esc(" / ".join(tags).to_upper())) if not tags.is_empty() else ""]
 	if fresh > 1:
 		body += "  -  [color=#38bdf8]%d new issues[/color]" % fresh
 	return _todo("Weekly News", body, Color("#e2e8f0"), func(): open_news(), fresh == 0)
