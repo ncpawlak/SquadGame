@@ -4,6 +4,7 @@
     python spike.py layers              # debug sheet of extracted hair/beard layers
     python spike.py combos [N] [seed]   # N composites on team-coloured discs
 """
+import json
 import random
 import sys
 from pathlib import Path
@@ -257,13 +258,33 @@ def label(img, text):
 _SKIN = {}
 
 
+_SKIN_FILE = HERE / "work" / "skin_cache.json"
+_SKIN_DISK = None
+
+
+def _skin_disk():
+    global _SKIN_DISK
+    if _SKIN_DISK is None:
+        _SKIN_DISK = json.loads(_SKIN_FILE.read_text()) if _SKIN_FILE.exists() else {}
+        import atexit
+        atexit.register(lambda: _SKIN_FILE.write_text(json.dumps(_SKIN_DISK)))
+    return _SKIN_DISK
+
+
 def skin_lab(tid):
-    """Median upper-cheek colour (8-bit Lab) of a head; the basis for skin-tone matching."""
+    """Median upper-cheek colour (8-bit Lab) of a head; the basis for skin-tone matching. Cached on disk per cutout."""
     if tid not in _SKIN:
-        bgr, _, lm = load(tid)
-        lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
-        px = np.concatenate([lab[int(y) - 7:int(y) + 8, int(x) - 7:int(x) + 8].reshape(-1, 3) for x, y in (lm[117], lm[346])])
-        _SKIN[tid] = np.median(px, axis=0)
+        st = (PREP / f"{tid}.npz").stat()
+        sig = f"{st.st_mtime_ns}:{st.st_size}"
+        disk = _skin_disk()
+        if tid in disk and disk[tid][0] == sig:
+            _SKIN[tid] = np.array(disk[tid][1], np.float32)
+        else:
+            bgr, _, lm = load(tid)
+            lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+            px = np.concatenate([lab[int(y) - 7:int(y) + 8, int(x) - 7:int(x) + 8].reshape(-1, 3) for x, y in (lm[117], lm[346])])
+            _SKIN[tid] = np.median(px, axis=0)
+            disk[tid] = [sig, [float(v) for v in _SKIN[tid]]]
     return _SKIN[tid]
 
 
