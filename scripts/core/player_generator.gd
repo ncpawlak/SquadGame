@@ -25,6 +25,23 @@ const LAST_NAMES := [
 	"Salazar", "Townsend", "Valdez", "Webb", "Boone", "Crawford", "Drake", "Fuentes", "Hale", "Knox",
 ]
 
+static var _first_pool: Array = []
+static var _last_pool: Array = []
+
+
+## Every name a soldier can roll: the originals above plus the wider pool FacePrior carries with its face weights.
+static func first_pool() -> Array:
+	if _first_pool.is_empty():
+		_first_pool = FIRST_NAMES + FacePrior.extra_first()
+	return _first_pool
+
+
+static func last_pool() -> Array:
+	if _last_pool.is_empty():
+		_last_pool = LAST_NAMES + FacePrior.extra_last()
+	return _last_pool
+
+
 ## Stat offsets relative to the soldier's base quality.
 const ARCHETYPES := {
 	Scheme.Role.FRONTMAN: {
@@ -51,8 +68,10 @@ const MAX_AGE := 34
 static func generate(rng: RandomNumberGenerator, id: int, role: Scheme.Role, quality: float, age := -1) -> Soldier:
 	var s := Soldier.new()
 	s.id = id
-	s.first_name = FIRST_NAMES[rng.randi_range(0, FIRST_NAMES.size() - 1)]
-	s.last_name = LAST_NAMES[rng.randi_range(0, LAST_NAMES.size() - 1)]
+	var firsts := first_pool()
+	var lasts := last_pool()
+	s.first_name = firsts[rng.randi_range(0, firsts.size() - 1)]
+	s.last_name = lasts[rng.randi_range(0, lasts.size() - 1)]
 	s.age = age if age > 0 else rng.randi_range(MIN_AGE, MAX_AGE)
 
 	# Younger players are rawer now but have more room to grow.

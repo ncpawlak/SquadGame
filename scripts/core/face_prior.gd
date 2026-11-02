@@ -77,10 +77,167 @@ const LAST := {
 }
 
 
+## Multiplier profiles for the wider name pool, same [light, dark, brown, asian] order. The sets below say which
+## profile each extra name gets, so a name only needs a line in a set, not four numbers.
+const PROFILES := {
+	"light": [6.0, 0.3, 0.2, 0.1],
+	"lean_light": [3.0, 1.5, 0.5, 0.3],
+	"black": [0.4, 6.0, 0.8, 0.05],
+	"lean_black": [2.0, 3.5, 0.3, 0.1],
+	"latino": [0.5, 0.2, 7.0, 0.05],
+	"caribbean": [0.4, 1.5, 5.0, 0.05],
+	"asian": [0.1, 0.03, 0.1, 7.0],
+	"pacific": [0.3, 0.4, 7.0, 0.5],
+	"african": [0.05, 8.0, 0.2, 0.02],
+	"mideast": [0.3, 1.5, 5.0, 0.3],
+}
+
+## Extra first names, in the style of NFL, MLB and NBA rosters (the original 90 live in PlayerGenerator).
+const FIRST_SETS := {
+	"light": [
+		"Brady", "Tanner", "Hunter", "Connor", "Kyle", "Luke", "Drew", "Bryce", "Carson", "Chad", "Clay", "Dawson",
+		"Holden", "Jared", "Kurt", "Lance", "Levi", "Mitch", "Parker", "Rex", "Rocco", "Ryder", "Sawyer", "Sean",
+		"Spencer", "Tristan", "Tucker", "Walker", "Anders", "Lars", "Mikael", "Nikola", "Luka", "Goran", "Dario",
+		"Bogdan", "Tomasz", "Marko", "Stefan", "Kristaps", "Jonas", "Lukas", "Joakim", "Axel", "Soren", "Dominik",
+		"Matthias", "Henrik", "Gustav", "Mikhail", "Pavel", "Anton", "Konrad", "Declan", "Seamus", "Colin", "Liam",
+		"Brendan", "Dylan", "Griffin", "Heath", "Jett", "Tripp", "Wade", "Cash", "Dax", "Cade", "Colby", "Jace",
+	],
+	"lean_light": [
+		"Michael", "David", "Chris", "Matthew", "Joshua", "Daniel", "Ryan", "Brandon", "Justin", "Nick", "Josh", "Jake",
+		"Jesse", "Austin", "Patrick", "Peyton", "Jackson", "Dennis", "Gordon", "Ben", "Sam", "Eric", "Kevin", "Brian",
+		"Scott", "Mark", "Paul", "Adam", "Alan", "Ian", "Jason", "Jeremy", "Kent", "Dean", "Craig", "Shawn", "Todd",
+		"Tim", "Greg", "Steve", "Dustin", "Corey", "Casey", "Blake", "Cameron", "Taylor",
+	],
+	"black": [
+		"DeAndre", "Terrell", "Tyrone", "Jamarcus", "Dwayne", "Darnell", "Marquis", "Demetrius", "Reggie", "Calvin",
+		"Cedric", "Deshawn", "Javon", "Jerome", "Kareem", "Lamont", "Maurice", "Antoine", "Tyreek", "Devonte", "Amari",
+		"Jaylen", "Jabari", "Tyrese", "Terrance", "Montrell", "Trevon", "Donovan", "Rodney", "Marquise", "Deion",
+		"Khalil", "Elijah", "Josiah", "Micah", "Jerry", "Larry", "Deshaun", "Dezmon", "Tavon", "Raheem", "Nasir",
+		"Keenan", "Cornell", "Tremaine", "Vernon", "Leroy", "Roosevelt", "Booker", "Zion", "Marlon", "Kelvin", "Cortez",
+		"Bernard", "Dominique", "Julian",
+	],
+	"latino": [
+		"Fernando", "Jose", "Luis", "Carlos", "Juan", "Ricardo", "Sergio", "Adrian", "Alejandro", "Angel", "Eduardo",
+		"Enrique", "Francisco", "Gabriel", "Gerardo", "Guillermo", "Jesus", "Joaquin", "Lorenzo", "Marcelo", "Miguel",
+		"Roberto", "Salvador", "Cristian", "Emmanuel", "Armando", "Alonso", "Esteban", "Leonel", "Humberto", "Mauricio",
+		"Ignacio", "Rodrigo", "Gustavo", "Federico", "Raul", "Pablo",
+	],
+	"caribbean": [
+		"Julio", "Wilson", "Ronald", "Manny", "Pedro", "Ramon", "Nelson", "Orlando", "Yoan", "Elvis", "Rigoberto",
+	],
+	"asian": [
+		"Hiroshi", "Takeshi", "Yuki", "Kenta", "Haruto", "Ryo", "Koji", "Satoshi", "Akira", "Daisuke", "Hyun", "Jae",
+		"Minho", "Seung", "Wei", "Jian", "Hao", "Jun", "Taro", "Yuta", "Masato", "Shin", "Tae", "Sung", "Dae", "Jisoo",
+		"Kazuki", "Shoma", "Naoki", "Hideo",
+	],
+	"pacific": [
+		"Sione", "Manu", "Tevita", "Malakai", "Siaki", "Kalani", "Keanu", "Koa", "Ioane", "Taulia", "Lotu", "Penei",
+		"Mata", "Tavita", "Folau", "Viliami", "Isaia", "Kaimana", "Makoa",
+	],
+	"african": [
+		"Emeka", "Chidi", "Kwame", "Kofi", "Obi", "Tunde", "Femi", "Chima", "Sekou", "Mamadou", "Amadou", "Ousmane",
+		"Thabo", "Sizwe", "Babatunde", "Ikenna", "Nnamdi", "Olu", "Yaw", "Kojo", "Jelani", "Bakari", "Tendai", "Lwazi",
+	],
+	"mideast": [
+		"Karim", "Hakeem", "Khalid", "Hassan", "Ahmad", "Amir", "Rami", "Samir", "Ravi", "Arjun", "Dev", "Rohan",
+		"Sanjay", "Vikram", "Anil", "Raj", "Nikhil", "Faisal", "Zaid", "Bilal", "Ismail", "Tarek", "Nadir", "Jamil",
+		"Rashid",
+	],
+}
+
+## Extra surnames, same idea.
+const LAST_SETS := {
+	"light": [
+		"Baker", "Bennett", "Campbell", "Carlson", "Chapman", "Cooper", "Cox", "Dawson", "Doyle", "Dunn", "Fisher",
+		"Fitzgerald", "Gallagher", "Gardner", "Graham", "Hansen", "Hoffman", "Hughes", "Hunt", "Jensen", "Johansson",
+		"Kelly", "Kennedy", "Kessler", "Klein", "Larsen", "Lambert", "Lundgren", "MacLeod", "McBride", "McCarthy",
+		"McDonald", "Miller", "Morgan", "Murphy", "Nielsen", "Olsen", "Paulson", "Peterson", "Pratt", "Reilly",
+		"Reynolds", "Richter", "Schmidt", "Schneider", "Schultz", "Sullivan", "Sweeney", "Vogel", "Wagner", "Walsh",
+		"Weber", "Weaver", "Wolfe", "Zimmerman", "Dvorak", "Horvat", "Ivanov", "Jovanovic", "Kovac", "Markovic",
+		"Nowak", "Popescu", "Sokolov", "Volkov", "Stojanovic", "Yoder", "Bauer", "Hendricks", "Larkin", "Gunderson",
+		"Halvorsen", "Eriksen", "Becker", "Koch", "Lang", "Brandt",
+	],
+	"lean_light": [
+		"Anderson", "Clark", "Dixon", "Ellis", "Gordon", "Griffin", "Harper", "Hudson", "King", "Lewis", "Marshall",
+		"Matthews", "Mitchell", "Owens", "Perry", "Rogers", "Shaw", "Turner", "Tucker", "Wright", "Evans", "Gray",
+		"Hunter", "Cole", "Warren", "Burke", "Reid", "Grayson", "Mills", "Lloyd", "Holmes", "Dunbar", "Mathis",
+		"Fields", "Stanton", "Parsons",
+	],
+	"lean_black": [
+		"Washington", "Johnson", "Williams", "Jones", "Davis", "Robinson", "Harris", "Freeman", "Mosley", "Bryant",
+		"Banks", "Sanders", "Simmons", "Stewart", "Thomas", "Thompson", "Walker", "Watkins", "Wallace", "Wiggins",
+		"Dorsey", "Gaines", "Hawkins", "Henderson", "Hopkins", "Mack", "McCoy", "Mobley", "Pope", "Rivers", "Robertson",
+		"Sims", "Sterling", "Toney", "Tillman", "Wade", "Waters", "Wilkins", "Winfield", "Alexander", "Bell", "Bridges",
+		"Burks", "Burton", "Butler", "Carter", "Chambers", "Coleman", "Cooks", "Dennis", "Edwards", "Franklin", "Glover",
+		"Green", "Hardy", "Hill", "Howard", "McKinney", "Moore", "Moss", "Parker", "Payton", "Rice", "Richardson",
+		"Ross", "Scott", "Smith", "Taylor", "Terry", "Thornton", "Walton", "Ward", "White", "Wilson", "Woods", "Young",
+	],
+	"latino": [
+		"Garcia", "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez", "Perez", "Sanchez", "Ramirez", "Torres",
+		"Flores", "Rivera", "Gomez", "Diaz", "Morales", "Gutierrez", "Ortega", "Castillo", "Vargas", "Romero",
+		"Herrera", "Medina", "Aguilar", "Vega", "Castro", "Soto", "Jimenez", "Moreno", "Alvarez", "Mejia", "Pena",
+		"Rojas", "Contreras", "Acosta", "Cardenas", "Padilla", "Espinoza", "Quintero", "Bravo", "Lara", "Rosales",
+		"Ibarra", "Zamora", "Cisneros", "Montoya", "Escobar",
+	],
+	"caribbean": [
+		"Marte", "Tejada", "Polanco", "Baez", "Cabrera", "Santana", "Guerrero", "Ramos", "Nunez", "Batista",
+		"Encarnacion", "Mercedes", "Peralta", "Taveras", "Paredes", "Brito",
+	],
+	"asian": [
+		"Nakamura", "Watanabe", "Yamamoto", "Suzuki", "Ito", "Kobayashi", "Takahashi", "Matsui", "Kim", "Choi", "Kang",
+		"Yoon", "Chen", "Wang", "Liu", "Zhang", "Huang", "Lin", "Wu", "Nguyen", "Tran", "Pham", "Nakagawa", "Hayashi",
+		"Shimizu", "Fujita", "Sakamoto", "Ishikawa", "Maeda", "Han", "Jung", "Song", "Yang", "Zhou", "Xu", "Tang",
+		"Cho", "Ahn", "Moon",
+	],
+	"pacific": [
+		"Fifita", "Tupou", "Leota", "Soliai", "Mataele", "Faleolo", "Aiono", "Vaea", "Tuimavave", "Kaufusi",
+	],
+	"african": [
+		"Okonkwo", "Adeyemi", "Mensah", "Diallo", "Nwosu", "Abara", "Osei", "Boateng", "Okoye", "Adebayo", "Eze",
+		"Balogun", "Ndiaye", "Traore", "Keita", "Mabaso", "Owusu", "Appiah", "Kamara", "Sesay", "Bangura", "Ogunleye",
+		"Chukwu",
+	],
+	"mideast": [
+		"Khan", "Patel", "Singh", "Sharma", "Ali", "Hassan", "Nasser", "Khoury", "Aziz", "Rahman", "Hussein", "Mansour",
+		"Said", "Najjar", "Farah", "Bakr", "Shah", "Gupta", "Reddy", "Kapoor", "Desai", "Haidari", "Qureshi", "Sabbagh",
+	],
+}
+
+static var _first_extra: Array = []
+static var _last_extra: Array = []
+static var _first_profile := {}
+static var _last_profile := {}
+
+
+static func _index(sets: Dictionary, names: Array, profile: Dictionary) -> void:
+	for key in sets:
+		for n in sets[key]:
+			names.append(n)
+			profile[n] = PROFILES[key]
+
+
+static func _ensure() -> void:
+	if _first_extra.is_empty():
+		_index(FIRST_SETS, _first_extra, _first_profile)
+		_index(LAST_SETS, _last_extra, _last_profile)
+
+
+## The extra names, for PlayerGenerator's pool.
+static func extra_first() -> Array:
+	_ensure()
+	return _first_extra
+
+
+static func extra_last() -> Array:
+	_ensure()
+	return _last_extra
+
+
 ## Weight of each group for a first/last name pair (normalised to sum 1), in GROUPS order.
 static func weights(first: String, last: String) -> Array:
-	var f: Array = FIRST.get(first, [1.0, 1.0, 1.0, 1.0])
-	var l: Array = LAST.get(last, [1.0, 1.0, 1.0, 1.0])
+	_ensure()
+	var f: Array = FIRST.get(first, _first_profile.get(first, [1.0, 1.0, 1.0, 1.0]))
+	var l: Array = LAST.get(last, _last_profile.get(last, [1.0, 1.0, 1.0, 1.0]))
 	var out := []
 	var total := 0.0
 	for i in GROUPS.size():

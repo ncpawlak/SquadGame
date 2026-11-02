@@ -10,6 +10,8 @@ const BUZZ_NOTE := 4.0
 
 ## A phrase choice stays off-limits for this many later uses of its slot (capped by the options).
 const PHRASE_MEMORY := 6
+## A win is an upset when the loser's team OVR is at least this much higher.
+const UPSET_GAP := 4
 
 const KIND_GAME := "game"
 
@@ -563,6 +565,22 @@ func _mvp_heater() -> Dictionary:
 		{"who": so.display_name(), "tm": _nick(team), "n": str(best_n)})}
 
 
+## Week `wk`'s upsets: played matches the winner took against a roster rated UPSET_GAP+ points higher.
+## [{w, l, gap, m}], biggest gap first.
+static func upsets_in(season: Season, wk: int) -> Array:
+	var out: Array = []
+	for m: ScheduledMatch in season.matches_for_week(wk):
+		if not m.is_played():
+			continue
+		var w: Team = m.winner()
+		var l: Team = m.opponent_of(w)
+		var gap := l.team_ovr() - w.team_ovr()
+		if gap >= UPSET_GAP:
+			out.append({"w": w, "l": l, "gap": gap, "m": m})
+	out.sort_custom(func(a, b): return a["gap"] > b["gap"])
+	return out
+
+
 ## Around the league this week, in the paper's voice.
 func _roundup(wk: int) -> Array:
 	var out: Array = []
@@ -583,16 +601,7 @@ func _roundup(wk: int) -> Array:
 	var watch := _buzz_watch(wk)
 	if not watch.is_empty():
 		out.append(watch)
-	var upsets: Array = []
-	for m in _s.matches_for_week(wk):
-		if not m.is_played() or m.involves(_us):
-			continue
-		var w: Team = m.winner()
-		var l: Team = m.opponent_of(w)
-		var gap := l.team_ovr() - w.team_ovr()
-		if gap >= 4:
-			upsets.append({"w": w, "l": l, "gap": gap, "m": m})
-	upsets.sort_custom(func(a, b): return a["gap"] > b["gap"])
+	var upsets: Array = upsets_in(_s, wk).filter(func(u): return not (u["m"] as ScheduledMatch).involves(_us))
 	if not upsets.is_empty():
 		var u: Dictionary = upsets[0]
 		var m: ScheduledMatch = u["m"]

@@ -116,6 +116,16 @@ static func player_of_week(season: Season, w: int) -> Dictionary:
 	return best
 
 
+## How many Player of the Week awards `so` has won this season, weeks 1..`through`.
+static func potw_count(season: Season, so: Soldier, through: int) -> int:
+	var n := 0
+	for w in range(1, through + 1):
+		var p := player_of_week(season, w)
+		if not p.is_empty() and p["soldier"] == so:
+			n += 1
+	return n
+
+
 static func run(season: Season, rng: RandomNumberGenerator) -> SeasonReview:
 	var rev := SeasonReview.new()
 	rev.year = season.year

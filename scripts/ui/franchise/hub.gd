@@ -1461,10 +1461,9 @@ func _impact_chip(t: Team, s: Soldier) -> Control:
 	return b
 
 
-## News feed: one row per story. cat: &"league" (results, wire, signings, trades, injuries,
-## retirements, player stories), &"prospect" (draft class) or &"upcoming" (matches ahead).
+## News feed: one row per story. cat: &"league" (Player of the Week, upsets, wire, signings, trades,
+## injuries, retirements, player stories) or &"prospect" (draft class).
 func _feed_items() -> Array:
-	var team := season.user_team()
 	var out: Array = []
 	var add := func(cat: StringName, tag: String, body: String, accent: Color, cb: Callable):
 		out.append({"cat": cat, "tag": tag, "body": body, "accent": accent, "cb": cb})
@@ -1475,51 +1474,29 @@ func _feed_items() -> Array:
 			var step: String = steps[-1]
 			add.call(&"league", "OFFSEASON RECAP  ·  %s" % step.to_upper(), "[color=white]What happened in %s[/color]\n[font_size=13]%s[/font_size]" % [
 				UiKit.esc(step), UiKit.esc(season.news.digest_summary(season, step))], Color("#f59e0b"), open_offseason_recap)
-	# Upcoming: your next matches, then the rest of this week's slate.
-	if season.phase != Season.PHASE_OFFSEASON:
-		var mine: Array = []
-		for w in range(season.week, season.total_weeks() + 1):
-			for m: ScheduledMatch in season.matches_for_week(w):
-				if not m.is_played() and (m.home == team or m.away == team) and mine.size() < 3:
-					mine.append(m)
-		for m: ScheduledMatch in mine:
-			var opp := m.opponent_of(team)
-			var mm := m
-			add.call(&"upcoming", "YOUR MATCH  ·  " + season.week_label(m.week).to_upper(), "%s %s[color=white]%s[/color] (%s)" % [
-				"vs" if m.home == team else "@", UiKit.logo_bb(opp, 26), UiKit.esc(opp.name), season.record_text(opp)], UiKit.ACCENT,
-				func(): open("Match Preview", func(): return pages.preview(mm)))
-		for m: ScheduledMatch in season.matches_for_week(season.week):
-			if m.is_played() or m.home == team or m.away == team:
-				continue
-			var mm := m
-			add.call(&"upcoming", season.week_label(m.week).to_upper(), "%s[color=white]%s[/color] (%s)  @  %s[color=white]%s[/color] (%s)" % [
-				UiKit.logo_bb(m.away, 26), UiKit.esc(m.away.name), season.record_text(m.away), UiKit.logo_bb(m.home, 26), UiKit.esc(m.home.name),
-				season.record_text(m.home)], m.home.color, func(): open("Match Preview", func(): return pages.preview(mm)))
 	# Around the league.
 	var week := _last_week_with_results()
 	var potw := SeasonReview.player_of_week(season, week)
 	if not potw.is_empty():
 		var ps: Soldier = potw["soldier"]
 		var pl: Dictionary = potw["line"]
-		add.call(&"league", "PLAYER OF THE WEEK", UiKit.logo_bb(potw["team"], 26) + "[color=white]%s[/color] (%s)  ·  %s   %d K  %d A  %d SV  %d dmg" % [
-			UiKit.esc(ps.tag()), potw["team"].abbrev, season.week_label(week), pl["kills"], pl["assists"], pl.get("saves", 0), pl["damage"]],
-			UiKit.ACCENT, func(): pages.open_player(ps))
+		var n_potw := SeasonReview.potw_count(season, ps, week)
+		var body := UiKit.logo_bb(potw["team"], 26) + "[color=white]%s[/color] (%s)  ·  %s   %d K  %d A  %d SV  %d dmg" % [
+			UiKit.esc(ps.tag()), potw["team"].abbrev, season.week_label(week), pl["kills"], pl["assists"], pl.get("saves", 0), pl["damage"]]
+		if n_potw > 1:
+			body += "\n[font_size=13]His %s Player of the Week this season[/font_size]" % UiKit.ordinal(n_potw)
+		add.call(&"league", "PLAYER OF THE WEEK", body, UiKit.ACCENT, func(): pages.open_player(ps))
 	if season.review != null and not season.review.awards.is_empty():
 		var a: Dictionary = season.review.awards[0]
 		add.call(&"league", "%d MVP" % season.review.year, UiKit.logo_bb(a["team"], 26) + "[color=white]%s[/color] (%s)" % [
 			UiKit.esc(a["soldier"].display_name()), a["team"].abbrev], UiKit.ACCENT, func(): open("Season Awards", pages.awards))
-	for m: ScheduledMatch in season.matches_for_week(week):
-		if not m.is_played():
-			continue
-		var win := m.winner()
-		var mvp := pages._soldier(m.result.mvp_id)
-		var line: Dictionary = m.result.box.get(m.result.mvp_id, {})
-		var body := "%s[color=white]%s %d - %d %s[/color] %s   [font_size=13]%s[/font_size]" % [UiKit.logo_bb(win, 26), UiKit.esc(win.name), m.games_for(win),
-			m.games_for(m.loser()), UiKit.esc(m.loser().name), UiKit.logo_bb(m.loser(), 26), pages._games_brief(m.result)]
-		if mvp != null and not line.is_empty():
-			body += "\nMVP [color=#f59e0b]%s[/color]  %d K  %d SV" % [UiKit.esc(mvp.tag()), line["kills"], line.get("saves", 0)]
-		var mm := m
-		add.call(&"league", "FINAL  ·  " + season.week_label(m.week).to_upper(), body, win.color, func(): open("Match Recap", func(): return pages.recap(mm)))
+	for u in Newsroom.upsets_in(season, week):
+		var m: ScheduledMatch = u["m"]
+		var w: Team = u["w"]
+		var l: Team = u["l"]
+		var body := "%s[color=white]%s beat %s %d - %d[/color] %s		\n[font_size=13]The %s were rated %d OVR higher[/font_size]" % [
+					UiKit.logo_bb(w, 26), UiKit.esc(w.name), UiKit.esc(l.name), m.games_for(w), m.games_for(l), UiKit.logo_bb(l, 26), UiKit.esc(l.nickname), u["gap"]]
+		add.call(&"league", "UPSET  ·  " + season.week_label(m.week).to_upper(), body, w.color, func(): open("Match Recap", func(): return pages.recap(m)))
 	for n in season.news.latest(12):
 		var accent := Color("#14b8a6")
 		var wire_logo := ""
@@ -1569,7 +1546,7 @@ func _feed_items() -> Array:
 	return out
 
 
-const FEED_FILTERS := [[&"all", "All"], [&"league", "Around the League"], [&"prospect", "Prospect News"], [&"upcoming", "Upcoming Matches"]]
+const FEED_FILTERS := [[&"all", "All"], [&"league", "Around the League"], [&"prospect", "Prospect News"]]
 const FEED_H := 460
 var feed_filter: StringName = &"all"
 var feed_pane := 0  # 0 news, 1 playoff picture

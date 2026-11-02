@@ -21,6 +21,8 @@ from warp import L_BROW, L_EYE, MOUTH, NOSE, R_BROW, R_EYE
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "assets/portraits/heads"
 WIDTH = 256
+BAKE_VERSION = 1  # bump when the output format changes, to force a full re-bake
+CACHE = Path(__file__).with_name("work") / "bake_cache.json"
 
 IRIS_L, IRIS_R = ([469, 470, 471, 472], 468), ([474, 475, 476, 477], 473)
 EXTRA = [1, 2, 10, 152, 234, 454]
@@ -43,37 +45,55 @@ def iris_mask(bgr, lm):
     return mask * smoothstep(v, 45, 95) * (1 - smoothstep(v, 190, 235))
 
 
-def main():
+def bake_head(p, tid):
+    z = np.load(p)
+    bgr, alpha, lm = z["bgr"], z["alpha"], z["lm"]
+    h, w = alpha.shape
+    m = head_masks(tid)
+    hair = np.clip(m["hair"] + m["brow"], 0, 1)
+    iris = iris_mask(bgr, lm)
+    rgba = np.dstack([cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), np.clip(alpha * 255, 0, 255).astype(np.uint8)])
+    nh = round(h * WIDTH / w)
+    img = Image.fromarray(rgba, "RGBA").resize((WIDTH, nh), Image.LANCZOS)
+    img.save(OUT / f"{tid}.webp", quality=92, method=6)
+    mk = np.dstack([hair, iris, np.zeros_like(hair)])
+    Image.fromarray((np.clip(mk, 0, 1) * 255).astype(np.uint8), "RGB").resize((WIDTH, nh), Image.BILINEAR).save(OUT / f"{tid}_m.png", optimize=True)
+    sx = WIDTH / w
+    oval = lm[OVAL]
+    return dict(
+        w=WIDTH, h=nh,
+        cx=round(float(lm[1][0]) * sx, 2), cy=round(float(oval[:, 1].mean()) * sx, 2),
+        fw=round(float(lm[454][0] - lm[234][0]) * sx, 2),
+        brow_top=round(float(lm[BROWS][:, 1].min()) * sx, 2),
+        pts=[[round(float(lm[i][0]) * sx, 1), round(float(lm[i][1]) * sx, 1)] for i in INDICES],
+    )
+
+
+def main(force=False):
+    """Bake only heads that are new or whose cutout changed (cache in work/bake_cache.json); groups are always applied fresh."""
     OUT.mkdir(parents=True, exist_ok=True)
-    heads = {}
+    cache = {} if force or not CACHE.exists() else json.loads(CACHE.read_text())
+    heads, baked, reused = {}, 0, 0
     for p in sorted(PREP.glob("*.npz")):
         tid = p.stem
-        z = np.load(p)
-        bgr, alpha, lm = z["bgr"], z["alpha"], z["lm"]
-        h, w = alpha.shape
-        m = head_masks(tid)
-        hair = np.clip(m["hair"] + m["brow"], 0, 1)
-        iris = iris_mask(bgr, lm)
-        rgba = np.dstack([cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), np.clip(alpha * 255, 0, 255).astype(np.uint8)])
-        nh = round(h * WIDTH / w)
-        img = Image.fromarray(rgba, "RGBA").resize((WIDTH, nh), Image.LANCZOS)
-        img.save(OUT / f"{tid}.webp", quality=92, method=6)
-        mk = np.dstack([hair, iris, np.zeros_like(hair)])
-        Image.fromarray((np.clip(mk, 0, 1) * 255).astype(np.uint8), "RGB").resize((WIDTH, nh), Image.BILINEAR).save(OUT / f"{tid}_m.png", optimize=True)
-        sx = WIDTH / w
-        oval = lm[OVAL]
-        heads[tid] = dict(
-            group=group(tid), w=WIDTH, h=nh,
-            cx=round(float(lm[1][0]) * sx, 2), cy=round(float(oval[:, 1].mean()) * sx, 2),
-            fw=round(float(lm[454][0] - lm[234][0]) * sx, 2),
-            brow_top=round(float(lm[BROWS][:, 1].min()) * sx, 2),
-            pts=[[round(float(lm[i][0]) * sx, 1), round(float(lm[i][1]) * sx, 1)] for i in INDICES],
-        )
+        st = p.stat()
+        sig = f"{st.st_mtime_ns}:{st.st_size}:{BAKE_VERSION}"
+        hit = cache.get(tid)
+        if hit and hit["sig"] == sig and (OUT / f"{tid}.webp").exists() and (OUT / f"{tid}_m.png").exists():
+            entry = hit["entry"]
+            reused += 1
+        else:
+            entry = bake_head(p, tid)
+            cache[tid] = dict(sig=sig, entry=entry)
+            baked += 1
+        heads[tid] = dict(group=group(tid), **entry)
+    CACHE.write_text(json.dumps(cache, separators=(",", ":")))
     out = dict(indices=INDICES, groups=sorted({v["group"] for v in heads.values()}), heads=heads)
     (ROOT / "assets/portraits/heads.json").write_text(json.dumps(out, separators=(",", ":")))
     size = sum(f.stat().st_size for f in OUT.iterdir())
-    print(len(heads), "heads,", round(size / 1e6, 1), "MB images,", len(INDICES), "anchor indices")
+    print(f"{len(heads)} heads ({baked} baked, {reused} unchanged), {round(size / 1e6, 1)} MB images, {len(INDICES)} anchor indices")
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    main(force="--force" in sys.argv)

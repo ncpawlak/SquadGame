@@ -1181,6 +1181,35 @@ func test_preseason_camp() -> void:
 	check(not s2.preseason_camp and s2.week == 2, "sim_week closes camp and plays Week 1")
 
 
+func test_feed_upsets_and_potw_count() -> void:
+	var s := Season.new_franchise(625, 0, 2026, true)
+	for i in 3:
+		s.sim_week()
+	var wk := s.week - 1
+	# Every listed upset is a played match whose loser out-rates the winner by UPSET_GAP+, biggest gap first.
+	var ups := Newsroom.upsets_in(s, wk)
+	var expected := 0
+	for m: ScheduledMatch in s.matches_for_week(wk):
+		if m.is_played() and m.loser().team_ovr() - m.winner().team_ovr() >= Newsroom.UPSET_GAP:
+			expected += 1
+	check(ups.size() == expected, "upsets_in finds every upset (%d vs %d)" % [ups.size(), expected])
+	for i in ups.size():
+		var u: Dictionary = ups[i]
+		check(u["w"] == (u["m"] as ScheduledMatch).winner() and int(u["gap"]) >= Newsroom.UPSET_GAP, "upset row is valid")
+		if i > 0:
+			check(int(ups[i - 1]["gap"]) >= int(u["gap"]), "upsets sorted by gap")
+	# POTW season count matches a hand count over the weeks played.
+	var potw := SeasonReview.player_of_week(s, wk)
+	check(not potw.is_empty(), "a player of the week exists")
+	var so: Soldier = potw["soldier"]
+	var n := 0
+	for w in range(1, wk + 1):
+		if SeasonReview.player_of_week(s, w).get("soldier") == so:
+			n += 1
+	check(SeasonReview.potw_count(s, so, wk) == n and n >= 1, "potw_count matches (%d)" % n)
+	check(SeasonReview.potw_count(s, so, 0) == 0, "no awards before week 1")
+
+
 func test_progression_history_and_potw() -> void:
 	var s := Season.new_franchise(618, 0, 2026, true)
 	var user := s.user_team()

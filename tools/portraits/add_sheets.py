@@ -36,10 +36,27 @@ def thumb(a):
     return (v - v.mean()) / (v.std() + 1e-6)
 
 
+THUMBS = Path(__file__).with_name("work") / "thumb_cache.npz"
+
+
 def existing_thumbs():
-    out = {}
+    """Duplicate-check thumbnails for every tile; only new or changed tiles are decoded (cache in work/thumb_cache.npz)."""
+    cache = {}
+    if THUMBS.exists():
+        z = np.load(THUMBS, allow_pickle=True)
+        cache = {n: (m, v) for n, m, v in zip(z["names"], z["mtimes"], z["vecs"])}
+    out, fresh = {}, False
     for p in TILES.glob("*.png"):
-        out[p.stem] = thumb(cv2.imread(str(p)))
+        m = p.stat().st_mtime_ns
+        if p.stem in cache and cache[p.stem][0] == m:
+            out[p.stem] = cache[p.stem][1]
+        else:
+            out[p.stem] = thumb(cv2.imread(str(p)))
+            cache[p.stem] = (m, out[p.stem])
+            fresh = True
+    if fresh:
+        names = sorted(out)
+        np.savez(THUMBS, names=np.array(names), mtimes=np.array([cache[n][0] for n in names]), vecs=np.stack([out[n] for n in names]))
     return out
 
 
