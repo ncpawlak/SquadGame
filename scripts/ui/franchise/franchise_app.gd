@@ -511,6 +511,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			close_debug()
 			accept_event()
 		return
+	var sub := _subtab_dir(event)
 	if event is InputEventKey and event.pressed and WASD.has(event.keycode):
 		_fire_action(WASD[event.keycode])
 		accept_event()
@@ -522,6 +523,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		if screen and screen.has_method("cycle_tab"):
 			screen.cycle_tab(1)
 		accept_event()
+	elif sub != 0:
+		if screen and screen.has_method("cycle_subtab") and screen.cycle_subtab(sub):
+			accept_event()
 	elif event.is_action_pressed(&"ui_cancel") or _is_key_or_button(event, KEY_BACKSPACE, JOY_BUTTON_B):
 		if screen and screen.has_method("go_back"):
 			screen.go_back()
@@ -534,6 +538,26 @@ func _is_key_or_button(event: InputEvent, key: Key, joy: JoyButton) -> bool:
 	if event is InputEventJoypadButton:
 		return event.pressed and event.button_index == joy
 	return false
+
+
+## Triggers are analog axes: track each one so a single squeeze steps once.
+var _trigger_down := {}
+
+
+## Sub-tab step for this event: 1 / LT = -1, 3 / RT = +1, else 0.
+func _subtab_dir(event: InputEvent) -> int:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode in [KEY_1, KEY_KP_1]:
+			return -1
+		if event.keycode in [KEY_3, KEY_KP_3]:
+			return 1
+	if event is InputEventJoypadMotion and event.axis in [JOY_AXIS_TRIGGER_LEFT, JOY_AXIS_TRIGGER_RIGHT]:
+		var was: bool = _trigger_down.get(event.axis, false)
+		var down: bool = event.axis_value > (0.3 if was else 0.6)
+		_trigger_down[event.axis] = down
+		if down and not was:
+			return -1 if event.axis == JOY_AXIS_TRIGGER_LEFT else 1
+	return 0
 
 
 func _fire_action(action: StringName) -> void:
