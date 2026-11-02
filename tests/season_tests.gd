@@ -1626,6 +1626,68 @@ func test_negotiation_arguments() -> void:
 	check(s != null, "season ok")
 
 
+func test_negotiation_chance() -> void:
+	var r := _expiring_talks(94)
+	var so: Soldier = r[2]
+	var n: Negotiation = r[3]
+	var yrs := 2
+	var want := n.demand(yrs)
+	# The odds climb with the offer: nothing for a lowball, certain at his ask.
+	check(n.accept_chance(Contracts.MIN_SALARY, yrs) == 0.0, "a lowball has no chance")
+	check(n.accept_chance(want, yrs) == 1.0, "his ask is a sure thing")
+	var prev := 0.0
+	var mono := true
+	for pct in range(80, 101, 2):
+		var c := n.accept_chance(Contracts._round_salary(want * pct / 100.0), yrs)
+		if c < prev - 0.0001:
+			mono = false
+		prev = c
+	check(mono, "odds never fall as the offer rises")
+	var near := n.accept_chance(Contracts._round_salary(want * 0.97), yrs)
+	check(near > 0.0 and near < 1.0, "a near miss is a real gamble (%.2f)" % near)
+	check(n.final_chance(Contracts._round_salary(want * 0.97), yrs) <= near, "a final offer is never likelier than a plain one")
+	# Savvy players are harder to land with a near miss.
+	var d := so.get_dna()
+	d.savvy = 5
+	var easy := n.accept_chance(Contracts._round_salary(want * 0.95), yrs)
+	d.savvy = 95
+	check(n.accept_chance(Contracts._round_salary(want * 0.95), yrs) < easy, "savvy players are harder to sway")
+	# The roll is fixed for a given offer in a given round: asking twice gives the same answer.
+	var sal := Contracts._round_salary(want * 0.97)
+	var first := n._roll("offer", sal, yrs, {})
+	check(first == n._roll("offer", sal, yrs, {}), "the roll is repeatable")
+	n.rounds += 1
+	check(first != n._roll("offer", sal, yrs, {}), "the roll changes next round")
+	# The preview with a pitch matches what playing it does to his ask.
+	var pitch := n.arguments().filter(func(a): return a["fit"] >= Negotiation.BACKFIRE_FIT)
+	if not pitch.is_empty():
+		var id: StringName = pitch[0]["id"]
+		var pv := n.preview(sal, yrs, {}, id)
+		check(pv["share"] >= n.offer_share(sal, yrs), "a landed pitch can only raise his share")
+		var mult := n.tactic_mult(id)
+		var p0 := n.patience
+		var res := n.make_offer(sal, yrs, {}, id)
+		check(res["result"] != "error" and n.used.has(id), "the pitch rode on the offer")
+		check(n.demand_mult <= mult + 0.000001 or res["result"] == "signed", "his ask ends at or under the previewed ask")
+		check(n.patience >= p0 - Negotiation.ROUND_COST - 0.001 or res["result"] == "walked", "a pitch costs no patience of its own")
+		check(n.make_offer(sal, yrs, {}, id)["result"] == "error" if n.is_open() else true, "a pitch can't be reused")
+	# A near miss that rolls badly counters instead of walking; a bad final offer walks.
+	r = _expiring_talks(95)
+	var m: Negotiation = r[3]
+	var msal := Contracts._round_salary(m.demand(yrs) * 0.9)
+	var signed := 0
+	var countered := 0
+	for k in 12:
+		var t: Negotiation = Negotiation.start(r[0], r[1], r[2])
+		t.rounds = k
+		var out := t.make_offer(msal, yrs)
+		if out["result"] == "signed":
+			signed += 1
+		elif out["result"] == "countered":
+			countered += 1
+	check(countered > 0, "some near misses end in a counter (signed %d of 12)" % signed)
+
+
 func test_starter_promises() -> void:
 	var s := Season.new_franchise(91)
 	var user := s.user_team()
