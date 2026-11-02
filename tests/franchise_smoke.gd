@@ -188,6 +188,7 @@ func _init() -> void:
 			await _visit_pages(hub, "midseason")
 	_check(saw_matchup and watched, "Play Week opens the matchup screen")
 	_check(hub.season.champion != null, "season finished with a champion")
+	await _visit_news(hub)
 	await _visit_pages(hub, "offseason")
 
 	var player: Soldier = hub.season.user_team().roster[0]
@@ -439,6 +440,36 @@ func _extension_flow(hub) -> void:
 	hub.page_stack.clear()
 	hub.refresh()
 	await process_frame
+
+
+## Opens every Weekly News issue, checks the tag chips and name links build, and clicks a linked name.
+func _visit_news(hub) -> void:
+	var nr: Newsroom = hub.season.newsroom
+	var clicked := false
+	for i in nr.count():
+		hub.open_news(i)
+		await process_frame
+		_check(hub._content.get_child_count() > 0, "news issue %d builds" % i)
+		if not clicked:
+			for label in _rich_labels(hub._content):
+				if label.text.contains("[url="):
+					var start: int = label.text.find("[url=") + 5
+					label.meta_clicked.emit(label.text.substr(start, label.text.find("]", start) - start))
+					await process_frame
+					_check(hub.go_back(), "a linked name opens a page that goes back")
+					clicked = true
+					break
+		hub.go_back()
+	_check(clicked, "some issue links a player name")
+
+
+func _rich_labels(node: Node) -> Array:
+	var out: Array = []
+	if node is RichTextLabel:
+		out.append(node)
+	for c in node.get_children():
+		out.append_array(_rich_labels(c))
+	return out
 
 
 func _visit_pages(hub, phase: String) -> void:

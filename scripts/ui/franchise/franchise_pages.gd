@@ -6623,7 +6623,13 @@ func news_article(i: int) -> Control:
 	v.add_child(mast)
 	v.add_child(_news_rule(UiKit.ACCENT, 3))
 	# Head.
-	v.add_child(UiKit.display(String(a["section"]), 18, UiKit.ACCENT))
+	var kicker := _row(14)
+	kicker.add_child(UiKit.display(String(a["section"]), 18, UiKit.ACCENT))
+	for tag in a.get("tags", []):
+		var chip := UiKit.panel(Color(0.96, 0.62, 0.04, 0.18), 4)
+		chip.add_child(UiKit.label(String(tag).to_upper(), 13, Color("#f59e0b")))
+		kicker.add_child(chip)
+	v.add_child(kicker)
 	var head := UiKit.display(String(a["headline"]), 54, Color.WHITE, true)
 	head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	head.custom_minimum_size.x = NEWS_MAIN_W + NEWS_SIDE_W
@@ -6648,10 +6654,14 @@ func news_article(i: int) -> Control:
 	var body: Array = a["body"]
 	var pq: Dictionary = a["pull_quote"]
 	for p in body.size():
-		var text := UiKit.esc(String(body[p]))
+		var text := _news_link_names(_news_kicker(UiKit.esc(String(body[p]))), a.get("links", []))
 		if p == 0:
 			text = "[b]%s[/b]  -  %s" % [UiKit.esc(String(a["dateline"])), text]
-		main.add_child(_serif(text))
+		var para := _serif(text)
+		if text.contains("[url="):
+			para.mouse_filter = Control.MOUSE_FILTER_PASS
+			para.meta_clicked.connect(func(meta): _news_open_soldier(int(str(meta))))
+		main.add_child(para)
 		if p == mini(1, body.size() - 1) and not pq.is_empty():
 			main.add_child(_news_pull_quote(pq))
 	var roundup: Array = a["roundup"]
@@ -6670,6 +6680,58 @@ func news_article(i: int) -> Control:
 	v.add_child(_news_rule())
 	v.add_child(_news_nav(i))
 	return outer
+
+
+## Bolds a leading "NEXT UP:"-style label of a notebook note.
+func _news_kicker(text: String) -> String:
+	var re := RegEx.create_from_string("^([A-Z][A-Z ]{2,22}):")
+	var m := re.search(text)
+	if m == null:
+		return text
+	return "[b][color=#f59e0b]%s[/color][/b]:%s" % [m.get_string(1), text.substr(m.get_end())]
+
+
+## Wraps the names an issue used in [url] tags (the id as the link) so a click opens that soldier. Full names
+## and last names are matched together, longest first; a last name shared by two soldiers is left alone.
+func _news_link_names(text: String, links: Array) -> String:
+	var ids := {}
+	var lasts := {}
+	for l: Dictionary in links:
+		lasts[l["last"]] = int(lasts.get(l["last"], 0)) + 1
+	for l: Dictionary in links:
+		ids[UiKit.esc(String(l["name"]))] = int(l["id"])
+		if int(lasts[l["last"]]) == 1:
+			ids[UiKit.esc(String(l["last"]))] = int(l["id"])
+	if ids.is_empty():
+		return text
+	var names: Array = ids.keys()
+	names.sort_custom(func(a, b): return String(a).length() > String(b).length())
+	var parts: Array = []
+	for n in names:
+		var s := String(n)
+		for ch in ["\\", ".", "^", "$", "*", "+", "?", "(", ")", "[", "]", "{", "}", "|"]:
+			s = s.replace(ch, "\\" + ch)
+		parts.append(s)
+	var re := RegEx.create_from_string("(?<![\\w\\[=])(" + "|".join(parts) + ")(?![\\w])")
+	var found := re.search_all(text)
+	for i in range(found.size() - 1, -1, -1):
+		var m := found[i]
+		text = text.substr(0, m.get_start()) + "[url=%d]%s[/url]" % [ids[m.get_string()], m.get_string()] + text.substr(m.get_end())
+	return text
+
+
+## Opens the page of a soldier named in an issue (anyone still on a roster or in free agency).
+func _news_open_soldier(id: int) -> void:
+	var league := _season().league
+	for t in league.teams:
+		for so in t.roster:
+			if so.id == id:
+				open_player(so)
+				return
+	for so in league.free_agents:
+		if so.id == id:
+			open_player(so)
+			return
 
 
 func _news_pull_quote(pq: Dictionary) -> Control:

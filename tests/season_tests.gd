@@ -2573,6 +2573,100 @@ func test_newsroom() -> void:
 	check(LeagueData.press_for(a1.user_team())[0] != press[0], "different clubs, different papers")
 
 
+func test_news_history() -> void:
+	# The queries, on a hand-built book.
+	var h := {"potw": [{"y": 2026, "w": 3, "id": 7, "team": "DET", "k": 20, "d": 4, "a": 5},
+			{"y": 2026, "w": 4, "id": 7, "team": "DET", "k": 18, "d": 5, "a": 2},
+			{"y": 2027, "w": 1, "id": 7, "team": "DET", "k": 11, "d": 6, "a": 3},
+			{"y": 2027, "w": 2, "id": 9, "team": "BOS", "k": 14, "d": 6, "a": 3}],
+		"mvp": {"7": {"n": 3, "y": 2027, "w": 1}},
+		"log": {"7": [{"y": 2026, "w": 4, "k": 18}, {"y": 2027, "w": 1, "k": 11}]}}
+	check(NewsHistory.potw_count(h, 7, 2026) == 2 and NewsHistory.potw_count(h, 7, 2027) == 1, "Player of the Week counts are per season")
+	check(not NewsHistory.potw_back_to_back(h, 7), "weeks in different seasons are not back-to-back")
+	h["potw"].pop_at(2)
+	check(NewsHistory.potw_back_to_back(h, 7), "consecutive weeks in one season are back-to-back")
+	check(NewsHistory.mvp_run(h, 7) == 3 and NewsHistory.mvp_run(h, 9) == 0, "an MVP run is read back by soldier")
+	check(NewsHistory.recent(h, 7, 2027).size() == 1 and NewsHistory.recent(h, 7).size() == 2, "recent lines can be limited to a season")
+	check(NewsHistory.potw_of(h, 2027, 2)["id"] == 9 and NewsHistory.potw_of(h, 2027, 9).is_empty(), "the award of a given week is found")
+	# The book a season writes agrees with the league's own Player of the Week.
+	var s := _fixed(61, 1)
+	s.sim_to_end_of_season()
+	var book := s.newsroom.history
+	check((book["potw"] as Array).size() == s.total_weeks(), "one Player of the Week a week (%d)" % (book["potw"] as Array).size())
+	for w in range(1, s.total_weeks() + 1):
+		var real := SeasonReview.player_of_week(s, w)
+		var e := NewsHistory.potw_of(book, s.year, w)
+		check(not real.is_empty() and not e.is_empty() and int(e["id"]) == (real["soldier"] as Soldier).id, "week %d award matches the league's" % w)
+	var before := (book["potw"] as Array).size()
+	NewsHistory.record_week(book, s, s.total_weeks())
+	check((book["potw"] as Array).size() == before, "recording a week twice changes nothing")
+	for key in book["mvp"]:
+		check(int(book["mvp"][key]["n"]) >= 1, "an MVP run is at least one match")
+	for key in book["log"]:
+		check((book["log"][key] as Array).size() <= NewsHistory.KEEP_LOG, "a soldier's log stays short")
+
+
+func test_newsroom_variety() -> void:
+	var s := _fixed(61, 1)
+	for i in 2:
+		s.sim_to_end_of_season()
+		while s.offseason_stage != Season.OFF_DONE:
+			s.advance_offseason()
+		s.start_next_season()
+	var nr := s.newsroom
+	var formats := {}
+	var ledes := {}
+	var lengths := {}
+	for i in nr.count():
+		var a: Dictionary = nr.issue(i)
+		check(not (a["tags"] as Array).is_empty(), "issue %d has a tag" % i)
+		for l: Dictionary in a["links"]:
+			check(String(l["name"]) != "" and String(l["last"]) != "" and int(l["id"]) > 0, "issue %d has well-formed name links" % i)
+		for p in a["body"]:
+			var text := String(p)
+			check(not text.contains("zero weeks") and not text.contains(" -1 weeks") and not text.contains("in one weeks"), "issue %d has a sensible span: %s" % [i, text])
+		if a["kind"] == Newsroom.KIND_GAME:
+			formats[a["format"]] = true
+			ledes[a["angles"][0]] = true
+			lengths[(a["body"] as Array).size()] = true
+	var checked := 0
+	for i in nr.count():
+		var st: Dictionary = nr.issue(i).get("story", {})
+		if st.is_empty():
+			continue
+		var so: Soldier = null
+		for t in s.league.teams:
+			for x in t.roster:
+				if x.id == int(st.get("sid", -1)):
+					so = x
+		if so == null:
+			continue
+		checked += 1
+		match st["id"]:
+			"potw_ours":
+				var e := NewsHistory.potw_of(nr.history, int(st["year"]), int(st["week"]))
+				check(not e.is_empty() and int(e["id"]) == so.id and e["team"] == s.user_team().abbrev, "issue %d: the Player of the Week story names the real winner" % i)
+			"milestone":
+				check(int(so.career.get(st["key"], 0)) >= int(st["mark"]), "issue %d: %s really passed %d" % [i, so.last_name, int(st["mark"])])
+			"mvp_streak":
+				check(int(so.career.get("mvps", 0)) >= int(st["n"]), "issue %d: %s has the MVPs the streak story claims" % [i, so.last_name])
+			"reunion":
+				var old := false
+				for y in so.season_lines:
+					if int(y) < int(st["year"]) and so.season_lines[y].get("team", "") == st["old_abbr"]:
+						old = true
+				check(old, "issue %d: %s really played for the old club" % [i, so.last_name])
+	check(checked >= 3, "story issues can be checked against the league (%d)" % checked)
+	check(formats.size() >= 3, "game issues come in several formats (%s)" % [formats.keys()])
+	check(ledes.size() >= 6, "game issues lead with different things (%d)" % ledes.size())
+	check(lengths.size() >= 4, "game issues come in different lengths (%s)" % [lengths.keys()])
+	# Threads that count weeks start over with the season.
+	check(int(nr.memory.get("year", -1)) == s.year, "the paper's week-counting memory belongs to this season")
+	for key in (nr.memory.get("goat", {}) as Dictionary):
+		for w in nr.memory["goat"][key]:
+			check(int(w) >= 1 and int(w) <= s.total_weeks() + 1, "a remembered week belongs to this season (%s)" % w)
+
+
 func test_division_schedule() -> void:
 	var s := _fixed(11)
 	check(s.regular_weeks == 12, "12 regular weeks")
