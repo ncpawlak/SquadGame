@@ -82,7 +82,8 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   Adjust Lineup); the current week on the right. **<** / **>** arrows on the
   "WEEK n of 12" bar browse back and forward through the season and playoffs: past weeks show the final score, each
   game and the MVP with a Box Score button; future weeks show the matchup preview (two-tone team banner, logos, team OVRs
-  and stat-comparison bars). **SIM TO ▾** and **PLAY WEEK X** sit in the week card's top bar next to Match Preview.
+  and stat-comparison bars). The card always reads "AWAY @ HOME": the visiting team on the left, the home team on the
+  right. **SIM TO ▾** and **PLAY WEEK X** sit in the week card's top bar next to Match Preview.
   Urgent to-dos come first in orange with a "!"; finished ones are greyed out with a check.
 - **Home news box**: a fixed-height scrolling feed under everything, filtered by All / Around the League (Player
   of the Week with his season count, upsets - wins over a roster rated 4+ OVR higher - wire stories, trades, signings,
@@ -317,7 +318,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   pair becomes a new team-specific rivalry and it ends below 15 (the named ones never end). Intensity (kind + heat)
   sets the morale swing for a rivalry game (2 to 4). Head-to-head records and streaks are kept for every pair that
   meets (they move into the stat ledger, issue #11, later). Rivalries don't shape the schedule. On the Home
-  matchup the big VS / @ becomes a flame (team-specific) and/or clashing chevrons (divisional), stacked when both
+  matchup the big @ becomes a flame (team-specific) and/or clashing chevrons (divisional), stacked when both
   apply, with the rivalry name, series record and intensity on hover.
 - **Stat ledger** (`scripts/season/stat_ledger.gd`, `stat_registry.gd`, issue #11): every league match is recorded
   once (exhibitions never are). One bullet per feature, so a new one is a new line here and never an edit to another.
