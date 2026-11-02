@@ -4,6 +4,7 @@
     python spike.py layers              # debug sheet of extracted hair/beard layers
     python spike.py combos [N] [seed]   # N composites on team-coloured discs
 """
+import json
 import random
 import sys
 from pathlib import Path
@@ -55,13 +56,24 @@ def key_background(bgr, lm):
     """Soft foreground alpha from the blue backdrop, plus blue-fringe despill along the edge."""
     b, g, r = [bgr[..., i].astype(np.float32) for i in range(3)]
     bd = b - np.maximum(r, g)
-    a = np.clip(1.0 - (bd - 15.0) / 35.0, 0, 1)
-    a = np.maximum(a, np.clip((85.0 - b) / 25.0, 0, 1))  # very dark pixels are hair, not backdrop
+    # Measure this tile's own backdrop from its side margins (the face never reaches them). Bright-backdrop sheets keep the
+    # original fixed thresholds; dark navy sheets scale to the measured blueness, and black hair is told apart by having none.
+    h0, w0 = bd.shape
+    margin = np.concatenate([bd[: int(0.7 * h0), 2:14], bd[: int(0.7 * h0), -14:-2]], axis=1)
+    bdb = float(np.percentile(margin, 80))  # upper quartile: hair or dreads reaching the edge only lower the blueness
+    if bdb >= 60.0:
+        a = np.clip(1.0 - (bd - 15.0) / 35.0, 0, 1)
+        a = np.maximum(a, np.clip((85.0 - b) / 25.0, 0, 1))  # very dark pixels are hair, not backdrop
+    else:
+        a = np.clip(1.0 - (bd - 0.45 * bdb) / (0.45 * bdb), 0, 1)
     a = np.maximum(a, poly_mask(bgr.shape, lm[OVAL], -4))  # never punch holes in the face (blue eyes)
     solid = (a > 0.5).astype(np.uint8)
     n, lab, stats, _ = cv2.connectedComponentsWithStats(solid, connectivity=8)
     keep = np.zeros(n, bool)
     keep[1:] = stats[1:, cv2.CC_STAT_AREA] > 250
+    # Only pieces connected to the face survive; leftover swoosh fragments elsewhere are backdrop.
+    face_hit = np.unique(lab[poly_mask(bgr.shape, lm[OVAL], -6) > 0.5])
+    keep &= np.isin(np.arange(n), face_hit)
     a = a * keep[lab]
     a = cv2.erode(a, np.ones((3, 3), np.uint8))
     edge = cv2.dilate((a > 0.02).astype(np.uint8), np.ones((9, 9), np.uint8)) - cv2.erode((a > 0.98).astype(np.uint8), np.ones((9, 9), np.uint8))
@@ -246,13 +258,33 @@ def label(img, text):
 _SKIN = {}
 
 
+_SKIN_FILE = HERE / "work" / "skin_cache.json"
+_SKIN_DISK = None
+
+
+def _skin_disk():
+    global _SKIN_DISK
+    if _SKIN_DISK is None:
+        _SKIN_DISK = json.loads(_SKIN_FILE.read_text()) if _SKIN_FILE.exists() else {}
+        import atexit
+        atexit.register(lambda: _SKIN_FILE.write_text(json.dumps(_SKIN_DISK)))
+    return _SKIN_DISK
+
+
 def skin_lab(tid):
-    """Median upper-cheek colour (8-bit Lab) of a head; the basis for skin-tone matching."""
+    """Median upper-cheek colour (8-bit Lab) of a head; the basis for skin-tone matching. Cached on disk per cutout."""
     if tid not in _SKIN:
-        bgr, _, lm = load(tid)
-        lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
-        px = np.concatenate([lab[int(y) - 7:int(y) + 8, int(x) - 7:int(x) + 8].reshape(-1, 3) for x, y in (lm[117], lm[346])])
-        _SKIN[tid] = np.median(px, axis=0)
+        st = (PREP / f"{tid}.npz").stat()
+        sig = f"{st.st_mtime_ns}:{st.st_size}"
+        disk = _skin_disk()
+        if tid in disk and disk[tid][0] == sig:
+            _SKIN[tid] = np.array(disk[tid][1], np.float32)
+        else:
+            bgr, _, lm = load(tid)
+            lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+            px = np.concatenate([lab[int(y) - 7:int(y) + 8, int(x) - 7:int(x) + 8].reshape(-1, 3) for x, y in (lm[117], lm[346])])
+            _SKIN[tid] = np.median(px, axis=0)
+            disk[tid] = [sig, [float(v) for v in _SKIN[tid]]]
     return _SKIN[tid]
 
 

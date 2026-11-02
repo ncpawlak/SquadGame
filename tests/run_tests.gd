@@ -254,6 +254,22 @@ func test_faces() -> void:
 			check(so.get_face().group == FaceSpec.generate(so.id, so.first_name, so.last_name).group, "re-roll keeps the group (%s)" % so.full_name())
 	for pair in ["Alex", "Tyler", "Nate"]:
 		check(FacePrior.weights(pair, "Stone").size() == 4, "neutral names still produce weights")
+	# The wide name pool has no repeats and keeps the roster-wide skin mix near the base mix.
+	for pool in [PlayerGenerator.first_pool(), PlayerGenerator.last_pool()]:
+		var uniq := {}
+		for n in pool:
+			uniq[n] = true
+		check(uniq.size() == pool.size(), "name pool has no repeated names")
+	var mix := {}
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	var firsts := PlayerGenerator.first_pool()
+	var lasts := PlayerGenerator.last_pool()
+	for i in 6000:
+		var g := FacePrior.pick_group(rng, firsts[rng.randi_range(0, firsts.size() - 1)], lasts[rng.randi_range(0, lasts.size() - 1)])
+		mix[g] = mix.get(g, 0) + 1
+	check(mix.get("light", 0) > 2400 and mix.get("light", 0) < 3700, "pool skin mix: light is about half (%s)" % mix)
+	check(mix.get("dark", 0) > 1100 and mix.get("brown", 0) > 600 and mix.get("asian", 0) > 200, "pool skin mix: other groups well represented (%s)" % mix)
 
 
 func test_looks() -> void:
