@@ -146,19 +146,24 @@ func schedule() -> Control:
 	return v
 
 
+## The open page's own title (paging keeps it), or `fallback` when shown inline.
+func _page_title(fallback: String) -> String:
+	return hub.page_stack[-1]["title"] if not hub.page_stack.is_empty() else fallback
+
+
 func scores(w: int) -> Control:
 	var s := _season()
 	w = clampi(w, 1, s.total_weeks())
 	var v := _vbox()
 	var nav := _row()
-	var prev := UiKit.button("< Prev week", func(): hub.replace("Scores & Schedule", func(): return scores(w - 1)))
+	var prev := UiKit.button("< Prev week", func(): hub.replace(_page_title("League Schedule"), func(): return scores(w - 1)))
 	prev.disabled = w <= 1
 	nav.add_child(prev)
 	var lbl := UiKit.label(s.week_label(w).to_upper(), 24, Color.WHITE)
 	lbl.custom_minimum_size.x = 220
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	nav.add_child(lbl)
-	var next := UiKit.button("Next week >", func(): hub.replace("Scores & Schedule", func(): return scores(w + 1)))
+	var next := UiKit.button("Next week >", func(): hub.replace(_page_title("League Schedule"), func(): return scores(w + 1)))
 	next.disabled = w >= s.total_weeks()
 	nav.add_child(next)
 	v.add_child(nav)
@@ -2591,11 +2596,11 @@ func training() -> Control:
 	var top := _row()
 	top.add_child(UiKit.button("Auto-set intensities", func():
 		Training.ai_set_intensities(team)
-		hub.replace("Training", training)))
+		hub.replace("Weekly Training", training)))
 	top.add_child(UiKit.button("All Normal", func():
 		for so in team.roster:
 			so.intensity = Soldier.INTENSITY_NORMAL
-		hub.replace("Training", training)))
+		hub.replace("Weekly Training", training)))
 	v.add_child(top)
 	var list: Array = team.roster.duplicate()
 	list.sort_custom(func(a: Soldier, b: Soldier): return _slot_order(team, a) < _slot_order(team, b))
@@ -2623,7 +2628,7 @@ func training() -> Control:
 			var who := so
 			pick.item_selected.connect(func(i: int):
 				who.intensity = Training.INTENSITIES[i]
-				hub.replace("Training", training))
+				hub.replace("Weekly Training", training))
 			row.add_child(pick)
 		v.add_child(row)
 	var foot := _row()
@@ -2678,7 +2683,7 @@ func training_results() -> Control:
 		if Progression.can_level_up(so):
 			row.add_child(UiKit.label("  can level up", 15, UiKit.GOOD))
 		v.add_child(_click_wrap(row, func(): open_player(so), 46))
-	var cont := UiKit.button("Continue  >>", func(): hub.select_tab(0), 20)
+	var cont := UiKit.button("Continue  >>", func(): hub.go_home(), 20)
 	cont.custom_minimum_size = Vector2(260, 52)
 	cont.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	v.add_child(cont)

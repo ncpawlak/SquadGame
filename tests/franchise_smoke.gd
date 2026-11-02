@@ -28,6 +28,7 @@ func _init() -> void:
 		_check(hub._content.get_child_count() > 0, "tab %s builds" % hub.TABS[i])
 	hub.cycle_tab(1)
 	_check(hub.tab_index == 0, "tab cycling wraps")
+	await _subtab_flow(hub)
 	# The Club pages build and read the ledger and buzz.
 	for pg in [["Finances", hub.club.finances], ["Market & Buzz", hub.club.market_buzz], ["Facilities", hub.club.facilities]]:
 		hub.open(pg[0], pg[1])
@@ -388,6 +389,64 @@ func _init() -> void:
 
 	print("Franchise smoke: ", "PASS" if ok else "FAIL")
 	quit(0 if ok else 1)
+
+
+## Issue #82: sub-tab bars on Team / Personnel / League, per-tab memory, to-do jumps with Back to Home.
+func _subtab_flow(hub) -> void:
+	var tabs: Dictionary = hub.Tab
+	_check(hub.TABS == ["Home", "Team", "Personnel", "League", "Club", "Settings"], "Personnel sits before League")
+	_check(hub.TABS[tabs["PERSONNEL"]] == "Personnel" and hub.TABS[tabs["LEAGUE"]] == "League", "tab IDs match the bar")
+	for t in ["TEAM", "PERSONNEL", "LEAGUE"]:
+		hub.select_tab(tabs[t])
+		await process_frame
+		_check(hub._content.find_child("SubTabs", true, false) != null, "%s pane has a sub-tab bar" % t)
+		_check(hub._content.find_child("%sPrev" % t.capitalize(), true, false) == null, "%s pane has no arrows" % t)
+	hub.select_tab(tabs["LEAGUE"])
+	await process_frame
+	_check(hub.cycle_subtab(1) and hub.league_view == 1, "3 / RT steps the League sub-tab")
+	hub.select_tab(tabs["TEAM"])
+	await process_frame
+	_check(hub.cycle_subtab(-1) and hub.team_view == 1, "1 / LT wraps the Team sub-tab")
+	hub.select_tab(tabs["LEAGUE"])
+	await process_frame
+	_check(hub.league_view == 1, "League remembers its sub-tab")
+	hub.cycle_subtab(-1)
+	hub.select_tab(tabs["HOME"])
+	_check(not hub.cycle_subtab(1), "Home has no sub-tabs")
+	# Lineup badge when a starter is hurt.
+	var starter: Soldier = hub.season.user_team().starters()[0]
+	var weeks: int = starter.injury_weeks
+	starter.injury_weeks = 2
+	hub.select_tab(tabs["TEAM"])
+	await process_frame
+	var lineup_tab: Node = hub._content.find_child("SubTabLineup", true, false)
+	_check(lineup_tab != null and lineup_tab.get_meta(&"subtab_badge", "") == "!", "Lineup sub-tab flags a hurt starter")
+	# The Adjust Lineup to-do opens Team > Lineup; Esc / B lands back on Home.
+	hub.team_view = 0
+	hub.select_tab(tabs["HOME"])
+	await process_frame
+	var todo: Button = null
+	for b in hub._content.find_children("*", "Button", true, false):
+		for l in b.find_children("*", "Label", true, false):
+			if l.text.to_upper().ends_with("ADJUST LINEUP"):
+				todo = b
+	_check(todo != null, "Adjust Lineup to-do on Home")
+	if todo != null:
+		todo.pressed.emit()
+		await process_frame
+		_check(hub.tab_index == tabs["TEAM"] and hub.team_view == 1 and hub.page_stack.is_empty(), "Adjust Lineup opens the Team > Lineup sub-tab")
+		_check(hub._content.find_child("BackToHome", true, false) != null, "Back to Home button shown")
+		_check(hub.go_back() and hub.tab_index == tabs["HOME"], "Esc / B returns to Home")
+		await process_frame
+		_check(hub._content.find_child("BackToHome", true, false) == null and not hub.go_back(), "back on Home's to-do list")
+	starter.injury_weeks = weeks
+	hub.open_subtab(tabs["PERSONNEL"], "Trades")
+	await process_frame
+	_check(hub.personnel_view == 1 and hub.return_home, "Trade Offers to-do opens Personnel > Trades")
+	hub.select_tab(tabs["LEAGUE"])
+	_check(not hub.return_home and not hub.go_back(), "switching tabs drops the Back to Home shortcut")
+	hub.select_tab(tabs["HOME"])
+	await process_frame
 
 
 func _wait_loading(hub) -> void:
