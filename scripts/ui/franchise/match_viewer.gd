@@ -94,7 +94,7 @@ func _ready() -> void:
 	_feed.bbcode_enabled = true
 	_feed.scroll_following = true
 	_feed.custom_minimum_size.y = 130
-	_feed.add_theme_font_size_override("normal_font_size", 14)
+	_feed.add_theme_font_size_override("normal_font_size", 16)
 	feed_panel.add_child(_feed)
 	mid.add_child(_build_team_panel(1))
 

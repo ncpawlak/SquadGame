@@ -686,7 +686,7 @@ func play_by_play(m: ScheduledMatch) -> Control:
 	pbp.bbcode_enabled = true
 	pbp.fit_content = true
 	pbp.focus_mode = Control.FOCUS_ALL
-	pbp.add_theme_font_size_override("normal_font_size", 15)
+	pbp.add_theme_font_size_override("normal_font_size", 16)
 	var psb := UiKit.flat(UiKit.PANEL, 8)
 	psb.content_margin_left = 14
 	psb.content_margin_right = 14
@@ -1022,7 +1022,7 @@ func _sort_header(mode: StringName, cols: Array, rebuild: Callable) -> Control:
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.clip_text = true
 		b.custom_minimum_size = Vector2(c[1], 30)
-		b.add_theme_font_size_override("font_size", 13)
+		b.add_theme_font_size_override("font_size", 15)
 		b.add_theme_color_override("font_color", UiKit.ACCENT if active else UiKit.MUTED)
 		b.add_theme_color_override("font_hover_color", Color.WHITE)
 		b.add_theme_color_override("font_focus_color", Color.WHITE)
@@ -1190,7 +1190,7 @@ func _player_pane() -> PanelContainer:
 	sb.content_margin_top = 16
 	sb.content_margin_bottom = 16
 	pane.add_theme_stylebox_override("panel", sb)
-	pane.custom_minimum_size.y = 196
+	pane.custom_minimum_size.y = 248
 	return pane
 
 
@@ -1203,7 +1203,7 @@ func _fill_pane(pane: Control, s: Soldier, team: Team) -> void:
 	var color := team.color if team != null else UiKit.MUTED
 	var h := _row(26)
 	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	h.add_child(Portrait.new(s, 160, color, team))
+	h.add_child(Portrait.new(s, 212, color, team))
 	var mid := _vbox(6)
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mid.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -1391,14 +1391,21 @@ func _player_refresh(s: Soldier, tab := -1) -> void:
 
 
 func player(s: Soldier) -> Control:
+	UiKit.text_boost = 2
+	var v := _player_build(s)
+	UiKit.text_boost = 0
+	return v
+
+
+func _player_build(s: Soldier) -> Control:
 	var team := _team_of(s)
 	var v := _vbox(14)
 	v.add_child(_player_header(s, team))
-	var tabs := _row(6)
+	var tabs := _row(8)
 	for i in PLAYER_TABS.size():
 		var idx := i
-		var b := UiKit.button(PLAYER_TABS[i].to_upper(), func(): _player_refresh(s, idx), 15)
-		b.custom_minimum_size = Vector2(140, 40)
+		var b := UiKit.button(PLAYER_TABS[i].to_upper(), func(): _player_refresh(s, idx), 19)
+		b.custom_minimum_size = Vector2(176, 50)
 		if i == _player_tab:
 			UiKit.style_primary(b)
 		else:
@@ -1446,11 +1453,11 @@ func _player_header(s: Soldier, team: Team) -> Control:
 	pm.add_theme_constant_override("margin_bottom", 16)
 	pane.add_child(pm)
 	var h := _row(24)
-	h.add_child(Portrait.new(s, 132, color, team))
+	h.add_child(Portrait.new(s, 212, color, team))
 	var mid := _vbox(4)
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mid.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	mid.add_child(UiKit.label(s.full_name().to_upper(), 18, UiKit.TEXT))
+	mid.add_child(UiKit.label(s.full_name().to_upper(), 20, UiKit.TEXT))
 	var big := ("\"%s\"" % s.callsign.to_upper()) if s.callsign != "" else s.last_name.to_upper()
 	mid.add_child(UiKit.display(big, 54, Color.WHITE, true))
 	var where := "Free agent"
