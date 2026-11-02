@@ -158,7 +158,7 @@ static func theme() -> Theme:
 	tip.content_margin_bottom = 6
 	th.set_stylebox("panel", "TooltipPanel", tip)
 	th.set_color("font_color", "TooltipLabel", TEXT)
-	th.set_font_size("font_size", "TooltipLabel", 15)
+	th.set_font_size("font_size", "TooltipLabel", 16)
 	th.set_stylebox("panel", "PopupMenu", flat(PANEL_HI, 6, 1, LINE))
 	var ph := flat(ACCENT.darkened(0.45), 3)
 	ph.content_margin_top = 4
@@ -201,10 +201,29 @@ static func flat(color: Color, radius := 8, border := 0, border_color := Color.T
 	return sb
 
 
+## Extra points added to every text size while a screen is built (the player card sets it).
+static var text_boost := 0
+
+## Readable text size: tiny captions are lifted to 14, 14/15 body text gains a point, then
+## text_boost is added. Every label/rich/button size goes through here.
+static func fs(size: int) -> int:
+	if size < 14:
+		size = 14
+	elif size < 16:
+		size += 1
+	return size + text_boost
+
+
+## Button text size: never below 17.
+static func bfs(size: int) -> int:
+	return maxi(17, size) + text_boost
+
+
 ## Plain label. Big sizes switch to the condensed broadcast face (24+ bold, 40+ extra bold).
 static func label(text: String, size := 16, color := TEXT) -> Label:
 	var l := Label.new()
 	l.text = text
+	size = fs(size)
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", color)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -230,10 +249,12 @@ static func rich(text: String, size := 16) -> RichTextLabel:
 	r.bbcode_enabled = true
 	r.fit_content = true
 	r.scroll_active = false
+	size = fs(size)
 	r.add_theme_font_size_override("normal_font_size", size)
 	r.add_theme_font_size_override("bold_font_size", size)
 	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	# Story text still says "#f59e0b" for highlights; show it in the team accent.
+	text = text.replace("[font_size=12]", "[font_size=14]").replace("[font_size=13]", "[font_size=14]")
 	r.text = text.replace("#f59e0b", hex(ACCENT)) if ACCENT != GOLD else text
 	return r
 
@@ -335,7 +356,7 @@ static func style_skewed(b: Button, base := PANEL_HI) -> void:
 static func button(text: String, cb: Callable, size := 16) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.add_theme_font_size_override("font_size", size)
+	b.add_theme_font_size_override("font_size", bfs(size))
 	style_skewed(b)
 	_margins(b, 18)
 	b.pressed.connect(cb)
@@ -346,7 +367,7 @@ static func button(text: String, cb: Callable, size := 16) -> Button:
 static func action_button(text: String, cb: Callable, size := 16) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.add_theme_font_size_override("font_size", size)
+	b.add_theme_font_size_override("font_size", bfs(size))
 	style_primary(b)
 	_margins(b, 20)
 	b.pressed.connect(cb)
