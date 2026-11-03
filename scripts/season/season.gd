@@ -132,6 +132,11 @@ var promise_log: Array = []
 var talks_log: Array = []
 ## Expiring soldiers who left their team when free agency opened: {soldier, team, year}.
 var departures: Array = []
+## Green Team moves: {year, when, team, soldier, kind, other}. Kinds: &"call_up", &"send_down",
+## &"cover" (injury replacement for `other`), &"cover_done", &"refused" (left instead of renewing).
+var green_log: Array = []
+## 1 once every club has a Green Team (new franchises, or old saves after ensure_green_team).
+var green_version := 0
 ## This offseason's training camp (null until the first offseason).
 var camp: Camp = null
 ## True while a new franchise's opening (preseason) training camp is open, before Week 1.
@@ -170,6 +175,7 @@ static func new_franchise(seed_value: int, user_team_index := 0, start_year := 2
 	for i in s.league.teams.size():
 		s.league.teams[i].user_controlled = (i == user_team_index)
 	s._configure()
+	s._setup_green_team(seed_value)
 	var mrng := RandomNumberGenerator.new()
 	mrng.seed = _mix([seed_value, start_year, 0x307A1E])
 	for so in s.league.all_soldiers():
@@ -193,6 +199,24 @@ static func new_franchise(seed_value: int, user_team_index := 0, start_year := 2
 		s.draft.scout_points = 0
 	s._stamp_log()
 	return s
+
+
+func _setup_green_team(seed_value: int) -> void:
+	var grng := RandomNumberGenerator.new()
+	grng.seed = _mix([seed_value, year, 0x6EE4])
+	GreenTeam.setup_league(league, year, grng)
+	green_version = 1
+
+
+## Saves from before the Green Team: builds every club's Green Team (see GreenTeam.setup_league).
+func ensure_green_team() -> void:
+	if green_version >= 1:
+		return
+	_setup_green_team(league.league_seed)
+	for t in league.teams:
+		for so in t.green_team:
+			if so.morale == 0.0:
+				so.morale = 75.0
 
 
 ## Points new progression-history entries (Soldier.log_progress) at the current week / stage.
@@ -449,12 +473,14 @@ func prepare_week() -> void:
 	_stamp_log()
 	last_signings = fa.resolve(self, _rng, week_label(week))
 	_fix_rosters()
+	GreenTeam.auto_covers(self)
 	_prepare_lineups()
 	for t in league.teams:
 		if t.user_controlled:
 			train_user_team()
 		else:
 			Training.run_week(t)
+		GreenTeam.weekly_reps(t)
 	_week_prepared = true
 
 
@@ -556,6 +582,7 @@ func finish_week() -> Array:
 			inj["year"] = year
 			last_injuries.append(inj)
 			injury_log.append(inj)
+	GreenTeam.update_covers(self)
 	_track_promises(played)
 	for t in league.teams:
 		Progression.auto_spend_team(t, _rng)
@@ -658,7 +685,7 @@ func _prepare_lineups() -> void:
 func user_roster_error() -> String:
 	if phase == PHASE_OFFSEASON:
 		return ""
-	var n := user_team().roster.size()
+	var n := user_team().roster_count()
 	var first := phase == PHASE_REGULAR and week == 1
 	if n > Team.ROSTER_SIZE:
 		var extra := n - Team.ROSTER_SIZE
@@ -668,8 +695,10 @@ func user_roster_error() -> String:
 	if n < lo:
 		var short := lo - n
 		if first:
-			return "Week 1 needs exactly %d players. You have %d: sign %d more free agent%s." % [lo, n, short, "" if short == 1 else "s"]
-		return "You need at least %d players to play. You have %d: sign %d more." % [lo, n, short]
+			return "Week 1 needs exactly %d players. You have %d: sign %d more free agent%s or call up from the Green Team." % [lo, n, short, "" if short == 1 else "s"]
+		return "You need at least %d players to play. You have %d: sign %d more or call up from the Green Team." % [lo, n, short]
+	if first:
+		return GreenTeam.user_error(user_team())
 	return ""
 
 
@@ -693,6 +722,8 @@ func _fix_rosters() -> void:
 	for t in league.teams:
 		if t.user_controlled:
 			if user_roster_error() != "":
+				if phase == PHASE_REGULAR and week == 1:
+					GreenTeam.enforce(self, t)
 				for s in t.cut_to_limit():
 					Contracts.charge_release(t, s, cap_year())
 					league.add_free_agent(s, year)
@@ -700,7 +731,8 @@ func _fix_rosters() -> void:
 			continue
 		if t.is_over_roster_limit():
 			trades.restructure(self, t)
-		if t.roster.size() < ROSTER_MIN:
+		GreenTeam.ai_week(self, t)
+		if t.roster_count() < ROSTER_MIN:
 			fa.fill_roster(self, t, Team.ROSTER_SIZE, week_label(week))
 
 
@@ -728,6 +760,7 @@ func start_next_season() -> void:
 	for t in league.teams:
 		if t.user_controlled:
 			continue
+		GreenTeam.enforce(self, t)
 		trades.restructure(self, t)
 		fa.fill_roster(self, t, Team.ROSTER_SIZE, "Preseason")
 	fa.offers.clear()
@@ -756,7 +789,7 @@ func start_next_season() -> void:
 	year += 1
 	for t in league.teams:
 		Conditioning.reset(t)
-		for so in t.roster:
+		for so in t.org():
 			so.morale = lerpf(so.morale, Soldier.MORALE_NEUTRAL, 0.5)
 		if t.user_controlled:
 			t.fill_injured()
@@ -783,14 +816,14 @@ func pending_picks(team: Team) -> int:
 	return draft.picks_left_for(team)
 
 
-## Rookie-scale money `team` will owe for its remaining picks this offseason.
+## Green Team money `team` will owe for its remaining picks this offseason.
 func rookie_reserve(team: Team) -> int:
 	if pending_picks(team) == 0:
 		return 0
 	var total := 0
 	for i in range(draft.next_pick, draft.order.size()):
 		if draft.order[i] == team:
-			total += Contracts.rookie_contract(i + 1, draft.order.size(), year).salary
+			total += Contracts.green_salary_for_pick(i + 1, draft.order.size())
 	return total
 
 
@@ -954,6 +987,8 @@ func offseason_xp(base_xp: float) -> Dictionary:
 		var xp := base_xp * Facilities.drill_mult(t)
 		for so in t.roster:
 			reports[so.id] = Progression.gain_xp(so, xp)
+		for so in t.green_team:
+			reports[so.id] = Progression.gain_xp(so, xp * GreenTeam.XP_MULT)
 		Progression.auto_spend_team(t, _rng)
 	return reports
 
@@ -970,7 +1005,7 @@ func negotiation(team: Team, s: Soldier) -> Negotiation:
 			cur.wake()
 			return cur
 		negotiations.erase(s.id)
-	if not team.roster.has(s):
+	if not team.has_player(s):
 		return null
 	var n: Negotiation = null
 	if can_resign() and s.contract != null and s.contract.is_expiring():
@@ -1001,6 +1036,8 @@ func extension_error(team: Team, s: Soldier) -> String:
 		return "%s isn't on your roster." % s.full_name()
 	if s.contract == null or s.contract.years != 1:
 		return "Only players in the last year of their deal can be extended."
+	if s.contract.green:
+		return "%s is on a Green Team deal: he signs a real contract in the re-sign window." % s.full_name()
 	if s.has_extension():
 		return "%s already agreed to an extension." % s.full_name()
 	if s.ext_walked_year == year:
@@ -1172,6 +1209,7 @@ func _open_free_agency() -> void:
 	offseason_stage = OFF_FREE_AGENCY
 	fa_day = 1
 	_release_expiring()
+	GreenTeam.settle_callups(self)
 	news.free_agency_opens(self)
 	for t in league.teams:
 		if t.user_controlled:
@@ -1363,6 +1401,9 @@ func _advance() -> void:
 		news.facility_drops(self, facilities.charge_upkeep(self))
 		news.dev_changes(self, review.dev_changes)
 		Contracts.rollover(league, year)
+		var grng := RandomNumberGenerator.new()
+		grng.seed = _mix([league.league_seed, year, 0x6EE5])
+		GreenTeam.season_end(self, grng)
 		offseason_stage = OFF_RESIGN
 		fa_day = 0
 		camp = Camp.make(year)

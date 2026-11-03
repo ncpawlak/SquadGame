@@ -46,10 +46,15 @@ static func update_week(league: League, played: Array) -> void:
 			delta += contract_effect(s)
 			s.add_morale(delta)
 			s.morale = lerpf(s.morale, Soldier.MORALE_NEUTRAL, DRIFT)
+		for s in t.green_team:
+			s.add_morale(GreenTeam.morale_delta(t, s))
+			s.morale = lerpf(s.morale, Soldier.MORALE_NEUTRAL, DRIFT)
+			if s.green_seasons >= 1 and s.morale < GreenTeam.ASK_OUT_MORALE:
+				s.trade_request = true
 
 
 static func contract_effect(s: Soldier) -> float:
-	if s.contract == null or s.contract.rookie:
+	if s.contract == null or s.contract.rookie or s.contract.green:
 		return 0.0
 	var market := float(Contracts.market_value(s))
 	if market <= 0.0:

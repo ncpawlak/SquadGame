@@ -693,8 +693,12 @@ func _move(season: Season, x: Dictionary, from: Team, to: Team) -> Dictionary:
 		delta += 12.0
 	delta += clampf((to.team_ovr() - from.team_ovr()) / 4.0, -1.0, 1.0) * 5.0 * d.n(&"winning")
 	season.break_keep_promises(from, s)
+	var was_green := from.green_team.has(s)
 	from.release(s)
-	to.roster.append(s)
+	if was_green:
+		to.green_team.append(s)
+	else:
+		to.roster.append(s)
 	s.add_morale(delta)
 	s.trust = Soldier.TRUST_NEUTRAL
 	s.trade_request = false

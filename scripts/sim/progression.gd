@@ -265,7 +265,7 @@ static func _record_career(soldier: Soldier, line: Dictionary, mvp := false, yea
 static func auto_spend_team(team: Team, rng: RandomNumberGenerator = null) -> void:
 	if team.user_controlled:
 		return
-	for soldier in team.roster:
+	for soldier in team.org():
 		var slot := team.slot_of(soldier)
 		var role := team.scheme.role_for_slot(slot) if slot != &"" else Scheme.best_role(soldier.stats)
 		auto_spend(soldier, role, rng)

@@ -479,7 +479,7 @@ func test_season_review_and_aging() -> void:
 	# Rookies get their draft year.
 	var rookies := 0
 	for t in s.league.teams:
-		for so in t.roster:
+		for so in t.org():
 			if so.draft_year == 2026:
 				rookies += 1
 	check(rookies > 0, "drafted soldiers record their draft year")
@@ -589,7 +589,7 @@ func test_draft_order_and_picks() -> void:
 	check(d.on_the_clock() == user, "stopped at user pick")
 	var p := d.available()[0]
 	check(d.make_pick(p), "user pick")
-	check(p.drafted_by == user and user.roster.has(p.soldier), "user got prospect")
+	check(p.drafted_by == user and user.green_team.has(p.soldier), "user got prospect (on the Green Team)")
 	check(not d.make_pick(p), "can't pick twice")
 	s.finish_draft()
 	check(d.is_complete(), "draft completed")
@@ -2166,6 +2166,7 @@ func _fixed(seed_value: int, team_index := 0) -> Season:
 func test_fixed_league() -> void:
 	var a := _fixed(5)
 	var b := _fixed(6, 3)
+	var raw := League.load_fixed(5)
 	check(a.league.teams.size() == 20, "20 teams (%d)" % a.league.teams.size())
 	check(a.divisions().size() == 4, "4 divisions")
 	for d in a.divisions():
@@ -2175,7 +2176,8 @@ func test_fixed_league() -> void:
 		var row: Array = LeagueData.TEAMS[i]
 		check(t.abbrev == row[0] and t.division == row[5] and t.backstory != "", "%s identity from LeagueData" % t.abbrev)
 		check(t.roster.size() == Team.ROSTER_SIZE, "%s has %d players" % [t.abbrev, t.roster.size()])
-		check(absi(t.team_ovr() - int(row[7])) <= 2, "%s OVR %d near target %d" % [t.abbrev, t.team_ovr(), row[7]])
+		check(absi(raw.teams[i].team_ovr() - int(row[7])) <= 2, "%s OVR %d near target %d" % [t.abbrev, raw.teams[i].team_ovr(), row[7]])
+		check(t.green_team.size() == Team.GREEN_SIZE and t.team_ovr() >= raw.teams[i].team_ovr(), "%s Green Team built from its weakest players" % t.abbrev)
 		check(t.color == Color(row[3]) and t.color2 == Color(row[4]), "%s colors" % t.abbrev)
 		# Fixed rosters: the same players whatever the seed.
 		var names_a: Array = t.roster.map(func(x: Soldier): return x.full_name())
@@ -3798,3 +3800,151 @@ func test_keep_value_protects_prospects() -> void:
 	t.roster.append(kid)
 	t.roster.append(vet)
 	check(t.keep_value(kid) > t.keep_value(vet), "young 4-star is kept over a late-20s 2-star (%.1f vs %.1f; ovr %d/%d pot %d/%d role %d/%d)" % [t.keep_value(kid), t.keep_value(vet), kid.best_ovr(), vet.best_ovr(), kid.potential_ovr(), vet.potential_ovr(), Scheme.best_role(kid.stats), Scheme.best_role(vet.stats)])
+
+
+# --- Green Team ----------------------------------------------------------------
+
+func test_green_team_setup() -> void:
+	var s := Season.new_franchise(321)
+	check(s.green_version == 1, "green version stamped")
+	for t in s.league.teams:
+		check(t.roster.size() == Team.ROSTER_SIZE and t.green_team.size() == Team.GREEN_SIZE, "%s %d + %d" % [t.abbrev, t.roster.size(), t.green_team.size()])
+		var worst_up := 999
+		for so in t.roster:
+			worst_up = mini(worst_up, so.best_ovr())
+		var moved := 0
+		for so in t.green_team:
+			check(so.contract != null and so.contract.green and so.contract.years == 1, "green deal")
+			check(so.contract.salary >= Contracts.GREEN_MIN and so.contract.salary <= Contracts.GREEN_MAX, "green salary in range")
+			if so.season_lines.size() > 0 or so.age > 22:
+				moved += 1
+				check(so.best_ovr() <= worst_up, "only the weakest players move down")
+		check(t.has_player(t.green_team[0]) and s.league.team_of(t.green_team[0]) == t, "green players belong to the club")
+	check(s.user_roster_error() == "", "a new franchise is legal")
+	# Old saves get a Green Team on load.
+	var old := Season.new_franchise(322)
+	for t in old.league.teams:
+		for so in t.green_team.duplicate():
+			t.green_team.erase(so)
+	old.green_version = 0
+	var back := SaveSystem.from_text(SaveSystem.to_text(old))
+	check(back.green_version == 1 and back.user_team().green_team.size() == Team.GREEN_SIZE, "old saves build a Green Team")
+
+
+func test_green_team_call_up_and_send_down() -> void:
+	var s := Season.new_franchise(323)
+	var u := s.user_team()
+	var g: Soldier = u.green_team[0]
+	check(GreenTeam.call_up_error(s, u, g) != "", "can't call up onto a full roster")
+	var young: Soldier = null
+	for so in u.roster:
+		if GreenTeam.send_down_error(s, u, so) == "":
+			young = so
+			break
+	if young == null:
+		young = u.roster[u.roster.size() - 1]
+		young.age = 22
+		young.season_lines.clear()
+	check(GreenTeam.send_down_tag(s, u, young) == "AVAIL", "send-down available")
+	check(GreenTeam.send_down(s, u, young) == "", "send down")
+	check(u.green_team.has(young) and young.send_down_used and u.roster_count() == Team.ROSTER_SIZE - 1, "sent down, used")
+	check(GreenTeam.send_down_tag(s, u, young) == "USED", "send-down used")
+	var sal := g.contract.salary
+	check(GreenTeam.call_up(s, u, g) == "", "call up")
+	check(u.roster.has(g) and g.callup_pending and g.contract.salary == sal, "called up on his Green Team deal")
+	check(GreenTeam.call_up(s, u, young) != "", "roster full again")
+	s.release_player(u, u.least_valuable())
+	check(GreenTeam.call_up(s, u, young) == "", "back up")
+	check(GreenTeam.send_down(s, u, young).contains("already"), "only one send-down")
+	var vet: Soldier = null
+	for so in u.roster:
+		if so.age > GreenTeam.MAX_AGE:
+			vet = so
+	if vet != null:
+		check(GreenTeam.send_down_error(s, u, vet) != "", "veterans can't be sent down")
+	# Called-up players are on the re-sign list at season end, even if sent back down.
+	g.send_down_used = false
+	check(GreenTeam.send_down(s, u, g) == "", "called-up player sent back down")
+	s.sim_to_end_of_season()
+	check(Contracts.expiring(u).has(g), "call-ups must negotiate at season end")
+	var renewed := 0
+	for so in u.green_team:
+		if not so.callup_pending and so.contract != null and so.contract.green and not so.contract.is_expiring():
+			renewed += 1
+	check(renewed > 0, "Green Team deals renew")
+	for so in u.green_team:
+		check(so.green_seasons >= 1, "Green Team season counted")
+	s.advance_offseason()
+	check(not u.has_player(g) or not g.contract.is_expiring(), "unsigned call-ups leave in free agency")
+
+
+func test_green_team_injury_cover() -> void:
+	var s := Season.new_franchise(324)
+	var u := s.user_team()
+	s.prepare_week()
+	var hurt: Soldier = u.starters()[0]
+	hurt.injury_weeks = 1
+	hurt.injury_name = "Sprain"
+	var g: Soldier = null
+	for so in u.green_team:
+		if not so.send_down_used:
+			g = so
+			break
+	check(GreenTeam.cover_error(s, u, hurt, g) != "", "short injuries get no replacement")
+	hurt.injury_weeks = 3
+	check(GreenTeam.coverable(u).has(hurt), "long injury is coverable")
+	check(GreenTeam.cover(s, u, hurt, g) == "", "injury replacement")
+	check(u.roster.has(g) and g.injury_cover_for == hurt.id and u.roster_count() == Team.ROSTER_SIZE, "replacement doesn't count")
+	check(not g.callup_pending and GreenTeam.send_down_error(s, u, g) != "", "no talks, can't be sent down by hand")
+	check(GreenTeam.cover_error(s, u, hurt, u.green_team[0]) != "", "one replacement per injury")
+	hurt.injury_weeks = 0
+	hurt.injury_name = ""
+	GreenTeam.update_covers(s)
+	check(u.green_team.has(g) and g.send_down_used and g.injury_cover_for == 0, "back down when healthy, send-down used")
+	# Convert keeps him up for good.
+	var h2: Soldier = u.roster[1]
+	h2.injury_weeks = 4
+	var g2: Soldier = null
+	for so in u.green_team:
+		if not so.send_down_used:
+			g2 = so
+			break
+	check(GreenTeam.cover(s, u, h2, g2) == "", "second replacement")
+	check(GreenTeam.convert_error(s, u, g2) != "", "convert needs an open spot")
+	s.release_player(u, u.least_valuable() if u.least_valuable() != g2 else u.roster[2])
+	check(GreenTeam.convert_cover(s, u, g2) == "", "convert")
+	h2.injury_weeks = 0
+	GreenTeam.update_covers(s)
+	check(u.roster.has(g2) and not g2.send_down_used and g2.callup_pending, "converted replacement stays up")
+	# Fewer than 5 healthy players: an automatic replacement.
+	var n := 0
+	for so in u.roster:
+		if n < u.roster.size() - 4:
+			so.injury_weeks = 1
+		n += 1
+	var before := u.covers().size()
+	GreenTeam.auto_covers(s)
+	check(u.covers().size() > before, "automatic replacement when short-handed")
+
+
+func test_green_team_reps_and_potential() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var so := PlayerGenerator.generate(rng, 7, Scheme.Role.FLEX, 60.0, 20)
+	so.reps = 0.0
+	check(so.potential_text() == "?", "unknown potential")
+	so.reps = 5.0
+	check(so.potential_text().contains("-"), "a range")
+	so.reps = 9.0
+	check(so.potential_text().contains("/"), "two grades")
+	so.add_reps(100.0)
+	check(so.reps == Soldier.REP_MAX and so.potential_known() and so.potential_text() == so.potential_letter(), "fully known")
+	var s := Season.new_franchise(325)
+	var u := s.user_team()
+	var g: Soldier = u.green_team[0]
+	g.reps = 0.0
+	g.intensity = Soldier.INTENSITY_HEAVY
+	var bench: Soldier = u.bench()[0]
+	bench.reps = 0.0
+	s.sim_week()
+	check(g.reps > bench.reps, "Green Team players gain reps faster than the bench")

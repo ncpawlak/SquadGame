@@ -60,4 +60,10 @@ static func age_league(league: League, rng: RandomNumberGenerator) -> Array:
 				out.append(r)
 	for s in league.free_agents:
 		age_soldier(s, rng)
+	for t in league.teams:
+		for s in t.green_team:
+			var r := age_soldier(s, rng)
+			r["team"] = t
+			if not r["changes"].is_empty():
+				out.append(r)
 	return out

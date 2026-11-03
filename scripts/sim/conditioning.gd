@@ -124,12 +124,21 @@ static func end_week(team: Team, played_ids: Dictionary, bye: bool, rng: RandomN
 			soldier.injury_weeks = Facilities.injury_weeks(team, roll_injury_weeks(soldier.stats[Stats.TOUGHNESS], rng))
 			soldier.injury_name = injury_label(soldier.injury_weeks, rng)
 			injuries.append({"soldier": soldier, "weeks": soldier.injury_weeks, "name": soldier.injury_name})
+	# Green Team: heals and recovers, but no injury rolls (it plays no matches).
+	for soldier in team.green_team:
+		if soldier.is_injured():
+			soldier.injury_weeks -= 1
+			if soldier.injury_weeks <= 0:
+				soldier.injury_name = ""
+			soldier.fatigue *= 0.4
+			continue
+		soldier.fatigue = clampf(soldier.fatigue * (1.0 - weekly_recovery(soldier, bye, bonus)) + weekly_load(soldier, false), 0.0, 100.0)
 	return injuries
 
 
 ## Clears fatigue and injuries (between seasons).
 static func reset(team: Team) -> void:
-	for soldier in team.roster:
+	for soldier in team.org():
 		soldier.fatigue = 0.0
 		soldier.injury_weeks = 0
 		soldier.injury_name = ""

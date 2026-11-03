@@ -45,6 +45,12 @@ static func run_week(team: Team) -> Dictionary:
 		var report := Progression.gain_xp(soldier, xp_for(soldier.intensity) * mult)
 		report["intensity"] = soldier.intensity
 		reports[soldier.id] = report
+	for soldier in team.green_team:
+		var gx := (BASE_XP * FILM_STUDY_XP if soldier.is_injured() else xp_for(soldier.intensity)) * mult * GreenTeam.XP_MULT
+		var g := Progression.gain_xp(soldier, gx)
+		g["intensity"] = &"film" if soldier.is_injured() else soldier.intensity
+		g["green"] = true
+		reports[soldier.id] = g
 	return reports
 
 
@@ -64,3 +70,5 @@ static func ai_set_intensities(team: Team) -> void:
 	var starters := team.starters()
 	for soldier in team.roster:
 		soldier.intensity = ai_intensity(soldier, starters.has(soldier))
+	for soldier in team.green_team:
+		soldier.intensity = ai_intensity(soldier, false)

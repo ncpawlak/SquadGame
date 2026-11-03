@@ -105,6 +105,21 @@ var trade_request := false
 var former_team := ""
 ## Two-letter home state ("" = unknown). Hometown DNA pulls him toward clubs near home.
 var home_state := ""
+
+# Green Team (development roster; see Team.green_team and GreenTeam)
+## Reps (0..REP_MAX): practice time with the club. They reveal his potential (see potential_text).
+## Soldiers from before the Green Team existed are fully known.
+var reps: float = REP_MAX
+## True once he has used his one send-down (a regular send-down, or returning from an injury cover).
+var send_down_used := false
+## Called up this season on his Green Team deal: he must sign a real contract in the re-sign
+## window (the Call-Ups section) or he becomes a free agent - even if he was sent back down.
+var callup_pending := false
+## Full seasons spent on the Green Team (GreenTeam.MAX_SEASONS, then call him up or let him go).
+var green_seasons := 0
+## Id of the injured teammate he is covering for as an injury replacement (0 = none).
+var injury_cover_for := 0
+const REP_MAX := 12.0
 const TRUST_NEUTRAL := 50.0
 ## Share of his team's matches a promised starter must start (missed weeks injured don't count).
 const PROMISE_SHARE := 0.75
@@ -355,6 +370,31 @@ static func grade_for_ceiling(ceiling: int) -> int:
 
 func potential_letter() -> String:
 	return POTENTIAL_LETTERS[potential_grade()]
+
+
+## Potential as the club knows it, revealed by reps: under 4 reps "?", 4+ a three-letter range
+## ("C-A"), 8+ two letters ("B/A"), REP_MAX the exact letter.
+func potential_text() -> String:
+	var g := potential_grade()
+	if reps >= REP_MAX:
+		return POTENTIAL_LETTERS[g]
+	var top := POTENTIAL_LETTERS.size() - 1
+	if reps >= 8.0:
+		var lo := clampi(g - id % 2, 0, top - 1)
+		return "%s/%s" % [POTENTIAL_LETTERS[lo], POTENTIAL_LETTERS[lo + 1]]
+	if reps >= 4.0:
+		var lo2 := clampi(g - id % 3, 0, top - 2)
+		return "%s-%s" % [POTENTIAL_LETTERS[lo2], POTENTIAL_LETTERS[lo2 + 2]]
+	return "?"
+
+
+## True once his reps fully reveal his potential.
+func potential_known() -> bool:
+	return reps >= REP_MAX
+
+
+func add_reps(amount: float) -> void:
+	reps = clampf(reps + amount, 0.0, REP_MAX)
 
 
 ## "★★★" for dev 3 (text fallback where the insignia graphic doesn't fit).

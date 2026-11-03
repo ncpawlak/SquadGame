@@ -2,9 +2,12 @@ class_name Team
 extends RefCounted
 ## A team: roster of soldiers plus a lineup slotting 5 of them into the scheme.
 
-const ROSTER_SIZE := 12
-## Offseason rosters may run this big (draft picks + free agents); cut down to ROSTER_SIZE before Week 1.
-const OFFSEASON_MAX := 15
+const ROSTER_SIZE := 10
+## Offseason rosters may run this big (free agents signed ahead of cuts); cut down to ROSTER_SIZE before Week 1.
+const OFFSEASON_MAX := 13
+## Green Team (development roster) slots; it may run over during the offseason (draft picks) but
+## must be back to this before Week 1. See GreenTeam.
+const GREEN_SIZE := 6
 ## Future weight by dev stars (1..4) in keep_value: faster developers reach their ceiling sooner.
 const KEEP_DEV_W := [0.35, 0.55, 0.75, 0.9]
 ## Flat bonus by dev stars (1..4) for young players on top of the raw gap (scaled by age weight).
@@ -30,6 +33,9 @@ var color: Color = Color.WHITE
 ## Accent colour for gear trim (goggle frames, straps, brims...).
 var color2: Color = Color("#e5e7eb")
 var roster: Array[Soldier] = []
+## The Green Team: the club's development roster (draft picks and young players). They train and
+## gain reps but don't play matches; see GreenTeam for call-ups and send-downs.
+var green_team: Array[Soldier] = []
 var scheme: Scheme = Scheme.power_front()
 ## slot_id (StringName) -> Soldier
 var lineup: Dictionary = {}
@@ -220,14 +226,42 @@ func fill_injured() -> bool:
 
 
 func is_over_roster_limit() -> bool:
-	return roster.size() > ROSTER_SIZE
+	return roster_count() > ROSTER_SIZE
 
 
-## Removes a soldier from the roster (and lineup, refilling the hole from the bench).
+## The whole organisation: main roster then Green Team.
+func org() -> Array[Soldier]:
+	var out: Array[Soldier] = roster.duplicate()
+	out.append_array(green_team)
+	return out
+
+
+func has_player(s: Soldier) -> bool:
+	return roster.has(s) or green_team.has(s)
+
+
+## Injury replacements up from the Green Team (they don't count against ROSTER_SIZE).
+func covers() -> Array[Soldier]:
+	var out: Array[Soldier] = []
+	for s in roster:
+		if s.injury_cover_for != 0:
+			out.append(s)
+	return out
+
+
+## Main-roster players counted against ROSTER_SIZE (injury replacements excluded).
+func roster_count() -> int:
+	return roster.size() - covers().size()
+
+
+## Removes a soldier from the roster or Green Team (and lineup, refilling the hole from the bench).
 func release(soldier: Soldier) -> void:
 	soldier.former_team = abbrev
 	soldier.promise = {}
 	soldier.keep_promise = {}
+	soldier.injury_cover_for = 0
+	soldier.callup_pending = false
+	green_team.erase(soldier)
 	var slot := slot_of(soldier)
 	roster.erase(soldier)
 	if slot != &"":
@@ -315,7 +349,7 @@ func least_valuable() -> Soldier:
 ## Returns the released soldiers (the caller books dead money and sends them to free agency).
 func cut_to_limit(limit := ROSTER_SIZE) -> Array[Soldier]:
 	var cut: Array[Soldier] = []
-	while roster.size() > limit:
+	while roster_count() > limit:
 		var worst := least_valuable()
 		release(worst)
 		cut.append(worst)

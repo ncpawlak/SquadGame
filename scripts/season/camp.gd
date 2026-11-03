@@ -81,8 +81,8 @@ func check(team: Team, group: StringName, s: Soldier) -> String:
 		return "Unknown drill."
 	if has_run(team, group):
 		return "%s has already been run." % drill_name(group)
-	if not team.roster.has(s):
-		return "%s isn't on your roster." % s.full_name()
+	if not team.has_player(s):
+		return "%s isn't on your roster or Green Team." % s.full_name()
 	if has_attended(s):
 		return "%s already attended %s." % [s.full_name(), drill_name(attended[s.id])]
 	if s.is_injured():
@@ -151,7 +151,7 @@ func ai_run(team: Team, rng: RandomNumberGenerator) -> void:
 			continue
 		var best: Soldier = null
 		var best_v := -INF
-		for s in team.roster:
+		for s in team.org():
 			if check(team, g, s) != "":
 				continue
 			var slot := team.slot_of(s)

@@ -144,7 +144,7 @@ func _init() -> void:
 	_check(not hub.season.user_trained(), "not trained yet this week")
 	_check(_press(hub, "Confirm & Train"), "confirm & train button")
 	await process_frame
-	_check(hub.season.user_trained() and hub.season.user_training_report.size() == hub.season.user_team().roster.size(), "weekly training ran")
+	_check(hub.season.user_trained() and hub.season.user_training_report.size() == hub.season.user_team().org().size(), "weekly training ran")
 	_check(hub.page_stack[-1]["title"] == "Training Results", "training results page")
 	var xp_after := 0
 	for so in hub.season.user_team().roster:
@@ -291,7 +291,7 @@ func _init() -> void:
 		guard_fa += 1
 	_check(hub.season.phase == Season.PHASE_OFFSEASON, "can't skip the draft")
 	_check(hub.season.offseason_stage == Season.OFF_DRAFT, "free agency days finished into the draft")
-	var before_draft := user.roster.size()
+	var before_draft := user.org().size()
 	var my_picks: int = hub.season.trades.picks_of(hub.season, user).filter(func(a): return a["year"] == d.year).size()
 	_check(d.is_started() and not d.is_complete(), "draft is open")
 	hub.advance()  # blocked while picks remain
@@ -307,10 +307,10 @@ func _init() -> void:
 		await create_timer(0.4).timeout
 		_check(d.next_pick == at + 1, "CPU picks when the clock runs out")
 		guard_clock += 1
-	var user_before := user.roster.size()
+	var user_before := user.green_team.size()
 	hub.pages._clock_left = 0.05
 	await create_timer(0.4).timeout
-	_check(user.roster.size() == user_before + 1, "user's clock expiring auto-picks")
+	_check(user.green_team.size() == user_before + 1, "user's clock expiring auto-picks")
 	_check(_press(hub, "Sim to next pick") or d.on_the_clock().user_controlled, "sim to next pick button")
 	await process_frame
 	while not d.is_complete():
@@ -319,7 +319,7 @@ func _init() -> void:
 		else:
 			_check(_press(hub, "Sim "), "sim to pick button")
 		await process_frame
-	_check(user.roster.size() == before_draft + my_picks, "user drafted %d (%d)" % [my_picks, user.roster.size() - before_draft])
+	_check(user.org().size() == before_draft + my_picks, "user drafted %d (%d)" % [my_picks, user.org().size() - before_draft])
 	await _visit_pages(hub, "post-draft")
 	hub.advance()  # draft -> roster review
 	await process_frame
