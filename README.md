@@ -8,7 +8,9 @@ progression. Built in **Godot 4.7** (GDScript). It's currently a headless-friend
 1. Install Godot 4.7+ (`winget install GodotEngine.GodotEngine`).
 2. Open `project.godot` in the Godot editor and press **F5**.
 
-You can also run it from the command line: `godot --path .`
+You can also run it from the command line with `./run.ps1`, which imports any new assets first. Plain
+`godot --path .` skips the import, so after pulling new portrait heads they show as blank discs until you
+open the editor once or run `godot --headless --path . --import`.
 
 ### In the browser
 
