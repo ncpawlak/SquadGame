@@ -1124,7 +1124,7 @@ func _shown_match(team: Team) -> ScheduledMatch:
 	return null
 
 
-## Home's main card: a two-tone team-colour backdrop (your colours left, the opponent's right),
+## Home's main card: a two-tone team-colour backdrop (away colours left, home right, "AWAY @ HOME"),
 ## the header strip, then the matchup, the final or a status panel.
 func _week_card(team: Team) -> Control:
 	var m := _shown_match(team)
@@ -1141,7 +1141,7 @@ func _week_card(team: Team) -> Control:
 	card.clip_contents = true
 	var bd: UiKit.Backdrop
 	if opp != null:
-		bd = UiKit.backdrop(UiKit.banner_of(team), UiKit.banner_of(opp), true, UiKit.ACCENT)
+		bd = UiKit.backdrop(UiKit.banner_of(m.away), UiKit.banner_of(m.home), true, UiKit.ACCENT)
 		bd.two_tone = true
 		bd.mid = UiKit.PANEL.darkened(0.3)
 	else:
@@ -1279,16 +1279,18 @@ func _play_button() -> Button:
 	return b
 
 
-## A played week on the card: VICTORY/DEFEAT, the big series score, game-by-game lines and the MVP.
+## A played week on the card: VICTORY/DEFEAT (yours), the big series score, game-by-game lines and the
+## MVP. Laid out "AWAY @ HOME": away on the left, home on the right.
 func _result_body(m: ScheduledMatch, team: Team) -> Control:
-	var opp := m.opponent_of(team)
 	var won := m.winner() == team
+	var lt := m.away
+	var rt := m.home
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 12)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 24)
 	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	row.add_child(_team_block(team, false))
+	row.add_child(_team_block(lt, false))
 	var mid := VBoxContainer.new()
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mid.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -1296,17 +1298,17 @@ func _result_body(m: ScheduledMatch, team: Team) -> Control:
 	var res := UiKit.display("VICTORY" if won else "DEFEAT", 30, UiKit.GOOD if won else UiKit.BAD, true)
 	res.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	mid.add_child(res)
-	var sc := UiKit.display("%d  -  %d" % [m.games_for(team), m.games_for(opp)], 84, Color.WHITE, true)
+	var sc := UiKit.display("%d  -  %d" % [m.games_for(lt), m.games_for(rt)], 84, Color.WHITE, true)
 	sc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	mid.add_child(sc)
 	for g in m.result.games:
 		var gw: Team = m.result.teams[g["winner"]]
 		var gl := UiKit.rich("[center][color=#c3cad6]GAME %d  %s[/color]   [color=white]%s %s %s[/color]   [color=%s]%s[/color][/center]" % [
-			g["number"], MatchEngine.MODE_SHORT[g["mode"]], team.abbrev, MatchResult.game_score_text(g, m.result.teams[0] != team), opp.abbrev,
+			g["number"], MatchEngine.MODE_SHORT[g["mode"]], lt.abbrev, MatchResult.game_score_text(g, m.result.teams[0] != lt), rt.abbrev,
 			UiKit.hex(UiKit.GOOD if gw == team else UiKit.BAD), gw.abbrev], 16)
 		mid.add_child(gl)
 	row.add_child(mid)
-	row.add_child(_team_block(opp, true))
+	row.add_child(_team_block(rt, true))
 	v.add_child(row)
 	var mvp := pages._soldier(m.result.mvp_id)
 	if mvp != null:
@@ -1352,42 +1354,44 @@ func _rivalry_tip(a: Team, b: Team) -> String:
 	return "\n".join(lines)
 
 
-## This week's (or a browsed) matchup: big team blocks, and centred stat bars.
-func _match_body(m: ScheduledMatch, team: Team) -> Control:
-	var opp := m.opponent_of(team)
+## This week's (or a browsed) matchup: big team blocks, and centred stat bars. Always "AWAY @ HOME":
+## the away team on the left, the home team on the right.
+func _match_body(m: ScheduledMatch, _team: Team) -> Control:
+	var lt := m.away
+	var rt := m.home
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 10)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 24)
 	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	row.add_child(_team_block(team, false))
+	row.add_child(_team_block(lt, false))
 	var mid := VBoxContainer.new()
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mid.alignment = BoxContainer.ALIGNMENT_CENTER
 	mid.add_theme_constant_override("separation", 7)
-	var rv_flags := season.rivalries.flags(team, opp)
+	var rv_flags := season.rivalries.flags(lt, rt)
 	if rv_flags != 0:
-		# Rivalry games swap the big VS / @ for the rivalry icons, keeping a small VS / @ tag.
+		# Rivalry games swap the big @ for the rivalry icons, keeping a small @ tag.
 		var badge := RivalryBadge.new()
-		badge.setup(rv_flags, UiKit.accent_of(team), UiKit.accent_of(opp), _rivalry_tip(team, opp))
+		badge.setup(rv_flags, UiKit.accent_of(lt), UiKit.accent_of(rt), _rivalry_tip(lt, rt))
 		badge.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		mid.add_child(badge)
-		var tag := UiKit.display("VS" if m.home == team else "@", 16, Color(1, 1, 1, 0.7), true)
+		var tag := UiKit.display("@", 16, Color(1, 1, 1, 0.7), true)
 		tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		mid.add_child(tag)
 	else:
-		var vs := UiKit.display("VS" if m.home == team else "@", 34, Color(1, 1, 1, 0.9), true)
+		var vs := UiKit.display("@", 34, Color(1, 1, 1, 0.9), true)
 		vs.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		mid.add_child(vs)
 	var chip := _weather_chip(m)
 	if chip != null:
 		mid.add_child(chip)
 	var i := 0
-	for cmp in compare_rows(team, opp):
-		mid.add_child(compare_bar(cmp, UiKit.accent_of(team), UiKit.accent_of(opp), 0.15 + 0.05 * i))
+	for cmp in compare_rows(lt, rt):
+		mid.add_child(compare_bar(cmp, UiKit.accent_of(lt), UiKit.accent_of(rt), 0.15 + 0.05 * i))
 		i += 1
 	row.add_child(mid)
-	row.add_child(_team_block(opp, true))
+	row.add_child(_team_block(rt, true))
 	v.add_child(row)
 	return v
 
