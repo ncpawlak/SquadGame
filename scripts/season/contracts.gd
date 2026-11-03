@@ -36,8 +36,11 @@ const BONUS_SHARE := 0.5
 const DEAD_MONEY_SHARE := 0.5
 const YEARS_PREMIUM := 0.06
 const RESIGN_DISCOUNT := 0.95
-## Rookie scale: pick 1 earns ROOKIE_TOP, falling steeply through round 1 (cubic) to ROOKIE_BOTTOM
-## at the last pick. Every rookie deal runs ROOKIE_YEARS.
+## Green Team deals (they replaced the rookie scale): one year, GREEN_MAX for the first pick
+## falling to GREEN_MIN for the last; they count on the cap and renew each offseason.
+const GREEN_MIN := 100
+const GREEN_MAX := 500
+## Legacy rookie scale (deals signed before the Green Team still run out on it).
 const ROOKIE_TOP := 15000
 const ROOKIE_BOTTOM := 1000
 const ROOKIE_YEARS := 4
@@ -124,6 +127,30 @@ static func resign_asking(s: Soldier, years: int) -> int:
 	return _round_salary(v)
 
 
+## A draft pick's Green Team deal: one year at his slot (green_salary_for_pick).
+static func green_contract_for_pick(pick_number: int, total_picks: int, year: int) -> Contract:
+	return green_contract(green_salary_for_pick(pick_number, total_picks), year)
+
+
+static func green_contract(salary: int, year: int) -> Contract:
+	var c := Contract.make(clampi(salary, GREEN_MIN, GREEN_MAX), 1, year)
+	c.green = true
+	return c
+
+
+## Slot salary for pick `pick_number` of `total_picks`: GREEN_MAX down to GREEN_MIN (linear).
+static func green_salary_for_pick(pick_number: int, total_picks: int) -> int:
+	var t := 0.0 if total_picks <= 1 else clampf(float(pick_number - 1) / float(total_picks - 1), 0.0, 1.0)
+	return roundi(lerpf(GREEN_MAX, GREEN_MIN, t) / 10.0) * 10
+
+
+## A Green Team deal for a player without a draft slot: by OVR (50 or less the minimum, 72+ the max).
+static func green_salary_for(s: Soldier) -> int:
+	var t := clampf((s.best_ovr() - 50.0) / 22.0, 0.0, 1.0)
+	return roundi(lerpf(GREEN_MIN, GREEN_MAX, t) / 10.0) * 10
+
+
+## Legacy rookie scale (kept for saves and the league builder).
 static func rookie_contract(pick_number: int, total_picks: int, year: int) -> Contract:
 	return Contract.make(rookie_salary(pick_number, total_picks), ROOKIE_YEARS, year, true)
 
@@ -139,7 +166,7 @@ static func rookie_salary(pick_number: int, total_picks: int) -> int:
 ## extension counts from the season after his current deal ends.
 static func payroll(team: Team, cap_year: int, ahead := 0) -> int:
 	var total := int(team.dead_money.get(cap_year + ahead, 0)) + int(team.bonus_money.get(cap_year + ahead, 0))
-	for s in team.roster:
+	for s in team.org():
 		if s.contract != null and (s.contract.years > ahead or (ahead == 0 and s.contract.is_expiring())):
 			total += s.contract.salary
 		elif extension_covers(s, ahead):
@@ -235,7 +262,7 @@ static func charge_release(team: Team, s: Soldier, cap_year: int) -> int:
 ## agreed extension starts it now (signed in `year`), so he never reaches the re-sign window.
 static func rollover(league: League, year := 0) -> void:
 	for t in league.teams:
-		for s in t.roster:
+		for s in t.org():
 			if s.contract != null:
 				s.contract.years -= 1
 				if s.contract.is_expiring() and s.has_extension():
@@ -245,10 +272,15 @@ static func rollover(league: League, year := 0) -> void:
 					s.clear_extension()
 
 
+## Expiring soldiers up for re-signing: main-roster players, plus Green Team players called up this
+## season (Green Team deals otherwise renew on their own; see GreenTeam.season_end).
 static func expiring(team: Team) -> Array[Soldier]:
 	var out: Array[Soldier] = []
 	for s in team.roster:
 		if s.contract != null and s.contract.is_expiring():
+			out.append(s)
+	for s in team.green_team:
+		if s.callup_pending and s.contract != null and s.contract.is_expiring():
 			out.append(s)
 	return out
 
@@ -290,8 +322,8 @@ static func migrate_legacy(league: League, offers: Array, cap_year: int) -> void
 			t.remove_meta(&"legacy_floor_penalties")
 		var before := 0
 		var after := 0
-		for s in t.roster:
-			if s.contract != null:
+		for s in t.org():
+			if s.contract != null and not s.contract.green:
 				var old := s.contract.salary
 				s.contract.salary = rescale_legacy(s, old)
 				var ratio := float(s.contract.salary) / maxf(1.0, old)

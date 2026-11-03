@@ -127,7 +127,7 @@ func test_generator_ranges() -> void:
 	var league := League.generate(42)
 	check(league.teams.size() == 2, "league should have 2 teams")
 	for t in league.teams:
-		check(t.roster.size() == Team.ROSTER_SIZE, "%s roster size %d" % [t.name, t.roster.size()])
+		check(t.roster.size() == Team.ROSTER_SIZE + GreenTeam.SETUP_MOVED, "%s roster size %d" % [t.name, t.roster.size()])
 		check(t.starters().size() == 5, "%s should have 5 starters" % t.name)
 		for s in t.roster:
 			check(s.age >= PlayerGenerator.MIN_AGE and s.age <= PlayerGenerator.MAX_AGE, "age out of range")

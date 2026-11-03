@@ -89,7 +89,7 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   of the Week with his season count, upsets - wins over a roster rated 4+ OVR higher - wire stories, trades, signings,
   injuries, player stories, retirements) / Prospect News. After the trade deadline, < > arrows flip it to the
   **Playoff Picture**: a logo bracket (projected seeds in-season, live series in the playoffs) with a champion slot.
-- **Team tab**: one big pane (Lineup sizes to fit the field + bench; the Roster scrolls inside a fixed height) whose < > arrows flip between the full **Roster** and **Lineup** screens
+- **Team tab**: one big pane (Lineup sizes to fit the field + bench; the Roster scrolls inside a fixed height) whose < > arrows flip between the full **Roster**, **Lineup** and **Green Team** screens
 - **League tab**: one big pane whose < > arrows flip between **Standings** (the four divisions as a 2x2 grid of mini tables with logos, W-L, game record, diff, streak and playoff seed - or one whole-league table), **Scores** (a week of results with week arrows), **League Leaders** and the **Playoff Picture** bracket. Under it, live cards (your OVR rank, the kills leader, the latest headline, the MVP favourite, free agents) and a second row of cards (Schedule, Team Stats, Teams, Retirements)
 - **Personnel tab**: one big pane whose < > arrows flip between **Contracts & Payroll** and **Trades** (plus the **Draft Room** while the draft runs). Trades lists incoming offers, then the trade block, then a card into the manual **Trade Center** builder. It opens on the view the current phase needs (trades in season, the Draft Room on draft day) and the header shows payroll, cap space and roster size. Under it, live cards (Free Agency, Re-sign, your next pick, scout points) and a second row of cards (Trade Log, Draft Recap, Weekly News archive with a NEW badge, Extensions: your final-year players and their extension status). Trade block rows show portrait, big OVR, POT, the six stat-group bars, contract pips and morale; offers put Accept / Counter / Decline on the right. The live draft order table also shows age, scout grade, hometown and each team's need
 - **Training Camp**: six drill cards in the team colours. Click a drill, then click players on the Camp Board (OVR, POT, point pool, stat-group bars, best drill) to plan who goes; Auto-fill plans the best fits. **Run Camp** runs every planned drill at once and shows a camp report with each stat gain
@@ -173,8 +173,8 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   then quarterfinal losers, semifinal losers, the runner-up, and the champion last. AI teams pick from the consensus board with a little noise, leaning toward their weakest position.
   The Draft Room runs a **clock**: you have 2:00 on your pick (then the best available is auto-picked) and CPU teams
   pick after 5 seconds. The clock only runs while the Draft Room is open. **Sim to next pick** skips one CPU pick;
-  you can also sim to your pick, draft a prospect or auto-pick. Draftees get rookie contracts (cheaper
-  later in the draft; 3 years in round 1, 2 years in rounds 2-3). The draft comes after free agency, so teams pick knowing their signings; AI teams hold roster spots and cap room for their picks during free agency. The best 12 undrafted prospects join free agency when the roster review opens; the rest leave.
+  you can also sim to your pick, draft a prospect or auto-pick. Draftees join the Green Team on Green Team deals (more
+  for earlier picks; see Green Team below). The draft comes after free agency, so teams pick knowing their signings; AI teams hold roster spots and cap room for their picks during free agency. The best 12 undrafted prospects join free agency when the roster review opens; the rest leave.
   When the draft ends the Draft Room becomes the **Draft Recap**: every pick with all ratings and potential revealed,
   a note for blue chips, specialists, steals and reaches, and click-through to each player's profile. Past recaps
   stay under Personnel → Draft.
@@ -258,14 +258,33 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   plus a $20M expiring star is $21M); re-signing him swaps the hold for his new deal (at $25M the payroll is $26M)
   and releasing him clears it.
   Rookie deals always sign, even over the hard cap, but a team over the cap must cut or trade down before camp (you
-  can't advance past the roster review until you're under; AI teams cut their least valuable players to get there). Rosters max out at 12 (5 starters + 7 backups).
-  In the offseason your roster can be any size (trades, draft picks, extra signings), but **Week 1 needs exactly 12**:
+  can't advance past the roster review until you're under; AI teams cut their least valuable players to get there). Rosters max out at 10 (5 starters + 5 backups), plus a 6-man **Green Team** (below).
+  In the offseason your roster can be any size (trades, draft picks, extra signings), but **Week 1 needs exactly 10** (and a Green Team of 6 or fewer):
   release down or sign up to it (an urgent "Roster Cuts" / "Roster Spots Open" to-do on Home). After Week 1
-  you can play with 8-12; going over 12 by trade blocks your next match until you cut. AI teams carry up to 15 through
-  free agency and the draft and cut to 12 when camp ends, by a **keep score**: current OVR, upside (ceiling gap x
+  you can play with 8-10; going over 10 by trade blocks your next match until you cut. AI teams carry up to 13 through
+  free agency and the draft and cut to 10 when camp ends, by a **keep score**: current OVR, upside (ceiling gap x
   dev stars, weighted toward youth), age decline, depth at his role (starters and the top backup are safe; players buried
   behind better prospects drop), a bonus for recent draft picks (round 1 > 2 > 3, fading after two years) and contract
   (dead money, surplus value). So a young 4-star is kept over a late-20s 2-star, and fresh picks aren't cut into free agency.
+- **Green Team** (`scripts/season/green_team.gd`, Team → Green Team): every club's development roster (up to 6), kept
+  apart from the 10-man main roster. New leagues and old saves move each team's 2 lowest-OVR players (youngest first on
+  ties) down and fill it with generated rookie-tier players. Draft picks start here on one-year **Green Team deals**
+  ($100K-$500K, renewed each offseason while he stays down). Green Team players train at 1.5x XP and earn weekly
+  **reps** faster than bench players; potential shows as a range (or ?) until he reaches 12 reps, then the true grade.
+  - **Call Up** (any time, with a confirm popup): he keeps his Green Team deal for the rest of the season, then must be
+    re-signed in the **Call-Ups** section of Re-sign Players or he leaves in free agency - even if he was sent back down.
+    In the offseason a call-up signs at his asking price right away.
+  - **Send Down**: a young player (24 or younger, 3 or fewer pro seasons) can be sent down **once in his career**. The
+    roster table's SEND DN column shows AVAIL / USED / - (not eligible).
+  - **Injury replacement**: while a main-roster player is out 2+ weeks, one Green Team player can cover for him without
+    counting against the roster limit or new talks. When the injured player returns he goes back down (using his send-down)
+    unless you **Keep Up for Good**; teams below 5 healthy players get one automatically.
+  - **No offseason limit**: like the main roster, the Green Team can run past 6 in the offseason (draft picks, send-downs,
+    signings) and call-ups can push the roster past 10; both must be back to 6 / 10 before Week 1.
+  - **Sign to Green Team** (offseason, from a free agent's page): young free agents (24 or younger, 3 or fewer pro seasons,
+    market value $2M or less, no rival offer pending) sign a Green Team deal at once, no negotiation.
+  - A player can stay down 3 seasons, then must be called up or let go. After his first season a player who wants to
+    play gets frustrated (by DNA) and may ask out. Green Team matches, poaching and loans are planned (#94).
 - **Training camp** (`scripts/season/camp.gd`, Home → Training Camp): one drill per rating group (Marksmanship Range,
   Weapons Lab, Combine Gauntlet, War Room, Hill Assault, Iron Conditioning). Pick a drill, pick a soldier, see his ratings boost.
   One soldier per drill and one drill per soldier. The point pool depends on dev stars (4★ 9-13, 3★ 7-10, 2★ 5-8, 1★ 3-6), spread at random over the group's stats (max +4 each). Drills respect group caps: a capped group
@@ -498,7 +517,7 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
   - Matchups are small rock-paper-scissors edges (about ±2-3% accuracy, capped at ±4%), plus a King of the Hill
     nudge (Wall +2%, Spread −2%). Ratings still decide most matches.
   - AI teams pick the scheme that best fits their roster (with a small per-team style lean) each week.
-- **Rosters:** 12 soldiers each (5 starters + 7 bench). The franchise league has 20 teams (the debug sim generates its own small league).
+- **Rosters:** 10 soldiers each (5 starters + 5 bench), plus a Green Team of up to 6. The franchise league has 20 teams (the debug sim generates its own small league).
 - **Match:**
   - **Best of 3 games**, always in this order (a 2-0 sweep skips game 3), 0.5s ticks. Same lineup all match;
     fatigue carries across games (partial recovery between them).

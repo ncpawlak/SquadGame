@@ -46,10 +46,15 @@ static func update_week(league: League, played: Array) -> void:
 			delta += contract_effect(s)
 			s.add_morale(delta)
 			s.morale = lerpf(s.morale, Soldier.MORALE_NEUTRAL, DRIFT)
+		for s in t.green_team:
+			s.add_morale(GreenTeam.morale_delta(t, s))
+			s.morale = lerpf(s.morale, Soldier.MORALE_NEUTRAL, DRIFT)
+			if s.green_seasons >= 1 and s.morale < GreenTeam.ASK_OUT_MORALE:
+				s.trade_request = true
 
 
 static func contract_effect(s: Soldier) -> float:
-	if s.contract == null or s.contract.rookie:
+	if s.contract == null or s.contract.rookie or s.contract.green:
 		return 0.0
 	var market := float(Contracts.market_value(s))
 	if market <= 0.0:
@@ -66,7 +71,9 @@ static func contract_effect(s: Soldier) -> float:
 static func factors(s: Soldier, team: Team) -> Array[String]:
 	var out: Array[String] = []
 	if team != null:
-		if team.slot_of(s) != &"":
+		if team.green_team.has(s):
+			out.append("Stuck on the Green Team (-)" if GreenTeam.is_frustrated(team, s) else "Developing on the Green Team (+)")
+		elif team.slot_of(s) != &"":
 			out.append("Starting (+)")
 		elif not s.is_injured():
 			out.append("Riding the bench (-)")

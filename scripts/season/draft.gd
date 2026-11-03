@@ -652,8 +652,11 @@ func make_pick(p: Prospect) -> bool:
 	p.pick_number = next_pick
 	p.soldier.draft_year = year
 	p.soldier.draft_pick = p.pick_number
-	p.soldier.contract = Contracts.rookie_contract(p.pick_number, order.size(), year)
-	team.roster.append(p.soldier)
+	p.soldier.contract = Contracts.green_contract_for_pick(p.pick_number, order.size(), year)
+	# Every pick starts on the Green Team. Scouting him before the draft is a head start on reps.
+	team.green_team.append(p.soldier)
+	p.soldier.reps = GreenTeam.draft_reps(p, team)
+	p.soldier.green_seasons = 0
 	p.soldier.morale = 82.0
 	if league != null:
 		league.give_callsign(p.soldier)
