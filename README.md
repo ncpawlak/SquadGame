@@ -278,6 +278,10 @@ Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-s
   - **Injury replacement**: while a main-roster player is out 2+ weeks, one Green Team player can cover for him without
     counting against the roster limit or new talks. When the injured player returns he goes back down (using his send-down)
     unless you **Keep Up for Good**; teams below 5 healthy players get one automatically.
+  - **No offseason limit**: like the main roster, the Green Team can run past 6 in the offseason (draft picks, send-downs,
+    signings) and call-ups can push the roster past 10; both must be back to 6 / 10 before Week 1.
+  - **Sign to Green Team** (offseason, from a free agent's page): young free agents (24 or younger, 3 or fewer pro seasons,
+    market value $2M or less, no rival offer pending) sign a Green Team deal at once, no negotiation.
   - A player can stay down 3 seasons, then must be called up or let go. After his first season a player who wants to
     play gets frustrated (by DNA) and may ask out. Green Team matches, poaching and loans are planned (#94).
 - **Training camp** (`scripts/season/camp.gd`, Home → Training Camp): one drill per rating group (Marksmanship Range,

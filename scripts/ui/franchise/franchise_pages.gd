@@ -723,7 +723,7 @@ func green_team() -> Control:
 	var rebuild := func(): hub.page_refresh("Green Team", green_team)
 	var mode := &"green"
 	var v := _vbox()
-	var help := UiKit.label("Your development roster (max %d). Draft picks start here on small Green Team deals. They earn %sx XP and weekly reps that reveal their true potential. Call a player up when he's ready. A player can be sent back down once in his career. Players kept down too long get frustrated and may ask out." % [
+	var help := UiKit.label("Your development roster (max %d by Week 1; no limit in the offseason). Draft picks and young free agents signed in the offseason start here on small Green Team deals. They earn %sx XP and weekly reps that reveal their true potential. Call a player up when he's ready. A player can be sent back down once in his career. Players kept down too long get frustrated and may ask out." % [
 		Team.GREEN_SIZE, str(GreenTeam.XP_MULT)], 15, UiKit.MUTED)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(help)
@@ -799,6 +799,8 @@ func confirm_call_up(so: Soldier, after: Callable) -> void:
 	elif GreenTeam.send_down_tag(s, team, so) == "AVAIL":
 		lines.append("Sending him back down later uses his [color=white]one send-down[/color]. After that he can never go back.")
 	lines.append("He takes a main-roster spot (%d / %d after this call-up)." % [team.roster_count() + 1, Team.ROSTER_SIZE])
+	if s.phase == Season.PHASE_OFFSEASON and team.roster_count() + 1 > Team.ROSTER_SIZE:
+		lines.append("[color=#f59e0b]No roster limit in the offseason, but you must be back to %d before Week 1.[/color]" % Team.ROSTER_SIZE)
 	_confirm_modal(_confirm_body("CALL UP %s?" % so.full_name().to_upper(), lines), "Call Up", func():
 		var err := GreenTeam.call_up(s, team, so)
 		hub.app.toast(err if err != "" else "%s called up to the main roster." % so.full_name())
@@ -816,9 +818,26 @@ func confirm_send_down(so: Soldier, after: Callable) -> void:
 	lines.append("Being sent down costs him morale (%d)." % roundi(GreenTeam.SEND_DOWN_MORALE))
 	if s.phase != Season.PHASE_OFFSEASON and team.green_team.size() >= Team.GREEN_SIZE:
 		lines.append("[color=#f59e0b]The Green Team will be over its limit (%d / %d) until you call someone up.[/color]" % [team.green_team.size() + 1, Team.GREEN_SIZE])
+	elif team.green_team.size() >= Team.GREEN_SIZE:
+		lines.append("[color=#f59e0b]Your Green Team will have %d players. Get it back to %d (call up or release) before Week 1.[/color]" % [team.green_team.size() + 1, Team.GREEN_SIZE])
 	_confirm_modal(_confirm_body("SEND DOWN %s?" % so.full_name().to_upper(), lines), "Send Down", func():
 		var err := GreenTeam.send_down(s, team, so)
 		hub.app.toast(err if err != "" else "%s sent down to the Green Team." % so.full_name())
+		after.call())
+
+
+## "Sign X to the Green Team?": a free agent joins on a Green Team deal at once (offseason only).
+func confirm_green_sign(so: Soldier, after: Callable) -> void:
+	var s := _season()
+	var team := s.user_team()
+	var lines: PackedStringArray = []
+	lines.append("He signs a one-year [color=white]%s Green Team deal[/color] right away - no negotiation." % Contracts.money(Contracts.green_salary_for(so)))
+	lines.append("He develops on the Green Team (%sx XP, weekly reps) and can be called up any time." % str(GreenTeam.XP_MULT))
+	if team.green_team.size() >= Team.GREEN_SIZE:
+		lines.append("[color=#f59e0b]Your Green Team will have %d players. Get it back to %d (call up or release) before Week 1.[/color]" % [team.green_team.size() + 1, Team.GREEN_SIZE])
+	_confirm_modal(_confirm_body("SIGN %s TO THE GREEN TEAM?" % so.full_name().to_upper(), lines), "Sign", func():
+		var err := GreenTeam.sign(s, team, so)
+		hub.app.toast(err if err != "" else "%s signed to your Green Team." % so.full_name())
 		after.call())
 
 
@@ -1900,6 +1919,7 @@ func _player_overview(s: Soldier, team: Team) -> Control:
 		add_action.call("Shop in Trade Center", func(): open_trade(null, {}, Trades.player_asset(s)), Trades.tradeable(s))
 	elif team == null and s.retired_year == 0:
 		add_action.call("Make Offer", func(): open_offer(s))
+		add_action.call("Sign to Green Team", func(): confirm_green_sign(s, func(): _player_refresh(s, 0)), GreenTeam.sign_error(_season(), _season().user_team(), s) == "")
 		add_action.call("Ratings", func(): _player_refresh(s, 1))
 	else:
 		if team != null and s.retired_year == 0:
@@ -2066,7 +2086,14 @@ func _player_contract(s: Soldier, team: Team) -> Control:
 		v.add_child(facts)
 		var actions := _row()
 		actions.add_child(UiKit.action_button("Make Offer", func(): open_offer(s), 16))
+		var gerr := GreenTeam.sign_error(season, season.user_team(), s)
+		var gb := UiKit.button("Sign to Green Team", func(): confirm_green_sign(s, func(): _player_refresh(s, 2)), 16)
+		gb.disabled = gerr != ""
+		gb.tooltip_text = gerr
+		actions.add_child(gb)
 		v.add_child(actions)
+		if gerr != "":
+			v.add_child(UiKit.label("Green Team: " + gerr, 14, UiKit.MUTED))
 		return v
 	var c := s.contract
 	if c == null:
@@ -5079,6 +5106,9 @@ func free_agents() -> Control:
 	v.add_child(_cap_banner(user))
 	v.add_child(UiKit.rich("Roster %d / %d   -   %d pending offer%s   -   [color=#8b97ab]players weigh money (70%%), team quality and playing time[/color]" % [
 		user.roster_count(), Team.ROSTER_SIZE, pending.size(), "" if pending.size() == 1 else "s"], 15))
+	if s.phase == Season.PHASE_OFFSEASON:
+		v.add_child(UiKit.rich("[color=#8b97ab]Young free agents (%d or younger, market value %s or less) can also be signed straight to your [color=white]Green Team[/color] from their player page. Green Team now: %d (no limit until Week 1, then %d).[/color]" % [
+			GreenTeam.MAX_AGE, Contracts.money(GreenTeam.SIGN_MAX_MARKET), user.green_team.size(), Team.GREEN_SIZE], 15))
 	var filters := _row(8)
 	filters.add_child(UiKit.label("POSITION", 13, UiKit.MUTED))
 	for r in [-1] + range(Scheme.ROLE_NAMES.size()):

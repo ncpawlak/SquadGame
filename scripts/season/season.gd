@@ -133,7 +133,8 @@ var talks_log: Array = []
 ## Expiring soldiers who left their team when free agency opened: {soldier, team, year}.
 var departures: Array = []
 ## Green Team moves: {year, when, team, soldier, kind, other}. Kinds: &"call_up", &"send_down",
-## &"cover" (injury replacement for `other`), &"cover_done", &"refused" (left instead of renewing).
+## &"cover" (injury replacement for `other`), &"cover_done", &"refused" (left instead of renewing),
+## &"sign" (free agent signed straight to the Green Team).
 var green_log: Array = []
 ## 1 once every club has a Green Team (new franchises, or old saves after ensure_green_team).
 var green_version := 0

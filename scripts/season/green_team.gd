@@ -50,6 +50,8 @@ const REFUSE_TRUST := 30.0
 const CALLUP_MORALE := 8.0
 const CALLUP_TRUST := 5.0
 const SEND_DOWN_MORALE := -6.0
+## Free agents worth more than this ($K market value) want a main-roster deal, not a Green Team one.
+const SIGN_MAX_MARKET := 2000
 ## AI: a Green Team player must beat a main-roster player's OVR by this much to swap them in season.
 const AI_SWAP_MARGIN := 3
 
@@ -100,9 +102,9 @@ static func projected_ask(s: Soldier) -> int:
 static func call_up_error(season: Season, team: Team, s: Soldier) -> String:
 	if not team.green_team.has(s):
 		return "%s isn't on the Green Team." % s.full_name()
-	var limit := Team.OFFSEASON_MAX if season.phase == Season.PHASE_OFFSEASON else Team.ROSTER_SIZE
-	if team.roster_count() >= limit:
-		return "The roster is full (%d/%d). Send a player down or release one first." % [team.roster_count(), limit]
+	# Offseason rosters have no size limit (cut down before Week 1), same as free-agent signings.
+	if season.phase != Season.PHASE_OFFSEASON and team.roster_count() >= Team.ROSTER_SIZE:
+		return "The roster is full (%d/%d). Send a player down or release one first." % [team.roster_count(), Team.ROSTER_SIZE]
 	if _signs_now(season, s):
 		var ask := projected_ask(s)
 		if not Contracts.resign_fits(team, season.cap_year(), s, ask):
@@ -156,6 +158,52 @@ static func _move_down(team: Team, s: Soldier) -> void:
 	s.promise = {}
 	if not team.green_team.has(s):
 		team.green_team.append(s)
+
+
+# --- free-agent signings -----------------------------------------------------
+
+## Why free agent `s` can't be signed straight to `team`'s Green Team ("" = he can). Offseason only
+## (no size limit then; trim to GREEN_SIZE before Week 1), for young players only worth a minimum-level
+## deal (market value SIGN_MAX_MARKET or less) who aren't weighing another club's offer.
+static func sign_error(season: Season, team: Team, s: Soldier) -> String:
+	if not season.league.free_agents.has(s):
+		return "%s isn't a free agent." % s.full_name()
+	if season.phase != Season.PHASE_OFFSEASON:
+		return "Free agents can only be signed to the Green Team in the offseason."
+	if s.age > MAX_AGE:
+		return "Only players %d or younger can join the Green Team." % MAX_AGE
+	if pro_seasons(s) > MAX_PRO_SEASONS:
+		return "%s has played %d pro seasons (max %d for the Green Team)." % [s.full_name(), pro_seasons(s), MAX_PRO_SEASONS]
+	if Contracts.market_value(s) > SIGN_MAX_MARKET:
+		return "%s expects a main-roster contract (market value %s). Make him an offer instead." % [s.full_name(), Contracts.money(Contracts.market_value(s))]
+	for o in season.fa.offers_for(s):
+		if o["team"] != team:
+			return "%s is weighing an offer from %s." % [s.full_name(), o["team"].name]
+	return ""
+
+
+## Signs free agent `s` to `team`'s Green Team on a Green Team deal. Returns "" or the reason it failed.
+static func sign(season: Season, team: Team, s: Soldier) -> String:
+	var err := sign_error(season, team, s)
+	if err != "":
+		return err
+	season.fa.withdraw(team, s)
+	season.league.free_agents.erase(s)
+	if s.former_team != team.abbrev:
+		s.trust = Soldier.TRUST_NEUTRAL
+	s.trade_request = false
+	s.promise = {}
+	s.callup_pending = false
+	s.injury_cover_for = 0
+	s.contract = Contracts.green_contract(Contracts.green_salary_for(s), season.year)
+	s.ask_mult = 1.0
+	s.intensity = Soldier.INTENSITY_NORMAL
+	s.green_seasons = 0
+	s.morale = maxf(s.morale, 78.0)
+	team.green_team.append(s)
+	season.league.give_callsign(s)
+	_log(season, team, s, &"sign")
+	return ""
 
 
 # --- send down ---------------------------------------------------------------

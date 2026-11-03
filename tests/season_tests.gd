@@ -3831,6 +3831,48 @@ func test_green_team_setup() -> void:
 	check(back.green_version == 1 and back.user_team().green_team.size() == Team.GREEN_SIZE, "old saves build a Green Team")
 
 
+func test_green_team_offseason_no_limit() -> void:
+	var s := Season.new_franchise(324)
+	var u := s.user_team()
+	s.phase = Season.PHASE_OFFSEASON
+	# Free agents sign straight to the Green Team past GREEN_SIZE (young, minimum-level players only).
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var q := 40.0
+	while s.league.free_agents.filter(func(x: Soldier): return Contracts.market_value(x) <= GreenTeam.SIGN_MAX_MARKET).size() < 3:
+		var gen := PlayerGenerator.generate(rng, s.league.next_soldier_id, Scheme.Role.FLEX, q, 20)
+		s.league.next_soldier_id += 1
+		s.league.add_free_agent(gen, s.year)
+	var pool: Array = s.league.free_agents.duplicate()
+	pool.sort_custom(func(a: Soldier, b: Soldier): return Contracts.market_value(a) < Contracts.market_value(b))
+	var signed := 0
+	for fa in pool:
+		if Contracts.market_value(fa) > GreenTeam.SIGN_MAX_MARKET or signed >= 3:
+			break
+		fa.age = 21
+		fa.season_lines.clear()
+		check(GreenTeam.sign(s, u, fa) == "", "sign %s to the Green Team" % fa.full_name())
+		check(u.green_team.has(fa) and fa.contract.green and not s.league.free_agents.has(fa), "joined on a Green Team deal")
+		signed += 1
+	check(signed == 3, "found cheap young free agents")
+	check(u.green_team.size() == Team.GREEN_SIZE + 3, "no Green Team limit in the offseason")
+	check(GreenTeam.user_error(u).contains("before Week 1"), "but Week 1 needs it trimmed")
+	var pricey: Soldier = pool[pool.size() - 1]
+	pricey.age = 21
+	pricey.season_lines.clear()
+	check(GreenTeam.sign_error(s, u, pricey).contains("main-roster"), "valuable free agents want a real contract")
+	# Call-ups past ROSTER_SIZE are fine in the offseason too.
+	for i in 3:
+		check(GreenTeam.call_up(s, u, u.green_team[0]) == "", "offseason call-up %d" % i)
+	check(u.roster_count() == Team.ROSTER_SIZE + 3, "no roster limit in the offseason")
+	check(u.green_team.size() == Team.GREEN_SIZE, "Green Team back to its limit")
+	# In season the Green Team takes no free-agent signings.
+	s.phase = Season.PHASE_REGULAR
+	s.week = 1
+	if not s.league.free_agents.is_empty():
+		check(GreenTeam.sign_error(s, u, s.league.free_agents[0]).contains("offseason"), "no Green Team signings in season")
+
+
 func test_green_team_call_up_and_send_down() -> void:
 	var s := Season.new_franchise(323)
 	var u := s.user_team()
