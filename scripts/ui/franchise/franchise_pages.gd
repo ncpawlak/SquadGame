@@ -713,6 +713,166 @@ func roster() -> Control:
 	return _roster_table(null, func(): hub.page_refresh("Roster", roster))
 
 
+# --- green team --------------------------------------------------------------------
+
+## Team > Green Team: the development roster (roster-style table) with Call Up buttons, the
+## injured list's replacement options and active injury replacements.
+func green_team() -> Control:
+	var s := _season()
+	var team := s.user_team()
+	var rebuild := func(): hub.page_refresh("Green Team", green_team)
+	var mode := &"green"
+	var v := _vbox()
+	var help := UiKit.label("Your development roster (max %d). Draft picks start here on small Green Team deals. They earn %sx XP and weekly reps that reveal their true potential. Call a player up when he's ready. A player can be sent back down once in his career. Players kept down too long get frustrated and may ask out." % [
+		Team.GREEN_SIZE, str(GreenTeam.XP_MULT)], 15, UiKit.MUTED)
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(help)
+	var err := GreenTeam.user_error(team)
+	if err != "":
+		v.add_child(UiKit.label(err, 16, UiKit.BAD))
+	# Injury list: replacements wanted / in place.
+	if s.phase != Season.PHASE_OFFSEASON:
+		for inj in GreenTeam.coverable(team):
+			var row := _row(12)
+			row.add_child(UiKit.rich("[color=#ef4444]INJURED[/color]  [color=white]%s[/color] (%s, %d wks) has no replacement." % [
+				UiKit.esc(inj.display_name()), inj.injury_name, inj.injury_weeks], 16))
+			var who: Soldier = inj
+			var b := UiKit.button("Bring Up Injury Replacement", func(): confirm_cover(who, rebuild), 15)
+			b.disabled = team.green_team.all(func(x: Soldier): return GreenTeam.cover_error(s, team, who, x) != "")
+			if b.disabled:
+				b.tooltip_text = "No Green Team player can cover (injured or send-down already used)."
+			row.add_child(b)
+			v.add_child(row)
+		for c in team.covers():
+			var row := _row(12)
+			var inj := GreenTeam.covered(team, c)
+			row.add_child(UiKit.rich("[color=#38bdf8]INJ REPLACEMENT[/color]  [color=white]%s[/color] is up for %s%s. He goes back down when %s returns (uses his send-down)." % [
+				UiKit.esc(c.display_name()), UiKit.esc(inj.display_name()) if inj != null else "an injured teammate",
+				" (%d wks left)" % inj.injury_weeks if inj != null else "", "he" if inj != null else "the player"], 16))
+			var who: Soldier = c
+			var b := UiKit.button("Keep Up for Good", func(): confirm_convert(who, rebuild), 15)
+			var cerr := GreenTeam.convert_error(s, team, c)
+			b.disabled = cerr != ""
+			b.tooltip_text = cerr
+			row.add_child(b)
+			v.add_child(row)
+	if team.green_team.is_empty():
+		v.add_child(UiKit.label("The Green Team is empty. Draft picks land here.", 18, UiKit.MUTED))
+		return v
+	var list := _sorted(team.green_team, mode, team)
+	var pane := _player_pane()
+	v.add_child(pane)
+	_fill_pane(pane, list[0], team)
+	var table := _vbox(4)
+	table.add_child(_sort_header(mode, _roster_cols(mode), rebuild))
+	for so in list:
+		var line := _row(8)
+		line.add_child(_roster_row(team, so, mode, pane))
+		var who: Soldier = so
+		var b := UiKit.action_button("Call Up", func(): confirm_call_up(who, rebuild), 15)
+		b.custom_minimum_size = Vector2(110, 54)
+		var cerr := GreenTeam.call_up_error(s, team, so)
+		b.disabled = cerr != ""
+		b.tooltip_text = cerr
+		line.add_child(b)
+		table.add_child(line)
+	v.add_child(table)
+	return v
+
+
+## "Call up X?" with what it means: his deal now, the end-of-season negotiation and his send-down.
+func confirm_call_up(so: Soldier, after: Callable) -> void:
+	var s := _season()
+	var team := s.user_team()
+	var lines: PackedStringArray = []
+	var ask := GreenTeam.projected_ask(so)
+	var yrs := Contracts.preferred_years(so)
+	if s.phase == Season.PHASE_OFFSEASON and so.contract != null and so.contract.green and not so.contract.is_expiring() and not so.callup_pending:
+		lines.append("Offseason call-up: he signs his first pro contract now at [color=white]%s x %d yr%s[/color]." % [Contracts.money(ask), yrs, "" if yrs == 1 else "s"])
+	elif so.contract != null and so.contract.green:
+		lines.append("He keeps his [color=white]%s[/color] Green Team deal for the rest of this season." % Contracts.money(so.contract.salary))
+		lines.append("At season's end he must be re-signed in the [color=white]Call-Ups[/color] section of Re-sign Players (projected ask [color=white]%s / yr[/color]) or he leaves in free agency. That applies even if you send him back down." % Contracts.money(ask))
+	else:
+		lines.append("He keeps his current contract.")
+	if so.send_down_used:
+		lines.append("[color=#f59e0b]He has already used his one send-down: once he's up, he can't go back to the Green Team.[/color]")
+	elif GreenTeam.send_down_tag(s, team, so) == "AVAIL":
+		lines.append("Sending him back down later uses his [color=white]one send-down[/color]. After that he can never go back.")
+	lines.append("He takes a main-roster spot (%d / %d after this call-up)." % [team.roster_count() + 1, Team.ROSTER_SIZE])
+	_confirm_modal(_confirm_body("CALL UP %s?" % so.full_name().to_upper(), lines), "Call Up", func():
+		var err := GreenTeam.call_up(s, team, so)
+		hub.app.toast(err if err != "" else "%s called up to the main roster." % so.full_name())
+		after.call())
+
+
+## "Send down X?": uses his one send-down; he keeps any call-up negotiation.
+func confirm_send_down(so: Soldier, after: Callable) -> void:
+	var s := _season()
+	var team := s.user_team()
+	var lines: PackedStringArray = []
+	lines.append("This uses his [color=white]one send-down[/color]. He can never be sent down again.")
+	if so.callup_pending:
+		lines.append("He was called up this season, so you still negotiate with him at season's end (Call-Ups) or he leaves in free agency.")
+	lines.append("Being sent down costs him morale (%d)." % roundi(GreenTeam.SEND_DOWN_MORALE))
+	if s.phase != Season.PHASE_OFFSEASON and team.green_team.size() >= Team.GREEN_SIZE:
+		lines.append("[color=#f59e0b]The Green Team will be over its limit (%d / %d) until you call someone up.[/color]" % [team.green_team.size() + 1, Team.GREEN_SIZE])
+	_confirm_modal(_confirm_body("SEND DOWN %s?" % so.full_name().to_upper(), lines), "Send Down", func():
+		var err := GreenTeam.send_down(s, team, so)
+		hub.app.toast(err if err != "" else "%s sent down to the Green Team." % so.full_name())
+		after.call())
+
+
+## Pick a Green Team player to cover for `injured`, with the injury-replacement rules.
+func confirm_cover(injured: Soldier, after: Callable) -> void:
+	var s := _season()
+	var team := s.user_team()
+	var options: Array = team.green_team.filter(func(x: Soldier): return GreenTeam.cover_error(s, team, injured, x) == "")
+	if options.is_empty():
+		hub.app.toast("No Green Team player can cover for %s." % injured.full_name())
+		return
+	options.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
+	var lines: PackedStringArray = [
+		"He stays up while %s is on the injured list and [color=white]doesn't count[/color] against the %d-man roster." % [injured.full_name(), Team.ROSTER_SIZE],
+		"When %s is healthy he goes back down automatically: no new contract, but it [color=white]uses his one send-down[/color]." % injured.short_name(),
+		"Want him to stay? Keep him up for good before then (a regular call-up)."]
+	var body := _confirm_body("INJURY REPLACEMENT FOR %s" % injured.full_name().to_upper(), lines)
+	var pick := OptionButton.new()
+	pick.custom_minimum_size = Vector2(420, 44)
+	UiKit.style_button(pick)
+	for o: Soldier in options:
+		pick.add_item("%s  -  %s  OVR %d  POT %s" % [o.display_name(), Scheme.ROLE_NAMES[Scheme.best_role(o.stats)], o.best_ovr(), o.potential_text()])
+	body.add_child(pick)
+	_confirm_modal(body, "Bring Him Up", func():
+		var so: Soldier = options[maxi(0, pick.selected)]
+		var err := GreenTeam.cover(s, team, injured, so)
+		hub.app.toast(err if err != "" else "%s is up as %s's injury replacement." % [so.full_name(), injured.short_name()])
+		after.call())
+
+
+## Turn an injury replacement into a full call-up.
+func confirm_convert(so: Soldier, after: Callable) -> void:
+	var s := _season()
+	var team := s.user_team()
+	var lines: PackedStringArray = [
+		"He stays on the main roster for good and takes a roster spot (%d / %d after this)." % [team.roster_count() + 1, Team.ROSTER_SIZE],
+		"His send-down stays unused, but he joins the [color=white]Call-Ups[/color] negotiation at season's end (projected ask [color=white]%s / yr[/color]) or leaves in free agency." % Contracts.money(GreenTeam.projected_ask(so))]
+	_confirm_modal(_confirm_body("KEEP %s UP?" % so.full_name().to_upper(), lines), "Keep Him Up", func():
+		var err := GreenTeam.convert_cover(s, team, so)
+		hub.app.toast(err if err != "" else "%s is now a full call-up." % so.full_name())
+		after.call())
+
+
+func _confirm_body(title: String, lines: PackedStringArray) -> VBoxContainer:
+	var v := _vbox(10)
+	v.custom_minimum_size.x = 620
+	v.add_child(UiKit.label(title, 22, Color.WHITE))
+	for l in lines:
+		var r := UiKit.rich("•  " + l, 16)
+		r.custom_minimum_size.x = 620
+		v.add_child(r)
+	return v
+
+
 ## Player Progression: players who can afford an upgrade on the left; the selected (or hovered)
 ## one on the right with his stat groups as 0-99 cap bars. Click a group to spend SP on it.
 var _prog_sel_id := -1
@@ -733,14 +893,14 @@ func _build_progression(root: VBoxContainer, focus_group: StringName = &"") -> v
 		root.remove_child(c)
 		c.queue_free()
 	var team := _season().user_team()
-	var eligible: Array = team.roster.filter(func(x: Soldier): return Progression.can_level_up(x))
+	var eligible: Array = team.org().filter(func(x: Soldier): return Progression.can_level_up(x))
 	eligible.sort_custom(func(a: Soldier, b: Soldier):
 		return a.skill_points > b.skill_points if a.skill_points != b.skill_points else a.id < b.id)
 	var actions := _row()
 	var auto := UiKit.button("Auto-progress all (%d can level up)" % eligible.size(), func():
 		var raised := 0
 		var players := 0
-		for s in team.roster:
+		for s in team.org():
 			if s.skill_points <= 0:
 				continue
 			var groups: Array = Progression.auto_spend(s, _row_role(team, s))
@@ -946,7 +1106,7 @@ func _progression_group_row(s: Soldier, g: StringName, ctx: Dictionary) -> Contr
 
 ## Column sort per table mode: mode -> [key, descending].
 var _sort := {}
-const DEFAULT_SORT := {&"roster": [&"slot", false], &"fa": [&"ovr", true], &"contracts": [&"salary", true], &"drill": [&"ovr", true],
+const DEFAULT_SORT := {&"roster": [&"slot", false], &"green": [&"ovr", true], &"fa": [&"ovr", true], &"contracts": [&"salary", true], &"drill": [&"ovr", true],
 	&"team_stats": [&"kills", true], &"league_stats": [&"kills", true], &"prospects": [&"proj", true], &"league_teams": [&"w", true]}
 
 
@@ -971,6 +1131,9 @@ func _sort_value(s: Soldier, key: StringName, team: Team) -> Variant:
 		&"ovr": return _row_ovr(team, s)
 		&"slot": return _slot_order(team, s) if team != null else 0
 		&"morale": return s.morale
+		&"reps": return s.reps
+		&"gseason": return s.green_seasons * 10 + (2 if s.trade_request else (1 if team != null and GreenTeam.is_frustrated(team, s) else 0))
+		&"down": return 0 if s.send_down_used else (1 if GreenTeam.send_down_tag(_season(), team, s) == "-" else 2)
 		&"fatigue": return s.fatigue
 		&"asking": return Contracts.asking(s, Contracts.preferred_years(s))
 		&"offers": return _season().fa.offers_for(s).size()
@@ -1074,23 +1237,31 @@ const RCOL_AGE := 44
 const RCOL_POT := 64
 const RCOL_OVR := 84
 const RCOL_GROUP := 96
+const RCOL_GROUP_NARROW := 76  # Green Team table: leaves room for the Call Up button
 const RCOL_MORALE := 70
 const RCOL_STATUS := 150
 const RCOL_CONTRACT := 110
 const RCOL_OFFERS := 150
+const RCOL_REPS := 80
+const RCOL_DOWN := 80
 
 
 func _roster_cols(mode: StringName) -> Array:
 	var cols := [["SOLDIER", RCOL_NAME, &"name"], ["AGE", RCOL_AGE, &"age"], ["POT", RCOL_POT, &"pot"], ["OVR", RCOL_OVR, &"ovr"]]
 	for g in Stats.GROUP_ORDER:
-		cols.append([Stats.GROUP_LABELS[g].to_upper(), RCOL_GROUP, g])
+		cols.append([Stats.GROUP_LABELS[g].to_upper().left(4) if mode == &"green" else Stats.GROUP_LABELS[g].to_upper(), RCOL_GROUP_NARROW if mode == &"green" else RCOL_GROUP, g])
 	match mode:
 		&"fa":
 			cols.append(["ASKING", RCOL_CONTRACT, &"asking"])
 			cols.append(["OFFERS", RCOL_OFFERS, &"offers"])
+		&"green":
+			cols.append(["REPS", RCOL_REPS, &"reps"])
+			cols.append(["MORALE", RCOL_MORALE, &"morale"])
+			cols.append(["SEASON / STATUS", RCOL_STATUS, &"gseason"])
 		_:
 			cols.append(["MORALE", RCOL_MORALE, &"morale"])
 			cols.append(["SLOT / STATUS", RCOL_STATUS, &"slot"])
+			cols.append(["SEND DN", RCOL_DOWN, &"down"])
 	return cols
 
 
@@ -1161,7 +1332,7 @@ func _roster_row(team: Team, s: Soldier, mode: StringName, pane: Control = null)
 	hb.add_child(_pot_cell(s, RCOL_POT))
 	hb.add_child(_ovr_cell(_row_ovr(team, s), s.morale_ovr_delta(_row_role(team, s)), RCOL_OVR))
 	for g in Stats.GROUP_ORDER:
-		hb.add_child(_rating_cell(s.group_rating(g), RCOL_GROUP))
+		hb.add_child(_rating_cell(s.group_rating(g), RCOL_GROUP_NARROW if mode == &"green" else RCOL_GROUP))
 	if mode == &"fa":
 		var yrs := Contracts.preferred_years(s)
 		hb.add_child(_two_lines(Contracts.money(Contracts.asking(s, yrs)), Color.WHITE, "%d yr%s" % [yrs, "" if yrs == 1 else "s"], RCOL_CONTRACT, 16))
@@ -1175,10 +1346,35 @@ func _roster_row(team: Team, s: Soldier, mode: StringName, pane: Control = null)
 			UiKit.style_button(info, UiKit.INFO.darkened(0.7), UiKit.ACCENT, 6)
 		return info
 	hb.add_child(_big_cell(str(roundi(s.morale)), morale_color(s.morale), RCOL_MORALE, 18))
+	if mode == &"green":
+		hb.add_child(_two_lines("%d / %d" % [floori(s.reps), int(Soldier.REP_MAX)], Color.WHITE if s.potential_known() else UiKit.INFO,
+			"POT KNOWN" if s.potential_known() else "SCOUTING", RCOL_REPS, 16))
+		var st: Array = _green_status(team, s)
+		hb.add_child(_two_lines("Year %d of %d" % [s.green_seasons + 1, GreenTeam.MAX_SEASONS], Color.WHITE, st[0], RCOL_STATUS, 15, st[1]))
+		return info
 	var slot := team.slot_of(s)
 	var slot_text := team.scheme.label_for_slot(slot) if slot != &"" else "Bench"
-	hb.add_child(_two_lines(slot_text, Color.WHITE if slot != &"" else UiKit.MUTED, _status_text(s), RCOL_STATUS, 15))
+	var status := _status_text(s)
+	if s.injury_cover_for != 0:
+		var inj := GreenTeam.covered(team, s)
+		status = "INJ REPL%s" % (" for %s" % inj.short_name() if inj != null else "")
+	hb.add_child(_two_lines(slot_text, Color.WHITE if slot != &"" else UiKit.MUTED, status, RCOL_STATUS, 15))
+	var tag := GreenTeam.send_down_tag(_season(), team, s)
+	hb.add_child(_big_cell(tag, UiKit.GOOD if tag == "AVAIL" else (UiKit.BAD if tag == "USED" else UiKit.MUTED), RCOL_DOWN, 15))
 	return info
+
+
+## Green Team row status: [text, color] - trade request, frustrated, ready to help, or condition.
+func _green_status(team: Team, s: Soldier) -> Array:
+	if s.trade_request:
+		return ["WANTS OUT", UiKit.BAD]
+	if s.is_injured():
+		return [_status_text(s), UiKit.BAD]
+	if GreenTeam.is_frustrated(team, s):
+		return ["FRUSTRATED", Color("#f97316")]
+	if GreenTeam.is_ready(team, s):
+		return ["READY", UiKit.GOOD]
+	return ["Developing", UiKit.MUTED]
 
 
 ## The big "selected player" pane over roster-style tables (Madden / 2K roster screen).
@@ -1211,7 +1407,7 @@ func _fill_pane(pane: Control, s: Soldier, team: Team) -> void:
 	mid.add_child(UiKit.label(s.full_name().to_upper(), 16, UiKit.ACCENT))
 	mid.add_child(UiKit.label(("\"%s\"" % s.callsign.to_upper()) if s.callsign != "" else s.last_name.to_upper(), 40, Color.WHITE))
 	var slot := team.slot_of(s) if team != null else &""
-	var where := ("Starting " + team.scheme.label_for_slot(slot) if slot != &"" else "Bench") if team != null else "Free agent"
+	var where := ("Green Team" if team.green_team.has(s) else ("Starting " + team.scheme.label_for_slot(slot) if slot != &"" else "Bench")) if team != null else "Free agent"
 	mid.add_child(UiKit.label("%s   ·   AGE %d   ·   %s" % [Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), s.age, where.to_upper()], 15, UiKit.MUTED))
 	var facts := _row(34)
 	facts.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1281,7 +1477,7 @@ func _contract_cell(s: Soldier, width: int) -> Control:
 	if c == null:
 		return _two_lines("-", UiKit.MUTED, "", width, 16)
 	var yrs_text := "EXPIRING" if c.is_expiring() else "%d yr%s left" % [c.years, "" if c.years == 1 else "s"]
-	return _two_lines(Contracts.money(c.salary), Color.WHITE, yrs_text + (" (R)" if c.rookie else ""), width, 16)
+	return _two_lines(Contracts.money(c.salary), Color.WHITE, yrs_text + (" (G)" if c.green else (" (R)" if c.rookie else "")), width, 16)
 
 
 func _big_cell(text: String, color: Color, width: int, size := 24) -> Control:
@@ -1321,9 +1517,14 @@ static func potential_color(grade: int) -> Color:
 	return TIER_COLORS[clampi(grade, 0, TIER_COLORS.size() - 1)]
 
 
-## His Potential letter in its grade color (BBCode).
+## His Potential as the club knows it (see Soldier.potential_text): the grade color once reps reveal it.
+static func pot_color(s: Soldier) -> Color:
+	return potential_color(s.potential_grade()) if s.potential_known() else UiKit.MUTED
+
+
+## His Potential letter (or scouted range) in its grade color (BBCode).
 static func pot_bb(s: Soldier) -> String:
-	return "[color=%s]%s[/color]" % [UiKit.hex(potential_color(s.potential_grade())), s.potential_letter()]
+	return "[color=%s]%s[/color]" % [UiKit.hex(pot_color(s)), s.potential_text()]
 
 
 ## Potential letter plus dev stars as text (BBCode), where the insignia graphic doesn't fit.
@@ -1334,7 +1535,7 @@ static func pot_dev_bb(s: Soldier, star_font := 0) -> String:
 
 ## Plain "B ★★★" for text tables.
 static func pot_dev_text(s: Soldier) -> String:
-	return "%s %s" % [s.potential_letter(), s.dev_text()]
+	return "%s %s" % [s.potential_text(), s.dev_text()]
 
 
 ## Table cell: the Potential letter with the dev-star insignia beside it.
@@ -1343,7 +1544,7 @@ func _pot_cell(s: Soldier, width: int, size := 24, star := 9.0) -> Control:
 	hb.custom_minimum_size.x = width
 	hb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var l := UiKit.label(s.potential_letter(), size, potential_color(s.potential_grade()))
+	var l := UiKit.label(s.potential_text(), size if s.potential_known() else mini(size, 18), pot_color(s))
 	l.add_theme_font_override("font", UiKit.font_heavy)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.add_child(l)
@@ -1368,7 +1569,17 @@ func _potential_legend() -> Control:
 func _slot_order(team: Team, s: Soldier) -> int:
 	var slot := team.slot_of(s)
 	var ids := team.scheme.slot_ids()
+	if team.green_team.has(s):
+		return 200 + team.green_team.find(s)
 	return ids.find(slot) if slot != &"" else 100 + team.roster.find(s)
+
+
+## Short slot label for list rows: the lineup slot, "BN" on the bench, "GT" on the Green Team.
+func _slot_tag(team: Team, s: Soldier) -> String:
+	if team.green_team.has(s):
+		return "GT"
+	var slot := team.slot_of(s)
+	return String(slot) if slot != &"" else "BN"
 
 
 ## Player page tabs (Madden player card): Overview, Ratings, Contract, Stats, DNA.
@@ -1465,7 +1676,7 @@ func _player_header(s: Soldier, team: Team) -> Control:
 		where = "Retired %d" % s.retired_year
 	elif team != null:
 		var slot := team.slot_of(s)
-		where = "%s  ·  %s" % [team.name, ("Starting " + team.scheme.label_for_slot(slot)) if slot != &"" else "Bench"]
+		where = "%s  ·  %s" % [team.name, "Green Team" if team.green_team.has(s) else (("Starting " + team.scheme.label_for_slot(slot)) if slot != &"" else "Bench")]
 	var yrs_in := maxi(1, _season().year - s.draft_year + 1) if s.draft_year > 0 else 0
 	mid.add_child(UiKit.label("%s   ·   AGE %d   ·   %s%s" % [Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), s.age, where.to_upper(),
 		("   ·   YEAR %d" % yrs_in) if yrs_in > 0 else ""], 15, UiKit.MUTED))
@@ -1664,7 +1875,18 @@ func _player_overview(s: Soldier, team: Team) -> Control:
 		b.disabled = not enabled
 		rail.add_child(b)
 	if editable:
-		add_action.call("View in Lineup", func(): hub.open("Lineup", lineup))
+		var season := _season()
+		var back := func(): _player_refresh(s, 0)
+		if team.green_team.has(s):
+			var cerr := GreenTeam.call_up_error(season, team, s)
+			add_action.call("Call Up to Roster", func(): confirm_call_up(s, back), cerr == "")
+		else:
+			add_action.call("View in Lineup", func(): hub.open("Lineup", lineup))
+			if s.injury_cover_for != 0:
+				add_action.call("Keep Up for Good", func(): confirm_convert(s, back), GreenTeam.convert_error(season, team, s) == "")
+			else:
+				add_action.call("Send Down", func(): confirm_send_down(s, back),
+					GreenTeam.send_down_error(season, team, s) == "")
 		add_action.call("Upgrade Ratings (%d SP)" % s.skill_points, func(): _player_refresh(s, 1))
 		add_action.call("Contract", func(): _player_refresh(s, 2))
 		add_action.call("Release", func(): _player_refresh(s, 2))
@@ -1855,7 +2077,7 @@ func _player_contract(s: Soldier, team: Team) -> Control:
 	for item in [["SALARY", "%s / yr" % Contracts.money(c.salary)],
 			["YEARS LEFT", "[color=#f59e0b]EXPIRING[/color]" if c.is_expiring() else str(c.years)],
 			["REMAINING", Contracts.money(c.remaining_value())], ["SIGNED", str(c.signed_year)],
-			["TYPE", "Rookie deal" if c.rookie else "Veteran"], ["MARKET VALUE", Contracts.money(Contracts.market_value(s))],
+			["TYPE", "Green Team deal" if c.green else ("Rookie deal" if c.rookie else "Veteran")], ["MARKET VALUE", Contracts.money(Contracts.market_value(s))],
 			["CAP SHARE", "%.1f%%" % (100.0 * c.salary / Contracts.SALARY_CAP)]]:
 		facts.add_child(_fact_box(item[0], item[1]))
 	v.add_child(facts)
@@ -1863,7 +2085,7 @@ func _player_contract(s: Soldier, team: Team) -> Control:
 		v.add_child(UiKit.rich("[color=%s]EXTENSION AGREED[/color]   %s, starting %d" % [UiKit.hex(UiKit.GOOD), _ext_text(s), season.year + 1], 16))
 	var effect := Morale.contract_effect(s)
 	v.add_child(UiKit.label("Contract morale: %s" % ("feels underpaid (morale drops weekly)" if effect < 0.0 else ("happy with his pay" if effect > 0.0 else
-		("rookie deal (no effect)" if c.rookie else "neutral"))), 15, UiKit.BAD if effect < 0.0 else (UiKit.GOOD if effect > 0.0 else UiKit.MUTED)))
+		("Green Team deal (no effect)" if c.green else ("rookie deal (no effect)" if c.rookie else "neutral")))), 15, UiKit.BAD if effect < 0.0 else (UiKit.GOOD if effect > 0.0 else UiKit.MUTED)))
 	if not team.user_controlled:
 		return v
 	v.add_child(_section("ACTIONS"))
@@ -1883,7 +2105,7 @@ func _player_contract(s: Soldier, team: Team) -> Control:
 		var charged := season.release_player(team, s)
 		hub.app.toast("Released %s. %s dead money." % [s.full_name(), Contracts.money(charged)])
 		hub.go_back(), 16)
-	rel.disabled = team.roster.size() <= min_roster
+	rel.disabled = team.roster.has(s) and team.roster.size() <= min_roster
 	if confirming:
 		UiKit.style_button(rel, UiKit.BAD.darkened(0.5), Color.WHITE, 8)
 	actions.add_child(rel)
@@ -2604,16 +2826,15 @@ func training() -> Control:
 		Training.ai_set_intensities(team)
 		hub.replace("Weekly Training", training)))
 	top.add_child(UiKit.button("All Normal", func():
-		for so in team.roster:
+		for so in team.org():
 			so.intensity = Soldier.INTENSITY_NORMAL
 		hub.replace("Weekly Training", training)))
 	v.add_child(top)
-	var list: Array = team.roster.duplicate()
+	var list: Array = team.org()
 	list.sort_custom(func(a: Soldier, b: Soldier): return _slot_order(team, a) < _slot_order(team, b))
 	for so: Soldier in list:
 		var row := _row(16)
-		var slot := team.slot_of(so)
-		var name_l := UiKit.label("%s  %s" % [slot if slot != &"" else "BN", so.full_name()], 17, Color.WHITE)
+		var name_l := UiKit.label("%s  %s" % [_slot_tag(team, so), so.full_name()], 17, Color.WHITE)
 		name_l.custom_minimum_size.x = 270
 		row.add_child(name_l)
 		var age_l := UiKit.label("age %d" % so.age, 15, UiKit.MUTED)
@@ -2667,13 +2888,12 @@ func training_results() -> Control:
 		total_sp += int(r["points"])
 	v.add_child(UiKit.label("%s training complete  -  +%d XP across the roster%s" % [season.week_label(season.week), total_xp,
 		("  -  %d skill points earned" % total_sp) if total_sp > 0 else ""], 20, Color.WHITE))
-	var list: Array = team.roster.filter(func(x: Soldier): return report.has(x.id))
+	var list: Array = team.org().filter(func(x: Soldier): return report.has(x.id))
 	list.sort_custom(func(a: Soldier, b: Soldier): return _slot_order(team, a) < _slot_order(team, b))
 	for so: Soldier in list:
 		var r: Dictionary = report[so.id]
 		var row := _row(16)
-		var slot := team.slot_of(so)
-		var name_l := UiKit.label("%s  %s" % [slot if slot != &"" else "BN", so.display_name()], 17, Color.WHITE)
+		var name_l := UiKit.label("%s  %s" % [_slot_tag(team, so), so.display_name()], 17, Color.WHITE)
 		name_l.custom_minimum_size.x = 300
 		row.add_child(name_l)
 		var it_l := UiKit.label(Training.label(r["intensity"]), 15, UiKit.MUTED)
@@ -3529,7 +3749,7 @@ func _grade_cell(g: StringName, w: Variant) -> Control:
 	return v
 
 
-func _two_lines(top: String, top_color: Color, bottom: String, width: int, top_size := 16) -> Control:
+func _two_lines(top: String, top_color: Color, bottom: String, width: int, top_size := 16, bottom_color := UiKit.MUTED) -> Control:
 	var v := _vbox(2)
 	v.custom_minimum_size.x = width
 	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -3537,7 +3757,7 @@ func _two_lines(top: String, top_color: Color, bottom: String, width: int, top_s
 	var a := UiKit.label(top, top_size, top_color)
 	a.clip_text = true
 	v.add_child(a)
-	var b := UiKit.label(bottom, 13, UiKit.MUTED)
+	var b := UiKit.label(bottom, 13, bottom_color)
 	b.clip_text = true
 	v.add_child(b)
 	return v
@@ -3745,7 +3965,7 @@ func _draft_clock(d: Draft, refresh: Callable) -> Control:
 		timer.stop()
 		var p := d.ai_pick()
 		if p != null and t.user_controlled:
-			hub.app.toast("Time's up! Auto-picked %s (%s)." % [p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role]])
+			hub.app.toast("Time's up! Auto-picked %s (%s). He joins your Green Team." % [p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role]])
 		_after_pick()
 		refresh.call_deferred())
 	return lbl
@@ -3758,8 +3978,8 @@ func draft_room() -> Control:
 	var v := _vbox(12)
 	if not d.is_started():
 		v.add_child(UiKit.label("The %d draft is held after the Final." % d.year, 22, Color.WHITE))
-		var rules := UiKit.label("%d rounds, same order every round: teams that missed the playoffs pick first, the champion picks last. Rookies sign slotted %d-year deals (%s for the #1 pick down to %s). Use your weekly scout points until then." % [
-			Draft.ROUNDS, Contracts.ROOKIE_YEARS, Contracts.money(Contracts.ROOKIE_TOP), Contracts.money(Contracts.ROOKIE_BOTTOM)], 15, UiKit.MUTED)
+		var rules := UiKit.label("%d rounds, same order every round: teams that missed the playoffs pick first, the champion picks last. 		Picks join your Green Team on 1-year development deals (%s for the #1 pick down to %s) and earn reps that reveal their true potential. Call them up when they're ready. Use your weekly scout points until then." % [
+					Draft.ROUNDS, Contracts.money(Contracts.GREEN_MAX), Contracts.money(Contracts.GREEN_MIN)], 15, UiKit.MUTED)
 		rules.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(rules)
 		v.add_child(UiKit.button("Go to Scouting", hub.open_scouting))
@@ -3768,7 +3988,7 @@ func draft_room() -> Control:
 		var fa_now := s.offseason_stage == Season.OFF_FREE_AGENCY
 		v.add_child(UiKit.label("Free agency (day %d of %d) comes first: the draft starts after it." % [s.fa_day, Season.FA_DAYS] if fa_now
 			else "Re-signing window: free agency, then the draft, follow.", 22, Color.WHITE))
-		var rules := UiKit.label("Anyone you don't re-sign hits free agency when the window closes. Leave roster spots and cap room for your rookies - over-cap teams must cut down before camp. You pick in the order below.", 15, UiKit.MUTED)
+		var rules := UiKit.label("Anyone you don't re-sign hits free agency when the window closes. Your picks join the Green Team, not the main roster - leave a little cap room for them. Over-cap teams must cut down before camp. You pick in the order below.", 15, UiKit.MUTED)
 		rules.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(rules)
 		var nav := _row()
@@ -3803,7 +4023,7 @@ func draft_room() -> Control:
 		if t.user_controlled:
 			actions.add_child(UiKit.button("Auto-pick for me", func():
 				var p := d.ai_pick()
-				hub.app.toast("You select %s (%s)." % [p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role]])
+				hub.app.toast("You select %s (%s). He joins your Green Team." % [p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role]])
 				_after_pick()
 				refresh.call()))
 		else:
@@ -3835,7 +4055,7 @@ func draft_room() -> Control:
 				var pick := p
 				rows.add_child(_prospect_row(p, "Draft", true, func():
 					d.make_pick(pick)
-					hub.app.toast("You select %s (%s)." % [pick.soldier.full_name(), Scheme.ROLE_NAMES[pick.listed_role]])
+					hub.app.toast("You select %s (%s). He joins your Green Team." % [pick.soldier.full_name(), Scheme.ROLE_NAMES[pick.listed_role]])
 					_after_pick()
 					refresh.call()))
 			v.add_child(rows)
@@ -4130,7 +4350,7 @@ func _camp_autofill() -> void:
 			continue
 		var best: Soldier = null
 		var best_v := -INF
-		for so in user.roster:
+		for so in user.org():
 			if _camp_planned_group(so) != &"" or s.camp_check(g, so) != "":
 				continue
 			var v := _camp_fit(user, g, so)
@@ -4371,7 +4591,7 @@ func _camp_board(s: Season) -> Control:
 	head.add_child(_col_head("BEST DRILL", 170))
 	head.add_child(_col_head("CAMP", 200))
 	v.add_child(head)
-	var list: Array = user.roster.filter(func(so: Soldier): return not s.camp.has_attended(so))
+	var list: Array = user.org().filter(func(so: Soldier): return not s.camp.has_attended(so))
 	list.sort_custom(func(a: Soldier, b: Soldier):
 		var oa := s.camp_check(g, a) == ""
 		var ob := s.camp_check(g, b) == ""
@@ -4512,7 +4732,7 @@ func drill_pick(group: StringName) -> Control:
 	for c in cols:
 		headers.append(c[0])
 		widths.append(c[1])
-	var list: Array = _sorted(user.roster.filter(func(so: Soldier): return not s.camp.has_attended(so)), &"drill", null)
+	var list: Array = _sorted(user.org().filter(func(so: Soldier): return not s.camp.has_attended(so)), &"drill", null)
 	var rows: Array = []
 	var colors := {}
 	if list.is_empty():
@@ -4858,7 +5078,7 @@ func free_agents() -> Control:
 	var pending := s.fa.offers_by(user)
 	v.add_child(_cap_banner(user))
 	v.add_child(UiKit.rich("Roster %d / %d   -   %d pending offer%s   -   [color=#8b97ab]players weigh money (70%%), team quality and playing time[/color]" % [
-		user.roster.size(), Team.ROSTER_SIZE, pending.size(), "" if pending.size() == 1 else "s"], 15))
+		user.roster_count(), Team.ROSTER_SIZE, pending.size(), "" if pending.size() == 1 else "s"], 15))
 	var filters := _row(8)
 	filters.add_child(UiKit.label("POSITION", 13, UiKit.MUTED))
 	for r in [-1] + range(Scheme.ROLE_NAMES.size()):
@@ -5147,7 +5367,7 @@ func contracts() -> Control:
 	var summary := _row(14)
 	for item in [["%d CAP" % cy, Contracts.money(Contracts.SALARY_CAP), Color.WHITE], ["PAYROLL", Contracts.money(payroll), Color.WHITE],
 			["DEAD MONEY", Contracts.money(dead), UiKit.BAD if dead > 0 else UiKit.MUTED], ["CAP SPACE", Contracts.money(space), UiKit.GOOD if space >= 0 else UiKit.BAD],
-			["ROSTER", "%d / %d" % [user.roster.size(), Team.ROSTER_SIZE], UiKit.BAD if user.is_over_roster_limit() else Color.WHITE]]:
+			["ROSTER", "%d / %d  +%d GT" % [user.roster_count(), Team.ROSTER_SIZE, user.green_team.size()], UiKit.BAD if user.is_over_roster_limit() else Color.WHITE]]:
 		var p := UiKit.panel(UiKit.PANEL_HI, 8)
 		var box := _vbox(2)
 		box.add_child(UiKit.label(item[0], 13, UiKit.MUTED))
@@ -5166,13 +5386,13 @@ func contracts() -> Control:
 		else "[color=#8b97ab]under the cap[/color]"))], 15))
 	var roster_err := s.user_roster_error()
 	if user.is_over_roster_limit():
-		var extra := user.roster.size() - Team.ROSTER_SIZE
+		var extra := user.roster_count() - Team.ROSTER_SIZE
 		var by := "Week 1" if s.phase == Season.PHASE_OFFSEASON or s.preseason_camp or (s.phase == Season.PHASE_REGULAR and s.week == 1) else "your next match"
 		v.add_child(UiKit.label("Over the roster limit: release or trade %d player%s before %s." % [extra, "" if extra == 1 else "s", by], 16, UiKit.BAD))
 	elif roster_err != "":
 		v.add_child(UiKit.label(roster_err, 16, UiKit.ACCENT))
 	v.add_child(_section("CONTRACTS  -  click a player to re-sign or release him (releasing leaves %d%% of his remaining salary as dead money)" % roundi(Contracts.DEAD_MONEY_SHARE * 100)))
-	var list := _sorted(user.roster, &"contracts", user)
+	var list := _sorted(user.org(), &"contracts", user)
 	var table := _vbox(4)
 	table.add_child(_sort_header(&"contracts", CONTRACT_COLS, func(): hub.replace("Contracts & Payroll", contracts)))
 	for so: Soldier in list:
@@ -5185,7 +5405,7 @@ func contracts() -> Control:
 		var yr := cy + k
 		var committed := Contracts.payroll(user, cy, k)
 		var under := 0
-		for so in user.roster:
+		for so in user.org():
 			if (so.contract != null and so.contract.years > k) or Contracts.extension_covers(so, k):
 				under += 1
 		rows.append([yr, under, Contracts.money(int(user.dead_money.get(yr, 0))), Contracts.money(int(user.bonus_money.get(yr, 0))), Contracts.money(committed),
@@ -5219,7 +5439,9 @@ func _contract_row(team: Team, so: Soldier) -> Control:
 	var o := _row_ovr(team, so)
 	var slot := team.slot_of(so)
 	var tags: Array[String] = []
-	if c != null and c.rookie:
+	if c != null and c.green:
+		tags.append("Green Team deal")
+	elif c != null and c.rookie:
 		tags.append("rookie deal")
 	if c != null and c.no_trade:
 		tags.append("NTC")
@@ -5253,8 +5475,11 @@ func resign() -> Control:
 	var expiring := Contracts.expiring(user)
 	if s.phase != Season.PHASE_OFFSEASON:
 		v.add_child(UiKit.label("Re-signing opens after the Final.", 22, Color.WHITE))
-		var upcoming: Array = user.roster.filter(func(x: Soldier): return x.contract != null and x.contract.years == 1 and not x.has_extension())
+		var upcoming: Array = user.roster.filter(func(x: Soldier): return x.contract != null and x.contract.years == 1 and not x.has_extension() and not x.callup_pending)
 		v.add_child(UiKit.label("Contracts ending this season: %s" % (", ".join(PackedStringArray(upcoming.map(func(x: Soldier): return x.full_name()))) if not upcoming.is_empty() else "none"), 16, UiKit.MUTED))
+		var ups: Array = user.org().filter(func(x: Soldier): return x.callup_pending)
+		if not ups.is_empty():
+			v.add_child(UiKit.label("Call-ups to negotiate with after the Final: %s" % ", ".join(PackedStringArray(ups.map(func(x: Soldier): return x.full_name()))), 16, UiKit.MUTED))
 		if s.extension_open():
 			v.add_child(UiKit.button("Extend them now", func(): hub.open_extensions(), 15))
 		return v
@@ -5269,14 +5494,27 @@ func resign() -> Control:
 	if expiring.is_empty():
 		v.add_child(UiKit.label("No expiring contracts.", 16, UiKit.MUTED))
 	var refresh := func(): hub.replace("Re-sign Players", resign)
-	for so in expiring:
+	var ordered: Array = expiring.filter(func(x: Soldier): return not x.callup_pending)
+	var callups: Array = expiring.filter(func(x: Soldier): return x.callup_pending)
+	if not callups.is_empty():
+		if not ordered.is_empty():
+			ordered.push_front(&"regular")
+		ordered.append(&"callups")
+		ordered.append_array(callups)
+	for so in ordered:
+		if so is StringName:
+			if so == &"regular":
+				v.add_child(_section("EXPIRING CONTRACTS"))
+			else:
+				v.add_child(_section("CALL-UPS  -  called up from the Green Team this season (even if sent back down). Sign them or they leave in free agency."))
+			continue
 		var ref: Soldier = so
 		var n := s.negotiation(user, so)
 		var yrs: int = _resign_years.get(so.id, Contracts.preferred_years(so))
 		var row := _row(10)
 		row.add_child(Portrait.new(so, 44, user.color, user))
-		var info := UiKit.button("%s   -   age %d   -   OVR %d   -   POT %s   -   %s" % [so.display_name(), so.age, so.best_ovr(), pot_dev_text(so),
-			Scheme.ROLE_NAMES[Scheme.best_role(so.stats)]], func(): open_player(ref, 4), 15)
+		var info := UiKit.button("%s   -   age %d   -   OVR %d   -   POT %s   -   %s%s" % [so.display_name(), so.age, so.best_ovr(), pot_dev_text(so),
+			Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], "   -   GREEN TEAM" if user.green_team.has(so) else ""], func(): open_player(ref, 4), 15)
 		info.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		info.custom_minimum_size.x = 470
 		row.add_child(info)
@@ -5974,7 +6212,7 @@ func _team_of(s: Soldier) -> Team:
 
 
 func _grade(s: Soldier) -> String:
-	return s.potential_letter()
+	return s.potential_text()
 
 
 # --- trades -------------------------------------------------------------------------
@@ -6018,7 +6256,7 @@ func _owns(team: Team, a: Dictionary) -> bool:
 	var tr := _season().trades
 	if Trades.is_pick(a):
 		return tr.owner_of(a) == team and not tr.pick_used(_season(), a)
-	return team.roster.has(a["soldier"]) and Trades.tradeable(a["soldier"])
+	return team.has_player(a["soldier"]) and Trades.tradeable(a["soldier"])
 
 
 func trade_center() -> Control:
@@ -6150,7 +6388,8 @@ func _trade_after_text(t: Team, out_assets: Array, in_assets: Array) -> String:
 	for a in players_out:
 		sal -= a["soldier"].contract.salary
 	var space := Contracts.cap_space(t, s.cap_year()) - sal
-	var roster := t.roster.size() + players_in.size() - players_out.size()
+	var up := func(a): return not s.league.team_of(a["soldier"]).green_team.has(a["soldier"])
+	var roster := t.roster_count() + players_in.filter(up).size() - players_out.filter(up).size()
 	var note := ""
 	if roster > Team.ROSTER_SIZE:
 		note = "  [color=#ef4444](%s)[/color]" % ("must cut %d before the next match" % (roster - Team.ROSTER_SIZE) if t.user_controlled else "will shop or cut %d" % (roster - Team.ROSTER_SIZE))
@@ -6266,7 +6505,7 @@ func _asset_list(title: String, team: Team, mine: bool) -> Control:
 		hdr.add_child(l)
 	v.add_child(hdr)
 	var chosen := _trade_give if mine else _trade_get
-	var roster: Array = team.roster.duplicate()
+	var roster: Array = team.org()
 	roster.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
 	for so: Soldier in roster:
 		var asset := Trades.player_asset(so)
@@ -6284,8 +6523,8 @@ func _asset_list(title: String, team: Team, mine: bool) -> Control:
 		hb.add_child(_two_lines(Contracts.money(so.contract.salary) if so.contract != null else "-", Color.WHITE,
 			("%d yr%s" % [so.contract.years, "" if so.contract.years == 1 else "s"]) if ok else "EXPIRING", 110, 15))
 		var slot := team.slot_of(so)
-		hb.add_child(_two_lines(team.scheme.label_for_slot(slot) if slot != &"" else "Bench", Color.WHITE if slot != &"" else UiKit.MUTED,
-			_status_text(so), 90, 14))
+		var slot_text := "Green Team" if team.green_team.has(so) else (team.scheme.label_for_slot(slot) if slot != &"" else "Bench")
+		hb.add_child(_two_lines(slot_text, Color.WHITE if slot != &"" else UiKit.MUTED, _status_text(so), 90, 14))
 		var row := _row(6)
 		var btn := _click_wrap(hb, func(): _toggle_asset(asset, mine), 46)
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -6533,7 +6772,7 @@ func trade_block() -> Control:
 	var user := s.user_team()
 	var v := _vbox(8)
 	v.add_child(UiKit.label("Put players on the block and AI teams send you offers for them (check Trade Offers each week).", 17, Color.WHITE))
-	var roster: Array = user.roster.duplicate()
+	var roster: Array = user.org()
 	roster.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
 	var head := _row(14)
 	var spacer := Control.new()

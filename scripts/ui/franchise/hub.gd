@@ -951,6 +951,13 @@ func _todo_tiles(team: Team) -> Array:
 	var roster := _roster_status(team)
 	if not roster.is_empty():
 		out.append(_todo(roster["title"], roster["body"], UiKit.BAD, roster["cb"], false, true))
+	var green_err := GreenTeam.user_error(team)
+	var unhappy: Array = team.green_team.filter(func(x: Soldier): return x.trade_request)
+	if green_err != "" or not unhappy.is_empty():
+		var body := green_err if green_err != "" else "[color=#f59e0b]%s[/color] want%s a shot. Call %s up, trade %s or risk %s refusing to return." % [
+			", ".join(PackedStringArray(unhappy.map(func(x: Soldier): return UiKit.esc(x.short_name())))), "s" if unhappy.size() == 1 else "",
+			"him" if unhappy.size() == 1 else "them", "him" if unhappy.size() == 1 else "them", "him" if unhappy.size() == 1 else "them"]
+		out.append(_todo("Green Team", body, Color("#22c55e"), func(): open_subtab(Tab.TEAM, "Green Team"), false, green_err != ""))
 	if not season.trades.offers.is_empty():
 		var n := season.trades.offers.size()
 		out.append(_todo("Trade Offers", "[color=#f59e0b]%d team%s[/color] want to deal.\nOffers expire at week's end." % [n, "" if n == 1 else "s"],
@@ -987,7 +994,7 @@ Leave it and they are retired when the season starts." % [proposals, "" if propo
 				out.append(_todo("Over the Cap", "[color=#ef4444]%s over[/color] the cap.\nRelease or trade players before training camp." % Contracts.money(-space),
 					UiKit.BAD, _todo_contracts, false, true))
 			else:
-				out.append(_todo("Roster Review", "%d / %d players  -  cap space %s\nMake your cuts and moves before camp." % [team.roster.size(), Team.ROSTER_SIZE, Contracts.money(space)],
+				out.append(_todo("Roster Review", "%d / %d players  -  cap space %s\nMake your cuts and moves before camp." % [team.roster_count(), Team.ROSTER_SIZE, Contracts.money(space)],
 					Color("#f97316"), _todo_contracts))
 		var ups := season.facilities.upgrades_left(season, team)
 		var buyable := Facilities.IDS.filter(func(id): return season.facilities.upgrade_error(season, team, id) == "").size()
@@ -1319,7 +1326,7 @@ func _result_body(m: ScheduledMatch, team: Team) -> Control:
 ## expiring deals). Week 1 needs exactly ROSTER_SIZE, later matches ROSTER_MIN..ROSTER_SIZE.
 ## Returns {} when legal, else {title, body, cb} for an urgent to-do.
 func _roster_status(team: Team) -> Dictionary:
-	var n := team.roster.size()
+	var n := team.roster_count()
 	var before_week1 := season.phase == Season.PHASE_OFFSEASON or season.preseason_camp or (season.phase == Season.PHASE_REGULAR and season.week == 1)
 	var lo := Team.ROSTER_SIZE if before_week1 else Season.ROSTER_MIN
 	if n <= Team.ROSTER_SIZE and n >= lo:
@@ -1336,7 +1343,7 @@ func _roster_status(team: Team) -> Dictionary:
 		return {"title": "Roster Cuts", "body": "[color=white]%d / %d players.[/color] Release or trade [color=#ef4444]%d[/color] before %s." % [
 			n, Team.ROSTER_SIZE, extra, when], "cb": _todo_contracts}
 	var short := lo - n
-	return {"title": "Roster Spots Open", "body": "[color=white]%d / %d players.[/color] Sign [color=#f59e0b]%d free agent%s[/color] before %s." % [
+	return {"title": "Roster Spots Open", "body": "[color=white]%d / %d players.[/color] Call up or sign [color=#f59e0b]%d player%s[/color] before %s." % [
 		n, Team.ROSTER_SIZE, short, "" if short == 1 else "s", when], "cb": open_free_agents}
 
 
@@ -1910,8 +1917,8 @@ func _team_sections() -> Array:
 	return []
 
 
-const TEAM_VIEWS := ["Roster", "Lineup"]
-var team_view := 0  # 0 roster, 1 lineup
+const TEAM_VIEWS := ["Roster", "Lineup", "Green Team"]
+var team_view := 0  # 0 roster, 1 lineup, 2 green team
 var _team_box: VBoxContainer
 
 
@@ -1929,10 +1936,13 @@ func _pick_team_view(i: int) -> void:
 	_fill_team_box()
 
 
-## Sub-tab badges: "!" on Roster when it isn't legal to play, on Lineup when a starter is hurt.
+## Sub-tab badges: "!" on Roster when it isn't legal to play, on Lineup when a starter is hurt,
+## on Green Team when it breaks a Week 1 rule or a prospect wants out.
 func _team_badges(team: Team) -> Array:
+	var green_alert := GreenTeam.user_error(team) != "" or team.green_team.any(func(x: Soldier): return x.trade_request)
 	return ["!" if not _roster_status(team).is_empty() else "",
-		"!" if team.starters().any(func(x: Soldier): return x.is_injured()) else ""]
+		"!" if team.starters().any(func(x: Soldier): return x.is_injured()) else "",
+		"!" if green_alert else ""]
 
 
 ## `keep`: an in-place refresh (sort, swap, scheme change) - keep the pane's scroll and focus.
@@ -1972,7 +1982,11 @@ func _fill_team_box(keep := false) -> void:
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	frame.add_child(sc)
-	var body: Control = pages.roster() if team_view == 0 else pages.lineup()
+	var body: Control
+	match team_view:
+		1: body = pages.lineup()
+		2: body = pages.green_team()
+		_: body = pages.roster()
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sc.add_child(body)
 	if keep and _scroll and is_instance_valid(_scroll):
@@ -2002,11 +2016,17 @@ func _team_pane_info(team: Team) -> String:
 	if team_view == 1:
 		return "[color=#8b97ab]SCHEME[/color] %s%s[color=#8b97ab]TEAM OVR[/color] [color=%s]%d[/color]" % [
 			team.scheme.display_name, dot, UiKit.hex(UiKit.ovr_color(team.team_ovr())), team.team_ovr()]
+	var group: Array[Soldier] = team.green_team if team_view == 2 else team.roster
 	var age := 0.0
-	for s in team.roster:
+	for s in group:
 		age += s.age
-	return "%d [color=#8b97ab]SOLDIERS[/color]%s[color=#8b97ab]AVG AGE[/color] %.1f%s[color=#8b97ab]PAYROLL[/color] %s" % [
-		team.roster.size(), dot, age / maxi(1, team.roster.size()), dot, Contracts.money(Contracts.payroll(team, season.cap_year()))]
+	var n := team.roster_count()
+	var g := team.green_team.size()
+	var covers := team.covers().size()
+	return "[color=#8b97ab]ROSTER[/color] [color=%s]%d/%d[/color]%s%s[color=#8b97ab]GREEN[/color] [color=%s]%d/%d[/color]%s[color=#8b97ab]AVG AGE[/color] %.1f%s[color=#8b97ab]PAYROLL[/color] %s" % [
+		"#ef4444" if n > Team.ROSTER_SIZE else "white", n, Team.ROSTER_SIZE, " [color=#8b97ab]+%d INJ REPL[/color]" % covers if covers > 0 else "", dot,
+		"#ef4444" if g > Team.GREEN_SIZE else "white", g, Team.GREEN_SIZE, dot, age / maxi(1, group.size()), dot,
+		Contracts.money(Contracts.payroll(team, season.cap_year()))]
 
 
 ## Under the pane: one live card per Team screen - a headline number, a detail line and an alert

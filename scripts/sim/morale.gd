@@ -71,7 +71,9 @@ static func contract_effect(s: Soldier) -> float:
 static func factors(s: Soldier, team: Team) -> Array[String]:
 	var out: Array[String] = []
 	if team != null:
-		if team.slot_of(s) != &"":
+		if team.green_team.has(s):
+			out.append("Stuck on the Green Team (-)" if GreenTeam.is_frustrated(team, s) else "Developing on the Green Team (+)")
+		elif team.slot_of(s) != &"":
 			out.append("Starting (+)")
 		elif not s.is_injured():
 			out.append("Riding the bench (-)")

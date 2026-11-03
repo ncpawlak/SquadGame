@@ -94,7 +94,7 @@ func _init() -> void:
 	hub.page_stack.clear()
 	hub.refresh()
 	# Player Progression: only players who can afford an upgrade are listed; clicking a group spends SP.
-	for so in hub.season.user_team().roster:
+	for so in hub.season.user_team().org():
 		so.skill_points = 0
 	var prog_guy: Soldier = hub.season.user_team().roster.filter(func(x: Soldier): return not Progression.is_capped(x, Stats.ACCURACY))[0]
 	prog_guy.skill_points = Progression.upgrade_cost(prog_guy, Stats.ACCURACY)
@@ -428,7 +428,7 @@ func _subtab_flow(hub) -> void:
 	_check(hub.cycle_subtab(1) and hub.league_view == 1, "3 / RT steps the League sub-tab")
 	hub.select_tab(tabs["TEAM"])
 	await process_frame
-	_check(hub.cycle_subtab(-1) and hub.team_view == 1, "1 / LT wraps the Team sub-tab")
+	_check(hub.cycle_subtab(-1) and hub.team_view == hub.TEAM_VIEWS.size() - 1, "1 / LT wraps the Team sub-tab")
 	hub.select_tab(tabs["LEAGUE"])
 	await process_frame
 	_check(hub.league_view == 1, "League remembers its sub-tab")
