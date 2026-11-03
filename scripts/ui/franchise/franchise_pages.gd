@@ -1033,7 +1033,7 @@ func _fill_progression(pane: Control, s: Soldier, ctx: Dictionary) -> void:
 	mid.add_child(UiKit.label(s.full_name().to_upper(), 15, UiKit.ACCENT))
 	mid.add_child(UiKit.label(("\"%s\"" % s.callsign.to_upper()) if s.callsign != "" else s.last_name.to_upper(), 36, Color.WHITE))
 	var slot := team.slot_of(s)
-	var where := "Starting " + team.scheme.label_for_slot(slot) if slot != &"" else "Bench"
+	var where := "Green Team" if team.green_team.has(s) else ("Starting " + team.scheme.label_for_slot(slot) if slot != &"" else "Bench")
 	mid.add_child(UiKit.label("%s   ·   AGE %d   ·   %s" % [Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), s.age, where.to_upper()], 15, UiKit.MUTED))
 	var facts := _row(30)
 	var role := _row_role(team, s)
@@ -5491,7 +5491,7 @@ func _contract_row(team: Team, so: Soldier) -> Control:
 	var dm := Contracts.dead_money_if_released(so)
 	hb.add_child(_big_cell(Contracts.money(dm), UiKit.BAD if dm > 0 else UiKit.MUTED, 120, 16))
 	hb.add_child(_big_cell(str(roundi(so.morale)), morale_color(so.morale), 80, 18))
-	hb.add_child(_big_cell(team.scheme.label_for_slot(slot) if slot != &"" else "Bench", Color.WHITE if slot != &"" else UiKit.MUTED, 110, 15))
+	hb.add_child(_big_cell("Green Team" if team.green_team.has(so) else (team.scheme.label_for_slot(slot) if slot != &"" else "Bench"), Color.WHITE if slot != &"" else UiKit.MUTED, 110, 15))
 	return b
 
 
