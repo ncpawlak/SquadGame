@@ -902,7 +902,7 @@ func _confirm_body(title: String, lines: PackedStringArray) -> VBoxContainer:
 	return v
 
 
-## Player Progression: players who can afford an upgrade on the left; the selected (or hovered)
+## Player Progression: players who can afford an upgrade on the left; the selected
 ## one on the right with his stat groups as 0-99 cap bars. Click a group to spend SP on it.
 var _prog_sel_id := -1
 
@@ -980,6 +980,8 @@ func _build_progression(root: VBoxContainer, focus_group: StringName = &"") -> v
 	root.add_child(h)
 	if ready_n == 0:
 		_close_progression_later()
+	elif pending_sid != -1:
+		_drop_spent_later(root)
 	if focus_group != &"":
 		for b in detail.find_children("*", "Button", true, false):
 			if b.get_meta(&"prog_group", &"") == focus_group and not b.disabled:
@@ -991,6 +993,15 @@ func _close_progression_later() -> void:
 	await hub.get_tree().create_timer(1.5).timeout
 	if is_instance_valid(hub) and not hub.page_stack.is_empty() and hub.page_stack[-1]["title"] == "Player Progression":
 		hub.go_back()
+
+
+## A soldier kept on the list only for the rating animation is dropped once it has had time to play.
+func _drop_spent_later(root: VBoxContainer) -> void:
+	await hub.get_tree().create_timer(1.5).timeout
+	if is_instance_valid(hub) and is_instance_valid(root) and root.is_inside_tree() \
+			and not hub.page_stack.is_empty() and hub.page_stack[-1]["title"] == "Player Progression":
+		_group_fx = {}
+		_build_progression(root)
 
 
 func _progression_soldier(ctx: Dictionary) -> Soldier:
@@ -1009,7 +1020,7 @@ func _progression_select(ctx: Dictionary, s: Soldier) -> void:
 
 
 ## One soldier in the left list: name / role, OVR, POT and banked SP. Hover previews him on the
-## right (leaving goes back to the selected soldier); click or focus selects him.
+## right; click or focus selects him (no hover preview, so the list stays easy to navigate).
 func _progression_list_row(s: Soldier, ctx: Dictionary) -> Button:
 	var team: Team = ctx["team"]
 	var b := Button.new()
@@ -1018,11 +1029,6 @@ func _progression_list_row(s: Soldier, ctx: Dictionary) -> Button:
 	b.set_meta(&"prog_sid", s.id)
 	b.pressed.connect(func(): _progression_select(ctx, s))
 	b.focus_entered.connect(func(): _progression_select(ctx, s))
-	b.mouse_entered.connect(func(): _fill_progression(ctx["detail"], s, ctx))
-	b.mouse_exited.connect(func():
-		var cur := _progression_soldier(ctx)
-		if cur != null:
-			_fill_progression(ctx["detail"], cur, ctx))
 	var hb := _row(14)
 	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.set_anchors_preset(Control.PRESET_FULL_RECT)
