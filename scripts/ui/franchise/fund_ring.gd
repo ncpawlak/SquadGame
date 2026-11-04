@@ -11,6 +11,7 @@ var total: float
 ## [[amount ($K), colour], ...] in draw order.
 var slices: Array
 var left: float
+var _sweep := 1.0
 
 
 func _init(fund_total: float, spent_slices: Array, fund_left: float, diameter := 240.0) -> void:
@@ -20,6 +21,12 @@ func _init(fund_total: float, spent_slices: Array, fund_left: float, diameter :=
 	custom_minimum_size = Vector2(diameter, diameter)
 	size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if total > 0.0 and not Fx.is_reduced() and Fx.memo("fund:%d:%d" % [roundi(total), roundi(left)], true) == null:
+		_sweep = 0.0
+		UiKit._when_ready(self, func():
+			Fx.tween(self).tween_method(func(x: float):
+				_sweep = x
+				queue_redraw(), 0.0, 1.0, 0.9).set_delay(0.1).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT))
 
 
 func _draw() -> void:
@@ -29,7 +36,7 @@ func _draw() -> void:
 	var a := -PI / 2.0
 	if total > 0.0:
 		for s in slices:
-			var sweep := TAU * clampf(float(s[0]) / total, 0.0, 1.0)
+			var sweep := TAU * clampf(float(s[0]) / total, 0.0, 1.0) * _sweep
 			sweep = minf(sweep, -PI / 2.0 + TAU - a)
 			if sweep <= 0.001:
 				continue

@@ -744,6 +744,8 @@ static func _when_ready(c: Node, cb: Callable) -> void:
 
 ## Fade a control in (from transparent to its current alpha) after `delay` seconds.
 static func fade_in(c: CanvasItem, delay := 0.0, dur := 0.22) -> void:
+	if Fx.is_reduced():
+		return
 	var target := c.modulate.a
 	c.modulate.a = 0.0
 	_when_ready(c, func():
@@ -755,6 +757,8 @@ static func fade_in(c: CanvasItem, delay := 0.0, dur := 0.22) -> void:
 
 ## Gently pulse a control's opacity forever (attention badges).
 static func pulse(c: CanvasItem, low := 0.55, period := 1.1) -> void:
+	if Fx.is_reduced():
+		return
 	_when_ready(c, func():
 		if not is_instance_valid(c):
 			return
@@ -766,6 +770,8 @@ static func pulse(c: CanvasItem, low := 0.55, period := 1.1) -> void:
 ## Count a label up from 0 to `to` (fmt holds one %d). The final text is set up front for layout.
 static func count_up(l: Label, to: int, fmt := "%d", dur := 0.7) -> void:
 	l.text = fmt % to
+	if Fx.is_reduced():
+		return
 	_when_ready(l, func():
 		if not is_instance_valid(l) or to <= 0:
 			return
@@ -775,6 +781,9 @@ static func count_up(l: Label, to: int, fmt := "%d", dur := 0.7) -> void:
 
 ## Grow a bar's stretch ratio from 0 (bars in an HBox fill in).
 static func grow(c: Control, ratio: float, delay := 0.0, dur := 0.6) -> void:
+	if Fx.is_reduced():
+		c.size_flags_stretch_ratio = maxf(0.001, ratio)
+		return
 	c.size_flags_stretch_ratio = 0.001
 	_when_ready(c, func():
 		if not is_instance_valid(c):
@@ -788,6 +797,8 @@ static func _hook_pop(b: Control) -> void:
 	if b.has_meta(&"_pop"):
 		return
 	b.set_meta(&"_pop", true)
+	if Fx.is_reduced():
+		return
 	var to := func(k: float, dur: float):
 		if not is_instance_valid(b) or not b.is_inside_tree():
 			return
@@ -839,6 +850,15 @@ static func market_meters(team: Team, size := 14, bar_width := 150) -> Control:
 		bar.show_percentage = false
 		bar.max_value = 1.0
 		bar.value = r[2]
+		if r[0] == "BUZZ":
+			var old: Variant = Fx.memo("buzz:%d" % team.id, r[2])
+			if old != null and not is_equal_approx(float(old), r[2]) and not Fx.is_reduced():
+				bar.value = float(old)
+				var b := bar
+				var to: float = r[2]
+				_when_ready(b, func():
+					if is_instance_valid(b):
+						Fx.tween(b).tween_property(b, "value", to, 0.8).set_delay(0.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT))
 		bar.add_theme_stylebox_override("background", flat(Color(1, 1, 1, 0.12), 3))
 		bar.add_theme_stylebox_override("fill", flat(r[3] if r[0] == "BUZZ" else ACCENT, 3))
 		hb.add_child(bar)

@@ -447,6 +447,7 @@ func _roster_blocked() -> bool:
 		var names: Array = signed.map(func(e): return e["soldier"].display_name())
 		_rebuild_and_open("Signings", func(): return pages.signings("Your offers", signed))
 		app.toast("Signed %s.%s" % [", ".join(names), (" " + err) if err != "" else " Roster set: advance to play."])
+		app.stamp("Signed", ", ".join(names) if names.size() <= 2 else "%d players" % names.size())
 		return true
 	if user.is_over_roster_limit():
 		_rebuild_and_open("Contracts & Payroll", pages.contracts)
@@ -636,7 +637,7 @@ var _slide_tw: Tween
 
 
 func _slide_in(view: Control) -> void:
-	if not is_inside_tree():
+	if not is_inside_tree() or Fx.is_reduced():
 		return
 	if _slide_tw and _slide_tw.is_valid():
 		_slide_tw.kill()
@@ -783,6 +784,9 @@ func _score_bug() -> Control:
 	return bug
 
 
+var _tab_popped := -1
+
+
 func _build_tabs() -> void:
 	for c in _tab_bar.get_children():
 		c.queue_free()
@@ -807,6 +811,10 @@ func _build_tabs() -> void:
 		var idx := i
 		b.pressed.connect(func(): select_tab(idx))
 		_tab_bar.add_child(b)
+		if i == tab_index:
+			if _tab_popped != tab_index:
+				Fx.pop(b, 1.07, 0.25)
+			_tab_popped = tab_index
 	_tab_bar.add_child(UiKit.label("E / RB", 13, UiKit.MUTED))
 
 
@@ -930,6 +938,10 @@ func _home_sections() -> Array:
 ## A to-do tile in the team trim colour. Done: greyed out with a check. Urgent: orange with a "!" in the corner.
 func _todo(title: String, _body: String, _accent: Color, cb: Callable, done := false, urgent := false) -> Button:
 	var t := UiKit.tile(("\u2713  " if done else "") + title, "", TODO_SIZE, UiKit.MUTED.darkened(0.3) if done else (Color("#f97316") if urgent else UiKit.TRIM), cb)
+	# A tile that has just turned urgent gives one shake to get noticed.
+	var was_urgent: Variant = Fx.memo("urgent:" + title, urgent)
+	if urgent and was_urgent != true:
+		Fx.wobble(t, 0.025, 0.35)
 	t.set_meta("todo_done", done)
 	t.set_meta("todo_urgent", urgent)
 	if done:
@@ -1425,7 +1437,7 @@ func _team_block(t: Team, right: bool) -> Control:
 	ov.add_theme_constant_override("separation", -6)
 	var o := UiKit.display("", 48, UiKit.ovr_color(t.team_ovr()), true)
 	o.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	UiKit.count_up(o, t.team_ovr())
+	Fx.count_memo(o, "ovr:%d" % t.id, t.team_ovr(), "%d", true, 1)
 	ov.add_child(o)
 	var cap := UiKit.display("TEAM OVR", 13, Color(1, 1, 1, 0.6))
 	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -2133,6 +2145,8 @@ func _stat_card(title: String, big: String, caption: String, detail: String, acc
 	num.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var bl := UiKit.display(big, 48, accent.lightened(0.15), true)
 	bl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	if big.is_valid_int():
+		Fx.count_memo(bl, "card:" + title, int(big))
 	num.add_child(bl)
 	var cl := UiKit.label(caption, 12, UiKit.MUTED)
 	cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -2862,7 +2876,13 @@ func _settings_view(v: VBoxContainer) -> void:
 	var dbg := _stat_card("Debug Sim Tools", "M1", "SANDBOX", "Single matches, batch sims, raw ratings", UiKit.TRIM, app.open_debug)
 	var menu := _stat_card("Main Menu", "◂", "TITLE", "Back to the title screen. Your franchise stays loaded", UiKit.TRIM, app.show_title)
 	v.add_child(UiKit.heading("SYSTEM", 22))
-	v.add_child(_card_row("SettingsSystem", [dbg, menu], 4))
+	var reduced := Fx.is_reduced()
+	var anim := _stat_card("Animations", "REDUCED" if reduced else "ON", "INTERFACE",
+		"Reduce animations is [color=white]%s[/color]. Click to turn it %s" % ["on" if reduced else "off", "off" if reduced else "on"], UiKit.TRIM,
+		func():
+			Fx.set_reduced(not Fx.is_reduced())
+			refresh())
+	v.add_child(_card_row("SettingsSystem", [dbg, menu, anim], 4))
 
 
 func open_standings() -> void:

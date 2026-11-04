@@ -10,6 +10,8 @@ var _thickness: float
 var logo: Texture2D
 ## Filled disc behind the logo so it reads on any tile colour (transparent = none).
 var disc := Color.TRANSPARENT
+## 0..1 multiplier on the arc while it sweeps in the first time this ring state is shown.
+var _sweep := 1.0
 
 
 func _init(value: float, max_value: float, color: Color, text: String, diameter := 84, thickness := 0.0) -> void:
@@ -20,6 +22,13 @@ func _init(value: float, max_value: float, color: Color, text: String, diameter 
 	custom_minimum_size = Vector2(diameter, diameter)
 	size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Sweep in once per distinct ring (same gauge showing the same value later stays still).
+	if _fraction > 0.0 and not Fx.is_reduced() and Fx.memo("ring:%s:%d:%s" % [text, roundi(_fraction * 1000.0), color.to_html()], true) == null:
+		_sweep = 0.0
+		UiKit._when_ready(self, func():
+			Fx.tween(self).tween_method(func(x: float):
+				_sweep = x
+				queue_redraw(), 0.0, 1.0, 0.7).set_delay(0.1).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT))
 
 
 func _draw() -> void:
@@ -27,8 +36,8 @@ func _draw() -> void:
 	var r := d / 2.0 - _thickness / 2.0 - 1.0
 	var c := size / 2.0
 	draw_arc(c, r, 0.0, TAU, 64, UiKit.LINE, _thickness, true)
-	if _fraction > 0.0:
-		draw_arc(c, r, -PI / 2.0, -PI / 2.0 + TAU * _fraction, 64, _color, _thickness, true)
+	if _fraction > 0.0 and _sweep > 0.0:
+		draw_arc(c, r, -PI / 2.0, -PI / 2.0 + TAU * _fraction * _sweep, 64, _color, _thickness, true)
 	if logo != null:
 		# Leave a clear gap inside the ring; the square logo fits within the disc, off the ring's path.
 		var disc_r := r - _thickness / 2.0 - maxf(3.0, _thickness)

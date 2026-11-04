@@ -383,6 +383,7 @@ func _click_wrap(content: Control, cb: Callable, height: float) -> Button:
 	b.add_theme_stylebox_override("normal", UiKit.flat(Color(0, 0, 0, 0), 6))
 	b.add_theme_stylebox_override("hover", UiKit.flat(UiKit.PANEL_HI, 6, 2, UiKit.ACCENT.darkened(0.3)))
 	b.custom_minimum_size.y = height
+	UiKit._hook_pop(b)
 	content.set_anchors_preset(Control.PRESET_FULL_RECT)
 	content.offset_left = 4
 	content.offset_right = -8
@@ -512,7 +513,10 @@ func match_summary(m: ScheduledMatch, persp: Team = null) -> Control:
 		top_text = "[color=%s][b]%s[/b][/color]   [color=#8b97ab]%s[/color]" % [UiKit.hex(UiKit.GOOD if won else UiKit.BAD), "VICTORY" if won else "DEFEAT", top_text]
 	else:
 		top_text = "[color=#8b97ab]%s[/color]" % top_text
-	v.add_child(UiKit.rich("[center][font_size=22]%s[/font_size][/center]" % top_text, 18))
+	var verdict := UiKit.rich("[center][font_size=22]%s[/font_size][/center]" % top_text, 18)
+	v.add_child(verdict)
+	if persp != null:
+		Fx.stamp(verdict, 0.9, 1.25)
 	var card := PanelContainer.new()
 	var csb := UiKit.flat(UiKit.PANEL, 2, 1, Color(1, 1, 1, 0.1))
 	csb.set_content_margin_all(0)
@@ -532,6 +536,7 @@ func match_summary(m: ScheduledMatch, persp: Team = null) -> Control:
 	sc.size_flags_vertical = Control.SIZE_FILL
 	sc.custom_minimum_size.x = 260
 	sc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	Fx.count_pair(sc, m.games_for(m.away), m.games_for(m.home), "%d  -  %d", 0.7, 0.25)
 	head.add_child(sc)
 	head.add_child(_summary_side(m, m.home, "HOME"))
 	var hm := MarginContainer.new()
@@ -547,6 +552,7 @@ func match_summary(m: ScheduledMatch, persp: Team = null) -> Control:
 	for g in r.games:
 		var winner_team: Team = r.teams[g["winner"]]
 		var p := UiKit.panel(winner_team.color.darkened(0.45), 10)
+		Fx.reveal(p, 0.5 + 0.18 * float(g["number"] - 1))
 		var col := _vbox(4)
 		col.add_child(UiKit.label("GAME %d  -  %s" % [g["number"], MatchEngine.mode_name(g["mode"]).to_upper()], 13, UiKit.MUTED))
 		col.add_child(UiKit.label("%s %s %s" % [m.away.abbrev, MatchResult.game_score_text(g, r.teams[0] != m.away), m.home.abbrev], 26, Color.WHITE))
@@ -804,6 +810,8 @@ func confirm_call_up(so: Soldier, after: Callable) -> void:
 	_confirm_modal(_confirm_body("CALL UP %s?" % so.full_name().to_upper(), lines), "Call Up", func():
 		var err := GreenTeam.call_up(s, team, so)
 		hub.app.toast(err if err != "" else "%s called up to the main roster." % so.full_name())
+		if err == "":
+			hub.app.stamp("Called up", so.full_name())
 		after.call())
 
 
@@ -838,6 +846,8 @@ func confirm_green_sign(so: Soldier, after: Callable) -> void:
 	_confirm_modal(_confirm_body("SIGN %s TO THE GREEN TEAM?" % so.full_name().to_upper(), lines), "Sign", func():
 		var err := GreenTeam.sign(s, team, so)
 		hub.app.toast(err if err != "" else "%s signed to your Green Team." % so.full_name())
+		if err == "":
+			hub.app.stamp("Signed", so.full_name() + "  -  Green Team")
 		after.call())
 
 
@@ -912,11 +922,17 @@ func _build_progression(root: VBoxContainer, focus_group: StringName = &"") -> v
 		root.remove_child(c)
 		c.queue_free()
 	var team := _season().user_team()
-	var eligible: Array = team.org().filter(func(x: Soldier): return Progression.can_level_up(x))
+	# The soldier who just spent his last SP stays on screen for a moment so the rating animation can play.
+	var pending_sid := -1
+	if not Fx.is_reduced():
+		for pg in _group_fx:
+			pending_sid = int(_group_fx[pg]["sid"])
+	var eligible: Array = team.org().filter(func(x: Soldier): return Progression.can_level_up(x) or x.id == pending_sid)
 	eligible.sort_custom(func(a: Soldier, b: Soldier):
 		return a.skill_points > b.skill_points if a.skill_points != b.skill_points else a.id < b.id)
+	var ready_n := eligible.filter(func(x: Soldier): return Progression.can_level_up(x)).size()
 	var actions := _row()
-	var auto := UiKit.button("Auto-progress all (%d can level up)" % eligible.size(), func():
+	var auto := UiKit.button("Auto-progress all (%d can level up)" % ready_n, func():
 		var raised := 0
 		var players := 0
 		for s in team.org():
@@ -928,7 +944,7 @@ func _build_progression(root: VBoxContainer, focus_group: StringName = &"") -> v
 				raised += groups.size()
 		hub.app.toast("Auto-progressed %d players (%d group upgrades)." % [players, raised] if players > 0 else "No skill points could be spent.")
 		_build_progression(root))
-	auto.disabled = eligible.is_empty()
+	auto.disabled = ready_n == 0
 	actions.add_child(auto)
 	actions.add_child(UiKit.label("Pick a soldier, then click a stat group to spend skill points on it.", 15, UiKit.MUTED))
 	root.add_child(actions)
@@ -949,7 +965,7 @@ func _build_progression(root: VBoxContainer, focus_group: StringName = &"") -> v
 	var list := _vbox(6)
 	list.custom_minimum_size.x = 430
 	list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	list.add_child(UiKit.label("READY TO LEVEL UP  (%d)" % eligible.size(), 13, UiKit.MUTED))
+	list.add_child(UiKit.label("READY TO LEVEL UP  (%d)" % ready_n, 13, UiKit.MUTED))
 	var detail := _player_pane()
 	detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	detail.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
@@ -962,10 +978,19 @@ func _build_progression(root: VBoxContainer, focus_group: StringName = &"") -> v
 	h.add_child(list)
 	h.add_child(detail)
 	root.add_child(h)
+	if ready_n == 0:
+		_close_progression_later()
 	if focus_group != &"":
 		for b in detail.find_children("*", "Button", true, false):
 			if b.get_meta(&"prog_group", &"") == focus_group and not b.disabled:
 				b.call_deferred("grab_focus")
+
+
+## Spent out from this screen with the rating animation still playing: close it once that has had time.
+func _close_progression_later() -> void:
+	await hub.get_tree().create_timer(1.5).timeout
+	if is_instance_valid(hub) and not hub.page_stack.is_empty() and hub.page_stack[-1]["title"] == "Player Progression":
+		hub.go_back()
 
 
 func _progression_soldier(ctx: Dictionary) -> Soldier:
@@ -1084,6 +1109,14 @@ func _progression_group_row(s: Soldier, g: StringName, ctx: Dictionary) -> Contr
 	var val := UiKit.label(str(gr), 26, UiKit.ovr_color(gr))
 	val.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	line.add_child(val)
+	# The group just upgraded: sweep the bar, count the rating up and float the gain beside it.
+	if _group_fx.has(g) and int(_group_fx[g]["sid"]) == s.id and int(_group_fx[g]["old"]) < gr:
+		var old_r := int(_group_fx[g]["old"])
+		bar.play_gain(old_r)
+		Fx.count_between(val, old_r, gr, "%d", 0.5, 0.15)
+		Fx.rise_text(val, "+%d" % (gr - old_r), UiKit.GOOD, 22, Vector2(8, -4), 0.1, 30.0, true)
+		Fx.pop(val, 1.3, 0.4)
+		_group_fx.erase(g)
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1111,8 +1144,10 @@ func _progression_group_row(s: Soldier, g: StringName, ctx: Dictionary) -> Contr
 	b.mouse_exited.connect(func(): bar.preview = b.has_focus())
 	b.focus_exited.connect(func(): bar.preview = false)
 	b.pressed.connect(func():
+		var old_rating := s.group_rating(g)
 		var gains := Progression.upgrade_group(s, g)
 		if not gains.is_empty():
+			_group_fx = {g: {"sid": s.id, "old": old_rating}}
 			var parts: PackedStringArray = []
 			for st in gains:
 				if gains[st] > 0:
@@ -2052,10 +2087,15 @@ func _player_ratings(s: Soldier, team: Team) -> Control:
 		title.autowrap_mode = TextServer.AUTOWRAP_OFF
 		title.custom_minimum_size.x = 330
 		head_row.add_child(title)
+		if not _stat_fx.is_empty() and _stat_fx["group"] == g and int(_stat_fx["sid"]) == s.id and int(_stat_fx["old_rating"]) < gr:
+			Fx.rise_text(title, "+%d" % (gr - int(_stat_fx["old_rating"])), UiKit.GOOD, 22, Vector2(-40, -4), 0.1, 30.0, true)
+			Fx.flash(title, 0.6, 0.6)
 		if editable and upgradable:
 			var group := g
 			var up := UiKit.button("+1 (%d SP)" % Progression.upgrade_cost(s, g), func():
+				var snap := {"sid": s.id, "group": group, "before": s.stats.duplicate(), "old_rating": s.group_rating(group)}
 				Progression.upgrade_group(s, group)
+				_stat_fx = snap
 				_player_refresh(s), 13)
 			up.custom_minimum_size.x = 110
 			up.disabled = not Progression.can_upgrade(s, g)
@@ -2066,6 +2106,7 @@ func _player_ratings(s: Soldier, team: Team) -> Control:
 		for st in Stats.group_stats(g):
 			box.add_child(_stat_row(s, st, weights.has(st)))
 		grid.add_child(box)
+	_stat_fx = {}
 	v.add_child(grid)
 	return v
 
@@ -2537,7 +2578,10 @@ func _meter(label: String, value: float, max_value: float, color: Color, detail:
 	fill.content_margin_bottom = 0
 	bar.add_theme_stylebox_override("fill", fill)
 	h.add_child(bar)
-	h.add_child(UiKit.label(detail, font, UiKit.TEXT))
+	var detail_l := UiKit.label(detail, font, UiKit.TEXT)
+	h.add_child(detail_l)
+	h.set_meta(&"bar", bar)
+	h.set_meta(&"detail", detail_l)
 	return h
 
 
@@ -2573,6 +2617,17 @@ func _stat_row(s: Soldier, st: StringName, counts: bool) -> Control:
 	val.autowrap_mode = TextServer.AUTOWRAP_OFF
 	val.custom_minimum_size.x = 70
 	cell.add_child(val)
+	# Just upgraded: the bar grows from the old rating and the gain floats up beside it.
+	if not _stat_fx.is_empty() and int(_stat_fx["sid"]) == s.id and _stat_fx["before"].has(st) and int(_stat_fx["before"][st]) < s.stats[st]:
+		var was := int(_stat_fx["before"][st])
+		var now: int = s.stats[st]
+		bar.value = was
+		var tw := Fx.tween(bar, true)
+		tw.tween_interval(0.25)
+		tw.tween_method(func(x: float): bar.value = x, float(was), float(now), 0.45).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tw.tween_callback(func(): bar.value = now)
+		Fx.flash(val, 1.0, 0.8, 0.5)
+		Fx.rise_text(bar, "+%d" % (now - was), UiKit.GOOD, 17, Vector2(-34, -6), 0.55, 24.0, true)
 	return cell
 
 
@@ -2917,6 +2972,11 @@ func training_results() -> Control:
 		("  -  %d skill points earned" % total_sp) if total_sp > 0 else ""], 20, Color.WHITE))
 	var list: Array = team.org().filter(func(x: Soldier): return report.has(x.id))
 	list.sort_custom(func(a: Soldier, b: Soldier): return _slot_order(team, a) < _slot_order(team, b))
+	# The bars replay once per week's results, not every time the page is reopened.
+	var fx_key := "%d-%d" % [season.year, season.week]
+	var animate := _training_fx_key != fx_key and not Fx.is_reduced()
+	_training_fx_key = fx_key
+	var n := 0
 	for so: Soldier in list:
 		var r: Dictionary = report[so.id]
 		var row := _row(16)
@@ -2930,17 +2990,88 @@ func training_results() -> Control:
 		xp_l.custom_minimum_size.x = 100
 		row.add_child(xp_l)
 		var prog: Array = Progression.xp_progress(so)
-		row.add_child(_meter("XP", prog[0], prog[1], UiKit.INFO, "%d / %d" % [prog[0], prog[1]]))
+		var meter := _meter("XP", prog[0], prog[1], UiKit.INFO, "%d / %d" % [prog[0], prog[1]])
+		row.add_child(meter)
+		var badge: Label = null
 		if int(r["points"]) > 0:
-			row.add_child(UiKit.label("  LEVEL UP  +%d SP" % int(r["points"]), 17, UiKit.GOOD))
+			badge = UiKit.label("  LEVEL UP  +%d SP" % int(r["points"]), 17, UiKit.GOOD)
+			row.add_child(badge)
 		if Progression.can_level_up(so):
 			row.add_child(UiKit.label("  can level up", 15, UiKit.GOOD))
 		v.add_child(_click_wrap(row, func(): open_player(so), 46))
+		if animate:
+			_animate_xp_row(row, meter, xp_l, badge, so, r, minf(0.8, 0.05 * n))
+		n += 1
 	var cont := UiKit.button("Continue  >>", func(): hub.go_home(), 20)
 	cont.custom_minimum_size = Vector2(260, 52)
 	cont.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	v.add_child(cont)
 	return v
+
+
+var _training_fx_key := ""
+## Player page: the group just upgraded {sid, group, before (stat -> old rating), old_rating}; consumed by the rebuild.
+var _stat_fx := {}
+## Group just upgraded on the progression page: group -> {sid, old rating}. The rebuilt row plays it once.
+var _group_fx := {}
+
+
+## Replays one training-results row: the "+N XP" counts up, a "+N" floats off the bar and the bar fills
+## from where it was. Each level crossed fills it to the end, flashes it, stamps the LEVEL UP badge
+## and washes the row green, then restarts the bar from 0 for the next level. The end state is
+## always the real progress, so skipping (a click) just lands there.
+func _animate_xp_row(row: Control, meter: Control, xp_l: Label, badge: Label, so: Soldier, r: Dictionary, delay: float) -> void:
+	if not r.has("xp_before"):
+		return
+	var bar: ProgressBar = meter.get_meta(&"bar")
+	var detail: Label = meter.get_meta(&"detail")
+	var gained := int(r["xp"])
+	var levels := int(r["levels"])
+	var lvl := int(r["level_before"])
+	var cur_max := Progression.xp_to_next(lvl)
+	var final_prog: Array = Progression.xp_progress(so)
+	bar.max_value = cur_max
+	bar.value = int(r["xp_before"])
+	detail.text = "%d / %d" % [int(r["xp_before"]), cur_max]
+	if badge != null:
+		badge.modulate.a = 0.0
+	Fx.count_between(xp_l, 0, gained, "+%d XP", 0.6, delay)
+	var tw := Fx.tween(row, true)
+	tw.tween_interval(delay)
+	tw.tween_callback(func():
+		var frac := float(bar.value) / maxf(1.0, float(bar.max_value))
+		Fx.rise_text(bar, "+%d" % gained, UiKit.INFO, 18, Vector2(bar.size.x * frac, 2)))
+	var from_xp := int(r["xp_before"])
+	for i in levels + 1:
+		var last := i == levels
+		var seg_max := cur_max
+		var to_xp: int = int(final_prog[0]) if last else seg_max
+		var seg_t := 0.15 + 0.6 * float(to_xp - from_xp) / maxf(1.0, float(seg_max))
+		tw.tween_method(func(x: float):
+			bar.value = x
+			detail.text = "%d / %d" % [roundi(x), seg_max], float(from_xp), float(to_xp), seg_t).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		if last:
+			break
+		var first := i == 0
+		var next_max := Progression.xp_to_next(lvl + i + 1)
+		tw.tween_callback(func():
+			Fx.cue(&"level_up")
+			Fx.flash(bar, 1.2, 0.5)
+			Fx.wash(row, Color(UiKit.GOOD, 0.28), 0.9)
+			if first and badge != null:
+				Fx.stamp(badge)
+			bar.max_value = next_max
+			bar.value = 0
+			detail.text = "0 / %d" % next_max)
+		tw.tween_interval(0.3)
+		cur_max = next_max
+		from_xp = 0
+	tw.tween_callback(func():
+		bar.max_value = final_prog[1]
+		bar.value = final_prog[0]
+		detail.text = "%d / %d" % [final_prog[0], final_prog[1]]
+		if badge != null:
+			badge.modulate.a = 1.0)
 
 
 func injuries() -> Control:
@@ -4051,6 +4182,7 @@ func draft_room() -> Control:
 			actions.add_child(UiKit.button("Auto-pick for me", func():
 				var p := d.ai_pick()
 				hub.app.toast("You select %s (%s). He joins your Green Team." % [p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role]])
+				hub.app.stamp("Drafted", p.soldier.full_name())
 				_after_pick()
 				refresh.call()))
 		else:
@@ -4083,6 +4215,7 @@ func draft_room() -> Control:
 				rows.add_child(_prospect_row(p, "Draft", true, func():
 					d.make_pick(pick)
 					hub.app.toast("You select %s (%s). He joins your Green Team." % [pick.soldier.full_name(), Scheme.ROLE_NAMES[pick.listed_role]])
+					hub.app.stamp("Drafted", pick.soldier.full_name())
 					_after_pick()
 					refresh.call()))
 			v.add_child(rows)
@@ -4955,7 +5088,11 @@ func awards() -> Control:
 		for a in latest.awards:
 			rows.append([a["award"], a["soldier"].full_name(), a["team"].abbrev if a["team"] != null else "-", a["line"]])
 			targets.append(a["soldier"])
-		v.add_child(_soldier_table(["AWARD", "SOLDIER", "TEAM", "SEASON"], rows, [200, 220, 70, 330], targets))
+		var award_table := _soldier_table(["AWARD", "SOLDIER", "TEAM", "SEASON"], rows, [200, 220, 70, 330], targets)
+		v.add_child(award_table)
+		# The MVP row (first) gets a gold wash the first time the awards are shown this season.
+		if award_table.get_child_count() > 1 and Fx.memo("awards_shown", latest.year) != latest.year:
+			Fx.wash(award_table.get_child(1), Color("#eab308", 0.4), 1.6, 0.5)
 		v.add_child(_section("%d ALL-LEAGUE TEAM" % latest.year))
 		rows = []
 		targets = []
@@ -4976,7 +5113,15 @@ func awards() -> Control:
 		if rows.is_empty():
 			v.add_child(UiKit.label("No changes.", 15, UiKit.MUTED))
 		else:
-			v.add_child(_soldier_table(["SOLDIER", "TEAM", "AGE", "FROM", "TO", "WHY"], rows, [220, 70, 50, 70, 70, 400], targets, colors))
+			var dev_table := _soldier_table(["SOLDIER", "TEAM", "AGE", "FROM", "TO", "WHY"], rows, [220, 70, 50, 70, 70, 400], targets, colors)
+			v.add_child(dev_table)
+			# Stars gained wash green, stars lost wash red, one after another down the list.
+			var dev_i := 0
+			for c in latest.dev_changes:
+				if dev_i >= 12 or dev_i + 1 >= dev_table.get_child_count():
+					break
+				Fx.wash(dev_table.get_child(dev_i + 1), Color(UiKit.GOOD if int(c["to"]) > int(c["from"]) else UiKit.BAD, 0.3), 1.0, 0.6 + 0.12 * dev_i)
+				dev_i += 1
 	if not s.aging_report.is_empty():
 		v.add_child(_section("AGING  -  declines at the start of the %d season (groups decline after their peak age)" % s.year))
 		var rows: Array = []
@@ -5572,6 +5717,8 @@ func resign() -> Control:
 		var b := UiKit.action_button("Sign at Ask", func():
 			var err := s.resign_player(user, ref, yrs)
 			hub.app.toast(err if err != "" else "%s re-signed: %s x %d." % [ref.full_name(), Contracts.money(ref.contract.salary), yrs])
+			if err == "":
+				hub.app.stamp("Re-signed", ref.full_name())
 			refresh.call(), 15)
 		b.disabled = not s.can_resign()
 		row.add_child(b)
@@ -6619,6 +6766,7 @@ func _counter_panel(ai: Team) -> Control:
 			return
 		s.trades.execute(s, s.user_team(), c["give"], ai, c["get"])
 		hub.app.toast("Trade complete with %s." % ai.name)
+		hub.app.stamp("Trade complete", ai.name)
 		_trade_give = []
 		_trade_get = []
 		_trade_counter = {}
@@ -6779,6 +6927,8 @@ func trade_offers() -> Control:
 		h.add_child(UiKit.action_button("Accept", func():
 			var err := tr.accept_offer(s, offer)
 			hub.app.toast(err if err != "" else "Trade complete with %s." % team.name)
+			if err == "":
+				hub.app.stamp("Trade complete", team.name)
 			hub.replace("Trade Offers", trade_offers), 16))
 		h.add_child(UiKit.button("Counter in builder", func():
 			_trade_partner = team

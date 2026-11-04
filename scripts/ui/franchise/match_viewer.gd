@@ -10,6 +10,7 @@ signal finished(result: MatchResult)
 const SPEEDS := [2.0, 3.0, 5.0]
 const TRACER_S := 0.22
 const POPUP_S := 0.9
+const KILL_RING_S := 0.5
 const BANNER_S := 1.6
 const DOT_RADIUS := 21.0
 const PANEL_W := 340
@@ -31,6 +32,9 @@ var _patch_tex: Texture2D  # this match's puddles / snow patches, built on first
 var _by_id := {}  # soldier id -> Combatant
 var _tracers: Array = []  # {from_id, to, team, born, result}
 var _popups: Array = []  # {id, text, color, born}
+var _kills: Array = []  # {pos, born}: expanding ring where a soldier fell
+var _hp_trail := {}  # soldier id -> trailing hp fraction (the white drain behind the health bar)
+var _dt := 0.0
 var _banner := ""
 var _banner_until := 0.0
 var _hold := false  # waiting on an intermission / final card
@@ -134,6 +138,7 @@ func set_speed(s: float) -> void:
 
 func _process(delta: float) -> void:
 	_clock += delta
+	_dt = delta
 	if not paused and not _hold and not engine.finished and _clock >= _banner_until:
 		_acc += delta * speed / MatchEngine.TICK_SECONDS
 		while _acc >= 1.0 and not _hold and not engine.finished:
@@ -160,6 +165,9 @@ func _consume_events() -> void:
 				_popup(e["id"], "RELOAD", UiKit.INFO)
 			"kill":
 				_log_kill(e)
+				if not Fx.is_reduced():
+					var fallen: MatchEngine.Combatant = _by_id[e["victim"]]
+					_kills.append({"pos": fallen.pos, "born": _clock})
 			"respawn":
 				_log("[color=%s]%s[/color] [color=#8b97ab]wiped - respawning in formation[/color]" % [_team_hex(e["team"]), teams[e["team"]].abbrev])
 			"hill":
@@ -228,6 +236,7 @@ func _log(text: String) -> void:
 func _expire_effects() -> void:
 	_tracers = _tracers.filter(func(t): return _clock - t["born"] < TRACER_S)
 	_popups = _popups.filter(func(p): return _clock - p["born"] < POPUP_S)
+	_kills = _kills.filter(func(k): return _clock - k["born"] < KILL_RING_S)
 
 
 # --- cards --------------------------------------------------------------------------
@@ -529,6 +538,11 @@ func _draw_map() -> void:
 					continue
 				_draw_soldier(c, sc)
 
+	for k in _kills:
+		var age: float = (_clock - k["born"]) / KILL_RING_S
+		var ring_at := _to_screen(k["pos"])
+		_map.draw_arc(ring_at, DOT_RADIUS + 26.0 * age, 0.0, TAU, 32, Color(1.0, 0.35, 0.25, 0.85 * (1.0 - age)), 3.0 * (1.0 - age) + 1.0, true)
+
 	FieldPainter.draw_precip(_map, engine.weather, _map.size, _clock)
 
 	for p in _popups:
@@ -574,6 +588,13 @@ func _draw_soldier(c: MatchEngine.Combatant, _sc: float) -> void:
 		var top := at + Vector2(-bw / 2.0, DOT_RADIUS + 3.0)
 		_map.draw_rect(Rect2(top, Vector2(bw, 4)), Color(0, 0, 0, 0.6))
 		var frac := clampf(c.hp / 100.0, 0.0, 1.0)
+		if not Fx.is_reduced():
+			var sid: int = c.soldier.id
+			var trail: float = _hp_trail.get(sid, frac)
+			trail = maxf(frac, trail - _dt * 0.9) if trail > frac else frac
+			_hp_trail[sid] = trail
+			if trail > frac:
+				_map.draw_rect(Rect2(top, Vector2(bw * trail, 4)), Color(1, 1, 1, 0.75))
 		_map.draw_rect(Rect2(top, Vector2(bw * frac, 4)), UiKit.GOOD if frac > 0.6 else (UiKit.ACCENT if frac > 0.3 else UiKit.BAD))
 	else:
 		_map.draw_line(at + Vector2(-7, -7), at + Vector2(7, 7), Color(1, 1, 1, 0.5), 2.0)
