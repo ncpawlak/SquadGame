@@ -990,14 +990,14 @@ func _build_progression(root: VBoxContainer, focus_group: StringName = &"") -> v
 
 ## Spent out from this screen with the rating animation still playing: close it once that has had time.
 func _close_progression_later() -> void:
-	await hub.get_tree().create_timer(1.5).timeout
+	await hub.get_tree().create_timer(0.9).timeout
 	if is_instance_valid(hub) and not hub.page_stack.is_empty() and hub.page_stack[-1]["title"] == "Player Progression":
 		hub.go_back()
 
 
 ## A soldier kept on the list only for the rating animation is dropped once it has had time to play.
 func _drop_spent_later(root: VBoxContainer) -> void:
-	await hub.get_tree().create_timer(1.5).timeout
+	await hub.get_tree().create_timer(0.9).timeout
 	if is_instance_valid(hub) and is_instance_valid(root) and root.is_inside_tree() \
 			and not hub.page_stack.is_empty() and hub.page_stack[-1]["title"] == "Player Progression":
 		_group_fx = {}
