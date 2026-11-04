@@ -70,10 +70,11 @@ static func upgrade_cost(soldier: Soldier, group: StringName) -> int:
 	return group_cost(soldier.group_rating(group))
 
 
-## Adds XP (after the dev multiplier). Returns a report: { xp, levels, points }.
+## Adds XP (after the dev multiplier). Returns a report: { xp, levels, points, xp_before, level_before }
+## (the last two let the UI replay the bar filling).
 static func gain_xp(soldier: Soldier, base_xp: float) -> Dictionary:
 	var amount := roundi(base_xp * xp_multiplier(soldier))
-	var report := {"xp": amount, "levels": 0, "points": 0}
+	var report := {"xp": amount, "levels": 0, "points": 0, "xp_before": soldier.xp, "level_before": soldier.level}
 	soldier.xp += amount
 	while soldier.xp >= xp_to_next(soldier.level):
 		soldier.xp -= xp_to_next(soldier.level)

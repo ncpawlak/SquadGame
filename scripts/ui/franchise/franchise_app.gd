@@ -468,11 +468,56 @@ func toast(text: String) -> void:
 	_toast.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_toast.position.y -= 70
 	add_child(_toast)
-	var t: WeakRef = weakref(_toast)
-	get_tree().create_timer(2.5).timeout.connect(func():
-		var node: Node = t.get_ref()
-		if node != null:
-			node.queue_free())
+	Fx.reveal(_toast, 0.0, 0.2)
+	var tw := _toast.create_tween()
+	tw.tween_interval(2.3 if not Fx.is_reduced() else 2.5)
+	if not Fx.is_reduced():
+		tw.tween_property(_toast, "modulate:a", 0.0, 0.25)
+	tw.tween_callback(_toast.queue_free)
+
+
+var _stamp_node: Control
+
+
+## A big banner stamped onto the middle of the screen for a moment ("SIGNED", "TRADE COMPLETE").
+## It ignores the mouse, so play carries on underneath. The toast still carries the details.
+func stamp(text: String, sub := "", color := UiKit.ACCENT) -> void:
+	Fx.cue(&"signed")
+	if Fx.is_reduced():
+		return
+	if _stamp_node != null and is_instance_valid(_stamp_node):
+		_stamp_node.queue_free()
+	var p := PanelContainer.new()
+	var sb := UiKit.flat(Color(color.darkened(0.6), 0.94), 4, 3, color)
+	sb.skew = Vector2(UiKit.SKEW, 0)
+	sb.content_margin_left = 48
+	sb.content_margin_right = 48
+	sb.content_margin_top = 10
+	sb.content_margin_bottom = 12
+	p.add_theme_stylebox_override("panel", sb)
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", -4)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var big := UiKit.display(text.to_upper(), 56, Color.WHITE, true)
+	big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(big)
+	if sub != "":
+		var sl := UiKit.label(sub, 18, Color(1, 1, 1, 0.8))
+		sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		col.add_child(sl)
+	p.add_child(col)
+	p.set_anchors_preset(Control.PRESET_CENTER)
+	p.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	p.grow_vertical = Control.GROW_DIRECTION_BOTH
+	p.z_index = 60
+	add_child(p)
+	_stamp_node = p
+	Fx.stamp(p, 0.0, 1.7)
+	var tw := p.create_tween()
+	tw.tween_interval(1.25)
+	tw.tween_property(p, "modulate:a", 0.0, 0.35)
+	tw.tween_callback(p.queue_free)
 
 
 # --- input ------------------------------------------------------------------
@@ -486,6 +531,9 @@ static var mouse_mode := Input.get_connected_joypads().is_empty()
 
 
 func _input(event: InputEvent) -> void:
+	# A click or key press snaps any running results animation to its end state.
+	if ((event is InputEventMouseButton and event.pressed) or (event is InputEventKey and event.pressed and not event.echo)) and Fx.busy():
+		Fx.skip_all()
 	if event is InputEventMouseMotion or event is InputEventMouseButton:
 		if not mouse_mode:
 			mouse_mode = true

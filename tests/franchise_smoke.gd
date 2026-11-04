@@ -112,6 +112,10 @@ func _init() -> void:
 		await process_frame
 		await process_frame
 	_check(prog_guy.skill_points == 0, "clicking a group spends SP")
+	# He stays on screen while the rating animation plays, then the page closes.
+	if not Fx.is_reduced():
+		_check(hub.page_stack[-1]["title"] == "Player Progression", "progression stays open while the rating animation plays")
+		await create_timer(1.8).timeout
 	_check(hub.page_stack.is_empty() or hub.page_stack[-1]["title"] != "Player Progression", "progression closes when no one is left to level up")
 	hub.select_tab(1)
 	await process_frame
@@ -146,6 +150,21 @@ func _init() -> void:
 	await process_frame
 	_check(hub.season.user_trained() and hub.season.user_training_report.size() == hub.season.user_team().org().size(), "weekly training ran")
 	_check(hub.page_stack[-1]["title"] == "Training Results", "training results page")
+	# The XP bars replay on first view; a skip lands them on the real progress.
+	for i in 3:
+		await process_frame
+	_check(Fx.is_reduced() or Fx.busy(), "training results animate")
+	Fx.skip_all()
+	await process_frame
+	var bars: Array = []
+	_collect_bars(hub._content, bars)
+	var bar_sum := 0.0
+	for b in bars:
+		bar_sum += b.value
+	var xp_sum := 0.0
+	for so in hub.season.user_team().org():
+		xp_sum += Progression.xp_progress(so)[0]
+	_check(not bars.is_empty() and is_equal_approx(bar_sum, xp_sum), "skipped training bars show real XP (%s vs %s)" % [bar_sum, xp_sum])
 	var xp_after := 0
 	for so in hub.season.user_team().roster:
 		xp_after += so.xp + so.level * 100000
@@ -733,6 +752,13 @@ func _visit_pages(hub, phase: String) -> void:
 
 
 ## Presses the first enabled button in the current page whose text starts with `prefix`.
+func _collect_bars(n: Node, out: Array) -> void:
+	if n is ProgressBar:
+		out.append(n)
+	for c in n.get_children():
+		_collect_bars(c, out)
+
+
 func _press(hub, prefix: String) -> bool:
 	var b := _find_button(hub._content, prefix)
 	if b == null:
