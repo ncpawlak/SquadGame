@@ -76,7 +76,7 @@ func show_title() -> void:
 	col.add_child(_spacer(24))
 	if season:
 		col.add_child(_menu_button("Resume Franchise", show_hub))
-	col.add_child(_menu_button("New Franchise", show_team_select))
+	col.add_child(_menu_button("New Franchise", show_mode_select))
 	col.add_child(_menu_button("Load Franchise", show_load_menu))
 	col.add_child(_menu_button("Exhibition Match", func(): toast("Exhibition mode is coming soon. Use Debug Sim Tools for now.")))
 	col.add_child(_menu_button("Data Edit", show_data_edit))
@@ -92,6 +92,117 @@ func show_title() -> void:
 		UiKit.fade_in(c, 0.04 * i, 0.3)
 		i += 1
 	_set_screen(wrap)
+
+
+## New Franchise step 1: choose a start point. Manager continues to team select; Player is not built yet.
+func show_mode_select() -> void:
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 10)
+	var margin := _margin(root, 22)
+
+	var head := HBoxContainer.new()
+	root.add_child(head)
+	var back := UiKit.button("< Back", show_title, 18)
+	UiKit.style_skewed(back)
+	back.custom_minimum_size = Vector2(120, 48)
+	back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	back.set_meta(&"skip_autofocus", true)
+	head.add_child(back)
+	head.add_child(_spacer_w(16))
+	var tt := VBoxContainer.new()
+	tt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tt.add_child(UiKit.display("CHOOSE YOUR START", 44, Color.WHITE, true))
+	var bar := ColorRect.new()
+	bar.color = UiKit.ACCENT
+	bar.custom_minimum_size = Vector2(90, 4)
+	bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	tt.add_child(bar)
+	tt.add_child(UiKit.label("Pick how you want to build your franchise  -  hover a mode to preview it, click to begin", 15, UiKit.MUTED))
+	head.add_child(tt)
+
+	var center := CenterContainer.new()
+	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(center)
+	var cards := HBoxContainer.new()
+	cards.add_theme_constant_override("separation", 28)
+	center.add_child(cards)
+	cards.add_child(_mode_card("MANAGER / GM", "RUN THE CLUB",
+		"Take over one of 20 teams as its general manager. You set the roster and the lineup, run training, "
+		+ "negotiate contracts, work the draft and free agency, and steer the club through every season.",
+		["Pick your team and take over", "Training camp, drills and development", "Contracts, cap and free agency", "Draft, scouting and the full league season"],
+		false, show_team_select))
+	cards.add_child(_mode_card("PLAYER", "LIVE THE CAREER",
+		"Control a single soldier from the draft to retirement while the rest of the league runs on its own. "
+		+ "Build your ratings, talk contracts with your agent, pick your team in free agency and chase a legacy.",
+		["Create a soldier and enter the draft", "Ratings, training and playing time", "Agent talks and free-agency choices", "Retirement and your career legacy"],
+		true, func(): toast("Player mode is coming soon. Start as Manager / GM for now.")))
+	var i := 0
+	for c in cards.get_children():
+		UiKit.fade_in(c, 0.08 * i, 0.3)
+		i += 1
+	_set_screen(margin)
+
+
+## A large start-point card. Active cards glow in the accent on hover/focus; a coming-soon card stays
+## muted but still reacts, and its click only shows a toast.
+func _mode_card(title: String, tagline: String, desc: String, points: Array, soon: bool, cb: Callable) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(470, 440)
+	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	b.focus_mode = Control.FOCUS_ALL
+	var acc := UiKit.ACCENT if not soon else UiKit.MUTED
+	var base := UiKit.PANEL if not soon else UiKit.PANEL.darkened(0.25)
+	UiKit.style_button(b, base, acc, 6)
+	var rest := UiKit.flat(base, 6)
+	rest.set_border_width_all(0)
+	rest.border_width_bottom = 4
+	rest.border_color = acc if not soon else UiKit.LINE
+	b.add_theme_stylebox_override("normal", rest)
+	var hv := UiKit.flat(base.lightened(0.08), 6, 2, acc)
+	hv.shadow_color = Color(acc, 0.35)
+	hv.shadow_size = 12
+	b.add_theme_stylebox_override("hover", hv)
+	b.add_theme_stylebox_override("pressed", UiKit.flat(base.darkened(0.12), 6, 2, acc))
+	b.pressed.connect(cb)
+
+	var col := VBoxContainer.new()
+	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 26)
+	col.add_theme_constant_override("separation", 8)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var top := HBoxContainer.new()
+	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tag := UiKit.display(tagline, 18, acc if not soon else UiKit.MUTED, true)
+	tag.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(tag)
+	if soon:
+		var chip := PanelContainer.new()
+		var csb := UiKit.flat(Color(0, 0, 0, 0.55), 3, 1, UiKit.GOLD)
+		csb.content_margin_left = 10
+		csb.content_margin_right = 10
+		csb.content_margin_top = 1
+		csb.content_margin_bottom = 1
+		chip.add_theme_stylebox_override("panel", csb)
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chip.add_child(UiKit.display("COMING SOON", 15, UiKit.GOLD, true))
+		top.add_child(chip)
+	col.add_child(top)
+	col.add_child(UiKit.display(title, 54, Color.WHITE if not soon else Color(1, 1, 1, 0.7), true))
+	var rule := ColorRect.new()
+	rule.color = acc
+	rule.custom_minimum_size = Vector2(90, 4)
+	rule.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(rule)
+	col.add_child(_spacer(4))
+	var body := UiKit.label(desc, 17, UiKit.TEXT if not soon else UiKit.MUTED)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(body)
+	col.add_child(_spacer(6))
+	for p in points:
+		var line := UiKit.label("-  " + str(p), 16, Color(1, 1, 1, 0.85) if not soon else UiKit.MUTED)
+		col.add_child(line)
+	b.add_child(col)
+	return b
 
 
 func show_team_select() -> void:

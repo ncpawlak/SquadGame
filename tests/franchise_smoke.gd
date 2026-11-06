@@ -10,6 +10,18 @@ func _init() -> void:
 	root.add_child(app)
 	await process_frame
 
+	# New Franchise opens the start-point screen: a Manager card and a coming-soon Player card.
+	app.show_mode_select()
+	await process_frame
+	var cards: Array = app.screen.find_children("*", "Button", true, false).filter(func(n): return n.custom_minimum_size.x >= 400)
+	_check(cards.size() == 2, "mode select shows two cards")
+	if cards.size() == 2:
+		cards[1].pressed.emit()
+		_check(app.screen != null and app.screen.find_children("*", "Button", true, false).size() >= 3, "Player card stays on the mode screen")
+		cards[0].pressed.emit()
+		await process_frame
+		_check(app.screen.find_children("*", "Button", true, false).size() > 10, "Manager card opens team select")
+
 	app.show_team_select()
 	await process_frame
 	app.start_franchise(4242, 2)
