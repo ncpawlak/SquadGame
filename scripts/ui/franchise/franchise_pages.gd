@@ -2894,58 +2894,77 @@ func _lineup_click(team: Team, s: Soldier, slot: StringName, refresh: Callable) 
 	refresh.call()
 
 
+## Weekly Training: every soldier's intensity as a four-way strip that shows what each choice costs and
+## pays (XP, fatigue, injury risk), grouped into starters / bench / Green Team under a team-wide summary.
+## Nothing is rebuilt on a pick: the row and the summary update in place and animate the change.
 func training() -> Control:
 	var season := _season()
 	var team := season.user_team()
-	var v := _vbox()
-	var info := "Each soldier trains at their own intensity every week. "
-	for it in Training.INTENSITIES:
-		var d: Dictionary = Training.INTENSITY_INFO[it]
-		info += "%s: %d XP%s.  " % [d["label"], roundi(Training.xp_for(it)),
-			", extra recovery" if it == Soldier.INTENSITY_REST else ", +%d fatigue" % roundi(float(d["load"]))]
-	var info_lbl := UiKit.label(info, 15, UiKit.MUTED)
-	info_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(info_lbl)
-	var fat_lbl := UiKit.label("Starting a match adds +%d fatigue. Endurance shrinks fatigue gain; age raises it and slows recovery. Above 50 fatigue, accuracy and speed drop (steeply above 75) and injuries get likelier." % roundi(Conditioning.MATCH_LOAD), 15, UiKit.MUTED)
-	fat_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(fat_lbl)
+	var ctx := {
+		"team": team,
+		"plays": season.team_plays_this_week(team),
+		"bonus": Facilities.recovery_bonus(team),
+		"starters": team.starters(),
+		"rows": [],
+		"tiles": {},
+	}
+	var v := _vbox(14)
+	v.add_child(_training_summary(ctx))
+
 	var top := _row()
 	top.add_child(UiKit.button("Auto-set intensities", func():
 		Training.ai_set_intensities(team)
-		hub.replace("Weekly Training", training)))
+		_training_refresh_all(ctx)))
 	top.add_child(UiKit.button("All Normal", func():
 		for so in team.org():
 			so.intensity = Soldier.INTENSITY_NORMAL
-		hub.replace("Weekly Training", training)))
+		_training_refresh_all(ctx)))
+	var rest_btn := UiKit.button("Rest advised", func():
+		for r in ctx["rows"]:
+			if r["advised"] and not r["s"].is_injured():
+				r["s"].intensity = Soldier.INTENSITY_REST
+		_training_refresh_all(ctx))
+	ctx["rest_btn"] = rest_btn
+	top.add_child(rest_btn)
+	# Blanket-set everyone (healthy) to one chosen intensity.
+	var set_pick := OptionButton.new()
+	set_pick.custom_minimum_size = Vector2(130, 44)
+	UiKit.style_button(set_pick)
+	for it in Training.INTENSITIES:
+		set_pick.add_item(Training.label(it))
+	set_pick.select(Training.INTENSITIES.find(Soldier.INTENSITY_NORMAL))
+	top.add_child(UiKit.button("Set everyone to:", func():
+		var chosen: StringName = Training.INTENSITIES[set_pick.selected]
+		for so in team.org():
+			if not so.is_injured():
+				so.intensity = chosen
+		_training_refresh_all(ctx)))
+	top.add_child(set_pick)
+	var hint := UiKit.label("Buttons show XP earned and net fatigue change.", 15, UiKit.MUTED)
+	hint.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top.add_child(hint)
 	v.add_child(top)
-	var list: Array = team.org()
-	list.sort_custom(func(a: Soldier, b: Soldier): return _slot_order(team, a) < _slot_order(team, b))
-	for so: Soldier in list:
-		var row := _row(16)
-		var name_l := UiKit.label("%s  %s" % [_slot_tag(team, so), so.full_name()], 17, Color.WHITE)
-		name_l.custom_minimum_size.x = 270
-		row.add_child(name_l)
-		var age_l := UiKit.label("age %d" % so.age, 15, UiKit.MUTED)
-		age_l.custom_minimum_size.x = 70
-		row.add_child(age_l)
-		var fat := UiKit.label("FAT %d  %s" % [roundi(so.fatigue), Conditioning.status(so.fatigue)], 16, fatigue_color(so.fatigue))
-		fat.custom_minimum_size.x = 170
-		row.add_child(fat)
-		if so.is_injured():
-			row.add_child(UiKit.label("INJURED (%s, %d wk) - rehab, no training" % [so.injury_name, so.injury_weeks], 16, UiKit.BAD))
-		else:
-			var pick := OptionButton.new()
-			pick.custom_minimum_size = Vector2(200, 44)
-			UiKit.style_button(pick)
-			for it in Training.INTENSITIES:
-				pick.add_item(Training.label(it))
-			pick.select(Training.INTENSITIES.find(so.intensity))
-			var who := so
-			pick.item_selected.connect(func(i: int):
-				who.intensity = Training.INTENSITIES[i]
-				hub.replace("Weekly Training", training))
-			row.add_child(pick)
-		v.add_child(row)
+
+	var by_slot := func(a: Soldier, b: Soldier): return _slot_order(team, a) < _slot_order(team, b)
+	var starters: Array = team.roster.filter(func(x: Soldier): return ctx["starters"].has(x))
+	var bench: Array = team.roster.filter(func(x: Soldier): return not ctx["starters"].has(x))
+	starters.sort_custom(by_slot)
+	bench.sort_custom(by_slot)
+	var n := 0
+	for g in [["Starters", starters], ["Bench", bench], ["Green Team", team.green_team.duplicate()]]:
+		var list: Array = g[1]
+		if list.is_empty():
+			continue
+		var head := _row(14)
+		head.add_child(UiKit.heading(g[0], 22))
+		var cnt := UiKit.label("%d soldiers" % list.size(), 15, UiKit.MUTED)
+		cnt.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		head.add_child(cnt)
+		v.add_child(head)
+		for so: Soldier in list:
+			v.add_child(_training_row(ctx, so, minf(0.6, 0.03 * n)))
+			n += 1
+
 	var foot := _row()
 	if not season.can_train_user_team():
 		foot.add_child(UiKit.label("Weekly training starts in Week 1. Set intensities now; they carry over.", 15, UiKit.MUTED))
@@ -2960,7 +2979,408 @@ func training() -> Control:
 		foot.add_child(go)
 		foot.add_child(UiKit.label("Skipping it? Training still runs at these intensities when the week is played.", 14, UiKit.MUTED))
 	v.add_child(foot)
+	var note := UiKit.label(("Starting a match adds +%d fatigue. Endurance shrinks fatigue gain; age raises it and slows recovery. " +
+		"Above 50 fatigue, accuracy and speed drop (steeply above 75) and injuries get likelier. Injured soldiers only study film.") % roundi(Conditioning.MATCH_LOAD), 14, UiKit.MUTED)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(note)
+	_training_refresh_all(ctx, true)
 	return v
+
+
+## What `s` would get at `intensity` this week: XP, end-of-week fatigue, injury chance and the level-ups that XP brings.
+func _train_calc(ctx: Dictionary, s: Soldier, intensity: StringName) -> Dictionary:
+	var team: Team = ctx["team"]
+	var green := team.green_team.has(s)
+	var played: bool = ctx["plays"] and not green and ctx["starters"].has(s)
+	var bye: bool = not ctx["plays"]
+	var xp := Training.projected_xp(team, s, intensity)
+	var x := s.xp + xp
+	var lvl := s.level
+	var levels := 0
+	while x >= Progression.xp_to_next(lvl):
+		x -= Progression.xp_to_next(lvl)
+		lvl += 1
+		levels += 1
+	return {
+		"xp": xp,
+		"fat": Conditioning.projected_fatigue(s, intensity, played, bye, ctx["bonus"]),
+		"risk": 0.0 if green else Conditioning.projected_injury_chance(s, intensity, played, bye, ctx["bonus"]),
+		"levels": levels,
+		"xp_after": x,
+		"next_max": Progression.xp_to_next(lvl),
+	}
+
+
+## Should this soldier rest? Worn out already, or Normal training would leave him exhausted or likely to get hurt.
+func _train_rest_advised(ctx: Dictionary, s: Soldier) -> bool:
+	if s.is_injured():
+		return false
+	var normal := _train_calc(ctx, s, Soldier.INTENSITY_NORMAL)
+	return s.fatigue >= 65.0 or float(normal["fat"]) >= 75.0 or float(normal["risk"]) >= 0.04
+
+
+static func _risk_color(p: float) -> Color:
+	if p < 0.02:
+		return UiKit.GOOD
+	if p < 0.04:
+		return Color("#eab308")
+	return UiKit.BAD
+
+
+## A bar that shows `cur` solid and the move towards `proj` as a lighter extension (or a lighter remainder when it falls).
+## Pass max_value for the scale; `ticks` are 0..1 marks drawn across it.
+func _train_dual_bar(ticks: Array = []) -> Control:
+	var c := Control.new()
+	c.custom_minimum_size = Vector2(150, 14)
+	c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	c.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for key in [&"back", &"front"]:
+		var bar := ProgressBar.new()
+		bar.show_percentage = false
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bar.set_anchors_preset(Control.PRESET_FULL_RECT)
+		bar.add_theme_stylebox_override("background", UiKit.flat(UiKit.LINE if key == &"back" else Color.TRANSPARENT, 4))
+		var fill := UiKit.flat(UiKit.INFO, 4)
+		fill.content_margin_top = 0
+		fill.content_margin_bottom = 0
+		bar.add_theme_stylebox_override("fill", fill)
+		c.add_child(bar)
+		c.set_meta(key, bar)
+		c.set_meta(String(key) + "_fill", fill)
+	for t in ticks:
+		var tick := ColorRect.new()
+		tick.color = Color(0, 0, 0, 0.55)
+		tick.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tick.anchor_left = float(t)
+		tick.anchor_right = float(t)
+		tick.anchor_bottom = 1.0
+		tick.offset_left = -1
+		tick.offset_right = 1
+		c.add_child(tick)
+	return c
+
+
+## Points a dual bar at cur -> proj. The lower value is the solid bar, the higher the lighter one behind it.
+func _train_set_dual(c: Control, max_value: float, cur: float, proj: float, color_of: Callable, animate: bool) -> void:
+	var lo := minf(cur, proj)
+	var hi := maxf(cur, proj)
+	var back: ProgressBar = c.get_meta(&"back")
+	var front: ProgressBar = c.get_meta(&"front")
+	back.max_value = max_value
+	front.max_value = max_value
+	(c.get_meta("back_fill") as StyleBoxFlat).bg_color = Color(color_of.call(hi), 0.5)
+	(c.get_meta("front_fill") as StyleBoxFlat).bg_color = color_of.call(lo)
+	for pair in [[back, hi], [front, lo]]:
+		var bar: ProgressBar = pair[0]
+		if animate and not Fx.is_reduced() and bar.is_inside_tree():
+			bar.create_tween().tween_property(bar, "value", float(pair[1]), 0.28).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		else:
+			bar.value = float(pair[1])
+
+
+func _training_row(ctx: Dictionary, s: Soldier, delay: float) -> Control:
+	var team: Team = ctx["team"]
+	var panel := PanelContainer.new()
+	var r := {"s": s, "ctx": ctx, "panel": panel, "advised": false, "last": &""}
+	var h := _row(14)
+	panel.add_child(h)
+	h.add_child(Portrait.new(s, 76, team.color, team))
+
+	# Who he is, and the traits that drive training.
+	var who := _vbox(2)
+	who.custom_minimum_size.x = 290
+	who.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var nm := UiKit.label(s.callsign.to_upper() if s.callsign != "" else s.last_name.to_upper(), 24, Color.WHITE)
+	nm.clip_text = true
+	who.add_child(nm)
+	var full := UiKit.label(s.full_name(), 14, UiKit.MUTED)
+	full.clip_text = true
+	who.add_child(full)
+	var line3 := UiKit.label("%s  ·  %s  ·  AGE %d" % [_slot_tag(team, s), Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), s.age], 14, UiKit.TEXT)
+	line3.clip_text = true
+	who.add_child(line3)
+	var muted := UiKit.hex(UiKit.MUTED)
+	var traits := UiKit.rich("[color=%s]END[/color] [color=%s]%d[/color]  [color=%s]INJ[/color] [color=%s]%d[/color]  [color=%s]XP×[/color] %.2f  [color=%s]SP[/color] [color=%s]%d[/color]" % [
+		muted, UiKit.hex(UiKit.ovr_color(s.stats[Stats.ENDURANCE])), s.stats[Stats.ENDURANCE],
+		muted, UiKit.hex(UiKit.ovr_color(s.stats[Stats.INJURY])), s.stats[Stats.INJURY],
+		muted, Progression.xp_multiplier(s),
+		muted, UiKit.hex(UiKit.INFO), s.skill_points], 14)
+	traits.autowrap_mode = TextServer.AUTOWRAP_OFF
+	traits.tooltip_text = "Endurance shrinks fatigue gain. Injury rating lowers injury chance. XP× is his development rate (age and dev trait). SP = banked skill points."
+	traits.mouse_filter = Control.MOUSE_FILTER_PASS
+	who.add_child(traits)
+	h.add_child(who)
+
+	# OVR and potential.
+	var op := _vbox(2)
+	op.custom_minimum_size.x = 92
+	op.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var role := _row_role(team, s)
+	var ovr := _row_ovr(team, s)
+	op.add_child(UiKit.label("OVR", 13, UiKit.MUTED))
+	op.add_child(_ovr_cell(ovr, s.morale_ovr_delta(role), 92, 28))
+	op.add_child(_pot_cell(s, 92, 18, 8.0))
+	h.add_child(op)
+
+	# XP column: where he is, what this week adds, and what is left to the next level.
+	var xcol := _vbox(3)
+	xcol.custom_minimum_size.x = 190
+	xcol.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	xcol.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var xtop := _row(8)
+	r["xp_now"] = UiKit.label("", 14, UiKit.MUTED)
+	r["xp_now"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	xtop.add_child(r["xp_now"])
+	r["xp_gain"] = UiKit.label("", 17, UiKit.INFO)
+	xtop.add_child(r["xp_gain"])
+	xcol.add_child(xtop)
+	r["xp_bar"] = _train_dual_bar()
+	xcol.add_child(r["xp_bar"])
+	r["xp_after"] = UiKit.label("", 14, UiKit.MUTED)
+	r["xp_after"].clip_text = true
+	xcol.add_child(r["xp_after"])
+	h.add_child(xcol)
+
+	# Fatigue column: now -> after this week, with the 50 / 75 thresholds marked on the bar.
+	var fcol := _vbox(3)
+	fcol.custom_minimum_size.x = 190
+	fcol.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	fcol.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var ftop := _row(8)
+	r["fat_now"] = UiKit.label("", 14, UiKit.MUTED)
+	r["fat_now"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ftop.add_child(r["fat_now"])
+	r["fat_after"] = UiKit.label("", 17, UiKit.TEXT)
+	ftop.add_child(r["fat_after"])
+	fcol.add_child(ftop)
+	r["fat_bar"] = _train_dual_bar([0.5, 0.75])
+	fcol.add_child(r["fat_bar"])
+	r["fat_note"] = UiKit.label("", 14, UiKit.MUTED)
+	r["fat_note"].clip_text = true
+	fcol.add_child(r["fat_note"])
+	h.add_child(fcol)
+
+	# Injury risk and the rest flag.
+	var rcol := _vbox(2)
+	rcol.custom_minimum_size.x = 112
+	rcol.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	rcol.add_child(UiKit.label("INJURY RISK", 13, UiKit.MUTED))
+	r["risk"] = UiKit.label("", 24, UiKit.GOOD)
+	rcol.add_child(r["risk"])
+	r["flag"] = UiKit.label("", 13, UiKit.GOLD)
+	rcol.add_child(r["flag"])
+	h.add_child(rcol)
+
+	# The intensity strip, or the injury notice.
+	if s.is_injured():
+		var inj := UiKit.label("INJURED  ·  %s  ·  %d wk\nRehab only: film study XP" % [s.injury_name, s.injury_weeks], 15, UiKit.BAD)
+		inj.custom_minimum_size.x = 354
+		inj.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		h.add_child(inj)
+	else:
+		var seg := _row(6)
+		seg.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		r["btns"] = {}
+		r["btn_lbls"] = {}
+		for it in Training.INTENSITIES:
+			var b := Button.new()
+			b.custom_minimum_size = Vector2(84, 78)
+			b.focus_mode = Control.FOCUS_ALL
+			var box := _vbox(1)
+			box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			box.set_anchors_preset(Control.PRESET_FULL_RECT)
+			box.alignment = BoxContainer.ALIGNMENT_CENTER
+			b.add_child(box)
+			var tl := UiKit.label(Training.label(it), 16, Color.WHITE)
+			tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			box.add_child(tl)
+			var xl := UiKit.label("", 14, UiKit.INFO)
+			xl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			box.add_child(xl)
+			var fl := UiKit.label("", 14, UiKit.TEXT)
+			fl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			box.add_child(fl)
+			r["btns"][it] = b
+			r["btn_lbls"][it] = [xl, fl]
+			var pick: StringName = it
+			b.pressed.connect(func():
+				if s.intensity == pick:
+					return
+				s.intensity = pick
+				_training_refresh_row(r, true)
+				_training_refresh_summary(ctx))
+			seg.add_child(b)
+		h.add_child(seg)
+
+	ctx["rows"].append(r)
+	UiKit.fade_in(panel, delay)
+	return panel
+
+
+func _training_refresh_all(ctx: Dictionary, initial := false) -> void:
+	for r in ctx["rows"]:
+		_training_refresh_row(r, not initial)
+	_training_refresh_summary(ctx)
+
+
+func _training_refresh_row(r: Dictionary, animate: bool) -> void:
+	var s: Soldier = r["s"]
+	var ctx: Dictionary = r["ctx"]
+	var it: StringName = s.intensity
+	var changed: bool = r["last"] != &"" and r["last"] != it
+	r["last"] = it
+	var c := _train_calc(ctx, s, it)
+	r["calc"] = c
+	var advised := _train_rest_advised(ctx, s)
+	r["advised"] = advised
+
+	# XP: now, this week's gain, and where that leaves him.
+	var xmax := float(Progression.xp_to_next(s.level))
+	r["xp_now"].text = "XP  %d / %d" % [s.xp, int(xmax)]
+	r["xp_gain"].text = "+%d" % c["xp"]
+	var levels := int(c["levels"])
+	var proj_in_level := xmax if levels > 0 else float(s.xp + int(c["xp"]))
+	_train_set_dual(r["xp_bar"], xmax, float(s.xp), proj_in_level, func(_v): return UiKit.GOOD if levels > 0 else UiKit.INFO, animate)
+	if levels > 0:
+		r["xp_after"].text = "LEVEL UP  ·  +%d SP" % (levels * Progression.SKILL_POINTS_PER_LEVEL)
+		r["xp_after"].add_theme_color_override("font_color", UiKit.GOOD)
+	else:
+		r["xp_after"].text = "%d to next level" % maxi(0, int(xmax) - s.xp - int(c["xp"]))
+		r["xp_after"].add_theme_color_override("font_color", UiKit.MUTED)
+
+	# Fatigue: now -> after, bar zones, and what that costs in matches.
+	var fat := float(c["fat"])
+	r["fat_now"].text = "FATIGUE  %d  %s" % [roundi(s.fatigue), Conditioning.status(s.fatigue)]
+	r["fat_now"].add_theme_color_override("font_color", fatigue_color(s.fatigue))
+	r["fat_after"].text = "→ %d" % roundi(fat)
+	r["fat_after"].add_theme_color_override("font_color", fatigue_color(fat))
+	_train_set_dual(r["fat_bar"], 100.0, s.fatigue, fat, func(v): return fatigue_color(v), animate)
+	var pen := Conditioning.penalty(fat) * 100.0
+	r["fat_note"].text = "%s  ·  -%.1f%% match stats" % [Conditioning.status(fat), pen]
+	r["fat_note"].add_theme_color_override("font_color", fatigue_color(fat))
+
+	# Injury risk and the flag.
+	var risk := float(c["risk"])
+	var risk_l: Label = r["risk"]
+	if s.is_injured() or ctx["team"].green_team.has(s):
+		risk_l.text = "—"
+		risk_l.add_theme_color_override("font_color", UiKit.MUTED)
+	else:
+		risk_l.text = "%.1f%%" % (risk * 100.0)
+		risk_l.add_theme_color_override("font_color", _risk_color(risk))
+	var flag: Label = r["flag"]
+	if advised:
+		flag.text = "RESTING" if it == Soldier.INTENSITY_REST else "REST ADVISED"
+		flag.add_theme_color_override("font_color", UiKit.GOOD if it == Soldier.INTENSITY_REST else UiKit.GOLD)
+	else:
+		flag.text = ""
+
+	# Row outline: gold while he is advised to rest but is not resting.
+	var hot := advised and it != Soldier.INTENSITY_REST
+	(r["panel"] as PanelContainer).add_theme_stylebox_override("panel", UiKit.flat(UiKit.PANEL, 10, 2 if (hot or advised) else 1,
+		UiKit.GOLD if hot else (Color(UiKit.GOOD, 0.5) if advised else UiKit.LINE)))
+
+	# The strip: what each choice would do for him, the chosen one lit.
+	if r.has("btns"):
+		for opt in Training.INTENSITIES:
+			var o: Dictionary = _train_calc(ctx, s, opt)
+			var delta := roundi(float(o["fat"]) - s.fatigue)
+			var lbls: Array = r["btn_lbls"][opt]
+			lbls[0].text = "%d XP" % o["xp"]
+			lbls[1].text = "%s%d FAT" % ["+" if delta > 0 else ("−" if delta < 0 else "±"), absi(delta)]
+			lbls[1].add_theme_color_override("font_color", fatigue_color(float(o["fat"])))
+			var b: Button = r["btns"][opt]
+			b.tooltip_text = "%s: +%d XP%s\nFatigue %d → %d (%s)\nInjury risk %.1f%%" % [Training.label(opt), o["xp"],
+				"  (level up)" if int(o["levels"]) > 0 else "", roundi(s.fatigue), roundi(float(o["fat"])),
+				Conditioning.status(float(o["fat"])), float(o["risk"]) * 100.0]
+			if opt == it:
+				UiKit.style_button(b, UiKit.ACCENT.darkened(0.5), UiKit.ACCENT, 6, false)
+				b.add_theme_stylebox_override("normal", UiKit.flat(UiKit.ACCENT.darkened(0.5), 6, 2, UiKit.ACCENT))
+			else:
+				UiKit.style_button(b, UiKit.PANEL_HI, UiKit.ACCENT, 6, false)
+				if advised and opt == Soldier.INTENSITY_REST:
+					b.add_theme_stylebox_override("normal", UiKit.flat(UiKit.PANEL_HI, 6, 2, UiKit.GOLD))
+		if changed and animate:
+			Fx.pop(r["btns"][it], 1.08, 0.25)
+			Fx.flash(r["xp_gain"], 0.6, 0.5)
+			Fx.flash(r["fat_after"], 0.6, 0.5)
+			Fx.flash(risk_l, 0.6, 0.5)
+
+
+## The team-wide summary tiles above the list.
+func _training_summary(ctx: Dictionary) -> Control:
+	var row := _row(12)
+	for t in [["xp", "TEAM XP THIS WEEK"], ["levels", "LEVEL-UPS"], ["fat", "AVG FATIGUE AFTER"], ["inj", "EXPECTED INJURIES"], ["rest", "REST ADVISED"], ["mix", "INTENSITY MIX"]]:
+		var p := UiKit.panel(UiKit.PANEL, 10)
+		p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var v := _vbox(2)
+		p.add_child(v)
+		v.add_child(UiKit.label(t[1], 13, UiKit.MUTED))
+		var val := UiKit.label("", 30, UiKit.TEXT)
+		v.add_child(val)
+		var sub := UiKit.label("", 14, UiKit.MUTED)
+		sub.clip_text = true
+		v.add_child(sub)
+		ctx["tiles"][t[0]] = {"v": val, "s": sub}
+		row.add_child(p)
+	return row
+
+
+func _training_refresh_summary(ctx: Dictionary) -> void:
+	var tiles: Dictionary = ctx["tiles"]
+	var xp := 0
+	var levels := 0
+	var fat_now := 0.0
+	var fat_after := 0.0
+	var inj := 0.0
+	var advised := 0
+	var resting_advised := 0
+	var mix := {}
+	for r in ctx["rows"]:
+		var s: Soldier = r["s"]
+		var c: Dictionary = r["calc"]
+		xp += int(c["xp"])
+		if int(c["levels"]) > 0:
+			levels += 1
+		fat_now += s.fatigue
+		fat_after += float(c["fat"])
+		inj += float(c["risk"])
+		if r["advised"]:
+			advised += 1
+			if s.intensity == Soldier.INTENSITY_REST:
+				resting_advised += 1
+		if not s.is_injured():
+			mix[s.intensity] = int(mix.get(s.intensity, 0)) + 1
+	var n := maxi(1, ctx["rows"].size())
+	Fx.count_memo(tiles["xp"]["v"], "train_xp", xp, "+%d", true, 1)
+	tiles["xp"]["s"].text = "across %d soldiers" % ctx["rows"].size()
+	Fx.count_memo(tiles["levels"]["v"], "train_levels", levels, "%d", true, 1)
+	tiles["levels"]["s"].text = "soldiers who level up"
+	var avg_after := roundi(fat_after / n)
+	Fx.count_memo(tiles["fat"]["v"], "train_fat", avg_after, "%d", true, -1)
+	tiles["fat"]["v"].add_theme_color_override("font_color", fatigue_color(fat_after / n))
+	tiles["fat"]["s"].text = "now %d" % roundi(fat_now / n)
+	var inj_l: Label = tiles["inj"]["v"]
+	var inj_text := "%.1f" % inj
+	if inj_l.text != inj_text:
+		inj_l.text = inj_text
+		Fx.flash(inj_l, 0.6, 0.5)
+	inj_l.add_theme_color_override("font_color", _risk_color(inj / n))
+	tiles["inj"]["s"].text = "chance-weighted, this week"
+	Fx.count_memo(tiles["rest"]["v"], "train_rest", advised - resting_advised, "%d", true, -1)
+	tiles["rest"]["v"].add_theme_color_override("font_color", UiKit.GOLD if advised > resting_advised else UiKit.GOOD)
+	tiles["rest"]["s"].text = "%d advised, %d resting" % [advised, resting_advised]
+	var parts: PackedStringArray = []
+	for it in Training.INTENSITIES:
+		parts.append("%s %d" % [Training.label(it)[0], int(mix.get(it, 0))])
+	tiles["mix"]["v"].text = "  ".join(parts)
+	tiles["mix"]["v"].add_theme_font_size_override("font_size", UiKit.fs(22))
+	tiles["mix"]["s"].text = "Rest · Light · Normal · Heavy"
+	if ctx.has("rest_btn"):
+		var rb: Button = ctx["rest_btn"]
+		rb.text = "Rest advised (%d)" % (advised - resting_advised)
+		rb.disabled = advised == resting_advised
 
 
 ## The user's weekly training results: XP gained, the new XP bar and any skill points earned.
@@ -4709,7 +5129,7 @@ func _camp_card(s: Season, g: StringName, open: bool) -> Control:
 			nv.add_child(UiKit.label("OVR %d > %d%s" % [res["ovr_before"], res["ovr_after"], ("  (+%d)" % d) if d > 0 else ""], 14,
 				UiKit.GOOD if d > 0 else UiKit.MUTED))
 		else:
-			var pool := Camp.pool_range(who.dev)
+			var pool := Camp.known_pool(who)
 			nv.add_child(UiKit.label("%d OVR  ·  %s POT  ·  %d-%d pts" % [who.best_ovr(), pot_dev_text(who), pool[0], pool[1]], 14, UiKit.GOOD))
 		for c in nv.get_children():
 			c.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -4796,7 +5216,7 @@ func _camp_board(s: Season) -> Control:
 		ol.add_theme_font_override("font", UiKit.font_heavy)
 		hb.add_child(ol)
 		hb.add_child(_pot_cell(so, 64, 26))
-		var pool := Camp.pool_range(so.dev)
+		var pool := Camp.known_pool(so)
 		hb.add_child(_big_cell("%d-%d" % [pool[0], pool[1]], UiKit.GOOD, 70, 18))
 		for gr in Stats.GROUP_ORDER:
 			hb.add_child(_rating_cell(so.group_rating(gr), 92))
@@ -4862,7 +5282,7 @@ func _camp_confirm_card() -> Control:
 		if not _camp_plan.has(g):
 			continue
 		var so: Soldier = _camp_plan[g]
-		var pool := Camp.pool_range(so.dev)
+		var pool := Camp.known_pool(so)
 		var h := _row(14)
 		h.add_child(Portrait.new(so, 44, team.color, team))
 		h.add_child(_big_cell(Camp.drill_name(g), UiKit.TRIM, 200, 16))
@@ -4953,7 +5373,7 @@ func drill_pick(group: StringName) -> Control:
 ## "Are you sure?" card for sending `so` to the `group` drill.
 func _drill_confirm_card(group: StringName, so: Soldier) -> Control:
 	var team := _season().user_team()
-	var pool := Camp.pool_range(so.dev)
+	var pool := Camp.known_pool(so)
 	var v := _vbox(14)
 	v.add_child(UiKit.label("SEND TO %s?" % Camp.drill_name(group).to_upper(), 16, UiKit.ACCENT))
 	var h := _row(22)

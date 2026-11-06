@@ -45,6 +45,19 @@ static func pool_range(dev: int) -> Array:
 	return POINT_POOLS[clampi(dev, Soldier.DEV_MIN, Soldier.DEV_MAX) - Soldier.DEV_MIN]
 
 
+## The point pool as the club can know it: his own pool once his potential is known, otherwise the
+## widest pool across the dev stars his scouted potential range allows (never his hidden grade).
+static func known_pool(s: Soldier) -> Array:
+	if s.potential_known():
+		return pool_range(s.dev)
+	var r := s.potential_range()
+	var lo: int = Soldier.LEGACY_GRADE_TO_DEV[r[0]]
+	var hi: int = Soldier.LEGACY_GRADE_TO_DEV[r[1]]
+	var a := pool_range(mini(lo, s.dev))
+	var b := pool_range(maxi(hi, s.dev))
+	return [a[0], b[1]]
+
+
 ## Chance a drill earns `s` a dev star this camp (0 if maxed or his stars already moved this year).
 func dev_up_chance(s: Soldier) -> float:
 	if s.dev >= Soldier.DEV_MAX or s.dev_changed_in(year):

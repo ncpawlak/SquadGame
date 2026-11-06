@@ -607,8 +607,11 @@ func validate(season: Season, a: Team, a_give: Array, b: Team, b_give: Array, un
 	var floor_n := min_roster(season)
 	for side in [[a, a_give, b_give], [b, b_give, a_give]]:
 		var t: Team = side[0]
-		var after: int = t.roster.size() - _main_players(season, side[1]) + _main_players(season, side[2])
-		if after < floor_n and _main_players(season, side[1]) > _main_players(season, side[2]):
+		# Green Team players keep their Green Team status in a trade, so they don't move the roster count.
+		var n_out := _main_players(season, side[1])
+		var n_in := _main_players(season, side[2])
+		var after: int = t.roster.size() - n_out + n_in
+		if after < floor_n and n_out > n_in:
 			return "%s would be left with only %d players (min %d)." % [t.name, after, floor_n]
 		var incoming := _salary(side[2])
 		var outgoing := _salary(side[1])
