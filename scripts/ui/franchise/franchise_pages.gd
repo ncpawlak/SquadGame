@@ -6909,6 +6909,11 @@ func trade_center() -> Control:
 	q.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	irow.add_child(q)
 	v.add_child(irow)
+	if not _trade_give.is_empty() and not _trade_get.is_empty():
+		v.add_child(UiKit.rich("[color=#8b97ab]MARKET VALUE FOR YOU[/color]   %s" % _fairness_text(tr.fair_ratio(s, _trade_get, _trade_give)), 15))
+		v.add_child(UiKit.rich("[color=#8b97ab]YOUR LINEUP[/color]   %s" % _lineup_text(tr.lineup_change(user, _trade_give, _trade_get), tr.useful_ratio(s, user, _trade_get, _trade_give)), 15))
+		if tr.sidegrade(user, _trade_give, _trade_get):
+			v.add_child(UiKit.label("Heads up: an incoming player would bench a starter without a clearly better outlook over the next 3 seasons (older or lower potential).", 15, UiKit.BAD))
 	var err := "" if both_empty else tr.validate(s, user, _trade_give, ai, _trade_get)
 	v.add_child(UiKit.rich(_trade_after_text(user, _trade_give, _trade_get) + "\n" + _trade_after_text(ai, _trade_get, _trade_give), 15))
 	if err != "":
@@ -7330,6 +7335,27 @@ func league_block() -> Control:
 	return v
 
 
+## "Fair (0.97x market value)" coloured by how even a deal is for the user (r = value they get / give).
+func _fairness_text(r: float) -> String:
+	var col := "#22c55e" if r >= Trades.FAIR_LOW and r <= Trades.FAIR_HIGH else ("#f59e0b" if r >= Trades.FAIR_LOW * 0.75 and r <= Trades.FAIR_HIGH * 1.2 else "#ef4444")
+	return "[color=%s]%s[/color]  [color=#8b97ab](you get %.2fx the market value you give)[/color]" % [col, Trades.fairness_label(r), r]
+
+
+## "Your lineup: weaker (-1.1 avg)" plus how much of the incoming value would actually play.
+## `delta` is the change in the user's average lineup rating, `useful` usable value / market value given.
+func _lineup_text(delta: float, useful: float) -> String:
+	var word := "unchanged"
+	var col := "#8b97ab"
+	if delta <= -0.05:
+		word = "weaker (%.1f avg rating)" % delta
+		col = "#ef4444" if delta <= -0.4 else "#f59e0b"
+	elif delta >= 0.05:
+		word = "stronger (+%.1f avg rating)" % delta
+		col = "#22c55e"
+	var use_col := "#22c55e" if useful >= Trades.FAIR_LOW else ("#f59e0b" if useful >= Trades.FAIR_LOW * 0.75 else "#ef4444")
+	return "[color=%s]%s[/color]  [color=#8b97ab](usable value [/color][color=%s]%.2fx[/color][color=#8b97ab] of what you give)[/color]" % [col, word, use_col, useful]
+
+
 func trade_offers() -> Control:
 	var s := _season()
 	var tr := s.trades
@@ -7349,6 +7375,11 @@ func trade_offers() -> Control:
 		pv.add_child(UiKit.team_chip(team, 16))
 		pv.add_child(UiKit.rich("[color=#8b97ab]THEY OFFER[/color]   [color=white]%s[/color]" % UiKit.esc(", ".join(PackedStringArray(offer["give"].map(func(a): return Trades.asset_text(s, a))))), 17))
 		pv.add_child(UiKit.rich("[color=#8b97ab]FOR YOUR[/color]     [color=white]%s[/color]" % UiKit.esc(", ".join(PackedStringArray(offer["get"].map(func(a): return Trades.asset_text(s, a))))), 17))
+		if String(offer.get("reason", "")) != "":
+			pv.add_child(UiKit.rich("[color=#8b97ab]WHY[/color]  [i]%s[/i]" % UiKit.esc(String(offer["reason"])), 15))
+		pv.add_child(UiKit.rich("[color=#8b97ab]VALUE[/color]  %s" % _fairness_text(tr.fair_ratio(s, offer["give"], offer["get"])), 15))
+		var me := s.user_team()
+		pv.add_child(UiKit.rich("[color=#8b97ab]LINEUP[/color]  %s" % _lineup_text(tr.lineup_change(me, offer["get"], offer["give"]), tr.useful_ratio(s, me, offer["give"], offer["get"])), 15))
 		var h := _row(10)
 		h.add_child(UiKit.action_button("Accept", func():
 			var err := tr.accept_offer(s, offer)
@@ -7750,6 +7781,8 @@ func _news_nav(i: int) -> Control:
 	newer.disabled = i >= nr.count() - 1
 	row.add_child(newer)
 	return row
+
+
 
 
 ## Every issue, newest first, grouped by season. Unread issues carry a NEW tag.
