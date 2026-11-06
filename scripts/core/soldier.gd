@@ -372,19 +372,33 @@ func potential_letter() -> String:
 	return POTENTIAL_LETTERS[potential_grade()]
 
 
-## Potential as the club knows it, revealed by reps: under 4 reps "?", 4+ a three-letter range
-## ("C-A"), 8+ two letters ("B/A"), REP_MAX the exact letter.
-func potential_text() -> String:
+## Potential grade range the club knows, revealed by reps: [low, high] grade indexes. Under 4 reps
+## nothing (F..A), 4+ three grades, 8+ two, REP_MAX the exact grade. The window is fixed per player
+## (by id) so it doesn't jitter, but always contains his real grade.
+func potential_range() -> Array:
 	var g := potential_grade()
-	if reps >= REP_MAX:
-		return POTENTIAL_LETTERS[g]
 	var top := POTENTIAL_LETTERS.size() - 1
+	if reps >= REP_MAX:
+		return [g, g]
 	if reps >= 8.0:
 		var lo := clampi(g - id % 2, 0, top - 1)
-		return "%s/%s" % [POTENTIAL_LETTERS[lo], POTENTIAL_LETTERS[lo + 1]]
+		return [lo, lo + 1]
 	if reps >= 4.0:
 		var lo2 := clampi(g - id % 3, 0, top - 2)
-		return "%s-%s" % [POTENTIAL_LETTERS[lo2], POTENTIAL_LETTERS[lo2 + 2]]
+		return [lo2, lo2 + 2]
+	return [0, top]
+
+
+## Potential as the club knows it (see potential_range): under 4 reps "?", 4+ a three-letter range
+## ("C-A"), 8+ two letters ("B/A"), REP_MAX the exact letter.
+func potential_text() -> String:
+	var r := potential_range()
+	if reps >= REP_MAX:
+		return POTENTIAL_LETTERS[r[0]]
+	if reps >= 8.0:
+		return "%s/%s" % [POTENTIAL_LETTERS[r[0]], POTENTIAL_LETTERS[r[1]]]
+	if reps >= 4.0:
+		return "%s-%s" % [POTENTIAL_LETTERS[r[0]], POTENTIAL_LETTERS[r[1]]]
 	return "?"
 
 

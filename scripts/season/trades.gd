@@ -374,6 +374,18 @@ static func _players(list: Array) -> int:
 	return list.filter(func(a): return not is_pick(a)).size()
 
 
+## Players in `list` who sit on a main roster (Green Team players don't count against it).
+func _main_players(season: Season, list: Array) -> int:
+	var n := 0
+	for a in list:
+		if is_pick(a):
+			continue
+		var t := season.league.team_of(a["soldier"])
+		if t == null or not t.green_team.has(a["soldier"]):
+			n += 1
+	return n
+
+
 ## Salary that counts for matching: players on more than a minimum deal (a minimum deal always fits).
 static func _matched_salary(list: Array) -> int:
 	var total := 0
@@ -432,7 +444,7 @@ func validate(season: Season, a: Team, a_give: Array, b: Team, b_give: Array, un
 					return "%s doesn't own the %s." % [t.abbrev, asset_text(season, x)]
 			else:
 				var s: Soldier = x["soldier"]
-				if not t.roster.has(s):
+				if not t.has_player(s):
 					return "%s is no longer on %s." % [s.display_name(), t.name]
 				if not tradeable(s):
 					if s.contract != null and s.contract.no_trade and s.contract.years > 0:
@@ -442,8 +454,11 @@ func validate(season: Season, a: Team, a_give: Array, b: Team, b_give: Array, un
 	var floor_n := min_roster(season)
 	for side in [[a, a_give, b_give], [b, b_give, a_give]]:
 		var t: Team = side[0]
-		var after: int = t.roster.size() - _players(side[1]) + _players(side[2])
-		if after < floor_n and _players(side[1]) > _players(side[2]):
+		# Green Team players keep their Green Team status in a trade, so they don't move the roster count.
+		var n_out := _main_players(season, side[1])
+		var n_in := _main_players(season, side[2])
+		var after: int = t.roster.size() - n_out + n_in
+		if after < floor_n and n_out > n_in:
 			return "%s would be left with only %d players (min %d)." % [t.name, after, floor_n]
 		var incoming := _salary(side[2])
 		var outgoing := _salary(side[1])
