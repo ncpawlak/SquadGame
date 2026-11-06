@@ -2195,6 +2195,13 @@ func test_trade_sidegrade() -> void:
 	if tr.lineup_change(user, give, get) > 0.0:
 		check(tr.sidegrade(user, give, get), "an older, lesser-outlook player who benches a starter is a sidegrade")
 		check(tr._guard(s, user, give, get) != "", "and wouldn't be generated as an offer")
+	# A straight swap counts too: trading the young starter away for the older player who takes his slot.
+	var swap_give := [Trades.player_asset(starter)]
+	var swap_used: Dictionary = tr._lineup_pick(user, tr._roster_after(user, swap_give, get))["used"]
+	check(swap_used.has(vet), "the vet takes the traded starter's slot")
+	if swap_used.has(vet):
+		check(tr.sidegrade(user, swap_give, get), "swapping a young starter for an older, lesser-outlook player in his slot is a sidegrade")
+		check(tr._guard(s, user, swap_give, get) != "", "and wouldn't be offered to the user")
 	# A much better young player isn't a sidegrade.
 	check(not tr.sidegrade(user, give, []), "taking nothing back is never a sidegrade")
 

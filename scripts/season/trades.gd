@@ -1071,9 +1071,10 @@ func lineup_change(team: Team, out_list: Array, in_list: Array) -> float:
 	return _lineup_strength(team, _roster_after(team, out_list, in_list)) - _strength_now(team)
 
 
-## True when an incoming player would push one of `team`'s current starters (who stays on the roster)
-## out of the lineup without clearly beating him over the next three seasons: a bigger rating now
-## doesn't make up for an older or lower-potential player (a short-term bump that costs the future).
+## True when an incoming player would take the lineup spot of one of `team`'s current starters (whether
+## he stays on the roster or is the one traded away) without clearly beating him over the next three
+## seasons: a bigger rating now doesn't make up for an older or lower-potential player (a short-term
+## bump that costs the future).
 func sidegrade(team: Team, out_list: Array, in_list: Array) -> bool:
 	var inp := _soldiers(in_list)
 	if inp.is_empty():
@@ -1082,12 +1083,18 @@ func sidegrade(team: Team, out_list: Array, in_list: Array) -> bool:
 	var outp := _soldiers(out_list)
 	var after: Dictionary = _lineup_pick(team, _roster_after(team, out_list, in_list))["used"]
 	for d: Soldier in before:
-		if after.has(d) or outp.has(d):
+		if after.has(d):
 			continue
 		var best_gain := -999.0
+		var replaced := false
 		for p: Soldier in inp:
 			if after.has(p):
+				replaced = true
 				best_gain = maxf(best_gain, projected_avg(p, 3) - projected_avg(d, 3))
+		# A starter who is traded away only counts when an incoming player takes his place (a straight
+		# swap); one pushed out while staying on the roster is always compared.
+		if not replaced and outp.has(d):
+			continue
 		if best_gain < SIDEGRADE_MARGIN:
 			return true
 	return false
