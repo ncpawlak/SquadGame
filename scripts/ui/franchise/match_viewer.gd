@@ -472,12 +472,16 @@ func _scale() -> float:
 	return minf(_map.size.x / (ArenaMap.HALF.x * 2.0), _map.size.y / (ArenaMap.HALF.y * 2.0))
 
 
+## World -> screen. The map is mirrored left-right so the away team starts on the left and the home
+## team on the right, matching the "away @ home" scoreboard and panels.
 func _to_screen(p: Vector2) -> Vector2:
-	return _map.size / 2.0 + p * _scale()
+	return _map.size / 2.0 + Vector2(-p.x, p.y) * _scale()
 
 
 func _rect_to_screen(r: Rect2) -> Rect2:
-	return Rect2(_to_screen(r.position), r.size * _scale())
+	var a := _to_screen(r.position)
+	var b := _to_screen(r.end)
+	return Rect2(Vector2(minf(a.x, b.x), minf(a.y, b.y)), (b - a).abs())
 
 
 func _display_pos(c: MatchEngine.Combatant) -> Vector2:
@@ -489,13 +493,18 @@ func _display_pos(c: MatchEngine.Combatant) -> Vector2:
 func _draw_map() -> void:
 	var sc := _scale()
 	var arena := _rect_to_screen(Rect2(-ArenaMap.HALF, ArenaMap.HALF * 2.0))
+	# Floor, patches, start zones and props are drawn through a left-right mirror (see _to_screen);
+	# text and the logo are drawn upright outside it.
+	var mirror := Transform2D(Vector2(-1, 0), Vector2(0, 1), Vector2(_map.size.x, 0))
+	_map.draw_set_transform_matrix(mirror)
 	FieldPainter.draw_floor(_map, engine.arena, _map.size / 2.0, sc)
 	if _patch_tex == null and not engine.weather.is_clear():
 		_patch_tex = FieldPainter.patch_texture(engine.weather)
 	FieldPainter.draw_patches(_map, _patch_tex, _map.size / 2.0, sc)
 	# Both starting areas wear the home team's tint, so the field reads as the home team's ground.
 	var tint := FieldPainter.start_tint(teams[0], engine.arena.surface)
-	FieldPainter.draw_start_areas(_map, _map.size / 2.0, sc, [tint, tint], [teams[0].abbrev, teams[1].abbrev], _font)
+	FieldPainter.draw_start_areas(_map, _map.size / 2.0, sc, [tint, tint], ["", ""], null)
+	_map.draw_set_transform_matrix(Transform2D.IDENTITY)  # the hill uses _rect_to_screen, which already mirrors
 	if engine.mode() == MatchEngine.MODE_KOTH:
 		var hs := engine.hill_state()
 		var col := Color(1, 1, 1, 0.10)
@@ -507,7 +516,20 @@ func _draw_map() -> void:
 		_map.draw_rect(hr, col)
 		_map.draw_rect(hr, Color(1, 1, 1, 0.55), false, 2.0)
 		_map.draw_string(_font, hr.position + Vector2(4, 14), "HILL", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.6))
-	FieldPainter.draw_props(_map, engine.arena, _map.size / 2.0, sc, UiKit.logo_tex(teams[0].abbrev))
+	_map.draw_set_transform_matrix(mirror)
+	FieldPainter.draw_props(_map, engine.arena, _map.size / 2.0, sc)
+	_map.draw_set_transform_matrix(Transform2D.IDENTITY)
+	var logo := UiKit.logo_tex(teams[0].abbrev)
+	if logo != null:
+		var ls := FieldPainter.LOGO_METRES * sc
+		_map.draw_texture_rect(logo, Rect2(_map.size / 2.0 - Vector2(ls, ls) / 2.0, Vector2(ls, ls)), false, Color(1, 1, 1, 0.4))
+	for i in 2:  # start-zone labels: world side 0 is home (now drawn on the right), side 1 is away
+		var zx0 := -ArenaMap.HALF.x if i == 0 else ArenaMap.START_X
+		var zx1 := -ArenaMap.START_X if i == 0 else ArenaMap.HALF.x
+		var zr := _rect_to_screen(Rect2(zx0, -ArenaMap.HALF.y, zx1 - zx0, ArenaMap.HALF.y * 2.0))
+		var zt: String = teams[0 if i == 0 else 1].abbrev
+		var zw := _font.get_string_size(zt, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+		_map.draw_string(_font, Vector2(zr.get_center().x - zw / 2.0, zr.position.y + 18.0), zt, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 1, 1, 0.55))
 	_map.draw_rect(arena, Color(1, 1, 1, 0.25), false, 2.0)
 	var venue_line := engine.arena.venue.to_upper()
 	if not engine.weather.is_clear():
