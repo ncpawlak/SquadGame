@@ -8,6 +8,14 @@ extends RefCounted
 ## SALARY_MATCH (125%) of the salary it sends out, and nobody may end one over the apron. Signing
 ## bonuses are sunk: they were paid from the old club's fund and never move with the player.
 ##
+## Fair offers (issue #103): CPU offers to the user and AI-to-AI deals are built by _payment() as
+## packages that are a fair swap on the open market (neutral_value: no mode, no roster need) within
+## FAIR_LOW..FAIR_HIGH on both sides, that each team wants by its own valuation, and that pass
+## _guard() (roster limit, lineup not clearly worse, best player not sold for filler). Each team's
+## mode shapes what it asks for (_wants) and spends (_give_penalty), and an offer carries a "reason".
+## The interest bar stays the AI's willingness; Trades.difficulty() sets how big an edge it needs
+## and whether it refuses to overpay (Easy lets the user fleece it).
+##
 ## An asset is a Dictionary: {"soldier": Soldier} or {"pick": true, "year", "round", "orig": Team}.
 
 const DEADLINE_WEEK := 8
@@ -37,6 +45,30 @@ const SALARY_MATCH := 1.25
 ## of trade value; a team over the soft cap weighs it SURPLUS_OVER_CAP times as much.
 const SURPLUS_SCALE := 1200.0
 const SURPLUS_OVER_CAP := 1.3
+## A fair swap: market value received / given within this band (both sides, so 0.8..1.25).
+const FAIR_LOW := 0.8
+const FAIR_HIGH := 1.25
+## Veterans (30+) on an expiring deal keep this share of their value.
+const RENTAL_FACTOR := 0.9
+## What a player who wouldn't start for his new team is worth to him: bench depth only. A young
+## prospect who is clearly still developing is the exception (he is bought for what he'll become).
+const BENCH_USE := 0.35
+## Largest lineup drop (average rating per slot) a generated offer may cost the user when it brings
+## players back; picks-only offers are exempt.
+const OFFER_LINEUP_TOLERANCE := 0.4
+
+## Trade difficulty (Franchise Settings). Easy: the AI accepts less than it gives and has no fairness
+## floor, so a lopsided deal can be fleeced. Normal: it wants a 5% edge by its own valuation and
+## won't overpay by more than FAIR_LOW in market value. Hard: a 15% edge and a 0.9 floor. Offers the
+## AI makes on its own are always fair (FAIR_LOW..FAIR_HIGH on both sides), whatever the setting.
+enum Difficulty { EASY, NORMAL, HARD }
+const DIFFICULTY_NAMES := {Difficulty.EASY: "Easy", Difficulty.NORMAL: "Normal", Difficulty.HARD: "Hard"}
+const DIFFICULTY_MARGIN := {Difficulty.EASY: 0.6, Difficulty.NORMAL: ACCEPT_MARGIN, Difficulty.HARD: 1.15}
+const DIFFICULTY_FLOOR := {Difficulty.EASY: 0.0, Difficulty.NORMAL: FAIR_LOW, Difficulty.HARD: 0.9}
+const CFG_PATH := "user://settings.cfg"
+## Tests and audits pin a difficulty here (-1 = use the saved setting).
+static var difficulty_override := -1
+static var _difficulty := -1
 
 const CONTENDER := &"contender"
 const BALANCED := &"balanced"
@@ -51,7 +83,7 @@ var patience := {}
 var block := {}
 ## Incoming AI offers to the user: {team, give (AI gives), get (AI wants), year, week}.
 var offers: Array = []
-## Every completed trade: {year, when, a, b, a_gave, b_gave, reactions, ai}.
+## Every completed trade: {year, when, a, b, a_gave, b_gave, reactions, ai, fair (a's market-value ratio)}.
 var history: Array = []
 ## Trades completed in the latest weekly tick.
 var last_trades: Array = []
@@ -64,6 +96,62 @@ var _restructuring := false
 var _cache_key := ""
 var _modes := {}
 var _round1 := {}
+## key_of -> market value, cleared whenever the valuation cache is.
+var _neutral := {}
+## While > 0 (inside one offer / AI-trade pass), team abbrev -> payer pool, so each team's assets
+## and spending preferences are worked out once instead of per partner.
+var _memo_depth := 0
+var _pool_memo := {}
+## Package searches left in the current AI-to-AI pass.
+var _search_budget := 0
+
+
+# --- difficulty --------------------------------------------------------------------
+
+static func difficulty() -> int:
+	if difficulty_override >= 0:
+		return difficulty_override
+	if _difficulty < 0:
+		_difficulty = Difficulty.NORMAL
+		var cfg := ConfigFile.new()
+		if cfg.load(CFG_PATH) == OK:
+			_difficulty = clampi(int(cfg.get_value("gameplay", "trade_difficulty", Difficulty.NORMAL)), 0, Difficulty.HARD)
+	return _difficulty
+
+
+static func set_difficulty(d: int) -> void:
+	_difficulty = clampi(d, 0, Difficulty.HARD)
+	var cfg := ConfigFile.new()
+	cfg.load(CFG_PATH)
+	cfg.set_value("gameplay", "trade_difficulty", _difficulty)
+	cfg.save(CFG_PATH)
+
+
+## The edge (received / given by its own valuation) the AI needs before it says yes.
+static func accept_margin() -> float:
+	return DIFFICULTY_MARGIN[difficulty()]
+
+
+## Below this market-value ratio (AI received / AI gave) the AI won't accept: it is overpaying.
+static func fair_floor() -> float:
+	return DIFFICULTY_FLOOR[difficulty()]
+
+
+## "Fair", "Slightly in your favor"... for the market-value ratio the user receives / gives.
+static func fairness_label(r: float) -> String:
+	if r >= FAIR_HIGH * 1.2:
+		return "Lopsided in your favor"
+	if r > FAIR_HIGH:
+		return "Slightly in your favor"
+	if r > 1.12:
+		return "Fair, leaning your way"
+	if r >= 1.0 / 1.12:
+		return "Fair"
+	if r >= FAIR_LOW:
+		return "Fair, leaning their way"
+	if r >= FAIR_LOW * 0.75:
+		return "Slightly in their favor"
+	return "Lopsided in their favor"
 
 
 # --- assets -------------------------------------------------------------------
@@ -210,6 +298,7 @@ func _refresh_cache(season: Season) -> void:
 	if key == _cache_key:
 		return
 	_cache_key = key
+	_neutral = {}
 	var teams: Array = season.league.teams.duplicate()
 	var score := {}
 	var rows := season.standings()
@@ -244,25 +333,40 @@ static func curve(ovr: float) -> float:
 ## so an overpaid player is worth less and a cheap productive or rookie deal more.
 func player_value(season: Season, s: Soldier, team: Team, giving := false) -> float:
 	var m := mode(season, team)
-	var ovr := float(s.best_ovr())
+	var over_cap := Contracts.payroll(team, season.cap_year()) > Contracts.SALARY_CAP
+	var need_ovr := 0.0
 	if not giving and Scheme.best_role(s.stats) == Draft.weakest_role(team):
-		ovr += 2.0
-	var fut_w: float = clampf((28.0 - s.age) / 8.0, 0.0, 1.0) * {CONTENDER: 0.3, BALANCED: 0.45, REBUILDING: 0.65}[m]
-	var eff := ovr + float(s.potential_ovr() - s.best_ovr()) * fut_w
-	if s.age >= 30:
-		eff -= float(s.age - 29) * float({CONTENDER: 0.4, BALANCED: 0.8, REBUILDING: 1.4}[m])
-	var v := curve(eff)
-	if s.contract != null:
-		var surplus := float(Contracts.market_value(s) - s.contract.salary) * mini(maxi(s.contract.years, 0), 3)
-		var cap_w := SURPLUS_OVER_CAP if Contracts.payroll(team, season.cap_year()) > Contracts.SALARY_CAP else 1.0
-		v += surplus / SURPLUS_SCALE * cap_w * float({CONTENDER: 0.7, BALANCED: 1.0, REBUILDING: 1.3}[m])
-	if s.is_injured() and season.phase != Season.PHASE_OFFSEASON:
-		v *= maxf(0.5, 1.0 - 0.07 * s.injury_weeks * (1.3 if m == CONTENDER else 1.0))
+		need_ovr = 2.0
+	var v := _player_base(season, s, m, over_cap, need_ovr)
 	if not giving:
 		v *= need_factor(season, team, s)
 	if giving and on_block(season, team, s):
 		v *= 0.8
 	return maxf(v, 1.0)
+
+
+## The part of a player's value that only depends on the front office's mode: rating (plus a need
+## bump), upside, age, contract surplus, injury. Neutral market value uses BALANCED and no bump.
+func _player_base(season: Season, s: Soldier, m: StringName, over_cap: bool, need_ovr: float) -> float:
+	var ovr := float(s.best_ovr()) + need_ovr
+	var fut_w: float = clampf((28.0 - s.age) / 8.0, 0.0, 1.0) * {CONTENDER: 0.3, BALANCED: 0.45, REBUILDING: 0.65}[m]
+	var eff := ovr + float(s.potential_ovr() - s.best_ovr()) * fut_w
+	if s.age >= 30:
+		# Linear decline plus an accelerating term: a 33-year-old is worth far less than a 30-year-old.
+		var n := float(s.age - 29)
+		eff -= n * float({CONTENDER: 0.4, BALANCED: 0.8, REBUILDING: 1.4}[m])
+		eff -= n * n * float({CONTENDER: 0.18, BALANCED: 0.3, REBUILDING: 0.42}[m])
+	var v := curve(eff)
+	if s.contract != null:
+		var surplus := float(Contracts.market_value(s) - s.contract.salary) * mini(maxi(s.contract.years, 0), 3)
+		var cap_w := SURPLUS_OVER_CAP if over_cap else 1.0
+		v += surplus / SURPLUS_SCALE * cap_w * float({CONTENDER: 0.7, BALANCED: 1.0, REBUILDING: 1.3}[m])
+		# A veteran on an expiring deal is a one-season rental: nothing left to re-sign or flip.
+		if s.age >= 30 and s.contract.years <= 1:
+			v *= RENTAL_FACTOR
+	if s.is_injured() and season.phase != Season.PHASE_OFFSEASON:
+		v *= maxf(0.5, 1.0 - 0.07 * s.injury_weeks * (1.3 if m == CONTENDER else 1.0))
+	return v
 
 
 ## How much `team` actually needs incoming `s` (0.2..1): a starter at his role counts fully, the
@@ -299,16 +403,56 @@ func need_factor(season: Season, team: Team, s: Soldier) -> float:
 
 
 func pick_value(season: Season, a: Dictionary, team: Team) -> float:
-	var idx := pick_index(season, a)
-	var v := curve(82.0 - 0.32 * idx) + 8.0
-	v *= float({CONTENDER: 0.8, BALANCED: 1.0, REBUILDING: 1.25}[mode(season, team)])
+	return _pick_base(season, a) * float({CONTENDER: 0.8, BALANCED: 1.0, REBUILDING: 1.25}[mode(season, team)])
+
+
+func _pick_base(season: Season, a: Dictionary) -> float:
+	var v := curve(82.0 - 0.32 * pick_index(season, a)) + 8.0
 	if a["year"] > season.draft.year:
 		v *= NEXT_YEAR_PICK
 	return v
 
 
 func value(season: Season, a: Dictionary, team: Team, giving := false) -> float:
-	return pick_value(season, a, team) if is_pick(a) else player_value(season, a["soldier"], team, giving)
+	if _memo_depth == 0:
+		return pick_value(season, a, team) if is_pick(a) else player_value(season, a["soldier"], team, giving)
+	var k := "%s|%s|%s" % [team.abbrev, key_of(a), giving]
+	if not _value_memo.has(k):
+		_value_memo[k] = pick_value(season, a, team) if is_pick(a) else player_value(season, a["soldier"], team, giving)
+	return _value_memo[k]
+
+
+## What an asset is worth on the open market: no front office's mode, no roster need, no
+## block discount. Fairness is judged on this so it doesn't depend on either team's quirks.
+func neutral_value(season: Season, a: Dictionary) -> float:
+	_refresh_cache(season)
+	var k := key_of(a)
+	if _neutral.has(k):
+		return _neutral[k]
+	var v := _pick_base(season, a) if is_pick(a) else maxf(_player_base(season, a["soldier"], BALANCED, false, 0.0), 1.0)
+	_neutral[k] = v
+	return v
+
+
+## Depth-weighted market value of a package (several pieces are worth less than one of the same total).
+func neutral_total(season: Season, list: Array) -> float:
+	var vals: Array = list.map(func(a): return neutral_value(season, a))
+	vals.sort()
+	vals.reverse()
+	var t := 0.0
+	for i in vals.size():
+		t += vals[i] * DEPTH_WEIGHTS[mini(i, DEPTH_WEIGHTS.size() - 1)]
+	return t
+
+
+## Market value received / market value given. 1.0 is an even swap; FAIR_LOW..FAIR_HIGH is fair.
+## Both sides of a deal are fair or both are not: one side's ratio is the other's inverse (up to
+## the depth weights, which each side applies to what it receives).
+func fair_ratio(season: Season, receive: Array, give: Array) -> float:
+	var given := neutral_total(season, give)
+	if given <= 0.0:
+		return 9.0 if not receive.is_empty() else 1.0
+	return neutral_total(season, receive) / given
 
 
 ## Players a team is shopping: trade requests, the user's block, and a rebuilder's veterans.
@@ -336,9 +480,18 @@ func ratio(season: Season, team: Team, receive: Array, give: Array) -> float:
 	return g / l
 
 
-## 0..1+ for the interest bar: 1.0 means the AI says yes.
+## 0..1+ for the interest bar: 1.0 means the AI says yes. The AI also refuses to overpay: when it
+## would give up more than FAIR_LOW worth of market value (Hard: 0.9) it stays just short of yes.
 func interest(season: Season, ai: Team, user_give: Array, ai_give: Array) -> float:
-	return ratio(season, ai, user_give, ai_give) / ACCEPT_MARGIN
+	var i := ratio(season, ai, user_give, ai_give) / accept_margin()
+	if _overpaying(season, ai, user_give, ai_give):
+		i = minf(i, 0.97)
+	return i
+
+
+## True when `ai` would be giving up clearly more market value than it gets back.
+func _overpaying(season: Season, ai: Team, user_give: Array, ai_give: Array) -> bool:
+	return not ai_give.is_empty() and fair_floor() > 0.0 and fair_ratio(season, user_give, ai_give) < fair_floor()
 
 
 # --- rules --------------------------------------------------------------------------
@@ -372,6 +525,18 @@ static func _salary(list: Array) -> int:
 
 static func _players(list: Array) -> int:
 	return list.filter(func(a): return not is_pick(a)).size()
+
+
+## Players in `list` who sit on a main roster (Green Team players don't count against it).
+func _main_players(season: Season, list: Array) -> int:
+	var n := 0
+	for a in list:
+		if is_pick(a):
+			continue
+		var t := season.league.team_of(a["soldier"])
+		if t == null or not t.green_team.has(a["soldier"]):
+			n += 1
+	return n
 
 
 ## Salary that counts for matching: players on more than a minimum deal (a minimum deal always fits).
@@ -432,7 +597,7 @@ func validate(season: Season, a: Team, a_give: Array, b: Team, b_give: Array, un
 					return "%s doesn't own the %s." % [t.abbrev, asset_text(season, x)]
 			else:
 				var s: Soldier = x["soldier"]
-				if not t.roster.has(s):
+				if not t.has_player(s):
 					return "%s is no longer on %s." % [s.display_name(), t.name]
 				if not tradeable(s):
 					if s.contract != null and s.contract.no_trade and s.contract.years > 0:
@@ -442,8 +607,8 @@ func validate(season: Season, a: Team, a_give: Array, b: Team, b_give: Array, un
 	var floor_n := min_roster(season)
 	for side in [[a, a_give, b_give], [b, b_give, a_give]]:
 		var t: Team = side[0]
-		var after: int = t.roster.size() - _players(side[1]) + _players(side[2])
-		if after < floor_n and _players(side[1]) > _players(side[2]):
+		var after: int = t.roster.size() - _main_players(season, side[1]) + _main_players(season, side[2])
+		if after < floor_n and _main_players(season, side[1]) > _main_players(season, side[2]):
 			return "%s would be left with only %d players (min %d)." % [t.name, after, floor_n]
 		var incoming := _salary(side[2])
 		var outgoing := _salary(side[1])
@@ -472,6 +637,8 @@ func quote(season: Season, ai: Team, user_give: Array, ai_give: Array) -> String
 		return "Let's hear it. What are you thinking?"
 	if ai_give.is_empty():
 		return "Tell us what you want back."
+	if _overpaying(season, ai, user_give, ai_give) and ratio(season, ai, user_give, ai_give) >= accept_margin():
+		return "That's more than we can give up for what you're offering. Even it out."
 	var i := interest(season, ai, user_give, ai_give)
 	if i >= 1.15:
 		return "You're being generous. We'd sign that today."
@@ -574,6 +741,7 @@ func what_would_it_take(season: Season, ai: Team, user_give: Array, ai_give: Arr
 ## Moves every asset and records the trade. Returns the log entry.
 func execute(season: Season, a: Team, a_give: Array, b: Team, b_give: Array) -> Dictionary:
 	var reactions: Array = []
+	var fair := fair_ratio(season, b_give, a_give)
 	for x in a_give:
 		var r := _move(season, x, a, b)
 		if not r.is_empty():
@@ -590,7 +758,7 @@ func execute(season: Season, a: Team, a_give: Array, b: Team, b_give: Array) -> 
 	apply_owners(season)
 	var when := _when(season)
 	var e := {"year": season.year, "when": when, "a": a, "b": b, "a_gave": a_give.map(func(x): return asset_text(season, x)),
-		"b_gave": b_give.map(func(x): return asset_text(season, x)), "reactions": reactions, "ai": not (a.user_controlled or b.user_controlled)}
+		"b_gave": b_give.map(func(x): return asset_text(season, x)), "reactions": reactions, "ai": not (a.user_controlled or b.user_controlled), "fair": fair}
 	history.append(e)
 	last_trades.append(e)
 	season.rivalries.note_trade(a, b)
@@ -732,57 +900,333 @@ func _user_block(season: Season) -> Array:
 	return user.roster.filter(func(s: Soldier): return tradeable(s) and on_block(season, user, s))
 
 
-## Fills `payer`'s side for `target` assets (going to `payer`): as much value as possible while
-## `payer` still comes out ACCEPT_MARGIN ahead. Ranks payer assets by how much `other` likes them.
-func _payment(season: Season, payer: Team, other: Team, target: Array, other_gives: Array) -> Array:
-	var budget := 0.0
-	var got: Array = target.map(func(a): return value(season, a, payer))
-	got.sort()
-	got.reverse()
-	for i in got.size():
-		budget += got[i] * DEPTH_WEIGHTS[mini(i, DEPTH_WEIGHTS.size() - 1)]
-	budget /= ACCEPT_MARGIN
-	var pool: Array = assets_of(season, payer).filter(func(x): return is_pick(x) or not _fresh(season, x["soldier"]))
-	var cost := {}
-	var appeal := {}
-	for x in pool:
-		cost[key_of(x)] = value(season, x, payer, true)
-		appeal[key_of(x)] = value(season, x, other)
-	pool = pool.filter(func(x): return cost[key_of(x)] <= budget)
-	pool.sort_custom(func(p, q): return appeal[key_of(p)] / cost[key_of(p)] > appeal[key_of(q)] / cost[key_of(q)])
-	var out := _fill_payment(season, payer, other, other_gives, pool, cost, budget)
-	if out.is_empty() and not salary_match(season, payer, [], other_gives)["ok"]:
-		# Over the cap: `payer` must send salary back, so try its salaried players first.
-		var paid: Array = pool.filter(func(x): return _matched_salary([x]) > 0)
-		out = _fill_payment(season, payer, other, other_gives, paid + pool.filter(func(x): return not paid.has(x)), cost, budget)
+## How much `team` would rather keep `a` (0 = happy to give it, higher = reluctant): a contender
+## spends picks and prospects before starters, a rebuilder moves veterans before young players or
+## picks, a middling team gives depth first.
+func _give_penalty(season: Season, team: Team, a: Dictionary) -> float:
+	var m := mode(season, team)
+	if is_pick(a):
+		return {CONTENDER: 0.0, BALANCED: 0.1, REBUILDING: 0.4}[m]
+	var s: Soldier = a["soldier"]
+	var starter := _starters_of(team).has(s)
+	match m:
+		CONTENDER:
+			return 0.6 if starter else (0.05 if s.age <= 24 else 0.12)
+		REBUILDING:
+			if s.age >= 28:
+				return 0.0 if not starter else 0.05
+			return 0.7 if starter else 0.2
+	return 0.4 if starter else 0.0
+
+
+var _starters_memo := {}
+var _ovr_memo := {}
+var _strength_memo := {}
+var _value_memo := {}
+
+
+## Rating of `s` at `role`, remembered for the length of a pass.
+func _ovr_at(s: Soldier, role: int) -> int:
+	if _memo_depth == 0:
+		return s.ovr_at_role(role)
+	var k := s.id * 4 + role
+	if not _ovr_memo.has(k):
+		_ovr_memo[k] = s.ovr_at_role(role)
+	return _ovr_memo[k]
+
+
+func _strength_now(team: Team) -> float:
+	if _memo_depth == 0:
+		return _lineup_strength(team, team.roster)
+	if not _strength_memo.has(team.abbrev):
+		_strength_memo[team.abbrev] = _lineup_strength(team, team.roster)
+	return _strength_memo[team.abbrev]
+
+
+func _starters_of(team: Team) -> Array:
+	if _memo_depth > 0:
+		if not _starters_memo.has(team.abbrev):
+			_starters_memo[team.abbrev] = team.starters()
+		return _starters_memo[team.abbrev]
+	return team.starters()
+
+
+func _begin_pass() -> void:
+	_memo_depth += 1
+	if _memo_depth == 1:
+		_pool_memo = {}
+		_starters_memo = {}
+		_ovr_memo = {}
+		_strength_memo = {}
+		_value_memo = {}
+
+
+func _end_pass() -> void:
+	_memo_depth = maxi(0, _memo_depth - 1)
+	if _memo_depth == 0:
+		_pool_memo = {}
+		_starters_memo = {}
+		_ovr_memo = {}
+		_strength_memo = {}
+		_value_memo = {}
+
+
+## Whether `team` would go looking for `s` given its mode: a real need first (a starter or the top
+## backup at his role), then a contender wants someone who starts now, a rebuilder youth.
+func _wants(season: Season, team: Team, s: Soldier) -> bool:
+	if need_factor(season, team, s) < 0.85:
+		return false
+	match mode(season, team):
+		CONTENDER:
+			return s.age <= 33 and FreeAgency.would_start(team, s)
+		REBUILDING:
+			return s.age <= 26 and s.potential_ovr() >= 55
+	return true
+
+
+## Average rating across `team`'s lineup slots if `players` were its roster (greedy best fit per slot).
+func _lineup_strength(team: Team, players: Array) -> float:
+	return _lineup_pick(team, players)["strength"]
+
+
+## Greedy best fit of `players` into `team`'s lineup slots: {strength: average rating, used: {Soldier: true}}.
+func _lineup_pick(team: Team, players: Array) -> Dictionary:
+	var used := {}
+	var total := 0.0
+	var slots := team.scheme.slot_ids()
+	for slot_id in slots:
+		var role: int = team.scheme.role_for_slot(slot_id)
+		var best: Soldier = null
+		var best_o := -1
+		for p: Soldier in players:
+			if used.has(p):
+				continue
+			var o := _ovr_at(p, role)
+			if o > best_o:
+				best_o = o
+				best = p
+		if best != null:
+			used[best] = true
+			total += best_o
+	return {"strength": total / maxf(1.0, float(slots.size())), "used": used}
+
+
+static func _soldiers(list: Array) -> Array:
+	return list.filter(func(a): return not is_pick(a)).map(func(a): return a["soldier"])
+
+
+func _roster_after(team: Team, out_list: Array, in_list: Array) -> Array:
+	var outp := _soldiers(out_list)
+	return team.roster.filter(func(x: Soldier): return not outp.has(x)) + _soldiers(in_list)
+
+
+## How `team`'s lineup changes (average rating per slot) if it gives `out_list` and takes `in_list`.
+## Negative: the deal weakens its starting lineup.
+func lineup_change(team: Team, out_list: Array, in_list: Array) -> float:
+	return _lineup_strength(team, _roster_after(team, out_list, in_list)) - _strength_now(team)
+
+
+## What the incoming `in_list` is worth to `team` after the deal, rather than on the open market:
+## each player counts in full if he'd be in the lineup (or is a developing prospect), otherwise only
+## as bench depth. Depth-weighted like neutral_total. Picks count in full.
+func useful_total(season: Season, team: Team, out_list: Array, in_list: Array) -> float:
+	var used: Dictionary = _lineup_pick(team, _roster_after(team, out_list, in_list))["used"]
+	var vals: Array = []
+	for a in in_list:
+		var v := neutral_value(season, a)
+		if not is_pick(a):
+			var s: Soldier = a["soldier"]
+			var prospect := s.age <= 24 and s.potential_ovr() >= s.best_ovr() + 4
+			if not used.has(s) and not prospect:
+				v *= BENCH_USE
+		vals.append(v)
+	vals.sort()
+	vals.reverse()
+	var t := 0.0
+	for i in vals.size():
+		t += vals[i] * DEPTH_WEIGHTS[mini(i, DEPTH_WEIGHTS.size() - 1)]
+	return t
+
+
+## Usable value `team` gets (in_list) over the market value it gives up (out_list). Unlike
+## fair_ratio this punishes a package of players who would just sit on the bench.
+func useful_ratio(season: Season, team: Team, in_list: Array, out_list: Array) -> float:
+	var given := neutral_total(season, out_list)
+	if given <= 0.0:
+		return 9.0 if not in_list.is_empty() else 1.0
+	return useful_total(season, team, out_list, in_list) / given
+
+
+## "" when `team` can sensibly make this trade, else why not: the roster stays within its limit
+## (nobody is forced to cut), and for an AI team the lineup doesn't get clearly worse and its best
+## player isn't traded for filler. For the user (offers made to them) the players coming back must
+## be usable and not weaken the lineup much; deals the user builds themselves are only warned about.
+func _guard(season: Season, team: Team, out_list: Array, in_list: Array) -> String:
+	var outp := _soldiers(out_list)
+	var inp := _soldiers(in_list)
+	var limit := Team.OFFSEASON_MAX if season.phase == Season.PHASE_OFFSEASON else Team.ROSTER_SIZE
+	var after := team.roster.size() - outp.size() + inp.size()
+	if after > limit and inp.size() > outp.size():
+		return "%s would be over the roster limit." % team.name
+	if team.user_controlled:
+		# Offers to the user must be worth having: players coming back have to help the lineup (or
+		# be real prospects), not just fill the bench. Picks-only offers skip the lineup check.
+		if not inp.is_empty():
+			if useful_ratio(season, team, in_list, out_list) < FAIR_LOW:
+				return "%s would mostly get bench players back." % team.name
+			if lineup_change(team, out_list, in_list) < -OFFER_LINEUP_TOLERANCE:
+				return "%s would weaken its lineup." % team.name
+		return ""
+	if outp.is_empty():
+		return ""
+	var m := mode(season, team)
+	var top: Soldier = team.roster[0]
+	for x in team.roster:
+		if x.best_ovr() > top.best_ovr():
+			top = x
+	if outp.has(top) and not (m == REBUILDING and top.age >= 28):
+		if not inp.any(func(x: Soldier): return x.best_ovr() >= top.best_ovr() - 3):
+			return "%s won't trade its best player for filler." % team.name
+	var roster_after: Array = team.roster.filter(func(x: Soldier): return not outp.has(x)) + inp
+	var tol: float = {CONTENDER: 0.5, BALANCED: 1.5, REBUILDING: 3.0}[m]
+	if _lineup_strength(team, roster_after) < _strength_now(team) - tol:
+		return "%s would weaken its lineup." % team.name
+	return ""
+
+
+## `payer`'s assets as [asset, market value, give penalty], skipping players acquired this year.
+func _payer_pool(season: Season, payer: Team) -> Array:
+	if _memo_depth > 0 and _pool_memo.has(payer.abbrev):
+		return _pool_memo[payer.abbrev]
+	var out: Array = []
+	for x in assets_of(season, payer):
+		if not is_pick(x) and _fresh(season, x["soldier"]):
+			continue
+		out.append([x, neutral_value(season, x), _give_penalty(season, payer, x)])
+	if _memo_depth > 0:
+		_pool_memo[payer.abbrev] = out
 	return out
 
 
-## Greedy fill for _payment: adds assets from `pool` in order while they fit `budget` and the deal
-## stays legal (the payer's own salary matching may be short until the end). Returns the most
-## valuable fully legal package found, or [].
-func _fill_payment(season: Season, payer: Team, other: Team, other_gives: Array, pool: Array, cost: Dictionary, budget: float) -> Array:
-	var out: Array = []
-	var best: Array = []
-	var spent := 0.0
-	for x in pool:
-		if out.size() >= MAX_ASSETS:
-			break
-		var c: float = cost[key_of(x)]
-		if spent + c > budget:
+## Builds `payer`'s side for `target` (which `other` gives): up to MAX_ASSETS of payer's assets such
+## that the deal is a fair swap on the market (FAIR_LOW..FAIR_HIGH, both ways), payer still comes out
+## ahead by its own valuation (and `other` too when it is an AI team), both rosters are fine, and the
+## deal is legal. Of the packages that qualify, the closest to even that leans on what payer's mode
+## likes to spend wins. Returns [] if there is none.
+func _payment(season: Season, payer: Team, other: Team, target: Array, other_gives: Array) -> Array:
+	var n_target := neutral_total(season, target)
+	if n_target <= 0.0:
+		return []
+	if _memo_depth > 0:
+		if _search_budget <= 0:
+			return []
+		_search_budget -= 1
+	var nv := {}
+	for x in target:
+		nv[key_of(x)] = neutral_value(season, x)
+	var pen := {}
+	var players: Array = []
+	var picks: Array = []
+	for e in _payer_pool(season, payer):
+		var v: float = e[1]
+		if v > n_target * FAIR_HIGH:
 			continue
-		var trial: Array = out + [x]
-		if validate(season, payer, trial, other, other_gives, payer) != "":
+		var k := key_of(e[0])
+		nv[k] = v
+		pen[k] = e[2]
+		(picks if is_pick(e[0]) else players).append(e[0])
+	players.sort_custom(func(p, q):
+		var a: float = pen[key_of(p)]
+		var b: float = pen[key_of(q)]
+		return a < b or (a == b and nv[key_of(p)] > nv[key_of(q)]))
+	picks.sort_custom(func(p, q): return nv[key_of(p)] > nv[key_of(q)])
+	var pool: Array = players.slice(0, 7) + picks.slice(0, 5)
+	var margin := maxf(ACCEPT_MARGIN, accept_margin())
+	var n := pool.size()
+	var pv: Array = pool.map(func(x): return nv[key_of(x)])
+	var pp: Array = pool.map(func(x): return pen[key_of(x)])
+	# Cheap pass: every combination in the fair band, scored by closeness to even plus how much the
+	# payer's mode likes spending those assets. The expensive checks run best-first until one passes.
+	var cands: Array = []
+	for i in n:
+		_add_combo([i], pv, pp, n_target, cands)
+		for j in range(i + 1, n):
+			_add_combo([i, j], pv, pp, n_target, cands)
+			for k in range(j + 1, n):
+				_add_combo([i, j, k], pv, pp, n_target, cands)
+	cands.sort_custom(func(p, q): return p[0] < q[0])
+	for c in cands:
+		var combo: Array = c[1].map(func(x): return pool[x])
+		if _guard(season, payer, combo, target) != "" or _guard(season, other, target, combo) != "":
 			continue
-		out = trial
-		spent += c
-		if validate(season, payer, out, other, other_gives) == "":
-			best = out
-	return best
+		if ratio(season, payer, target, combo) < margin:
+			continue
+		if not other.user_controlled and ratio(season, other, combo, target) < 1.0:
+			continue
+		if validate(season, payer, combo, other, target) != "":
+			continue
+		return combo
+	return []
 
 
-## An AI team makes the user an offer for one of his players (block players first).
+## Adds `idx` (indexes into a payment pool) to `cands` as [score, idx] when its market value is
+## within the fair band of `n_target` both ways. Lower scores are closer to even and cheaper to spend.
+func _add_combo(idx: Array, pv: Array, pp: Array, n_target: float, cands: Array) -> void:
+	var vals: Array = []
+	var pen_sum := 0.0
+	for x in idx:
+		vals.append(pv[x])
+		pen_sum += pp[x]
+	vals.sort()
+	var total := 0.0
+	for q in vals.size():
+		total += vals[vals.size() - 1 - q] * DEPTH_WEIGHTS[mini(q, DEPTH_WEIGHTS.size() - 1)]
+	var r := total / n_target
+	if r < FAIR_LOW or r > FAIR_HIGH or 1.0 / r < FAIR_LOW or 1.0 / r > FAIR_HIGH:
+		return
+	cands.append([absf(log(r)) + pen_sum / idx.size() + 0.03 * idx.size(), idx])
+
+
+## Why `ai` wants `s` and how it is paying, for the offer card.
+func _reason(season: Season, ai: Team, s: Soldier, pay: Array) -> String:
+	var role := Scheme.best_role(s.stats)
+	var rname := String(Scheme.ROLE_NAMES[role])
+	var floor_ovr := 999
+	for slot_id in ai.scheme.slot_ids():
+		if ai.scheme.role_for_slot(slot_id) == role:
+			var cur: Soldier = ai.lineup.get(slot_id)
+			floor_ovr = mini(floor_ovr, 0 if cur == null else cur.ovr_at_role(role))
+	var why := ""
+	match mode(season, ai):
+		CONTENDER:
+			why = "Contender: %s (%d OVR) would start at %s" % [s.display_name(), s.ovr_at_role(role), rname]
+			if floor_ovr < 999 and floor_ovr > 0:
+				why += " (+%d over their current starter)" % maxi(0, s.ovr_at_role(role) - floor_ovr)
+			why += "."
+		REBUILDING:
+			why = "Rebuilding: they want %s (age %d, %d OVR, %d potential) for the long run." % [s.display_name(), s.age, s.best_ovr(), s.potential_ovr()]
+		_:
+			why = "Needs %s depth: %s (%d OVR) would be a top option for them." % [rname, s.display_name(), s.ovr_at_role(role)]
+	var picks := pay.filter(func(a): return is_pick(a)).size()
+	var how := "players they can spare"
+	if picks == pay.size():
+		how = "draft picks"
+	elif picks > 0:
+		how = "players and picks"
+	return "%s They're paying with %s." % [why, how]
+
+
+## An AI team makes the user an offer for one of his players (block players first): a player it
+## actually needs, paid for with a fair package built from what its mode spends.
 func offer_to_user(season: Season, rng: RandomNumberGenerator) -> bool:
+	_begin_pass()
+	_search_budget = 40
+	var made := _offer_to_user(season, rng)
+	_end_pass()
+	return made
+
+
+func _offer_to_user(season: Season, rng: RandomNumberGenerator) -> bool:
 	var user := season.user_team()
 	var targets := _user_block(season)
 	if targets.is_empty():
@@ -792,20 +1236,22 @@ func offer_to_user(season: Season, rng: RandomNumberGenerator) -> bool:
 	var ais: Array = season.league.teams.filter(func(t: Team): return not t.user_controlled and patience_of(t) > 0)
 	_shuffle(ais, rng)
 	for ai: Team in ais:
-		# Only players who fill a real need: a starter or the top backup at his role.
-		var ranked: Array = targets.filter(func(p: Soldier): return need_factor(season, ai, p) >= 0.85)
+		var ranked: Array = targets.filter(func(p: Soldier): return _wants(season, ai, p))
 		if ranked.is_empty():
 			continue
 		ranked.sort_custom(func(p: Soldier, q: Soldier): return player_value(season, p, ai) > player_value(season, q, ai))
-		var target: Soldier = ranked[rng.randi() % mini(3, ranked.size())]
-		var want := [player_asset(target)]
-		var pay := _payment(season, ai, user, want, want)
-		if pay.is_empty() or validate(season, user, want, ai, pay) != "":
-			continue
-		if ratio(season, ai, want, pay) < ACCEPT_MARGIN:
-			continue
-		offers.append({"team": ai, "give": pay, "get": want, "year": season.year, "week": season.week})
-		return true
+		var n := mini(3, ranked.size())
+		var first := rng.randi() % n
+		for k in n:
+			var target: Soldier = ranked[(first + k) % n]
+			var want := [player_asset(target)]
+			var pay := _payment(season, ai, user, want, want)
+			if pay.is_empty():
+				continue
+			offers.append({"team": ai, "give": pay, "get": want, "year": season.year, "week": season.week,
+				"reason": _reason(season, ai, target, pay), "fair": fair_ratio(season, pay, want),
+					"useful": useful_ratio(season, user, pay, want), "lineup": lineup_change(user, want, pay)})
+			return true
 	return false
 
 
@@ -820,9 +1266,17 @@ func accept_offer(season: Season, o: Dictionary) -> String:
 	return ""
 
 
-## Two AI teams swap: one shops a player (block players first), the other pays as long as both
-## come out ahead by their own valuation.
+## Two AI teams swap: one shops a player (block players first), a buyer that needs him pays with a
+## fair package. Both sides come out ahead by their own valuation and within the market-fair band.
 func ai_to_ai(season: Season, rng: RandomNumberGenerator) -> bool:
+	_begin_pass()
+	_search_budget = 24
+	var made := _ai_to_ai(season, rng)
+	_end_pass()
+	return made
+
+
+func _ai_to_ai(season: Season, rng: RandomNumberGenerator) -> bool:
 	var ais: Array = season.league.teams.filter(func(t: Team): return not t.user_controlled)
 	_shuffle(ais, rng)
 	for seller: Team in ais:
@@ -835,12 +1289,10 @@ func ai_to_ai(season: Season, rng: RandomNumberGenerator) -> bool:
 		var target: Soldier = shop[rng.randi() % shop.size()]
 		var want := [player_asset(target)]
 		for buyer: Team in ais:
-			if buyer == seller:
+			if buyer == seller or not _wants(season, buyer, target):
 				continue
 			var pay := _payment(season, buyer, seller, want, want)
-			if pay.is_empty() or validate(season, buyer, pay, seller, want) != "":
-				continue
-			if ratio(season, buyer, want, pay) < ACCEPT_MARGIN or ratio(season, seller, pay, want) < 1.0:
+			if pay.is_empty():
 				continue
 			execute(season, seller, want, buyer, pay)
 			return true

@@ -16,6 +16,7 @@ func _init() -> void:
 			tests.append(String(method["name"]))
 	# Legacy tests run on a generated 5-team single-division league (fast); the expansion
 	# tests switch to the fixed 20-team league themselves.
+	Trades.difficulty_override = Trades.Difficulty.NORMAL
 	Season.fixture_teams = 5
 	Season.backfill_careers = false
 	Season.seed_records = false
@@ -2023,6 +2024,261 @@ func test_trades() -> void:
 		check(t.roster.size() >= Trades.MIN_ROSTER and t.roster.size() <= Team.ROSTER_SIZE, "rosters stay legal (%s %d)" % [t.abbrev, t.roster.size()])
 
 
+# --- trade fairness (issue #103) -----------------------------------------------------
+
+## A fixed league with the user's team ready to receive offers: every AI team can trade, and the
+## user has a few players on the block.
+func _offer_league(seed_value: int) -> Season:
+	var s := _fixed(seed_value)
+	s.trades.block.clear()
+	for p in s.user_team().roster.slice(0, 3):
+		if Trades.tradeable(p):
+			s.trades.block[p.id] = true
+	return s
+
+
+func _gen_offers(s: Season, rounds: int, rng: RandomNumberGenerator) -> Array:
+	var out: Array = []
+	for r in rounds:
+		s.trades.offers.clear()
+		for t in s.league.teams:
+			s.trades.patience[t.abbrev] = Trades.PATIENCE
+		if s.trades.offer_to_user(s, rng):
+			out.append(s.trades.offers.back())
+	s.trades.offers.clear()
+	return out
+
+
+func _soldier_count(list: Array) -> int:
+	return list.filter(func(a): return not Trades.is_pick(a)).size()
+
+
+func test_trade_offers_fair() -> void:
+	var rng := RandomNumberGenerator.new()
+	for diff in [Trades.Difficulty.NORMAL, Trades.Difficulty.HARD, Trades.Difficulty.EASY]:
+		Trades.difficulty_override = diff
+		var total := 0
+		for sd in [201, 202]:
+			rng.seed = sd
+			var s := _offer_league(sd)
+			var tr := s.trades
+			var user := s.user_team()
+			for o in _gen_offers(s, 8, rng):
+				total += 1
+				var ai: Team = o["team"]
+				var give: Array = o["give"]
+				var get: Array = o["get"]
+				var f := tr.fair_ratio(s, give, get)
+				check(f >= Trades.FAIR_LOW and f <= Trades.FAIR_HIGH, "[%d] offer is market-fair for the user (%.2f)" % [diff, f])
+				var back := tr.fair_ratio(s, get, give)
+				check(back >= Trades.FAIR_LOW and back <= Trades.FAIR_HIGH, "[%d] and for the CPU team (%.2f)" % [diff, back])
+				check(tr.validate(s, user, get, ai, give) == "", "[%d] offer is legal" % diff)
+				check(tr.interest(s, ai, get, give) >= 1.0, "[%d] the CPU team is willing (interest %.2f)" % [diff, tr.interest(s, ai, get, give)])
+				check(String(o.get("reason", "")) != "", "[%d] offer explains itself" % diff)
+				check(user.roster.size() - _soldier_count(get) + _soldier_count(give) <= Team.ROSTER_SIZE, "[%d] offer doesn't force the user to cut" % diff)
+				check(ai.roster.size() - _soldier_count(give) + _soldier_count(get) <= Team.ROSTER_SIZE, "[%d] or the CPU team" % diff)
+				check(tr._guard(s, ai, give, get) == "", "[%d] CPU guardrails hold (%s)" % [diff, tr._guard(s, ai, give, get)])
+				check(is_equal_approx(float(o["fair"]), f), "[%d] offer records its fairness" % diff)
+		check(total > 0, "[%d] some offers were generated" % diff)
+	Trades.difficulty_override = Trades.Difficulty.NORMAL
+
+
+## Offers made to the user have to be worth having: players coming back help the lineup, they aren't
+## just rating points that would sit on the bench.
+func test_trade_offers_useful() -> void:
+	var rng := RandomNumberGenerator.new()
+	for diff in [Trades.Difficulty.NORMAL, Trades.Difficulty.HARD]:
+		Trades.difficulty_override = diff
+		var total := 0
+		for sd in [231, 232, 233]:
+			rng.seed = sd
+			var s := _offer_league(sd)
+			var tr := s.trades
+			var user := s.user_team()
+			for o in _gen_offers(s, 8, rng):
+				total += 1
+				var give: Array = o["give"]
+				var get: Array = o["get"]
+				check(tr.useful_ratio(s, user, give, get) >= Trades.FAIR_LOW, "[%d] offered package is usable to the user (%.2f)" % [diff, tr.useful_ratio(s, user, give, get)])
+				if _soldier_count(give) > 0:
+					check(tr.lineup_change(user, get, give) >= -Trades.OFFER_LINEUP_TOLERANCE, "[%d] and doesn't gut the lineup (%.2f)" % [diff, tr.lineup_change(user, get, give)])
+				check(o.has("useful") and o.has("lineup"), "[%d] offer records usefulness" % diff)
+		check(total > 0, "[%d] some usable offers were generated" % diff)
+	Trades.difficulty_override = Trades.Difficulty.NORMAL
+
+
+## The reported bad deal: a young starter for two 32-year-olds, one a marginal starter, one bench filler.
+func test_trade_bad_consolidation() -> void:
+	var s := _fixed(241)
+	var tr := s.trades
+	var user := s.user_team()
+	var top: Soldier = user.starters()[0]
+	for x in user.starters():
+		if x.best_ovr() > top.best_ovr():
+			top = x
+	top.age = 26
+	var role := Scheme.best_role(top.stats)
+	# Two real players a few points below him at the same role, made 32 with expiring deals.
+	var cands: Array = []
+	for t in s.league.teams:
+		if t.user_controlled:
+			continue
+		for p in t.roster:
+			if Scheme.best_role(p.stats) == role and p.best_ovr() <= top.best_ovr() - 4 and p.best_ovr() >= top.best_ovr() - 9:
+				cands.append(p)
+	cands.sort_custom(func(p: Soldier, q: Soldier): return p.best_ovr() > q.best_ovr())
+	check(cands.size() >= 2, "found two lesser players to offer")
+	if cands.size() < 2:
+		return
+	for p: Soldier in cands.slice(0, 2):
+		p.age = 32
+		p.contract = Contract.make(Contracts.MIN_SALARY, 1, s.year)
+	var give := [Trades.player_asset(top)]
+	var get := [Trades.player_asset(cands[0]), Trades.player_asset(cands[1])]
+	var u := tr.useful_ratio(s, user, get, give)
+	check(u < Trades.FAIR_LOW, "two older, lesser players for a young star isn't usable value (%.2f)" % u)
+	check(tr._guard(s, user, give, get) != "", "so it wouldn't be generated as an offer")
+	check(tr.lineup_change(user, give, []) < 0.0, "and losing the star alone weakens the lineup")
+	# The same player at 29, 30 and 34: worth less with age, and the drop accelerates.
+	var sample: Soldier = cands[0]
+	var vals: Array = []
+	for age in [29, 30, 34]:
+		sample.age = age
+		vals.append(tr._player_base(s, sample, Trades.BALANCED, false, 0.0))
+	check(vals[0] > vals[1] and vals[1] > vals[2], "value falls with age (%.0f > %.0f > %.0f)" % [vals[0], vals[1], vals[2]])
+	check(vals[1] - vals[2] > (vals[0] - vals[1]) * 2.0, "and falls faster the older he gets")
+
+
+func test_trade_guardrails() -> void:
+	var s := _fixed(211)
+	var tr := s.trades
+	var user := s.user_team()
+	var ai: Team = s.league.teams.filter(func(t: Team): return t != user)[0]
+	tr.mode(s, ai)
+	tr._modes[ai] = Trades.BALANCED
+	var top: Soldier = ai.roster[0]
+	for x in ai.roster:
+		if x.best_ovr() > top.best_ovr():
+			top = x
+	var filler := PlayerGenerator.generate(RandomNumberGenerator.new(), 9300, Scheme.Role.FLEX, 45.0, 27)
+	filler.contract = Contract.make(Contracts.MIN_SALARY, 2, s.year)
+	var junk := [Trades.player_asset(filler)]
+	check(tr._guard(s, ai, [Trades.player_asset(top)], junk).contains("best player") or tr._guard(s, ai, [Trades.player_asset(top)], junk) != "", "a CPU team won't trade its best player for filler")
+	var pick := [Trades.pick_asset(s.draft.year, Draft.ROUNDS, user)]
+	check(tr._guard(s, ai, [Trades.player_asset(top)], pick) != "", "or for a late pick")
+	# Roster limit: a full team can't take a second body for one.
+	check(ai.roster.size() == Team.ROSTER_SIZE, "a full CPU roster")
+	var mid: Soldier = ai.roster.filter(func(x: Soldier): return x != top)[0]
+	check(tr._guard(s, ai, [Trades.player_asset(mid)], [Trades.player_asset(filler), Trades.player_asset(filler)]).contains("roster limit"), "no deal that forces a CPU team over the roster limit")
+	check(tr._guard(s, user, [], junk).contains("roster limit"), "or the user")
+	# A rebuilding team may sell a veteran best player.
+	tr._modes[ai] = Trades.REBUILDING
+	top.age = 33
+	check(tr._guard(s, ai, [Trades.player_asset(top)], pick).find("best player") < 0, "a rebuilding team can move its aging best player")
+	# Generated deals never leave a team under the roster minimum.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var s2 := _offer_league(212)
+	for o in _gen_offers(s2, 6, rng):
+		var ai2: Team = o["team"]
+		check(ai2.roster.size() - _soldier_count(o["give"]) + _soldier_count(o["get"]) >= Trades.MIN_ROSTER, "offers keep the CPU roster at the minimum")
+
+
+func test_trade_modes() -> void:
+	var s := _fixed(221)
+	var tr := s.trades
+	var ai: Team = s.league.teams.filter(func(t: Team): return not t.user_controlled)[0]
+	tr.mode(s, ai)
+	var starter: Soldier = ai.starters()[0]
+	var bench: Soldier = ai.bench()[0]
+	var pick := Trades.pick_asset(s.draft.year, 1, ai)
+	tr._modes[ai] = Trades.CONTENDER
+	check(tr._give_penalty(s, ai, pick) < tr._give_penalty(s, ai, Trades.player_asset(starter)), "a contender spends picks before starters")
+	check(tr._give_penalty(s, ai, Trades.player_asset(bench)) < tr._give_penalty(s, ai, Trades.player_asset(starter)), "and bench players before starters")
+	tr._modes[ai] = Trades.REBUILDING
+	var vet := bench
+	vet.age = 31
+	var kid := starter
+	kid.age = 22
+	check(tr._give_penalty(s, ai, Trades.player_asset(vet)) < tr._give_penalty(s, ai, Trades.player_asset(kid)), "a rebuilder moves veterans before young starters")
+	check(tr._give_penalty(s, ai, Trades.player_asset(vet)) < tr._give_penalty(s, ai, pick), "and before picks")
+	# What they go looking for.
+	var user := s.user_team()
+	var old: Soldier = user.roster[0]
+	old.age = 32
+	check(not tr._wants(s, ai, old), "a rebuilder doesn't shop for a 32-year-old")
+	var prospect: Soldier = user.roster[1]
+	prospect.age = 22
+	tr._modes[ai] = Trades.CONTENDER
+	check(tr._wants(s, ai, prospect) == (tr.need_factor(s, ai, prospect) >= 0.85 and prospect.age <= 33 and FreeAgency.would_start(ai, prospect)), "a contender only wants players who would start for it")
+	# Offers explain mode-specific reasons.
+	tr._modes[ai] = Trades.REBUILDING
+	check(tr._reason(s, ai, prospect, [pick]).begins_with("Rebuilding"), "rebuilding reason")
+	tr._modes[ai] = Trades.CONTENDER
+	check(tr._reason(s, ai, prospect, [pick]).begins_with("Contender"), "contender reason")
+	tr._modes[ai] = Trades.BALANCED
+	check(tr._reason(s, ai, prospect, [Trades.player_asset(bench)]).contains("players they can spare"), "balanced reason names the payment")
+
+
+func test_trade_difficulty() -> void:
+	var s := _fixed(231)
+	var tr := s.trades
+	var user := s.user_team()
+	var ai: Team = s.league.teams.filter(func(t: Team): return t != user)[0]
+	Trades.difficulty_override = Trades.Difficulty.EASY
+	var easy_m := Trades.accept_margin()
+	Trades.difficulty_override = Trades.Difficulty.NORMAL
+	var normal_m := Trades.accept_margin()
+	Trades.difficulty_override = Trades.Difficulty.HARD
+	var hard_m := Trades.accept_margin()
+	check(easy_m < normal_m and normal_m < hard_m, "harder difficulty wants a bigger edge")
+	check(is_equal_approx(normal_m, Trades.ACCEPT_MARGIN), "Normal keeps the original margin")
+	# Over every single-asset swap: Normal and Hard never say yes to a deal where the AI overpays.
+	var theirs: Array = tr.assets_of(s, ai)
+	var mine: Array = tr.assets_of(s, user)
+	var fleeced := 0
+	for diff in [Trades.Difficulty.EASY, Trades.Difficulty.NORMAL, Trades.Difficulty.HARD]:
+		Trades.difficulty_override = diff
+		for g in theirs:
+			for x in mine:
+				var f := tr.fair_ratio(s, [x], [g])
+				var yes := tr.interest(s, ai, [x], [g]) >= 1.0
+				if yes and f < Trades.fair_floor() - 0.0001:
+					check(diff == Trades.Difficulty.EASY, "[%d] the AI accepted overpaying (%.2f)" % [diff, f])
+				if diff == Trades.Difficulty.EASY and yes and f < Trades.FAIR_LOW:
+					fleeced += 1
+	check(fleeced > 0, "on Easy the AI can be fleeced (%d swaps)" % fleeced)
+	# Same deal, three difficulties: interest falls as it gets harder.
+	var g0: Dictionary = theirs[0]
+	var x0: Dictionary = mine[0]
+	var interests: Array = []
+	for diff in [Trades.Difficulty.EASY, Trades.Difficulty.NORMAL, Trades.Difficulty.HARD]:
+		Trades.difficulty_override = diff
+		interests.append(tr.interest(s, ai, [x0], [g0]))
+	check(interests[0] >= interests[1] and interests[1] >= interests[2], "interest drops with difficulty (%s)" % str(interests))
+	check(Trades.fairness_label(1.0) == "Fair" and Trades.fairness_label(0.3).contains("Lopsided") and Trades.fairness_label(2.0).contains("Lopsided"), "fairness labels")
+	Trades.difficulty_override = Trades.Difficulty.NORMAL
+
+
+func test_trade_ai_to_ai_fair() -> void:
+	var s := _fixed(241)
+	var tr := s.trades
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var deals := 0
+	for r in 25:
+		var before := tr.history.size()
+		tr.ai_to_ai(s, rng)
+		if tr.history.size() > before:
+			var e: Dictionary = tr.history.back()
+			deals += 1
+			check(e["ai"], "AI deal flagged as AI")
+			check(float(e["fair"]) >= Trades.FAIR_LOW and float(e["fair"]) <= Trades.FAIR_HIGH, "AI-to-AI deals are market-fair (%.2f)" % float(e["fair"]))
+	for t: Team in s.league.teams:
+		check(t.roster.size() >= Trades.MIN_ROSTER and t.roster.size() <= Team.ROSTER_SIZE, "AI-to-AI keeps rosters legal (%s %d)" % [t.abbrev, t.roster.size()])
+	check(deals > 0, "AI teams do trade among themselves (%d)" % deals)
+
+
 func test_roster_rules() -> void:
 	var s := Season.new_franchise(321)
 	var tr := s.trades
@@ -2598,6 +2854,10 @@ func test_news_history() -> void:
 	for w in range(1, s.total_weeks() + 1):
 		var real := SeasonReview.player_of_week(s, w)
 		var e := NewsHistory.potw_of(book, s.year, w)
+		# A winner who was cut later in the season (a roster move) can't be found by the league's own
+		# lookup any more, so only the book's entry is checked for him.
+		if not e.is_empty() and SeasonReview._find(s.league, int(e["id"])) == null:
+			continue
 		check(not real.is_empty() and not e.is_empty() and int(e["id"]) == (real["soldier"] as Soldier).id, "week %d award matches the league's" % w)
 	var before := (book["potw"] as Array).size()
 	NewsHistory.record_week(book, s, s.total_weeks())
