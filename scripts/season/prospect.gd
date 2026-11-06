@@ -16,6 +16,8 @@ var specialty: StringName = &""
 var points := 0
 ## group -> Vector2i(low_tier, high_tier): the tier window revealed so far.
 var reveals: Dictionary = {}
+## group -> class-relative tier 0-4 (Draft._assign_tiers; fixed for the class).
+var tiers: Dictionary = {}
 ## group -> times scouted (indexes Draft.WINDOW_WIDTHS).
 var scouts: Dictionary = {}
 ## League-wide read of his draft value (true value plus a fixed evaluation error).
@@ -36,8 +38,9 @@ func is_available() -> bool:
 	return drafted_by == null
 
 
+## His class-relative tier (0-4) in a stat group, set when the class is generated.
 func true_tier(group: StringName) -> int:
-	return Draft.tier_of(soldier.group_rating(group))
+	return int(tiers.get(group, 2))
 
 
 ## Groups that can still be narrowed by another scout.

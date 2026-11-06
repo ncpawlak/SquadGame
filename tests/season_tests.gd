@@ -569,7 +569,20 @@ func test_scouting_windows() -> void:
 	check(not d2.can_scout(d2.prospects[1]), "no points, no scouting")
 	check(Draft.window_text(Stats.ACCURACY, Vector2i(1, 4)) == "Inconsistent - Sharpshooter", "window text")
 	check(Draft.window_text(Stats.ACCURACY, null) == "?", "unseen text")
-	check(Draft.tier_of(57) == 0 and Draft.tier_of(58) == 1 and Draft.tier_of(85) == 3 and Draft.tier_of(86) == 4, "tier thresholds")
+	check(Draft.tier_for_pct(0.0) == 4 and Draft.tier_for_pct(0.049) == 4 and Draft.tier_for_pct(0.05) == 3 and Draft.tier_for_pct(0.19) == 3 and Draft.tier_for_pct(0.20) == 2 and Draft.tier_for_pct(0.54) == 2 and Draft.tier_for_pct(0.55) == 1 and Draft.tier_for_pct(0.84) == 1 and Draft.tier_for_pct(0.85) == 0, "tier percentile cutoffs")
+	for g in Stats.GROUP_ORDER:
+		var counts := [0, 0, 0, 0, 0]
+		var best := 0
+		for q in d.prospects:
+			counts[q.true_tier(g)] += 1
+			best = maxi(best, q.soldier.group_rating(g))
+		check(counts[4] >= 1 and counts[4] <= Draft.CLASS_SIZE * 0.1, "few elite prospects per group")
+		check(counts[0] >= Draft.CLASS_SIZE * 0.1, "some bottom-tier prospects per group")
+		var leader_ok := false
+		for q in d.prospects:
+			if q.soldier.group_rating(g) == best and q.true_tier(g) == 4:
+				leader_ok = true
+		check(leader_ok, "the class leader in a group is top tier")
 
 
 func test_draft_order_and_picks() -> void:

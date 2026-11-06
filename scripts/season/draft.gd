@@ -42,8 +42,10 @@ const WINDOW_WIDTHS := [3, 2, 1]
 const GROUPS_PER_POINT := 2
 ## Scouts a group needs before the one-group, exact-tier phase starts.
 const BROAD_SCOUTS := 2
-## Group rating thresholds for tiers 1..4 (tier 0 is below the first).
-const TIER_THRESHOLDS := [58, 68, 77, 86]
+## Class-relative tier cutoffs: a prospect's tier in a group comes from the share of the class
+## rated strictly better than him in it. Tier 4 = top 5%, 3 = next 15%, 2 = next 35%, 1 = next 30%,
+## 0 = bottom 15%. Rookies all rate middling, so tiers rank him against his class, not 0-99.
+const TIER_PCT_CUTOFFS := [0.85, 0.55, 0.20, 0.05]
 const TIER_COUNT := 5
 const TIER_NAMES := {
 	Stats.ACCURACY: ["Spray & Pray", "Inconsistent", "Steady Aim", "Marksman", "Sharpshooter"],
@@ -220,6 +222,7 @@ static func generate(seed_value: int, draft_year: int, first_id: int) -> Draft:
 		p.consensus = true_value(p) + rng.randfn(0.0, CONSENSUS_NOISE) - (PHENOM_UNDERRATE if p.phenom else 0.0)
 	d.rerank()
 	d._grade_area(rng)
+	d._assign_tiers()
 	return d
 
 
@@ -236,6 +239,31 @@ func _grade_area(rng: RandomNumberGenerator) -> void:
 	truth.sort_custom(func(a: Prospect, b: Prospect): return true_value(a) > true_value(b))
 	for i in truth.size():
 		truth[i].true_grade = _grade_for_pct(float(i + 1) / truth.size())
+
+
+## Ranks the class in every stat group and stores each prospect's class-relative tier.
+## Equal ratings share a tier (rank = number of prospects strictly better).
+func _assign_tiers() -> void:
+	var n := prospects.size()
+	for g in Stats.GROUP_ORDER:
+		var ratings: Array[int] = []
+		for p in prospects:
+			ratings.append(p.soldier.group_rating(g))
+		for i in n:
+			var better := 0
+			for r in ratings:
+				if r > ratings[i]:
+					better += 1
+			prospects[i].tiers[g] = tier_for_pct(float(better) / n)
+
+
+## Tier 0..4 for a prospect with `pct` of the class (0..1) rated strictly better in a group.
+static func tier_for_pct(pct: float) -> int:
+	var t := 0
+	for c in TIER_PCT_CUTOFFS:
+		if pct < c:
+			t += 1
+	return t
 
 
 static func _grade_for_pct(pct: float) -> String:
@@ -453,14 +481,6 @@ func _make_phenom(p: Prospect) -> void:
 
 
 # --- tiers -------------------------------------------------------------------------
-
-static func tier_of(rating: int) -> int:
-	var t := 0
-	for th in TIER_THRESHOLDS:
-		if rating >= th:
-			t += 1
-	return t
-
 
 static func tier_name(group: StringName, tier: int) -> String:
 	return TIER_NAMES[group][clampi(tier, 0, TIER_COUNT - 1)]
