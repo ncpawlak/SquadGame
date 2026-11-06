@@ -597,8 +597,15 @@ func _draw_soldier(c: MatchEngine.Combatant, _sc: float) -> void:
 	_map.draw_circle(at, DOT_RADIUS, Color(t.color, a))
 	_map.draw_arc(at, DOT_RADIUS, 0, TAU, 32, Color(t.color2, a), 2.5, true)
 	if c.alive and c.target and c.target.alive:
-		var dir := (c.target.pos - c.pos).normalized()
+		# Aim direction in screen space: the map is mirrored left-right, so a world-space vector would point backwards.
+		var dir := (_to_screen(_display_pos(c.target)) - at).normalized()
 		_map.draw_circle(at + dir * (DOT_RADIUS + 3.0), 3.0, Color(t.color2, 0.9))
+	if c.alive:
+		# Posture: what the soldier is doing right now (cover, peeking, bounding, falling back...).
+		var label := String(c.posture).to_upper()
+		var pw := _font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 9).x
+		_map.draw_string(_font, at + Vector2(-pw / 2.0, -DOT_RADIUS - 4.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 9,
+			Color(1, 1, 1, 0.85))
 	var tag := c.soldier.tag()
 	var fs := 12
 	while fs > 7 and _font.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > DOT_RADIUS * 1.8:

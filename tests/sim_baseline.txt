@@ -1,0 +1,17 @@
+Baseline before role/cover AI rework (MATCHES=300, run on 2026-11-05)
+Frontman  kills 8.01 deaths 9.36 K/D 0.86 dmg 845 acc 16.6% cover 25.9s dist 416m hill 33.7s contest 4.7s killdist 20.8m
+Center    kills 8.00 deaths 8.96 K/D 0.89 dmg 878 acc 15.1% cover 35.3s dist 355m hill 41.1s contest 10.4s killdist 26.9m
+Flex      kills 11.00 deaths 9.08 K/D 1.21 dmg 1128 acc 18.9% cover 23.0s dist 544m hill 51.0s contest 14.3s killdist 19.8m
+tdm          games 279 avg length 261s
+koth         games 279 avg length 237s
+sudden_death games 36 avg length 315s
+KOTH winner share of hold time: 0.756 (games with no hold at all: 0)
+
+After role/cover AI rework and tuning (MATCHES=300)
+Frontman  kills 8.19 deaths 8.00 K/D 1.02 dmg 862 acc 13.8% cover 128.5s dist 446m hill 16.4s contest 3.2s killdist 19.8m
+Center    kills 7.68 deaths 7.73 K/D 0.99 dmg 834 acc 12.6% cover 192.7s dist 443m hill 40.6s contest 7.6s killdist 25.0m
+Flex      kills 7.80 deaths 7.98 K/D 0.98 dmg 809 acc 13.5% cover 141.9s dist 474m hill 17.2s contest 6.0s killdist 20.0m
+tdm          games 279 avg length 305s
+koth         games 279 avg length 240s
+sudden_death games 25 avg length 338s
+KOTH winner share of hold time: 0.773 (games with no hold at all: 0)

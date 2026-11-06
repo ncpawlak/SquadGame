@@ -392,6 +392,73 @@ func test_spawn_zone_is_safe() -> void:
 		check(shots > 50, "seed %d: shooting still happens (%d)" % [seed, shots])
 
 
+## Role AI: soldiers use cover (peek, duck, bound), KOTH Centers hold the point while Frontmen/Flexes only
+## step on for relief or contests, and everyone stays on the map.
+func test_roles_and_cover_behaviour() -> void:
+	var league := League.generate(7)
+	var postures := {}
+	var center_ticks := 0
+	var front_ticks := 0
+	var flex_ticks := 0
+	var cover_pick_checked := false
+	# Soldier-ticks per role in KOTH, so time on the point is compared per soldier.
+	var headcount := {Scheme.Role.CENTER: 0, Scheme.Role.FRONTMAN: 0, Scheme.Role.FLEX: 0}
+	for seed in [11, 12, 13]:
+		var e := MatchEngine.new()
+		e.start(league.teams[0], league.teams[1], seed)
+		var more := true
+		while more:
+			more = e.step()
+			if e.mode() != MatchEngine.MODE_KOTH and e.mode() != MatchEngine.MODE_TDM:
+				continue
+			for squad in e.squads:
+				for c: MatchEngine.Combatant in squad:
+					if e.mode() == MatchEngine.MODE_KOTH:
+						headcount[c.role] += 1  # dead or alive: a Center who died early still counts
+					if not c.alive:
+						continue
+					postures[c.posture] = true
+					check(ArenaMap.in_bounds(c.pos), "stays inside the arena")
+					if e.mode() == MatchEngine.MODE_KOTH:
+						if c.on_point():
+							match c.role:
+								Scheme.Role.CENTER:
+									center_ticks += 1
+								Scheme.Role.FRONTMAN:
+									front_ticks += 1
+								_:
+									flex_ticks += 1
+					if c.in_cover() and not cover_pick_checked:
+						cover_pick_checked = true
+	for p in [MatchEngine.POSTURE_PEEK, MatchEngine.POSTURE_DUCK, MatchEngine.POSTURE_BOUND, MatchEngine.POSTURE_POINT,
+			MatchEngine.POSTURE_ADVANCE, MatchEngine.POSTURE_FLANK]:
+		check(postures.has(p), "posture %s shows up" % p)
+	check(cover_pick_checked, "soldiers reach cover")
+	var c_rate := float(center_ticks) / maxi(1, headcount[Scheme.Role.CENTER])
+	var f_rate := float(front_ticks) / maxi(1, headcount[Scheme.Role.FRONTMAN])
+	var x_rate := float(flex_ticks) / maxi(1, headcount[Scheme.Role.FLEX])
+	check(c_rate > f_rate and c_rate > x_rate,
+		"Centers spend the largest share of their time on the point (C %.2f, F %.2f, X %.2f)" % [c_rate, f_rate, x_rate])
+
+
+## cover_toward only returns spots that hide from the threat, are in range, and make progress.
+func test_cover_toward_hides_and_progresses() -> void:
+	var f := ArenaMap.legacy()
+	f.ensure_built()
+	var found := 0
+	for threat in [Vector2(30, 0), Vector2(-30, 10), Vector2(20, -15)]:
+		for start in [Vector2(-20, 0), Vector2(0, 12), Vector2(10, -10)]:
+			var goal: Vector2 = threat
+			var s := f.cover_toward(start, goal, threat, 12.0, 1.0)
+			if s == Vector2.INF:
+				continue
+			found += 1
+			check(start.distance_to(s) <= 12.0 + 0.001, "within bound radius")
+			check(s.distance_to(goal) <= start.distance_to(goal) - 1.0 + 0.001, "makes progress toward the goal")
+			check(not f.line_of_sight(threat, s) or f.through_cover(threat, s), "hidden from the threat")
+	check(found > 0, "at least one cover bound is found on the legacy field")
+
+
 ## Authored home fields: symmetric, schemes can spawn and hold on them, the flank is walkable,
 ## and a match on one is deterministic.
 func test_team_fields() -> void:
@@ -591,9 +658,10 @@ func test_different_seeds_vary() -> void:
 	var a := make_team(1, 60)
 	var b := make_team(2, 60)
 	var outcomes := {}
-	for i in 30:
+	# Only ~10% of matches go to a third game, so 30 seeds can miss a scoreline by chance; use enough to be safe.
+	for i in 100:
 		outcomes[MatchEngine.simulate(a, b, i).score_line()] = true
-	check(outcomes.size() > 3, "evenly matched teams should produce varied scorelines (%d)" % outcomes.size())
+	check(outcomes.size() > 3, "evenly matched teams should produce varied scorelines (%d: %s)" % [outcomes.size(), outcomes.keys()])
 	var wr := win_rate(a, b, 200)
 	check(wr > 0.38 and wr < 0.62, "identical teams ~50%% (got %.2f)" % wr)
 
