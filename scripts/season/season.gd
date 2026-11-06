@@ -500,6 +500,16 @@ func user_trained() -> bool:
 	return user_trained_key == _week_key()
 
 
+## Does `t` have a match this week? (Before Week 1 it is assumed to, for the training preview.)
+func team_plays_this_week(t: Team) -> bool:
+	if week < 1 or phase == PHASE_OFFSEASON:
+		return true
+	for m in matches_for_week(week):
+		if m.home == t or m.away == t:
+			return true
+	return false
+
+
 ## Runs the user's training for this week now (no-op if already done). Returns the report.
 func train_user_team() -> Dictionary:
 	if not can_train_user_team():
