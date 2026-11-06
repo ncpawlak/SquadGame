@@ -142,6 +142,11 @@ var green_version := 0
 var camp: Camp = null
 ## True while a new franchise's opening (preseason) training camp is open, before Week 1.
 var preseason_camp := false
+## Fantasy draft (new franchise option): the draft while it runs / after it finishes, and its state
+## (&"" none, &"drafting", &"done"). `roster_set_open` is true from the end of the draft until camp closes.
+var fantasy_draft: FantasyDraft = null
+var fantasy_draft_state: StringName = &""
+var roster_set_open := false
 ## Completed drafts, oldest first (the current one stays in `draft` until the next season).
 var past_drafts: Array = []
 ## Prospect stories from the most recent sim_week.
@@ -761,6 +766,9 @@ func start_next_season() -> void:
 	if phase != PHASE_OFFSEASON:
 		push_warning("start_next_season() is only valid in the offseason.")
 		return
+	if fantasy_draft_state == &"drafting":
+		push_warning("start_next_season() has to wait for the fantasy draft.")
+		return
 	sync_team_statics()
 	_stamp_log()
 	while offseason_stage != OFF_DONE:
@@ -856,11 +864,14 @@ func user_cap_error() -> String:
 
 
 func camp_open() -> bool:
+	if fantasy_draft_state == &"drafting":
+		return false
 	return preseason_camp or (phase == PHASE_OFFSEASON and offseason_stage == OFF_CAMP)
 
 
 ## Ends the opening preseason camp: AI teams run their drills and everyone gets camp-week XP.
 func close_preseason_camp() -> void:
+	roster_set_open = false
 	if not preseason_camp:
 		return
 	for t in league.teams:
@@ -870,6 +881,60 @@ func close_preseason_camp() -> void:
 	offseason_xp(CAMP_WEEK_XP)
 	preseason_camp = false
 	draft.scout_points += scout_points_per_week()
+
+
+## Starts the fantasy draft (new franchise, before Week 1): every soldier goes into one pool and the
+## season waits in the offseason phase (no stage) until finish_fantasy_draft. Safe to call once.
+func start_fantasy_draft() -> void:
+	if fantasy_draft_state != &"":
+		return
+	sync_team_statics()
+	var frng := RandomNumberGenerator.new()
+	frng.seed = _mix([league.league_seed, year, 0xFA17])
+	fantasy_draft = FantasyDraft.begin(self, frng)
+	fantasy_draft_state = &"drafting"
+	phase = PHASE_OFFSEASON
+	offseason_stage = &""
+	_stamp_log()
+
+
+## Completes the fantasy draft (auto-picks whatever is left, the user's too) and opens the preseason:
+## undrafted soldiers hit free agency, AI clubs get under the apron, sign free agents and fill their
+## rosters, and the season opens in the same preseason camp a new franchise starts in (no rookie
+## draft, re-signing, retirements or progression: ratings, contracts and careers are untouched).
+## `roster_set_open` stays true until camp closes. Idempotent.
+func finish_fantasy_draft() -> void:
+	if fantasy_draft == null or fantasy_draft_state != &"drafting":
+		return
+	fantasy_draft.sim_to_end()
+	phase = PHASE_REGULAR
+	week = 1
+	offseason_stage = &""
+	sync_team_statics()
+	for s in fantasy_draft.pool:
+		league.add_free_agent(s, year)
+		fantasy_draft.undrafted.append(s)
+	fantasy_draft.pool.clear()
+	for t in league.teams:
+		if not t.user_controlled:
+			_cut_to_cap(t)
+			GreenTeam.enforce(self, t)
+	fa.ai_offers(self, _rng)
+	fa.resolve(self, _rng, "Preseason")
+	for t in league.teams:
+		if not t.user_controlled:
+			fa.fill_roster(self, t, Team.ROSTER_SIZE, "Preseason")
+	fa.offers.clear()
+	for t in league.teams:
+		if not t.user_controlled and t.pick_scheme():
+			continue
+		t.auto_lineup()
+	camp = Camp.make(year - 1)
+	preseason_camp = true
+	draft.scout_points = 0
+	fantasy_draft_state = &"done"
+	roster_set_open = true
+	_stamp_log()
 
 
 ## Sends `s` to the user's `group` drill. Returns the Camp result ({} if refused; see camp_check).
@@ -908,7 +973,7 @@ func can_resign() -> bool:
 ## under the apron) -> pending offers are answered -> training camp (AI teams run their drills,
 ## bonus XP) -> done. Each step is an XP week. Returns new signings.
 func advance_offseason() -> Array:
-	if phase != PHASE_OFFSEASON:
+	if phase != PHASE_OFFSEASON or fantasy_draft_state == &"drafting":
 		return []
 	_step = step_label()
 	var label := _step

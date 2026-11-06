@@ -407,3 +407,42 @@ func test_slot_api() -> void:
 		var mf := FileAccess.open(SaveSystem.meta_path(SLOT), FileAccess.WRITE)
 		mf.store_string(backup_meta)
 		mf.close()
+
+
+func test_fantasy_draft_round_trip() -> void:
+	Season.fixture_teams = 0
+	var s := Season.new_franchise(4242, 4)
+	Season.fixture_teams = 5
+	var plain := SaveSystem.from_text(SaveSystem.to_text(s))
+	check(plain != null and plain.fantasy_draft == null and plain.fantasy_draft_state == &"" and not plain.roster_set_open, "non-fantasy save keeps defaults")
+	s.start_fantasy_draft()
+	var d := s.fantasy_draft
+	for i in 37:
+		d.sim_next()
+	var text := SaveSystem.to_text(s)
+	var s2 := SaveSystem.from_text(text)
+	check(s2 != null and SaveSystem.to_text(s2) == text, "re-serialization stable mid-draft")
+	if s2 == null:
+		return
+	var d2 := s2.fantasy_draft
+	check(s2.fantasy_draft_state == &"drafting" and d2 != null and d2.pick_index == 37 and d2.picks.size() == 37, "draft state restored")
+	check(d2.order.size() == 300 and d2.pool.size() == d.pool.size() and d2.user_team == s2.user_team(), "order and pool restored")
+	check(s2.league.teams.has(d2.order[0]) and s2.league.all_soldiers().has(d2.picks[0]["soldier"]), "references point at the league's objects")
+	for p in d2.pool:
+		check(soldier_by_id(s2, p.id) == null, "pooled soldiers are on no team")
+	# Both drafts continue identically (rng state saved).
+	d.sim_to_end()
+	d2.sim_to_end()
+	var a: Array = []
+	var b: Array = []
+	for p in d.results():
+		a.append("%d:%d" % [p["pick"], p["soldier"].id])
+	for p in d2.results():
+		b.append("%d:%d" % [p["pick"], p["soldier"].id])
+	check(a == b and a.size() == 300, "picks identical after load")
+	s2.finish_fantasy_draft()
+	var s3 := SaveSystem.from_text(SaveSystem.to_text(s2))
+	check(s3 != null and s3.fantasy_draft_state == &"done" and s3.roster_set_open and s3.preseason_camp, "finished state round-trips")
+	s3.finish_fantasy_draft()
+	s3.close_preseason_camp()
+	check(not s3.roster_set_open, "lifecycle continues after load")
