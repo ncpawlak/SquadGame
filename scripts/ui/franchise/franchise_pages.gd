@@ -5129,7 +5129,7 @@ func _camp_card(s: Season, g: StringName, open: bool) -> Control:
 			nv.add_child(UiKit.label("OVR %d > %d%s" % [res["ovr_before"], res["ovr_after"], ("  (+%d)" % d) if d > 0 else ""], 14,
 				UiKit.GOOD if d > 0 else UiKit.MUTED))
 		else:
-			var pool := Camp.pool_range(who.dev)
+			var pool := Camp.known_pool(who)
 			nv.add_child(UiKit.label("%d OVR  ·  %s POT  ·  %d-%d pts" % [who.best_ovr(), pot_dev_text(who), pool[0], pool[1]], 14, UiKit.GOOD))
 		for c in nv.get_children():
 			c.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -5216,7 +5216,7 @@ func _camp_board(s: Season) -> Control:
 		ol.add_theme_font_override("font", UiKit.font_heavy)
 		hb.add_child(ol)
 		hb.add_child(_pot_cell(so, 64, 26))
-		var pool := Camp.pool_range(so.dev)
+		var pool := Camp.known_pool(so)
 		hb.add_child(_big_cell("%d-%d" % [pool[0], pool[1]], UiKit.GOOD, 70, 18))
 		for gr in Stats.GROUP_ORDER:
 			hb.add_child(_rating_cell(so.group_rating(gr), 92))
@@ -5282,7 +5282,7 @@ func _camp_confirm_card() -> Control:
 		if not _camp_plan.has(g):
 			continue
 		var so: Soldier = _camp_plan[g]
-		var pool := Camp.pool_range(so.dev)
+		var pool := Camp.known_pool(so)
 		var h := _row(14)
 		h.add_child(Portrait.new(so, 44, team.color, team))
 		h.add_child(_big_cell(Camp.drill_name(g), UiKit.TRIM, 200, 16))
@@ -5373,7 +5373,7 @@ func drill_pick(group: StringName) -> Control:
 ## "Are you sure?" card for sending `so` to the `group` drill.
 func _drill_confirm_card(group: StringName, so: Soldier) -> Control:
 	var team := _season().user_team()
-	var pool := Camp.pool_range(so.dev)
+	var pool := Camp.known_pool(so)
 	var v := _vbox(14)
 	v.add_child(UiKit.label("SEND TO %s?" % Camp.drill_name(group).to_upper(), 16, UiKit.ACCENT))
 	var h := _row(22)
