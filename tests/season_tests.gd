@@ -4349,3 +4349,186 @@ func test_green_team_reps_and_potential() -> void:
 	bench.reps = 0.0
 	s.sim_week()
 	check(g.reps > bench.reps, "Green Team players gain reps faster than the bench")
+
+
+
+# --- fantasy draft -----------------------------------------------------------------
+
+func _fantasy_user_auto(s: Season) -> void:
+	var d := s.fantasy_draft
+	while not d.is_complete():
+		d.sim_to_user_pick()
+		if d.user_on_clock():
+			check(d.make_pick(d.ai_choice(d.user_team)) == "", "user pick accepted")
+
+
+func _soldier_ids(list: Array) -> Array:
+	var out: Array = []
+	for so in list:
+		out.append(so.id)
+	out.sort()
+	return out
+
+
+func test_fantasy_draft_pool_and_snake_order() -> void:
+	var s := _fixed(901, 3)
+	var all_ids := _soldier_ids(s.league.all_soldiers())
+	check(s.fantasy_draft == null and s.fantasy_draft_state == &"" and not s.roster_set_open, "defaults off")
+	s.start_fantasy_draft()
+	var d := s.fantasy_draft
+	check(s.fantasy_draft_state == &"drafting" and s.phase == Season.PHASE_OFFSEASON, "drafting in the offseason phase")
+	check(_soldier_ids(d.pool) == all_ids and all_ids.size() == 20 * 16, "pool covers every league player exactly once (%d)" % all_ids.size())
+	for t in s.league.teams:
+		check(t.roster.is_empty() and t.green_team.is_empty(), "teams emptied")
+	check(d.order.size() == 20 * FantasyDraft.ROUNDS and FantasyDraft.ROUNDS == 15, "300 picks")
+	var first := d.order.slice(0, 20)
+	var uniq := {}
+	for t in first:
+		uniq[t] = true
+	check(uniq.size() == 20, "round 1 holds every team once")
+	var moved := false
+	for i in 20:
+		if first[i] != s.league.teams[i]:
+			moved = true
+	check(moved, "round 1 order is randomized")
+	for r in FantasyDraft.ROUNDS:
+		for i in 20:
+			var want: Team = first[i] if r % 2 == 0 else first[19 - i]
+			check(d.order[r * 20 + i] == want, "snake order r%d i%d" % [r, i])
+	for t in s.league.teams:
+		check(d.picks_left_for(t) == 15, "15 picks each")
+	check(d.round_number() == 1 and d.pick_number() == 1 and d.current_team() == d.order[0], "clock starts at pick 1")
+	var av := d.available()
+	for i in av.size() - 1:
+		check(av[i].best_ovr() >= av[i + 1].best_ovr(), "available sorted by overall")
+	# The advance/camp paths stay shut while drafting.
+	check(not s.camp_open() and s.advance_offseason().is_empty(), "nothing else runs mid-draft")
+	s.start_next_season()
+	check(s.year == 2026 and s.fantasy_draft_state == &"drafting", "start_next_season refuses mid-draft")
+
+
+func test_fantasy_draft_pick_rules() -> void:
+	var s := _fixed(902, 5)
+	s.start_fantasy_draft()
+	var d := s.fantasy_draft
+	var guard := 0
+	while not d.user_on_clock() and guard < 400:
+		d.sim_next()
+		guard += 1
+	check(d.user_on_clock() and d.current_team() == s.user_team(), "user comes up")
+	check(d.sim_to_user_pick().is_empty(), "no AI picks while the user is on the clock")
+	var taken: Soldier = d.picks[0]["soldier"] if not d.picks.is_empty() else null
+	if taken != null:
+		check(d.make_pick(taken) != "", "drafted player can't be picked again")
+	var n := d.pick_index
+	var want: Soldier = d.available()[3]
+	check(d.make_pick(want) == "" and d.pick_index == n + 1, "user pick advances the clock")
+	check(s.user_team().roster.has(want), "pick lands on the user's roster")
+	check(d.team_picks(s.user_team()).size() == 1 and d.results().size() == n + 1, "results tracked")
+	check(not d.user_on_clock() and d.make_pick(d.available()[0]) != "", "not your turn is an error")
+	var sim := d.sim_to_user_pick()
+	for p in sim:
+		check(p.has("team") and p.has("soldier") and p.has("pick") and p.has("round") and p["team"] != s.user_team(), "sim_to_user_pick dicts")
+
+
+func test_fantasy_draft_full_flow() -> void:
+	var s := _fixed(903, 7)
+	var all := s.league.all_soldiers()
+	var snap := {}
+	for so in all:
+		snap[so.id] = [so.contract.salary, so.contract.years, JSON.stringify(so.career), so.season_lines.size(), so.age, so.best_ovr(), so.dev]
+	var all_ids := _soldier_ids(all)
+	s.start_fantasy_draft()
+	var d := s.fantasy_draft
+	_fantasy_user_auto(s)
+	check(d.is_complete() and d.picks.size() == 300 and d.pick_index == 300, "300 picks made")
+	check(d.pool.size() == 20 and not s.roster_set_open and s.fantasy_draft_state == &"drafting", "20 left, not finished yet")
+	var seen := {}
+	for p in d.results():
+		check(not seen.has(p["soldier"].id), "drafted once")
+		seen[p["soldier"].id] = true
+	for t in s.league.teams:
+		check(d.team_picks(t).size() == 15 and t.roster.size() == 10 and t.green_team.size() == 5, "team has 10 + 5 (%d/%d)" % [t.roster.size(), t.green_team.size()])
+	var dpicks := d.results()
+	s.finish_fantasy_draft()
+	check(s.fantasy_draft_state == &"done" and s.roster_set_open, "done and roster-set open")
+	check(s.phase == Season.PHASE_REGULAR and s.week == 1 and s.camp_open() and s.preseason_camp, "preseason camp reached")
+	check(s.year == 2026, "year unchanged")
+	var placed := {}
+	var dup := 0
+	for t in s.league.teams:
+		check(t.roster.size() <= Team.ROSTER_SIZE and t.green_team.size() <= Team.GREEN_SIZE, "limits respected")
+		if not t.user_controlled:
+			check(t.roster.size() == Team.ROSTER_SIZE, "AI roster full (%d)" % t.roster.size())
+		for so in t.org():
+			dup += 1 if placed.has(so.id) else 0
+			placed[so.id] = true
+	for so in s.league.free_agents:
+		dup += 1 if placed.has(so.id) else 0
+		placed[so.id] = true
+	check(dup == 0, "%d players appear twice" % dup)
+	for id in all_ids:
+		check(placed.has(id), "player %d missing after the draft" % id)
+	check(d.undrafted.size() == 20 and d.pool.is_empty(), "20 undrafted recorded")
+	var everyone := s.league.all_soldiers()
+	for so in d.undrafted:
+		check(s.league.free_agents.has(so) or everyone.has(so), "undrafted player went to free agency (or signed)")
+	# Contracts and careers are untouched for everyone who kept his place.
+	var kept := 0
+	for p in dpicks:
+		var so: Soldier = p["soldier"]
+		if p["team"].has_player(so):
+			kept += 1
+			var sn: Array = snap[so.id]
+			check(so.contract != null and so.contract.salary == sn[0] and so.contract.years == sn[1], "contract kept")
+			check(JSON.stringify(so.career) == sn[2] and so.season_lines.size() == sn[3], "career kept")
+		check(so.age == snap[so.id][4] and so.best_ovr() == snap[so.id][5] and so.dev == snap[so.id][6], "no progression or aging")
+	check(kept >= 250, "most drafted players stay put (%d)" % kept)
+	# Idempotent.
+	var fa_n := s.league.free_agents.size()
+	var hist_n := s.fa.history.size()
+	s.finish_fantasy_draft()
+	s.start_fantasy_draft()
+	check(s.league.free_agents.size() == fa_n and s.fa.history.size() == hist_n and s.fantasy_draft == d and s.fantasy_draft_state == &"done", "finish and start are idempotent")
+	# Camp closes -> roster-set window closes; the season plays.
+	s.close_preseason_camp()
+	check(not s.roster_set_open and not s.camp_open() and not s.preseason_camp, "roster_set_open false once camp closes")
+	var played := s.sim_week()
+	check(not played.is_empty() and s.week == 2, "season plays on")
+
+
+func test_fantasy_draft_sim_to_end_and_determinism() -> void:
+	var texts: Array = []
+	for i in 2:
+		var s := _fixed(904, 2)
+		s.start_fantasy_draft()
+		var made := s.fantasy_draft.sim_to_end()
+		check(made.size() == 300 and s.fantasy_draft.is_complete(), "auto-draft completes")
+		var ids: Array = []
+		for p in s.fantasy_draft.results():
+			ids.append("%d:%s:%d" % [p["pick"], p["team"].abbrev, p["soldier"].id])
+		texts.append("|".join(ids))
+		s.finish_fantasy_draft()
+		check(s.user_team().roster.size() == Team.ROSTER_SIZE, "user auto-drafted a full roster")
+	check(texts[0] == texts[1], "same seed -> same draft")
+	var s2 := _fixed(905, 2)
+	s2.start_fantasy_draft()
+	s2.fantasy_draft.sim_to_end()
+	var other: Array = []
+	for p in s2.fantasy_draft.results():
+		other.append("%d:%s:%d" % [p["pick"], p["team"].abbrev, p["soldier"].id])
+	check("|".join(other) != texts[0], "different seed -> different draft")
+
+
+func test_fantasy_draft_ai_values_rating() -> void:
+	var s := _fixed(906, 0)
+	s.start_fantasy_draft()
+	var d := s.fantasy_draft
+	var top: int = d.available()[0].best_ovr()
+	var t := d.current_team()
+	var pick: Soldier = d.ai_choice(t)
+	check(pick != null and d.pool.has(pick), "suggestion is an available player")
+	check(pick.best_ovr() >= top - 10, "AI takes a top-rated player first (%d vs %d)" % [pick.best_ovr(), top])
+	check(d.ai_choice(t) == pick and d.pick_index == 0, "suggestion has no side effects")
+	var p := d.sim_next()
+	check(p["pick"] == 1 and p["round"] == 1 and p["team"] == t, "sim_next dict")
