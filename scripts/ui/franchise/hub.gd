@@ -2867,9 +2867,20 @@ func _settings_view(v: VBoxContainer) -> void:
 	var load_c := _stat_card("Load Franchise", str(used + (0 if auto.is_empty() else 1)), "SAVES",
 		("Latest: [color=white]%s[/color] · %s %s" % [UiKit.esc(str(latest.get("label", "")) if str(latest.get("label", "")) != "" else "Slot %d" % int(latest.get("slot", 0))), latest.get("abbrev", ""), latest.get("week", "")]) if not latest.is_empty() else "No saves yet",
 		UiKit.TRIM, func(): open("Load Franchise", func(): return pages.save_load(false)))
-	var fs := _soon_card("Franchise Settings", "Difficulty, injuries, trade logic", ["Sim difficulty", "Injuries on/off and frequency", "Trade AI strictness", "Salary cap rules"])
+	var td := Trades.difficulty()
+	var trade_card := _stat_card("Trade Difficulty", String(Trades.DIFFICULTY_NAMES[td]).to_upper(), "TRADES",
+		"Click to switch. [color=white]Easy[/color]: the AI can be fleeced. [color=white]Normal[/color]: fair swaps. [color=white]Hard[/color]: the AI wants an edge", UiKit.TRIM,
+		func():
+			Trades.set_difficulty((Trades.difficulty() + 1) % Trades.DIFFICULTY_NAMES.size())
+			refresh())
+	var fs := _soon_card("Franchise Settings", "Difficulty, injuries, cap", ["Sim difficulty", "Injuries on/off and frequency", "Salary cap rules"])
 	v.add_child(UiKit.heading("FRANCHISE", 22))
 	v.add_child(_card_row("SettingsFranchise", [sim, save, load_c, fs], 4))
+	var gap0 := Control.new()
+	gap0.custom_minimum_size.y = 10
+	v.add_child(gap0)
+	v.add_child(UiKit.heading("GAMEPLAY", 22))
+	v.add_child(_card_row("SettingsGameplay", [trade_card], 4))
 	var gap := Control.new()
 	gap.custom_minimum_size.y = 10
 	v.add_child(gap)
