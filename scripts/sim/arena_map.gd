@@ -612,6 +612,34 @@ func _build_cover_spots() -> void:
 				cover_spots.append(p)
 
 
+## Cover spot within `radius` of `p` that hides it from `threat` and sits closest to `goal`, for moving
+## cover to cover. A spot must end up at least `gain` metres nearer the goal than `p` (negative allows a
+## step back). Spots within 1.8 m of one in `taken` are penalised by `crowd_penalty` so squads spread out.
+## Vector2.INF if nothing fits.
+func cover_toward(p: Vector2, goal: Vector2, threat: Vector2, radius: float, gain: float,
+		taken: Array = [], crowd_penalty := 0.0) -> Vector2:
+	var best := Vector2.INF
+	var best_score := INF
+	var here := p.distance_to(goal)
+	var r2 := radius * radius
+	for s in cover_spots:
+		if p.distance_squared_to(s) > r2:
+			continue
+		var gd := s.distance_to(goal)
+		if gd > here - gain:
+			continue
+		var score := gd + p.distance_to(s) * 0.4
+		for t: Vector2 in taken:
+			if s.distance_squared_to(t) < 3.24:
+				score += crowd_penalty
+		if score >= best_score:
+			continue
+		if not line_of_sight(threat, s) or through_cover(threat, s):
+			best = s
+			best_score = score
+	return best
+
+
 ## Closest cover spot within `radius` of `p` that hides it from `threat` (behind a wall, or with a
 ## crate in between). Vector2.INF if none.
 func find_cover(p: Vector2, threat: Vector2, radius: float) -> Vector2:
