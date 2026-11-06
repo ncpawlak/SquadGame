@@ -10,6 +10,8 @@ var screen: Control
 var debug_layer: Control
 var preview_seed := 0
 var _toast: PanelContainer
+## New-franchise settings popup (over team select), or null.
+var settings_popup: Control
 
 
 func _ready() -> void:
@@ -259,7 +261,7 @@ func show_team_select() -> void:
 			var show := func(): _fill_team_pane(pane, preview, t, rank, ranked.size())
 			b.mouse_entered.connect(show)
 			b.focus_entered.connect(show)
-			b.pressed.connect(func(): start_franchise(preview_seed, idx, t))
+			b.pressed.connect(func(): open_settings_popup(idx, t))
 			line.add_child(b)
 			if first == null:
 				first = b
@@ -498,12 +500,110 @@ func show_load_menu() -> void:
 	_set_screen(root)
 
 
-## `team` (the team-select preview's copy) only colours the loading screen.
-func start_franchise(seed_value: int, team_index: int, team: Team = null) -> void:
+## Franchise settings popup shown when a team is picked: Accept starts the franchise, Cancel returns
+## to team select.
+func open_settings_popup(team_index: int, team: Team) -> void:
+	if settings_popup:
+		return
+	var cfg := FranchiseSettings.from_globals()
+	cfg.fantasy_draft = false
+	var layer := Control.new()
+	layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.7)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(center)
+	var card := PanelContainer.new()
+	var sb := UiKit.flat(UiKit.PANEL, 10, 2, UiKit.accent_of(team))
+	sb.set_content_margin_all(26)
+	card.add_theme_stylebox_override("panel", sb)
+	card.custom_minimum_size.x = 560
+	center.add_child(card)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 14)
+	card.add_child(col)
+	col.add_child(UiKit.display("FRANCHISE SETTINGS", 32, Color.WHITE, true))
+	col.add_child(UiKit.label("%s  -  you can change these later in Settings" % team.name, 15, UiKit.MUTED))
+
+	var diff_btn := UiKit.button("", func(): pass, 18)
+	var anim_btn := UiKit.button("", func(): pass, 18)
+	var draft_btn := UiKit.button("", func(): pass, 18)
+	var refresh := func():
+		diff_btn.text = String(Trades.DIFFICULTY_NAMES[cfg.trade_difficulty])
+		anim_btn.text = "Reduced" if cfg.reduce_animations else "On"
+		draft_btn.text = "On" if cfg.fantasy_draft else "Off"
+	for b in [diff_btn, anim_btn, draft_btn]:
+		b.custom_minimum_size = Vector2(170, 44)
+		b.set_meta(&"skip_autofocus", true)
+	diff_btn.pressed.connect(func():
+		cfg.trade_difficulty = (cfg.trade_difficulty + 1) % Trades.DIFFICULTY_NAMES.size()
+		refresh.call())
+	anim_btn.pressed.connect(func():
+		cfg.reduce_animations = not cfg.reduce_animations
+		refresh.call())
+	draft_btn.pressed.connect(func():
+		cfg.fantasy_draft = not cfg.fantasy_draft
+		refresh.call())
+	refresh.call()
+	var rows := [
+		["Trade difficulty", "Easy: the AI can be fleeced. Hard: it wants an edge.", diff_btn],
+		["Animations", "Reduced skips menu motion and count-ups.", anim_btn],
+		["Fantasy draft", "Start with every player in a pool and draft the league.", draft_btn],
+	]
+	for r in rows:
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 16)
+		var txt := VBoxContainer.new()
+		txt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		txt.add_child(UiKit.label(r[0], 19, Color.WHITE))
+		txt.add_child(UiKit.label(r[1], 13, UiKit.MUTED))
+		line.add_child(txt)
+		line.add_child(r[2])
+		col.add_child(line)
+
+	var btns := HBoxContainer.new()
+	btns.add_theme_constant_override("separation", 14)
+	btns.alignment = BoxContainer.ALIGNMENT_END
+	var cancel := UiKit.button("Cancel", close_settings_popup, 18)
+	cancel.custom_minimum_size = Vector2(130, 48)
+	btns.add_child(cancel)
+	var accept := UiKit.primary_button("Accept", func():
+		close_settings_popup()
+		start_franchise(preview_seed, team_index, team, cfg), 20)
+	accept.custom_minimum_size = Vector2(160, 48)
+	btns.add_child(accept)
+	col.add_child(btns)
+	settings_popup = layer
+	add_child(layer)
+	if _toast:
+		move_child(_toast, -1)
+	accept.grab_focus.call_deferred()
+
+
+func close_settings_popup() -> void:
+	if settings_popup:
+		settings_popup.queue_free()
+		settings_popup = null
+
+
+## `team` (the team-select preview's copy) only colours the loading screen. `cfg` are the franchise
+## settings (defaults to the global ones).
+func start_franchise(seed_value: int, team_index: int, team: Team = null, cfg: FranchiseSettings = null) -> void:
+	if cfg == null:
+		cfg = FranchiseSettings.from_globals()
 	var ls := LoadingScreen.make(team, "New Franchise")
 	_set_screen(ls)
 	await ls.step("Generating the league: rosters, contracts, scouting & schedule", 0.0, 1.0)
 	season = Season.new_franchise(seed_value, team_index, 2026, true)
+	season.settings = cfg
+	cfg.apply()
+	if cfg.fantasy_draft and season.has_method("start_fantasy_draft"):
+		season.start_fantasy_draft()
 	await ls.step("Opening training camp", 0.9, 1.0)
 	preview_seed = 0
 	show_hub()
@@ -528,6 +628,7 @@ func load_franchise(slot: int) -> void:
 		return
 	await ls.step("Opening your front office", 0.9, 1.0)
 	season = loaded
+	season.settings.apply()
 	show_hub()
 	ls.queue_free()
 	toast("Loaded %s %d." % [loaded.user_team().name, loaded.year])
@@ -672,6 +773,11 @@ func _drop_focus() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if settings_popup:
+		if event.is_action_pressed(&"ui_cancel"):
+			close_settings_popup()
+		accept_event()
+		return
 	if debug_layer:
 		if event.is_action_pressed(&"ui_cancel"):
 			close_debug()

@@ -48,6 +48,35 @@ func test_legacy_potential_migrates() -> void:
 	check(League.soldier_from_dict(d).dev == Soldier.DEV_MAX, "legacy league.json potential maps to stars")
 
 
+func test_franchise_settings_dict_round_trip() -> void:
+	var s := FranchiseSettings.new()
+	check(s.trade_difficulty == Trades.Difficulty.NORMAL and not s.reduce_animations and not s.fantasy_draft, "defaults")
+	s.trade_difficulty = Trades.Difficulty.HARD
+	s.reduce_animations = true
+	s.fantasy_draft = true
+	var r := FranchiseSettings.from_dict(s.to_dict())
+	check(r.trade_difficulty == Trades.Difficulty.HARD and r.reduce_animations and r.fantasy_draft, "round trip")
+	var e := FranchiseSettings.from_dict({})
+	check(e.trade_difficulty == Trades.Difficulty.NORMAL and not e.reduce_animations and not e.fantasy_draft, "missing keys use defaults")
+	check(FranchiseSettings.from_dict({"trade_difficulty": 99}).trade_difficulty == Trades.Difficulty.HARD, "difficulty is clamped")
+
+
+func test_franchise_settings_save_and_old_save() -> void:
+	var s := Season.new_franchise(7, 0)
+	s.settings.trade_difficulty = Trades.Difficulty.EASY
+	s.settings.fantasy_draft = true
+	var loaded := SaveSystem.from_text(SaveSystem.to_text(s))
+	check(loaded != null and loaded.settings.trade_difficulty == Trades.Difficulty.EASY and loaded.settings.fantasy_draft,
+		"settings survive a save round trip")
+	# An old save has no settings entry on the Season: loading keeps the defaults.
+	var tree: Dictionary = str_to_var(SaveSystem.to_text(s))
+	var props: Dictionary = tree["objects"][0]["v"]
+	check(props.erase("settings"), "season entry stored settings")
+	var old := SaveSystem.from_text(var_to_str(tree))
+	check(old != null and old.settings != null and old.settings.trade_difficulty == Trades.Difficulty.NORMAL
+		and not old.settings.fantasy_draft and not old.settings.reduce_animations, "old save loads with default settings")
+
+
 # --- helpers ---------------------------------------------------------------
 
 func soldier_by_id(s: Season, id: int) -> Soldier:
