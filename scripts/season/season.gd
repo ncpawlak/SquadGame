@@ -59,6 +59,8 @@ const AI_EXTEND_CHANCE := 0.6
 const AI_TAX_OVR := 85
 
 var league: League
+## Per-franchise options (trade difficulty, animations, fantasy draft).
+var settings := FranchiseSettings.new()
 ## Regular-season length and playoff field (set from the league's shape when the franchise starts).
 var regular_weeks := DIVISION_WEEKS
 var playoff_teams := DIVISION_PLAYOFF_TEAMS
