@@ -520,6 +520,35 @@ func test_draft_class_and_points() -> void:
 	check(total >= 25 and total <= 60, "about one phenom per class (%d in 40)" % total)
 
 
+func test_scout_notes() -> void:
+	var d := Draft.generate(79, 2026, 1)
+	d.scout_points = 500
+	var p := d.prospects[0]
+	check(p.notes.is_empty(), "no notes before scouting")
+	while d.can_scout(p):
+		var before := p.notes.size()
+		d.scout(p)
+		check(p.notes.size() == before + 1, "each scout point adds exactly one note")
+		var n: Dictionary = p.notes[-1]
+		check(int(n["point"]) == p.points, "note remembers its scout point")
+		check(String(n["text"]) != "" and int(n["mood"]) >= -2 and int(n["mood"]) <= 2, "note has text and a mood")
+	var seen := {}
+	for n in p.notes:
+		check(not seen.has(n["stat"]), "no rating is noted twice")
+		seen[n["stat"]] = true
+	# The best rating in the class is called out as such.
+	for st in Stats.ALL:
+		var top := d.prospects[0]
+		for o in d.prospects:
+			if o.soldier.get_stat(st) > top.soldier.get_stat(st):
+				top = o
+		var standing := d.stat_standing(top, st)
+		check(standing.x == 0, "the class leader has nobody better")
+		var note := Draft.note_for(st, standing.x, standing.y, d.prospects.size())
+		check(int(note["mood"]) == 2 and String(note["text"]) == Draft.SUPERLATIVES[st][0], "class leader gets the best-in-class line")
+	check(int(Draft.note_for(Stats.SPEED, 55, 55, 110)["mood"]) == 0, "a middling rating is an average note")
+
+
 func test_scouting_windows() -> void:
 	var d := Draft.generate(77, 2026, 1)
 	d.scout_points = 2000
