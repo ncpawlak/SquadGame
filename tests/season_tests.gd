@@ -2154,12 +2154,69 @@ func test_trade_bad_consolidation() -> void:
 	check(tr.lineup_change(user, give, []) < 0.0, "and losing the star alone weakens the lineup")
 	# The same player at 29, 30 and 34: worth less with age, and the drop accelerates.
 	var sample: Soldier = cands[0]
+	sample.contract = Contract.make(Contracts.MIN_SALARY, 3, s.year)  # no expiring-rental discount in the comparison
 	var vals: Array = []
 	for age in [29, 30, 34]:
 		sample.age = age
 		vals.append(tr._player_base(s, sample, Trades.BALANCED, false, 0.0))
 	check(vals[0] > vals[1] and vals[1] > vals[2], "value falls with age (%.0f > %.0f > %.0f)" % [vals[0], vals[1], vals[2]])
 	check(vals[1] - vals[2] > (vals[0] - vals[1]) * 2.0, "and falls faster the older he gets")
+
+
+## Projection: prospects climb toward their potential, veterans fall off, faster the older they get.
+func test_trade_projection() -> void:
+	var s := _fixed(251)
+	var sample: Soldier = s.user_team().roster[0]
+	sample.age = 22
+	check(Trades.projected_ovr(sample, 0) == float(sample.best_ovr()), "year 0 is his rating today")
+	check(Trades.projected_ovr(sample, 3) >= Trades.projected_ovr(sample, 0), "a 22-year-old doesn't project to get worse")
+	sample.age = 31
+	var d1 := Trades.projected_ovr(sample, 0) - Trades.projected_ovr(sample, 1)
+	var d3 := Trades.projected_ovr(sample, 2) - Trades.projected_ovr(sample, 3)
+	check(d1 > 0.0 and d3 > d1, "a veteran declines, and faster later (%.1f then %.1f)" % [d1, d3])
+	check(Trades.projected_avg(sample, 3) < float(sample.best_ovr()), "so his three-season average is below today's rating")
+
+
+## The reported sidegrade: an older, lower-potential player one point better now would bench a
+## younger starter with the same or better outlook. It must not be offered, and the user is warned.
+func test_trade_sidegrade() -> void:
+	var s := _fixed(261)
+	var tr := s.trades
+	var user := s.user_team()
+	var starter: Soldier = user.starters()[0]
+	for x in user.starters():
+		if x.best_ovr() < starter.best_ovr():
+			starter = x
+	starter.age = 24
+	var role := Scheme.best_role(starter.stats)
+	var vet: Soldier = null
+	for t in s.league.teams:
+		if t.user_controlled:
+			continue
+		for p in t.roster:
+			if Scheme.best_role(p.stats) == role and p.best_ovr() >= starter.best_ovr() and p.best_ovr() <= starter.best_ovr() + 4 and (vet == null or p.best_ovr() < vet.best_ovr()):
+				vet = p
+	check(vet != null, "found an older player a little better now")
+	if vet == null:
+		return
+	vet.age = 31
+	vet.contract = Contract.make(20000000, 4, s.year)
+	# Bench everyone else so the vet takes the young starter's slot... then trade a different bench body.
+	var bench_body: Soldier = user.bench()[0] if not user.bench().is_empty() else user.roster[user.roster.size() - 1]
+	var give := [Trades.player_asset(bench_body)]
+	var get := [Trades.player_asset(vet)]
+	if tr.lineup_change(user, give, get) > 0.0:
+		check(tr.sidegrade(user, give, get), "an older, lesser-outlook player who benches a starter is a sidegrade")
+		check(tr._guard(s, user, give, get) != "", "and wouldn't be generated as an offer")
+	# A straight swap counts too: trading the young starter away for the older player who takes his slot.
+	var swap_give := [Trades.player_asset(starter)]
+	var swap_used: Dictionary = tr._lineup_pick(user, tr._roster_after(user, swap_give, get))["used"]
+	check(swap_used.has(vet), "the vet takes the traded starter's slot")
+	if swap_used.has(vet):
+		check(tr.sidegrade(user, swap_give, get), "swapping a young starter for an older, lesser-outlook player in his slot is a sidegrade")
+		check(tr._guard(s, user, swap_give, get) != "", "and wouldn't be offered to the user")
+	# A much better young player isn't a sidegrade.
+	check(not tr.sidegrade(user, give, []), "taking nothing back is never a sidegrade")
 
 
 func test_trade_guardrails() -> void:

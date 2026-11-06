@@ -48,6 +48,20 @@ const SURPLUS_OVER_CAP := 1.3
 ## A fair swap: market value received / given within this band (both sides, so 0.8..1.25).
 const FAIR_LOW := 0.8
 const FAIR_HIGH := 1.25
+## Weights on his projected rating this season and the next four, by front-office mode: a contender
+## lives in the present, a rebuilder in the later years.
+const PROJ_WEIGHTS := {
+	&"contender": [0.35, 0.25, 0.2, 0.12, 0.08],
+	&"balanced": [0.25, 0.22, 0.2, 0.18, 0.15],
+	&"rebuilding": [0.12, 0.18, 0.22, 0.23, 0.25],
+}
+## Expected rating lost going from this age to the next (indexed by age, capped at 34).
+const DECLINE_PER_YEAR := {29: 0.5, 30: 1.0, 31: 1.8, 32: 2.5, 33: 3.0, 34: 3.5}
+## A player who starts for his new team only gets full credit when he improves the lineup by this
+## many rating points (summed over slots); a smaller gain counts proportionally, never below BENCH_USE.
+const FULL_UPGRADE := 4.0
+## An older player replacing a starter must project at least this far above him over three seasons.
+const SIDEGRADE_MARGIN := 1.0
 ## Veterans (30+) on an expiring deal keep this share of their value.
 const RENTAL_FACTOR := 0.9
 ## What a player who wouldn't start for his new team is worth to him: bench depth only. A young
@@ -345,20 +359,48 @@ func player_value(season: Season, s: Soldier, team: Team, giving := false) -> fl
 	return maxf(v, 1.0)
 
 
-## The part of a player's value that only depends on the front office's mode: rating (plus a need
-## bump), upside, age, contract surplus, injury. Neutral market value uses BALANCED and no bump.
+## Rough rating of `s` `years` seasons from now at his best role. Under 28 he closes part of the gap
+## to his potential each year (faster when young and with more dev stars); from 29 he declines, a
+## little at first and then quickly.
+static func projected_ovr(s: Soldier, years: int) -> float:
+	var o := float(s.best_ovr())
+	var pot := maxf(float(s.potential_ovr()), o)
+	var age := s.age
+	for i in years:
+		if age <= 27 and pot > o:
+			var base := 0.45 if age <= 22 else (0.35 if age <= 24 else (0.22 if age <= 26 else 0.1))
+			var dev_mult: float = {1: 0.45, 2: 0.75, 3: 1.1, 4: 1.5}.get(clampi(s.dev, 1, 4), 0.75)
+			o += (pot - o) * minf(0.7, base * dev_mult)
+		elif age >= 29:
+			o -= DECLINE_PER_YEAR[mini(age, 34)]
+		age += 1
+	return o
+
+
+## Average projected rating over the next `years` seasons (now included).
+static func projected_avg(s: Soldier, years: int) -> float:
+	var t := 0.0
+	for h in years:
+		t += projected_ovr(s, h)
+	return t / float(maxi(years, 1))
+
+
+## The part of a player's value that only depends on the front office's mode: projected rating
+## (plus a need bump), contract surplus, injury. Neutral market value uses BALANCED and no bump.
 func _player_base(season: Season, s: Soldier, m: StringName, over_cap: bool, need_ovr: float) -> float:
-	var ovr := float(s.best_ovr()) + need_ovr
-	var fut_w: float = clampf((28.0 - s.age) / 8.0, 0.0, 1.0) * {CONTENDER: 0.3, BALANCED: 0.45, REBUILDING: 0.65}[m]
-	var eff := ovr + float(s.potential_ovr() - s.best_ovr()) * fut_w
-	if s.age >= 30:
-		# Linear decline plus an accelerating term: a 33-year-old is worth far less than a 30-year-old.
-		var n := float(s.age - 29)
-		eff -= n * float({CONTENDER: 0.4, BALANCED: 0.8, REBUILDING: 1.4}[m])
-		eff -= n * n * float({CONTENDER: 0.18, BALANCED: 0.3, REBUILDING: 0.42}[m])
-	var v := curve(eff)
+	# Worth = his projected rating over the next few seasons (young players grow toward their
+	# potential, 29+ decline), weighted by what the front office's mode cares about.
+	var w: Array = PROJ_WEIGHTS[m]
+	var v := 0.0
+	for h in w.size():
+		v += float(w[h]) * curve(projected_ovr(s, h) + need_ovr)
 	if s.contract != null:
-		var surplus := float(Contracts.market_value(s) - s.contract.salary) * mini(maxi(s.contract.years, 0), 3)
+		# Contract surplus year by year: what he'd cost on the market at his projected rating
+		# minus what he is paid, so an overpaid decliner is a liability and a cheap riser an asset.
+		var scale := float(Contracts.market_value(s)) / maxf(Contracts.curve_salary(float(s.best_ovr())), 1.0)
+		var surplus := 0.0
+		for h in mini(maxi(s.contract.years, 0), 4):
+			surplus += scale * Contracts.curve_salary(projected_ovr(s, h)) - float(s.contract.salary)
 		var cap_w := SURPLUS_OVER_CAP if over_cap else 1.0
 		v += surplus / SURPLUS_SCALE * cap_w * float({CONTENDER: 0.7, BALANCED: 1.0, REBUILDING: 1.3}[m])
 		# A veteran on an expiring deal is a one-season rental: nothing left to re-sign or flip.
@@ -1029,18 +1071,54 @@ func lineup_change(team: Team, out_list: Array, in_list: Array) -> float:
 	return _lineup_strength(team, _roster_after(team, out_list, in_list)) - _strength_now(team)
 
 
+## True when an incoming player would take the lineup spot of one of `team`'s current starters (whether
+## he stays on the roster or is the one traded away) without clearly beating him over the next three
+## seasons: a bigger rating now doesn't make up for an older or lower-potential player (a short-term
+## bump that costs the future).
+func sidegrade(team: Team, out_list: Array, in_list: Array) -> bool:
+	var inp := _soldiers(in_list)
+	if inp.is_empty():
+		return false
+	var before: Dictionary = _lineup_pick(team, team.roster)["used"]
+	var outp := _soldiers(out_list)
+	var after: Dictionary = _lineup_pick(team, _roster_after(team, out_list, in_list))["used"]
+	for d: Soldier in before:
+		if after.has(d):
+			continue
+		var best_gain := -999.0
+		var replaced := false
+		for p: Soldier in inp:
+			if after.has(p):
+				replaced = true
+				best_gain = maxf(best_gain, projected_avg(p, 3) - projected_avg(d, 3))
+		# A starter who is traded away only counts when an incoming player takes his place (a straight
+		# swap); one pushed out while staying on the roster is always compared.
+		if not replaced and outp.has(d):
+			continue
+		if best_gain < SIDEGRADE_MARGIN:
+			return true
+	return false
+
+
 ## What the incoming `in_list` is worth to `team` after the deal, rather than on the open market:
 ## each player counts in full if he'd be in the lineup (or is a developing prospect), otherwise only
 ## as bench depth. Depth-weighted like neutral_total. Picks count in full.
 func useful_total(season: Season, team: Team, out_list: Array, in_list: Array) -> float:
-	var used: Dictionary = _lineup_pick(team, _roster_after(team, out_list, in_list))["used"]
+	var after := _roster_after(team, out_list, in_list)
+	var pick := _lineup_pick(team, after)
+	var used: Dictionary = pick["used"]
+	var slots := float(maxi(1, team.scheme.slot_ids().size()))
 	var vals: Array = []
 	for a in in_list:
 		var v := neutral_value(season, a)
 		if not is_pick(a):
 			var s: Soldier = a["soldier"]
 			var prospect := s.age <= 24 and s.potential_ovr() >= s.best_ovr() + 4
-			if not used.has(s) and not prospect:
+			if used.has(s):
+				# Credit in proportion to how much he lifts the lineup (rating points over the slots).
+				var gain: float = (float(pick["strength"]) - _lineup_strength(team, after.filter(func(x): return x != s))) * slots
+				v *= clampf(BENCH_USE + (1.0 - BENCH_USE) * gain / FULL_UPGRADE, BENCH_USE, 1.0)
+			elif not prospect:
 				v *= BENCH_USE
 		vals.append(v)
 	vals.sort()
@@ -1079,6 +1157,8 @@ func _guard(season: Season, team: Team, out_list: Array, in_list: Array) -> Stri
 				return "%s would mostly get bench players back." % team.name
 			if lineup_change(team, out_list, in_list) < -OFFER_LINEUP_TOLERANCE:
 				return "%s would weaken its lineup." % team.name
+			if sidegrade(team, out_list, in_list):
+				return "%s would swap a starter for an older player with a worse outlook." % team.name
 		return ""
 	if outp.is_empty():
 		return ""
