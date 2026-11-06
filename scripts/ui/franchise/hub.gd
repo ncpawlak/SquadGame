@@ -2888,7 +2888,8 @@ func _settings_view(v: VBoxContainer) -> void:
 	var trade_card := _stat_card("Trade Difficulty", String(Trades.DIFFICULTY_NAMES[td]).to_upper(), "TRADES",
 		"Click to switch. [color=white]Easy[/color]: the AI can be fleeced. [color=white]Normal[/color]: fair swaps. [color=white]Hard[/color]: the AI wants an edge", UiKit.TRIM,
 		func():
-			Trades.set_difficulty((Trades.difficulty() + 1) % Trades.DIFFICULTY_NAMES.size())
+			season.settings.trade_difficulty = (Trades.difficulty() + 1) % Trades.DIFFICULTY_NAMES.size()
+			season.settings.apply()
 			refresh())
 	var fs := _soon_card("Franchise Settings", "Difficulty, injuries, cap", ["Sim difficulty", "Injuries on/off and frequency", "Salary cap rules"])
 	v.add_child(UiKit.heading("FRANCHISE", 22))
@@ -2908,7 +2909,8 @@ func _settings_view(v: VBoxContainer) -> void:
 	var anim := _stat_card("Animations", "REDUCED" if reduced else "ON", "INTERFACE",
 		"Reduce animations is [color=white]%s[/color]. Click to turn it %s" % ["on" if reduced else "off", "off" if reduced else "on"], UiKit.TRIM,
 		func():
-			Fx.set_reduced(not Fx.is_reduced())
+			season.settings.reduce_animations = not Fx.is_reduced()
+			season.settings.apply()
 			refresh())
 	v.add_child(_card_row("SettingsSystem", [dbg, menu, anim], 4))
 
