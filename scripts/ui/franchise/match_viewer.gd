@@ -76,7 +76,7 @@ func _ready() -> void:
 	mid.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	mid.add_theme_constant_override("separation", 10)
 	root.add_child(mid)
-	mid.add_child(_build_team_panel(0))
+	mid.add_child(_build_team_panel(1))  # away on the left, home on the right ("away @ home")
 	var center := VBoxContainer.new()
 	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	center.add_theme_constant_override("separation", 6)
@@ -96,14 +96,14 @@ func _ready() -> void:
 	_feed.custom_minimum_size.y = 130
 	_feed.add_theme_font_size_override("normal_font_size", 16)
 	feed_panel.add_child(_feed)
-	mid.add_child(_build_team_panel(1))
+	mid.add_child(_build_team_panel(0))
 
 	root.add_child(_build_controls())
 
 	_card = UiKit.panel(Color(UiKit.PANEL_HI, 0.97), 14)
 	_card.visible = false
 	add_child(_card)
-	_log("[color=#8b97ab]%s vs %s  -  best of 3. Space pauses.[/color]" % [UiKit.esc(teams[0].name), UiKit.esc(teams[1].name)])
+	_log("[color=#8b97ab]%s @ %s  -  best of 3. Space pauses.[/color]" % [UiKit.esc(teams[1].name), UiKit.esc(teams[0].name)])
 	_refresh_hud()
 
 
@@ -237,7 +237,7 @@ func _show_intermission(g: Dictionary) -> void:
 	var r := engine.result()
 	var body := "GAME %d  -  %s\n%s win  %s\n\nSeries  %s %d - %d %s\nNext: %s" % [
 		g["number"], MatchEngine.mode_name(g["mode"]).to_upper(), teams[w].name, MatchResult.game_score_text(g),
-		teams[0].abbrev, r.score[0], r.score[1], teams[1].abbrev, MatchEngine.mode_name(MatchEngine.GAME_ORDER[g["number"]])]
+		teams[1].abbrev, r.score[1], r.score[0], teams[0].abbrev, MatchEngine.mode_name(MatchEngine.GAME_ORDER[g["number"]])]
 	_open_card(body, teams[w].color, "Continue", func():
 		_card.visible = false
 		_hold = false)
@@ -286,7 +286,8 @@ func _build_scoreboard() -> Control:
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 16)
 	p.add_child(h)
-	for i in 2:
+	for k in 2:
+		var i := 1 - k  # left slot shows the away team (teams[1]), right shows home (teams[0])
 		var side := HBoxContainer.new()
 		side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		side.alignment = BoxContainer.ALIGNMENT_END if i == 0 else BoxContainer.ALIGNMENT_BEGIN
@@ -298,11 +299,11 @@ func _build_scoreboard() -> Control:
 		name_l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var score := UiKit.label("0", 40, Color.WHITE)
 		score.custom_minimum_size.x = 110
-		score.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT if i == 0 else HORIZONTAL_ALIGNMENT_LEFT
-		var parts: Array = [sw, name_l, score] if i == 0 else [score, name_l, sw]
+		score.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT if k == 0 else HORIZONTAL_ALIGNMENT_LEFT
+		var parts: Array = [sw, name_l, score] if k == 0 else [score, name_l, sw]
 		for c in parts:
 			side.add_child(c)
-		if i == 0:
+		if k == 0:
 			_score_l = score
 			h.add_child(side)
 			var mid := VBoxContainer.new()
@@ -407,11 +408,11 @@ func _refresh_hud() -> void:
 	var score := engine.game_score()
 	var r := engine.result()
 	if mode == MatchEngine.MODE_KOTH:
-		_score_l.text = MatchEngine._fmt_secs(score[0])
-		_score_r.text = MatchEngine._fmt_secs(score[1])
+		_score_l.text = MatchEngine._fmt_secs(score[1])
+		_score_r.text = MatchEngine._fmt_secs(score[0])
 	else:
-		_score_l.text = str(int(score[0]))
-		_score_r.text = str(int(score[1]))
+		_score_l.text = str(int(score[1]))
+		_score_r.text = str(int(score[0]))
 	var goal := ""
 	match mode:
 		MatchEngine.MODE_TDM:
@@ -427,7 +428,7 @@ func _refresh_hud() -> void:
 			goal = "ROUND %d  -  FIRST TO %d" % [engine.round_number(), MatchEngine.ROUNDS_TO_WIN]
 	_mid_label.text = "[b]GAME %d  -  %s[/b]\n%s   [color=#8b97ab]%s[/color]" % [
 		maxi(engine.game_number(), 1), MatchEngine.MODE_SHORT.get(mode, "TDM"), goal, MatchEngine._fmt_secs(engine.clock_s())]
-	_series.text = "SERIES  %s  %s  %s" % [_pips(r.score[0]), "-", _pips(r.score[1])]
+	_series.text = "SERIES  %s  %s  %s" % [_pips(r.score[1]), "-", _pips(r.score[0])]
 	for id in _rows:
 		var c: MatchEngine.Combatant = _by_id[id]
 		var row: Dictionary = _rows[id]

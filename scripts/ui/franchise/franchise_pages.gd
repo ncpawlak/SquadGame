@@ -454,7 +454,7 @@ func recap(m: ScheduledMatch) -> Control:
 	for rec: Dictionary in m.records:
 		v.add_child(UiKit.label(_record_banner(rec), 16, UiKit.ACCENT))
 	v.add_child(_pbp_button(m))
-	for t in r.teams:
+	for t in [m.away, m.home]:
 		v.add_child(_section("%s BOX SCORE" % t.name.to_upper()))
 		var rows: Array = []
 		var colors := {}

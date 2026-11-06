@@ -407,7 +407,7 @@ func _sim_week_steps(ls: LoadingScreen, base: float, span: float, total: float, 
 	var units := matches.size() + 2.0
 	for i in matches.size():
 		var m: ScheduledMatch = matches[i]
-		var what := ("Recording your result: %s vs %s" if m.is_played() else "Playing %s vs %s") % [m.home.abbrev, m.away.abbrev]
+		var what := ("Recording your result: %s @ %s" if m.is_played() else "Playing %s @ %s") % [m.away.abbrev, m.home.abbrev]
 		await ls.step(prefix + "%s  (match %d of %d)" % [what, i + 1, matches.size()], base + span * (i + 1) / units, total)
 		season.play_week_match(m)
 	await ls.step(prefix + "Wrapping up: injuries, morale, news & trades", base + span * (units - 1) / units, total)
