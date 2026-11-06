@@ -25,7 +25,7 @@ The Web preset is the no-threads build, so it runs on any static host without sp
 
 ## Franchise mode (main screen)
 
-Title → New Franchise → pick one of 20 teams → franchise hub (Madden/CFB-style). Title → Load Franchise opens the save slots.
+Title → New Franchise → choose a start point (Manager / GM, or Player, coming soon) → pick one of 20 teams → franchise hub (Madden/CFB-style). Title → Load Franchise opens the save slots.
 
 - **The league** (`scripts/core/league_data.gd`, `data/league.json`): 20 fixed franchises in 4 divisions of 5 -
   East (NYE, DET, BOS, IND, BKN), South (CHA, ATL, MIA, NSH, ORL), Central (ARL, CHI, STL, LOU, LRK) and West
