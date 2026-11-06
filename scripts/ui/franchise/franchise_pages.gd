@@ -316,13 +316,13 @@ func matchup(m: ScheduledMatch) -> Control:
 	_add_weather_chip(v, m)
 	var h := _row(20)
 	h.alignment = BoxContainer.ALIGNMENT_CENTER
-	h.add_child(_matchup_side(m.home, "HOME"))
-	var vs := UiKit.label("VS", 54, UiKit.MUTED)
+	h.add_child(_matchup_side(m.away, "AWAY"))
+	var vs := UiKit.label("@", 54, UiKit.MUTED)
 	vs.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	vs.custom_minimum_size.x = 90
 	vs.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	h.add_child(vs)
-	h.add_child(_matchup_side(m.away, "AWAY"))
+	h.add_child(_matchup_side(m.home, "HOME"))
 	v.add_child(h)
 	var btns := _row(20)
 	btns.alignment = BoxContainer.ALIGNMENT_CENTER
