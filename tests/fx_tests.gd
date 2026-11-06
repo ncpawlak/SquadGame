@@ -33,19 +33,6 @@ func _normal_mode() -> void:
 	_check(l.text == "40", "skipped count lands on the final value (%s)" % l.text)
 	_check(not Fx.busy(), "nothing is running after a skip")
 
-	# CapBar upgrade: draws the old rating first, and a skip settles on the new one.
-	var bar := CapBar.new(50, 99, Color.GREEN)
-	bar.size = Vector2(400, 24)
-	holder.add_child(bar)
-	bar.play_gain(45)
-	_check(is_equal_approx(bar._shown, 45.0), "bar starts drawn at the old rating")
-	for i in 3:
-		await process_frame
-	_check(Fx.busy(), "bar gain is animating")
-	Fx.skip_all()
-	await process_frame
-	_check(bar._shown < 0.0 and bar._sweep < 0.0 and is_zero_approx(bar._glow), "skipped bar returns to its plain draw state")
-
 	# count_memo: first show is static, a later change animates from the old number.
 	var m := Label.new()
 	holder.add_child(m)
@@ -77,10 +64,6 @@ func _reduced_mode() -> void:
 	holder.add_child(l)
 	Fx.count_between(l, 0, 25, "%d", 1.0)
 	_check(l.text == "25" and not Fx.busy(), "count shows the final value at once")
-	var bar := CapBar.new(60, 99, Color.GREEN)
-	holder.add_child(bar)
-	bar.play_gain(55)
-	_check(bar._shown < 0.0 and not Fx.busy(), "bar gain does not animate")
 	var c := Control.new()
 	holder.add_child(c)
 	Fx.stamp(c)

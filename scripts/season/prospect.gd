@@ -20,6 +20,9 @@ var reveals: Dictionary = {}
 var tiers: Dictionary = {}
 ## group -> times scouted (indexes Draft.WINDOW_WIDTHS).
 var scouts: Dictionary = {}
+## One note per scout point, oldest first: {stat, text, mood (-2..2), point}. Each hints at where a single
+## rating sits in the class (see Draft.note_for). The groups' tier windows are the broad read; notes are the detail.
+var notes: Array[Dictionary] = []
 ## League-wide read of his draft value (true value plus a fixed evaluation error).
 var consensus := 0.0
 ## 1-based rank on the consensus big board; drives the projected round.

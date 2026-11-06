@@ -124,10 +124,9 @@ func _init() -> void:
 		await process_frame
 		await process_frame
 	_check(prog_guy.skill_points == 0, "clicking a group spends SP")
-	# He stays on screen while the rating animation plays, then the page closes.
-	if not Fx.is_reduced():
-		_check(hub.page_stack[-1]["title"] == "Player Progression", "progression stays open while the rating animation plays")
-		await create_timer(1.8).timeout
+	# No rating animation: the page closes straight away once nobody is left to level up.
+	await process_frame
+	await process_frame
 	_check(hub.page_stack.is_empty() or hub.page_stack[-1]["title"] != "Player Progression", "progression closes when no one is left to level up")
 	hub.select_tab(1)
 	await process_frame
