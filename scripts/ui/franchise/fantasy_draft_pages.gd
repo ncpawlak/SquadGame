@@ -102,6 +102,14 @@ func room() -> Control:
 	var head := "%s[font_size=26][color=%s]%s[/color][/font_size]   Round %d of %d  -  Pick %d" % [UiKit.logo_bb(team, 40),
 		"#f59e0b" if mine else "white", "YOU ARE ON THE CLOCK" if mine else "On the clock: " + UiKit.esc(team.name),
 		d.round_number(), d.ROUNDS, d.pick_number()]
+	if not mine:
+		var nxt := -1
+		for i in range(d.pick_index, d.order.size()):
+			if d.order[i] == s.user_team():
+				nxt = i + 1
+				break
+		if nxt > 0:
+			head += "   -  [color=#f59e0b]Your next pick: #%d (%d away)[/color]" % [nxt, nxt - d.pick_number()]
 	var banner := UiKit.rich(head, 16)
 	banner.name = "FantasyBanner"
 	banner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -142,6 +150,8 @@ func room() -> Control:
 	var right := _vbox(8)
 	right.custom_minimum_size.x = 430
 	right.size_flags_horizontal = Control.SIZE_SHRINK_END
+	right.add_child(_section("YOUR PICK SLOTS"))
+	right.add_child(_slots(d))
 	right.add_child(_section("YOUR PICKS  (%d)" % d.team_picks(s.user_team()).size()))
 	right.add_child(_picks_list(d.team_picks(s.user_team()), 12))
 	right.add_child(_section("RECENT PICKS"))
@@ -237,11 +247,18 @@ func _fill_board() -> void:
 	if rows.is_empty():
 		_board_box.add_child(UiKit.label("Nobody matches.", 16, UiKit.MUTED))
 		return
-	_board_box.add_child(UiKit.table(["PLAYER", "ROLE", "AGE", "OVR", "POT"], rows, [250, 110, 50, 60, 100], hl, {},
+	for r in rows:
+		r.append("")
+	var tbl := UiKit.table(["PLAYER", "ROLE", "AGE", "OVR", "POT", ""], rows, [250, 110, 50, 60, 100, 70], hl, {},
 		func(i: int):
 			selected = shown[i]
 			_fill_board()
-			_update_selection()))
+			_update_selection())
+	_board_box.add_child(tbl)
+	for i in shown.size():
+		var rb := tbl.get_child(i + 1) as Control  # child 0 is the header
+		if rb != null:
+			_add_view_button(rb, shown[i])
 	if list.size() > BOARD_ROWS:
 		_board_box.add_child(UiKit.label("Showing the top %d of %d. Search or filter to narrow it." % [BOARD_ROWS, list.size()], 14, UiKit.MUTED))
 
@@ -260,6 +277,19 @@ func _update_selection() -> void:
 			_sel_label.text = "Selected: %s  (%s, age %d, OVR %d)" % [selected.full_name(), _role_name(selected), selected.age, selected.best_ovr()]
 
 
+## A small "View" button pinned to the right edge of a row: opens that player's card.
+func _add_view_button(row: Control, x: Soldier) -> void:
+	var b := UiKit.button("View", func(): hub.pages.open_player(x), 14)
+	b.name = "ViewPlayer"
+	b.tooltip_text = "Open %s's player card" % x.full_name()
+	b.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
+	b.offset_left = -78
+	b.offset_right = -8
+	b.offset_top = -15
+	b.offset_bottom = 15
+	row.add_child(b)
+
+
 func _picks_list(picks: Array, limit: int, with_team := false) -> Control:
 	var box := _vbox(2)
 	if picks.is_empty():
@@ -274,10 +304,56 @@ func _picks_list(picks: Array, limit: int, with_team := false) -> Control:
 		var x: Soldier = p["soldier"]
 		var t: Team = p["team"]
 		var line := "%s%s%s  (%s, %d)" % ["#%d  R%d   " % [p["pick"], p["round"]] if int(p["pick"]) > 0 else "", (t.abbrev + "  ") if with_team else "", x.full_name(), _role_name(x), x.best_ovr()]
-		box.add_child(UiKit.label(line, 15, UiKit.ACCENT if t == user else UiKit.TEXT))
+		var r := _row(6)
+		var l := UiKit.label(line, 15, UiKit.ACCENT if t == user else UiKit.TEXT)
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		l.clip_text = true
+		r.add_child(l)
+		r.add_child(UiKit.button("View", func(): hub.pages.open_player(x), 13))
+		box.add_child(r)
 	if picks.size() > limit:
 		box.add_child(UiKit.label("+ %d more" % (picks.size() - limit), 14, UiKit.MUTED))
 	return box
+
+
+## Every slot the user holds in the snake: round, overall pick number and who they took (or when it comes up).
+func _slots(d) -> Control:
+	var user := _season().user_team()
+	var made := {}
+	for p in d.results():
+		made[int(p["pick"])] = p["soldier"]
+	var rows: Array = []
+	var picked: Array = []
+	var hl := {}
+	var per_round: int = maxi(1, d.order.size() / d.ROUNDS)
+	var next_found := false
+	for i in d.order.size():
+		if d.order[i] != user:
+			continue
+		var pick_no: int = int(i) + 1
+		var who := ""
+		if made.has(pick_no):
+			who = made[pick_no].full_name()
+			picked.append(made[pick_no])
+		elif pick_no == d.pick_number():
+			who = "ON THE CLOCK"
+			hl[rows.size()] = UiKit.MINE
+			next_found = true
+			picked.append(null)
+		else:
+			var away: int = pick_no - d.pick_number()
+			who = "%d pick%s away" % [away, "" if away == 1 else "s"]
+			if not next_found:
+				hl[rows.size()] = UiKit.MINE
+				next_found = true
+			picked.append(null)
+		rows.append(["R%d" % (i / per_round + 1), "#%d" % pick_no, who])
+	var tbl := UiKit.table(["RND", "PICK", "PLAYER"], rows, [50, 60, 230], hl, {},
+		func(i: int):
+			if picked[i] != null:
+				hub.pages.open_player(picked[i]))
+	tbl.name = "FantasySlots"
+	return tbl
 
 
 # --- actions -----------------------------------------------------------------------
