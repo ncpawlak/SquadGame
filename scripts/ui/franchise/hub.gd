@@ -18,6 +18,7 @@ var pages: FranchisePages
 var club: ClubPages
 var legacy_pages: LegacyPages
 var stats_pages: StatsPages
+var fantasy: FantasyDraftPages
 
 var tab_index := 0
 ## Each entry: {"title": String, "build": Callable -> Control}. Empty = showing tab tiles.
@@ -48,6 +49,8 @@ func _ready() -> void:
 	stats_pages = StatsPages.new()
 	stats_pages.hub = self
 	stats_pages.pages = pages
+	fantasy = FantasyDraftPages.new()
+	fantasy.hub = self
 	_bg = Control.new()
 	_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -87,6 +90,9 @@ func _ready() -> void:
 	root.add_child(footer)
 
 	refresh()
+	# A franchise that starts or loads mid fantasy draft opens straight into the room.
+	if FantasyDraftPages.is_drafting(season):
+		fantasy.open_room()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -329,6 +335,9 @@ func coming_soon(title: String, bullets: Array) -> void:
 
 func advance() -> void:
 	if simming:
+		return
+	if FantasyDraftPages.is_drafting(season):
+		fantasy.open_room()
 		return
 	if season.phase == Season.PHASE_OFFSEASON:
 		_advance_offseason()
@@ -960,9 +969,17 @@ func _todo(title: String, _body: String, _accent: Color, cb: Callable, done := f
 func _todo_tiles(team: Team) -> Array:
 	var out: Array = []
 	var off := season.phase == Season.PHASE_OFFSEASON
+	if FantasyDraftPages.is_drafting(season):
+		# Everything else waits for the draft.
+		return [_todo("Fantasy Draft", "[color=#38bdf8]The league draft is on.[/color]
+Pick your 15-man roster.", UiKit.INFO, fantasy.open_room, false, true)]
 	var roster := _roster_status(team)
 	if not roster.is_empty():
 		out.append(_todo(roster["title"], roster["body"], UiKit.BAD, roster["cb"], false, true))
+	if FantasyDraftPages.roster_set_open(season):
+		out.append(_todo("Set Roster", "%d / %d roster  -  %d / %d Green Team
+Move players for free this week." % [team.roster.size(), Team.ROSTER_SIZE, team.green_team.size(), Team.GREEN_SIZE],
+			Color("#22c55e"), fantasy.open_set_roster))
 	var green_err := GreenTeam.user_error(team)
 	var unhappy: Array = team.green_team.filter(func(x: Soldier): return x.trade_request)
 	if green_err != "" or not unhappy.is_empty():
@@ -2871,7 +2888,8 @@ func _settings_view(v: VBoxContainer) -> void:
 	var trade_card := _stat_card("Trade Difficulty", String(Trades.DIFFICULTY_NAMES[td]).to_upper(), "TRADES",
 		"Click to switch. [color=white]Easy[/color]: the AI can be fleeced. [color=white]Normal[/color]: fair swaps. [color=white]Hard[/color]: the AI wants an edge", UiKit.TRIM,
 		func():
-			Trades.set_difficulty((Trades.difficulty() + 1) % Trades.DIFFICULTY_NAMES.size())
+			season.settings.trade_difficulty = (Trades.difficulty() + 1) % Trades.DIFFICULTY_NAMES.size()
+			season.settings.apply()
 			refresh())
 	var fs := _soon_card("Franchise Settings", "Difficulty, injuries, cap", ["Sim difficulty", "Injuries on/off and frequency", "Salary cap rules"])
 	v.add_child(UiKit.heading("FRANCHISE", 22))
@@ -2891,7 +2909,8 @@ func _settings_view(v: VBoxContainer) -> void:
 	var anim := _stat_card("Animations", "REDUCED" if reduced else "ON", "INTERFACE",
 		"Reduce animations is [color=white]%s[/color]. Click to turn it %s" % ["on" if reduced else "off", "off" if reduced else "on"], UiKit.TRIM,
 		func():
-			Fx.set_reduced(not Fx.is_reduced())
+			season.settings.reduce_animations = not Fx.is_reduced()
+			season.settings.apply()
 			refresh())
 	v.add_child(_card_row("SettingsSystem", [dbg, menu, anim], 4))
 
