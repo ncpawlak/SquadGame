@@ -7,7 +7,6 @@ extends RefCounted
 ## kept untyped here (`season.fantasy_draft`), so this file does not depend on load order.
 
 const BOARD_ROWS := 60
-const SORTS := [[&"ovr", "OVR"], [&"pot", "POT"], [&"age", "AGE"], [&"role", "ROLE"]]
 const ROLE_OPTIONS := [[-1, "All"], [Scheme.Role.FRONTMAN, "Frontman"], [Scheme.Role.CENTER, "Center"], [Scheme.Role.FLEX, "Flex"]]
 
 var hub: Control  # hub.gd
@@ -184,30 +183,17 @@ func _filter_row() -> Control:
 		_fill_board())
 	r.add_child(le)
 	v.add_child(r)
-	var r2 := _row(8)
-	r2.add_child(UiKit.label("Sort:", 15, UiKit.MUTED))
-	for o in SORTS:
-		var key: StringName = o[0]
-		var active := sort_key == key
-		var b := _seg(o[1] + ((" v" if sort_desc else " ^") if active else ""), active, func():
-			if sort_key == key:
-				sort_desc = not sort_desc
-			else:
-				sort_key = key
-				sort_desc = key != &"age" and key != &"role"
-			_refresh(), 15)
-		b.custom_minimum_size.x = 90
-		r2.add_child(b)
-	v.add_child(r2)
+	v.add_child(UiKit.label("Click a column header to sort.", 13, UiKit.MUTED))
 	return v
 
 
 func _sort_value(x: Soldier) -> Variant:
 	match sort_key:
+		&"name": return x.full_name().to_lower()
 		&"pot": return x.potential_ovr()
 		&"age": return x.age
-		&"role": return int(Scheme.best_role(x.stats))
-	return x.best_ovr()
+		&"ovr": return x.best_ovr()
+	return x.group_rating(sort_key)
 
 
 func _board_list() -> Array:
@@ -229,6 +215,99 @@ func _board_list() -> Array:
 	return out
 
 
+const COL_NAME := 190
+const COL_AGE := 44
+const COL_POT := 86
+const COL_OVR := 60
+const COL_GROUP := 62
+const COL_VIEW := 70
+const ROW_H := 60
+
+
+func _cols() -> Array:
+	var cols := [["PLAYER", COL_NAME, &"name"], ["AGE", COL_AGE, &"age"], ["POT", COL_POT, &"pot"], ["OVR", COL_OVR, &"ovr"]]
+	for g in Stats.GROUP_ORDER:
+		cols.append([Stats.GROUP_LABELS[g].to_upper().left(4), COL_GROUP, g])
+	return cols
+
+
+func _set_sort(key: StringName) -> void:
+	if sort_key == key:
+		sort_desc = not sort_desc
+	else:
+		sort_key = key
+		sort_desc = key != &"age" and key != &"name"
+	_fill_board()
+
+
+## Clickable column headers: the active column shows an arrow.
+func _board_header() -> Control:
+	var panel := PanelContainer.new()
+	var sb := UiKit.flat(UiKit.PANEL_HI, 4)
+	sb.content_margin_top = 2
+	sb.content_margin_bottom = 2
+	sb.content_margin_left = 14
+	sb.content_margin_right = COL_VIEW + 28
+	panel.add_theme_stylebox_override("panel", sb)
+	var hb := _row(FranchisePages.PCOL_SEP)
+	for c in _cols():
+		var key: StringName = c[2]
+		var active := sort_key == key
+		var b := Button.new()
+		b.name = "Sort_" + String(key)
+		b.text = c[0] + ((" v" if sort_desc else " ^") if active else "")
+		b.flat = true
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.clip_text = true
+		b.custom_minimum_size = Vector2(c[1], 30)
+		b.add_theme_font_size_override("font_size", 15)
+		b.add_theme_color_override("font_color", UiKit.ACCENT if active else UiKit.MUTED)
+		b.add_theme_color_override("font_hover_color", Color.WHITE)
+		b.add_theme_color_override("font_focus_color", Color.WHITE)
+		for state in ["normal", "hover", "pressed"]:
+			var f := UiKit.flat(Color.TRANSPARENT if state == "normal" else UiKit.LINE, 4)
+			f.content_margin_left = 0
+			f.content_margin_right = 0
+			f.content_margin_top = 2
+			f.content_margin_bottom = 2
+			b.add_theme_stylebox_override(state, f)
+		b.set_meta(&"skip_autofocus", true)
+		b.pressed.connect(func(): _set_sort(key))
+		hb.add_child(b)
+	panel.add_child(hb)
+	return panel
+
+
+func _board_row(x: Soldier) -> Control:
+	var pg: FranchisePages = hub.pages
+	var width := 28 + COL_VIEW + 14
+	for c in _cols():
+		width += int(c[1]) + FranchisePages.PCOL_SEP
+	var btn := Button.new()
+	UiKit.style_button(btn, UiKit.MINE if x == selected else UiKit.PANEL, UiKit.ACCENT, 6)
+	btn.custom_minimum_size = Vector2(width, ROW_H)
+	btn.pressed.connect(func():
+		selected = x
+		_fill_board()
+		_update_selection())
+	var hb := _row(FranchisePages.PCOL_SEP)
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hb.offset_left = 14
+	hb.offset_right = -(COL_VIEW + 22)
+	hb.offset_top = 4
+	hb.offset_bottom = -4
+	btn.add_child(hb)
+	hb.add_child(pg._two_lines(x.display_name(), Color.WHITE, _role_name(x), COL_NAME))
+	hb.add_child(pg._big_cell(str(x.age), UiKit.TEXT, COL_AGE, 18))
+	hb.add_child(pg._pot_cell(x, COL_POT))
+	hb.add_child(pg._ovr_cell(x.best_ovr(), 0, COL_OVR))
+	for g in Stats.GROUP_ORDER:
+		hb.add_child(pg._rating_cell(x.group_rating(g), COL_GROUP))
+	_add_view_button(btn, x)
+	return btn
+
+
 func _fill_board() -> void:
 	if _board_box == null or not is_instance_valid(_board_box):
 		return
@@ -236,29 +315,12 @@ func _fill_board() -> void:
 		_board_box.remove_child(c)
 		c.queue_free()
 	var list := _board_list()
-	var rows: Array = []
-	var hl := {}
-	var shown := list.slice(0, BOARD_ROWS)
-	for i in shown.size():
-		var x: Soldier = shown[i]
-		rows.append([x.full_name(), _role_name(x), x.age, x.best_ovr(), x.potential_letter() + " (%d)" % x.potential_ovr()])
-		if x == selected:
-			hl[i] = UiKit.MINE
-	if rows.is_empty():
+	if list.is_empty():
 		_board_box.add_child(UiKit.label("Nobody matches.", 16, UiKit.MUTED))
 		return
-	for r in rows:
-		r.append("")
-	var tbl := UiKit.table(["PLAYER", "ROLE", "AGE", "OVR", "POT", ""], rows, [250, 110, 50, 60, 100, 70], hl, {},
-		func(i: int):
-			selected = shown[i]
-			_fill_board()
-			_update_selection())
-	_board_box.add_child(tbl)
-	for i in shown.size():
-		var rb := tbl.get_child(i + 1) as Control  # child 0 is the header
-		if rb != null:
-			_add_view_button(rb, shown[i])
+	_board_box.add_child(_board_header())
+	for x in list.slice(0, BOARD_ROWS):
+		_board_box.add_child(_board_row(x))
 	if list.size() > BOARD_ROWS:
 		_board_box.add_child(UiKit.label("Showing the top %d of %d. Search or filter to narrow it." % [BOARD_ROWS, list.size()], 14, UiKit.MUTED))
 
@@ -283,10 +345,11 @@ func _add_view_button(row: Control, x: Soldier) -> void:
 	b.name = "ViewPlayer"
 	b.tooltip_text = "Open %s's player card" % x.full_name()
 	b.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
-	b.offset_left = -78
+	b.offset_left = -(COL_VIEW + 8)
 	b.offset_right = -8
-	b.offset_top = -15
-	b.offset_bottom = 15
+	b.offset_top = -16
+	b.offset_bottom = 16
+	b.custom_minimum_size = Vector2(COL_VIEW, 32)
 	row.add_child(b)
 
 
