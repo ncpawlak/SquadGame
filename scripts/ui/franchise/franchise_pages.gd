@@ -1733,7 +1733,7 @@ func _player_overview(s: Soldier, team: Team) -> Control:
 
 	body.add_child(_section("CORE ATTRIBUTES  -  (±n) = today's morale + chemistry effect"))
 	var grid := GridContainer.new()
-	grid.columns = 7
+	grid.columns = 4  # 16 stats = 4 even rows; 7 across was wider than a 1600px window once text was boosted
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 10)
 	var mods := s.stat_mods()
@@ -1747,7 +1747,8 @@ func _player_overview(s: Soldier, team: Team) -> Control:
 
 func _attr_tile(st: StringName, value: int, delta: int) -> Control:
 	var p := UiKit.panel(UiKit.PANEL_HI, 8)
-	p.custom_minimum_size.x = 132
+	p.custom_minimum_size.x = 108
+	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var box := _vbox(4)
 	box.add_child(UiKit.label(Stats.LABELS[st].to_upper(), 11, UiKit.MUTED))
 	var r := UiKit.rich("[font_size=26][color=white]%d[/color][/font_size]%s" % [value, delta_bb(delta, 15)], 16)
@@ -1757,7 +1758,7 @@ func _attr_tile(st: StringName, value: int, delta: int) -> Control:
 	bar.max_value = 99
 	bar.value = value
 	bar.show_percentage = false
-	bar.custom_minimum_size = Vector2(100, 5)
+	bar.custom_minimum_size = Vector2(70, 5)
 	bar.add_theme_stylebox_override("background", _bar_style(UiKit.LINE))
 	bar.add_theme_stylebox_override("fill", _bar_style(UiKit.ovr_color(value)))
 	box.add_child(bar)
@@ -4356,20 +4357,20 @@ func _camp_board(s: Season) -> Control:
 	var v := _vbox(8)
 	v.add_child(UiKit.rich("[font_size=13][color=#8b97ab]CAMP BOARD  ·  ASSIGNING TO[/color][/font_size]  [font_size=20][color=%s]%s[/color][/font_size]  [font_size=14][color=#8b97ab]%s  -  click a player to assign, click again to remove[/color][/font_size]" % [
 		UiKit.hex(UiKit.ACCENT.lightened(0.3)), Camp.drill_name(g).to_upper(), Stats.GROUP_LABELS[g]], 16))
-	var head := _row(14)
+	var head := _row(10)
 	var spacer := Control.new()
-	spacer.custom_minimum_size.x = 14 + 48 + 14 + 260
+	spacer.custom_minimum_size.x = 14 + 48 + 10 + 190
 	head.add_child(spacer)
 	for c in [["OVR", 64], ["POT", 64], ["POOL", 70]]:
 		head.add_child(_col_head(c[0], c[1]))
 	for gr in Stats.GROUP_ORDER:
-		var hl := _col_head(Stats.GROUP_LABELS[gr].to_upper(), 92)
+		var hl := _col_head(Stats.GROUP_LABELS[gr].to_upper(), 90)
 		if gr == g:
 			hl.add_theme_color_override("font_color", UiKit.ACCENT.lightened(0.3))
 			hl.text = "▼ " + hl.text
 		head.add_child(hl)
-	head.add_child(_col_head("BEST DRILL", 170))
-	head.add_child(_col_head("CAMP", 200))
+	head.add_child(_col_head("BEST DRILL", 150))
+	head.add_child(_col_head("CAMP", 150))
 	v.add_child(head)
 	var list: Array = user.roster.filter(func(so: Soldier): return not s.camp.has_attended(so))
 	list.sort_custom(func(a: Soldier, b: Soldier):
@@ -4394,7 +4395,7 @@ func _camp_board(s: Season) -> Control:
 		row.custom_minimum_size.y = 64
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.pressed.connect(func(): _camp_assign(p))
-		var hb := _row(14)
+		var hb := _row(10)
 		hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		hb.set_anchors_preset(Control.PRESET_FULL_RECT)
 		hb.offset_left = 14
@@ -4404,7 +4405,7 @@ func _camp_board(s: Season) -> Control:
 		por.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		hb.add_child(por)
 		hb.add_child(_two_lines(so.display_name(), Color.WHITE if why == "" else UiKit.MUTED,
-			"%s  ·  age %d" % [Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], so.age], 260, 17))
+			"%s  ·  age %d" % [Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], so.age], 190, 17))
 		var ovr := so.best_ovr()
 		var ol := _big_cell(str(ovr), UiKit.ovr_color(ovr), 64, 30)
 		ol.add_theme_font_override("font", UiKit.font_heavy)
@@ -4413,9 +4414,9 @@ func _camp_board(s: Season) -> Control:
 		var pool := Camp.pool_range(so.dev)
 		hb.add_child(_big_cell("%d-%d" % [pool[0], pool[1]], UiKit.GOOD, 70, 18))
 		for gr in Stats.GROUP_ORDER:
-			hb.add_child(_rating_cell(so.group_rating(gr), 92))
+			hb.add_child(_rating_cell(so.group_rating(gr), 90))
 		var best := _camp_best_drill(s, so)
-		hb.add_child(_big_cell(Camp.drill_name(best) if best != &"" else "-", UiKit.TRIM if best == g else UiKit.MUTED, 170, 15))
+		hb.add_child(_big_cell(Camp.drill_name(best) if best != &"" else "-", UiKit.TRIM if best == g else UiKit.MUTED, 150, 15))
 		var tag := "+ Assign"
 		var tag_c := UiKit.INFO
 		if here:
@@ -4427,7 +4428,7 @@ func _camp_board(s: Season) -> Control:
 		elif why != "":
 			tag = "Injured" if so.is_injured() else ("Capped" if why.contains("capped") else "Unavailable")
 			tag_c = UiKit.BAD
-		hb.add_child(_big_cell(tag, tag_c, 200, 15))
+		hb.add_child(_big_cell(tag, tag_c, 150, 15))
 		v.add_child(row)
 	return v
 
