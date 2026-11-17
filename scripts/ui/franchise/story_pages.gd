@@ -30,8 +30,7 @@ static func list_page(season: Season, hub) -> Control:
 	v.add_child(UiKit.label("Pick a story to read it, see what it needs and make your call.", 16, UiKit.MUTED))
 	for st: Dictionary in shown:
 		var live: bool = st["status"] == Storylines.STATUS_ACTIVE
-		var kicker := "ARC  -  " if season.storylines.is_arc(st["kind"]) else ""
-		var sub := "%s%s  -  %s" % [kicker, season.storylines.stage_name(st).to_upper(), season.storylines.status_line(st, season)]
+		var sub := "%s  -  %s  -  %s" % [StoryDefs.KIND_LABEL.get(st["kind"], "STORY"), season.storylines.stage_name(st).to_upper(), season.storylines.status_line(st, season)]
 		var badge := "DECISION NEEDED" if Storylines.decision_open(st) else ("" if live else "DONE")
 		var id: int = st["id"]
 		var tile := UiKit.tile(String(st["title"]), sub, Vector2(PAGE_W - 40, 104), PURPLE if live else UiKit.MUTED,
@@ -54,7 +53,7 @@ static func detail_page(season: Season, id: int, hub) -> Control:
 		return v
 	var sl := season.storylines
 	var live: bool = st["status"] == Storylines.STATUS_ACTIVE
-	var kicker := "%s%s" % ["ARC  -  " if sl.is_arc(st["kind"]) else "", sl.stage_name(st).to_upper()]
+	var kicker := "%s  -  %s" % [StoryDefs.KIND_LABEL.get(st["kind"], "STORY"), sl.stage_name(st).to_upper()]
 	v.add_child(UiKit.label(kicker, 14, UiKit.GOLD if live else UiKit.MUTED))
 
 	v.add_child(UiKit.heading("The scenario", 20))
@@ -72,7 +71,7 @@ static func detail_page(season: Season, id: int, hub) -> Control:
 	if not (dec["options"] as Array).is_empty():
 		v.add_child(UiKit.heading("Your call", 20))
 		if dec["open"]:
-			v.add_child(_para("%s Pick one before the first meeting. This can't be changed once you lock it in." % dec["prompt"], 16, UiKit.MUTED))
+			v.add_child(_para("%s Pick one %s. This can't be changed once you lock it in." % [dec["prompt"], dec["window"]], 16, UiKit.MUTED))
 		elif st["choice"] == StoryDefs.STAY:
 			v.add_child(_para("The first meeting came before you made a call, so this one played out on its own.", 16, UiKit.MUTED))
 		var row := HBoxContainer.new()

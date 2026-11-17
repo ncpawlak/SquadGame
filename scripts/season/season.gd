@@ -493,6 +493,7 @@ func prepare_week() -> void:
 		else:
 			Training.run_week(t)
 		GreenTeam.weekly_reps(t)
+	storylines.prepare_week(self)
 	_week_prepared = true
 
 
