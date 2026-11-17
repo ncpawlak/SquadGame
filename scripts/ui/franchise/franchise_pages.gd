@@ -1816,9 +1816,16 @@ func _header_chip(title: String, value: String) -> Control:
 	return p
 
 
-## Overview right column: this season's numbers, then the last five matches.
-func _player_snapshot(s: Soldier, team: Team) -> Control:
-	var season: Season = hub.season
+## Lets a label wrap inside a narrow column instead of widening it.
+func _wrapped(l: Label, min_width := 150) -> Label:
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.custom_minimum_size.x = min_width
+	return l
+
+
+## A boxed panel used by the Overview's right column.
+func _side_panel() -> PanelContainer:
 	var p := PanelContainer.new()
 	var sb := UiKit.flat(Color(UiKit.PANEL, 0.85), 4, 1, Color(1, 1, 1, 0.08))
 	sb.border_width_top = 3
@@ -1830,66 +1837,75 @@ func _player_snapshot(s: Soldier, team: Team) -> Control:
 	p.add_theme_stylebox_override("panel", sb)
 	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	p.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	var v := _vbox(12)
+	return p
+
+
+## Overview right column: his four abilities as emblems with names (descriptions are on the Ratings tab),
+## then his OVR at each position.
+func _player_snapshot(s: Soldier, team: Team) -> Control:
+	var col := _vbox(14)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var p := _side_panel()
+	var v := _vbox(8)
 	p.add_child(v)
-	v.add_child(UiKit.heading("%d Season" % season.year, 20))
-	var line: Dictionary = s.season_lines.get(season.year, {})
-	var k := int(line.get("kills", 0))
-	var hits := int(line.get("hits", 0))
-	var nums := GridContainer.new()
-	nums.columns = 3
-	nums.add_theme_constant_override("h_separation", 18)
-	nums.add_theme_constant_override("v_separation", 10)
-	for d in [["GP", str(int(line.get("matches", 0)))], ["KILLS", str(k)], ["K/D", "%.2f" % (float(k) / maxi(1, int(line.get("deaths", 0))))],
-			["ASSISTS", str(int(line.get("assists", 0)))], ["ACC", "%d%%" % roundi(100.0 * hits / maxi(1, int(line.get("shots", 0))))], ["DMG", str(roundi(line.get("damage", 0)))]]:
-		var cell := _vbox(-4)
-		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		cell.add_child(UiKit.display(d[1], 40, UiKit.TRIM.lightened(0.15), true))
-		cell.add_child(UiKit.label(d[0], 12, UiKit.MUTED))
-		nums.add_child(cell)
-	v.add_child(nums)
-	v.add_child(_section("LAST 5 MATCHES"))
-	var logs: Array = []
-	for w in range(season.total_weeks(), 0, -1):
-		for m: ScheduledMatch in season.matches_for_week(w):
-			if logs.size() < 5 and m.is_played() and m.result.box.has(s.id):
-				logs.append([w, m])
-	if logs.is_empty():
-		v.add_child(UiKit.label("No matches played this season yet.", 15, UiKit.MUTED))
-	for e in logs:
-		var m: ScheduledMatch = e[1]
-		var r: MatchResult = m.result
-		var bl: Dictionary = r.box[s.id]
-		var idx: int = bl["team"]
-		var mine: Team = r.teams[idx]
-		var opp: Team = r.teams[1 - idx]
-		var won := r.winner_index == idx
-		var row := Button.new()
-		UiKit.style_button(row, UiKit.PANEL_HI, UiKit.ACCENT, 3)
-		row.custom_minimum_size.y = 40
-		row.pressed.connect(func(): hub.open("Match Recap", func(): return recap(m)))
-		var h := _row(12)
-		h.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		h.set_anchors_preset(Control.PRESET_FULL_RECT)
-		h.offset_left = 12
-		h.offset_right = -12
-		row.add_child(h)
-		h.add_child(_big_cell(season.week_label(e[0]).to_upper(), UiKit.MUTED, 92, 13))
-		var wl := _big_cell("W" if won else "L", UiKit.GOOD if won else UiKit.BAD, 18, 18)
-		wl.add_theme_font_override("font", UiKit.font_heavy)
-		h.add_child(wl)
-		h.add_child(_big_cell("%d-%d  %s %s" % [r.score[idx], r.score[1 - idx], "vs" if m.home == mine else "@", opp.abbrev], Color.WHITE, 130, 15))
-		var kd := _big_cell("%d K  %d D  %d A" % [int(bl.get("kills", 0)), int(bl.get("deaths", 0)), int(bl.get("assists", 0))], UiKit.TEXT, 0, 15)
-		kd.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		kd.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		h.add_child(kd)
-		if r.mvp_id == s.id:
-			h.add_child(_big_cell("MVP", UiKit.GOLD, 36, 13))
-		v.add_child(row)
-	if team != null:
-		var full := UiKit.button("Full game log", func(): _player_refresh(s, 3), 14)
-		full.size_flags_horizontal = Control.SIZE_SHRINK_END
-		v.add_child(full)
+	v.add_child(UiKit.heading("Abilities", 20))
+	for i in Abilities.MAX_SLOTS:
+		v.add_child(_ability_medal(s.abilities[i] if i < s.abilities.size() else {}))
+	var more := UiKit.button("Ability details", func(): _player_refresh(s, 1), 14)
+	more.size_flags_horizontal = Control.SIZE_SHRINK_END
+	v.add_child(more)
+	col.add_child(p)
+	col.add_child(_position_panel(s, team))
+	return col
+
+
+func _position_panel(s: Soldier, team: Team) -> Control:
+	var p := _side_panel()
+	var v := _vbox(10)
+	p.add_child(v)
+	v.add_child(UiKit.heading("Position OVR", 20))
+	var cur_role := _row_role(team, s)
+	var ovrs := _row(8)
+	for r in Scheme.ROLE_NAMES:
+		var o := s.ovr_at_role(r)
+		var tile := PanelContainer.new()
+		tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var psb := UiKit.flat(UiKit.ACCENT.darkened(0.6) if r == cur_role else UiKit.PANEL_HI, 6, 2 if r == cur_role else 0, UiKit.TRIM)
+		psb.skew = Vector2(UiKit.SKEW, 0)
+		psb.content_margin_left = 16
+		tile.add_theme_stylebox_override("panel", psb)
+		var box := _vbox(0)
+		box.add_child(UiKit.label(Scheme.ROLE_NAMES[r].to_upper(), 13, UiKit.MUTED))
+		var rt := UiKit.rich("[font_size=30][color=%s]%d[/color][/font_size]%s" % [UiKit.hex(UiKit.ovr_color(o)), o, delta_bb(s.morale_ovr_delta(r), 16)], 16)
+		rt.autowrap_mode = TextServer.AUTOWRAP_OFF
+		rt.custom_minimum_size.x = 100
+		box.add_child(rt)
+		tile.add_child(box)
+		ovrs.add_child(tile)
+	v.add_child(ovrs)
+	return p
+
+
+## One rating-group chip: its name, rating and a bar. The stats behind it are on the Ratings tab.
+func _group_chip(s: Soldier, g: StringName) -> Control:
+	var rating := s.group_rating(g)
+	var p := UiKit.panel(UiKit.PANEL_HI, 8)
+	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	p.custom_minimum_size.x = 150
+	var box := _vbox(4)
+	box.add_child(UiKit.label(Stats.GROUP_LABELS[g].to_upper(), 12, UiKit.MUTED))
+	var r := UiKit.rich("[font_size=30][color=%s]%d[/color][/font_size]" % [UiKit.hex(UiKit.ovr_color(rating)), rating], 16)
+	r.autowrap_mode = TextServer.AUTOWRAP_OFF
+	box.add_child(r)
+	var bar := ProgressBar.new()
+	bar.max_value = 99
+	bar.value = rating
+	bar.show_percentage = false
+	bar.custom_minimum_size = Vector2(70, 5)
+	bar.add_theme_stylebox_override("background", _bar_style(UiKit.LINE))
+	bar.add_theme_stylebox_override("fill", _bar_style(UiKit.ovr_color(rating)))
+	box.add_child(bar)
+	p.add_child(box)
 	return p
 
 
@@ -1898,7 +1914,7 @@ func _player_overview(s: Soldier, team: Team) -> Control:
 	var h := _row(22)
 	# Left action rail.
 	var rail := _vbox(8)
-	rail.custom_minimum_size.x = 220
+	rail.custom_minimum_size.x = 210
 	var add_action := func(text: String, cb: Callable, enabled := true):
 		var b := UiKit.button(text, cb, 16)
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -1919,8 +1935,6 @@ func _player_overview(s: Soldier, team: Team) -> Control:
 				add_action.call("Send Down", func(): confirm_send_down(s, back),
 					GreenTeam.send_down_error(season, team, s) == "")
 		add_action.call("Upgrade Ratings (%d SP)" % s.skill_points, func(): _player_refresh(s, 1))
-		add_action.call("Contract", func(): _player_refresh(s, 2))
-		add_action.call("Release", func(): _player_refresh(s, 2))
 		var tr := _season().trades
 		add_action.call("★ On the Block" if tr.block.has(s.id) else "Put on Trade Block", func():
 			if tr.block.has(s.id):
@@ -1932,16 +1946,14 @@ func _player_overview(s: Soldier, team: Team) -> Control:
 	elif team == null and s.retired_year == 0:
 		add_action.call("Make Offer", func(): open_offer(s))
 		add_action.call("Sign to Green Team", func(): confirm_green_sign(s, func(): _player_refresh(s, 0)), GreenTeam.sign_error(_season(), _season().user_team(), s) == "")
-		add_action.call("Ratings", func(): _player_refresh(s, 1))
 	else:
 		if team != null and s.retired_year == 0:
 			add_action.call("Trade for Him", func(): open_trade(team, Trades.player_asset(s)), Trades.tradeable(s))
-		add_action.call("Ratings", func(): _player_refresh(s, 1))
-		add_action.call("Contract", func(): _player_refresh(s, 2))
-	add_action.call("Season Stats", func(): _player_refresh(s, 3))
 	h.add_child(rail)
 
 	var body := _vbox(16)
+	# Both columns share the width evenly whatever the soldier's text, so the boxes never shift between players.
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var gauges := _row(18)
 	gauges.add_child(_ring_block("MORALE", s.morale, 100.0, morale_color(s.morale), str(roundi(s.morale)), Soldier.morale_label(s.morale), 96))
 	if s.is_injured():
@@ -1953,70 +1965,146 @@ func _player_overview(s: Soldier, team: Team) -> Control:
 	gauges.add_child(_ring_block("NEXT LEVEL", float(xp[0]), float(xp[1]), UiKit.INFO, "%d%%" % roundi(100.0 * xp[0] / maxf(1.0, xp[1])), "%sx XP" % str(Progression.xp_multiplier(s)), 96))
 	var factors := _vbox(4)
 	factors.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	factors.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	factors.add_child(UiKit.label("MORALE FACTORS", 12, UiKit.MUTED))
 	var reasons := Morale.factors(s, team)
 	if reasons.is_empty():
 		reasons.append("Nothing in particular")
 	for r in reasons:
-		factors.add_child(UiKit.label(r, 15, UiKit.GOOD if r.ends_with("(+)") else (UiKit.BAD if r.ends_with("(-)") else UiKit.TEXT)))
+		factors.add_child(_wrapped(UiKit.label(r, 15, UiKit.GOOD if r.ends_with("(+)") else (UiKit.BAD if r.ends_with("(-)") else UiKit.TEXT))))
 	var steps := s.morale_steps()
-	factors.add_child(UiKit.label("Morale effect: %s" % ("none (75-85 is neutral)" if steps == 0 else "%d stat%s %s" % [absi(steps), "" if absi(steps) == 1 else "s",
-		"boosted" if steps > 0 else "lowered"]), 14, UiKit.MUTED))
+	factors.add_child(_wrapped(UiKit.label("Morale effect: %s" % ("none (75-85 is neutral)" if steps == 0 else "%d stat%s %s" % [absi(steps), "" if absi(steps) == 1 else "s",
+		"boosted" if steps > 0 else "lowered"]), 14, UiKit.MUTED)))
 	gauges.add_child(factors)
 	body.add_child(gauges)
 
-	body.add_child(_section("POSITION OVR"))
-	var cur_role := _row_role(team, s)
-	var ovrs := _row(12)
-	for r in Scheme.ROLE_NAMES:
-		var o := s.ovr_at_role(r)
-		var p := PanelContainer.new()
-		var psb := UiKit.flat(UiKit.ACCENT.darkened(0.6) if r == cur_role else UiKit.PANEL_HI, 6, 2 if r == cur_role else 0, UiKit.TRIM)
-		psb.skew = Vector2(UiKit.SKEW, 0)
-		psb.content_margin_left = 20
-		p.add_theme_stylebox_override("panel", psb)
-		var box := _vbox(0)
-		box.add_child(UiKit.label(Scheme.ROLE_NAMES[r].to_upper(), 13, UiKit.MUTED))
-		var rt := UiKit.rich("[font_size=30][color=%s]%d[/color][/font_size]%s" % [UiKit.hex(UiKit.ovr_color(o)), o, delta_bb(s.morale_ovr_delta(r), 16)], 16)
-		rt.autowrap_mode = TextServer.AUTOWRAP_OFF
-		rt.custom_minimum_size.x = 140
-		box.add_child(rt)
-		p.add_child(box)
-		ovrs.add_child(p)
-	body.add_child(ovrs)
-
-	body.add_child(_section("CORE ATTRIBUTES  -  (±n) = today's morale + chemistry effect"))
-	var grid := GridContainer.new()
-	grid.columns = 4  # 16 stats = 4 even rows; 7 across was wider than a 1600px window once text was boosted
-	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 10)
-	var mods := s.stat_mods()
-	for st in Stats.ALL:
-		grid.add_child(_attr_tile(st, int(s.stats[st]), int(mods.get(st, 0))))
-	body.add_child(grid)
+	body.add_child(_section("RATINGS  -  open the Ratings tab for every stat"))
+	var chips := GridContainer.new()
+	chips.columns = 3
+	chips.add_theme_constant_override("h_separation", 10)
+	chips.add_theme_constant_override("v_separation", 10)
+	for g in Stats.GROUP_ORDER:
+		chips.add_child(_group_chip(s, g))
+	body.add_child(chips)
 	h.add_child(body)
 	h.add_child(_player_snapshot(s, team))
 	return h
 
 
-func _attr_tile(st: StringName, value: int, delta: int) -> Control:
-	var p := UiKit.panel(UiKit.PANEL_HI, 8)
-	p.custom_minimum_size.x = 108
+## Tier colours for ability cards: locked, bronze, silver, gold.
+const ABILITY_TIER_COLORS := [Color("#6b7280"), Color("#cd7f32"), Color("#c3ccd8"), Color("#f5c542")]
+
+
+## One compact row: a round tier emblem and the ability's name ({} = an open slot).
+func _ability_medal(e: Dictionary) -> Control:
+	var h := _row(14)
+	h.custom_minimum_size.y = 50
+	var tier := int(e.get("tier", 0))
+	h.add_child(AbilityEmblem.new(tier, 42.0, e.is_empty()))
+	var name_label: Label
+	if e.is_empty():
+		name_label = UiKit.display("OPEN SLOT", 20, UiKit.MUTED)
+	else:
+		name_label = UiKit.display(Abilities.ability_name(e["id"]).to_upper(), 22, Color.WHITE if tier > 0 else UiKit.MUTED)
+	name_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(name_label)
+	return h
+
+
+## The Ratings tab's expanded ability cards (issue #124): up to four across two columns, locked ones greyed,
+## open slots empty.
+func _abilities_section(s: Soldier) -> Control:
+	var v := _vbox(10)
+	v.add_child(_section("ABILITIES"))
+	var sub := UiKit.label("Earned from rating combinations: bronze %d+, silver %d+, gold %d+ in every required rating. A slot is permanent: below bronze an ability locks, keeps its slot, and returns when the ratings recover." % [
+		Abilities.CUTOFFS[0], Abilities.CUTOFFS[1], Abilities.CUTOFFS[2]], 14, UiKit.MUTED)
+	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sub.custom_minimum_size.x = 300
+	v.add_child(sub)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	for i in Abilities.MAX_SLOTS:
+		grid.add_child(_ability_card(s, s.abilities[i]) if i < s.abilities.size() else _ability_empty())
+	v.add_child(grid)
+	return v
+
+
+func _ability_card(s: Soldier, e: Dictionary) -> Control:
+	var d := Abilities.def(e["id"])
+	var tier := int(e["tier"])
+	var col: Color = ABILITY_TIER_COLORS[tier]
+	var p := PanelContainer.new()
 	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var box := _vbox(4)
-	box.add_child(UiKit.label(Stats.LABELS[st].to_upper(), 11, UiKit.MUTED))
-	var r := UiKit.rich("[font_size=26][color=white]%d[/color][/font_size]%s" % [value, delta_bb(delta, 15)], 16)
-	r.autowrap_mode = TextServer.AUTOWRAP_OFF
-	box.add_child(r)
-	var bar := ProgressBar.new()
-	bar.max_value = 99
-	bar.value = value
-	bar.show_percentage = false
-	bar.custom_minimum_size = Vector2(70, 5)
-	bar.add_theme_stylebox_override("background", _bar_style(UiKit.LINE))
-	bar.add_theme_stylebox_override("fill", _bar_style(UiKit.ovr_color(value)))
-	box.add_child(bar)
-	p.add_child(box)
+	p.custom_minimum_size.x = 300
+	var sb := UiKit.flat(UiKit.PANEL_HI if tier > 0 else UiKit.PANEL, 8, 0)
+	sb.border_width_left = 5
+	sb.border_color = col
+	sb.content_margin_left = 12
+	sb.content_margin_top = 7
+	sb.content_margin_bottom = 7
+	p.add_theme_stylebox_override("panel", sb)
+	var h := _row(12)
+	h.add_child(AbilityEmblem.new(tier, 40.0))
+	var box := _vbox(0)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# Name and description share a line; the required ratings sit under it.
+	var line := _row(10)
+	var title := UiKit.display(String(d["name"]).to_upper(), 20, Color.WHITE if tier > 0 else UiKit.MUTED)
+	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	line.add_child(title)
+	var blurb := UiKit.label(String(d["blurb"]), 14, UiKit.TEXT if tier > 0 else UiKit.MUTED)
+	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	blurb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	blurb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	blurb.custom_minimum_size.x = 120
+	line.add_child(blurb)
+	box.add_child(line)
+	# The required ratings and today's values: below bronze in red, otherwise the tier colour they reach.
+	var parts: Array = []
+	for st in d["stats"]:
+		var val := int(s.stats[st])
+		var c: Color = UiKit.BAD if val < Abilities.CUTOFFS[0] else ABILITY_TIER_COLORS[Abilities.tier_for_level(val)]
+		parts.append("[color=%s]%s[/color] [color=%s]%d[/color]" % [UiKit.hex(UiKit.MUTED), Stats.ABBREV[st], UiKit.hex(c), val])
+	box.add_child(UiKit.rich("   ".join(parts), 14))
+	h.add_child(box)
+	# What the sim is applying right now at this tier.
+	var fx := Abilities.effect_of(e["id"], tier)
+	var chip := _vbox(-2)
+	chip.custom_minimum_size.x = 170
+	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var val := UiKit.display(String(fx["value"]), 28, col if tier > 0 else UiKit.MUTED, true)
+	val.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	chip.add_child(val)
+	var unit := UiKit.label(String(fx["unit"]), 12, UiKit.MUTED)
+	unit.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	unit.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	unit.custom_minimum_size.x = 170
+	chip.add_child(unit)
+	h.add_child(chip)
+	p.add_child(h)
+	return p
+
+
+func _ability_empty() -> Control:
+	var p := PanelContainer.new()
+	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	p.custom_minimum_size.x = 300
+	var sb := UiKit.flat(Color(0, 0, 0, 0), 8, 2, UiKit.LINE)
+	sb.content_margin_left = 12
+	sb.content_margin_top = 7
+	sb.content_margin_bottom = 7
+	p.add_theme_stylebox_override("panel", sb)
+	var h := _row(12)
+	h.add_child(AbilityEmblem.new(0, 40.0, true))
+	var box := _vbox(0)
+	box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	box.add_child(UiKit.display("NO ABILITY YET", 20, UiKit.MUTED))
+	box.add_child(UiKit.label("Earned when a combination of ratings reaches %d." % Abilities.CUTOFFS[0], 14, UiKit.MUTED))
+	h.add_child(box)
+	p.add_child(h)
 	return p
 
 
@@ -2047,6 +2135,7 @@ func _player_ratings(s: Soldier, team: Team) -> Control:
 		auto.disabled = s.skill_points <= 0
 		actions.add_child(auto)
 		v.add_child(actions)
+	v.add_child(_abilities_section(s))
 	v.add_child(_section("RATINGS BY GROUP  -  +1 group = random points across its stats (max +%d each)  -  white stats count toward OVR at %s" % [
 		Progression.MAX_STAT_GAIN_PER_UPGRADE, Scheme.ROLE_NAMES[role]]))
 	var weights: Dictionary = Scheme.ROLE_WEIGHTS[role]

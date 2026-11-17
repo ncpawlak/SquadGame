@@ -140,6 +140,8 @@ func test_primitives_round_trip() -> void:
 	s.revenue.ensure(s)
 	s.facilities.ensure(s)
 	s.ledger.ensure(s)
+	# ... and so are abilities (loading refreshes them for every soldier).
+	Abilities.refresh_league(l, 0)
 	s.economy_version = Contracts.ECONOMY_VERSION
 	s.green_version = 1
 	s.injury_log = [t.roster[0], t.roster[0], &"name", Vector2i(3, 4), 1, 1.0, PackedInt32Array([1, 2])]

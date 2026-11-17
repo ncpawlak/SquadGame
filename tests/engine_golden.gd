@@ -15,6 +15,8 @@ const BOX_FLOATS := ["damage", "hill_s", "contest_s"]
 func _init() -> void:
 	Season.fixture_teams = 5
 	Season.backfill_careers = false
+	# The golden is the sim without ability effects: it proves they are the only thing that changes a match.
+	Abilities.effects_enabled = false
 	var lines: Array[String] = []
 	for sd in SEEDS:
 		lines.append("%d %s" % [sd, _signature(sd)])
