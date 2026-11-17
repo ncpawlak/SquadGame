@@ -9,7 +9,6 @@ static func page(season: Season) -> Control:
 	v.name = "StorylinesPage"
 	v.add_theme_constant_override("separation", 14)
 	v.custom_minimum_size.x = 760
-	v.add_child(UiKit.display("STORYLINES", 34, Color.WHITE, true))
 	var sl := season.storylines
 	var shown: Array = sl.active.duplicate()
 	shown.append_array(sl.finished_in(season.year))
