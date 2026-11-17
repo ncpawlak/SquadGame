@@ -205,6 +205,7 @@ static func new_franchise(seed_value: int, user_team_index := 0, start_year := 2
 		s.preseason_camp = true
 		# Scouting opens in Week 1: the first week's points arrive when camp closes.
 		s.draft.scout_points = 0
+	Abilities.refresh_league(s.league, start_year)
 	s._stamp_log()
 	return s
 
@@ -481,6 +482,7 @@ func prepare_week() -> void:
 	_stamp_log()
 	last_signings = fa.resolve(self, _rng, week_label(week))
 	_fix_rosters()
+	Abilities.refresh_league(league, year)
 	GreenTeam.auto_covers(self)
 	_prepare_lineups()
 	for t in league.teams:
@@ -980,6 +982,7 @@ func advance_offseason() -> Array:
 	_step = step_label()
 	var label := _step
 	var signed := _advance_offseason_step()
+	Abilities.refresh_league(league, year)
 	_step = ""
 	market.tick(self, label)
 	newsroom.publish_offseason(self, label)

@@ -159,6 +159,7 @@ static func from_text(text: String) -> Season:
 		s.ledger.ensure(s)
 		s.league.ensure_callsigns()
 		s.ensure_green_team()
+		Abilities.refresh_league(s.league, s.year)
 	return s
 
 

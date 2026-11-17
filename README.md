@@ -482,6 +482,8 @@ godot --headless --path . --script res://tests/ui_smoke.gd      # debug UI smoke
 godot --headless --path . --script res://tests/franchise_smoke.gd  # franchise menus through a full season
 godot --headless --path . --script res://tests/save_tests.gd    # save/load round trips and determinism after load
 godot --headless --path . --script res://tests/ledger_tests.gd  # stat ledger: phase split, once-only recording, saves (fast; ONLY=test_a,test_b)
+godot --headless --path . --script res://tests/ability_tests.gd  # player abilities: tiers, slots, locking, saves (fast; ONLY=test_a,test_b)
+godot --headless --path . --script res://tools/ability_distribution.gd  # dev tool: how many players qualify for each ability at candidate cut-offs
 godot --headless --path . --script res://tests/engine_golden.gd  # match engine golden: fixed seeds keep their results (GOLDEN_WRITE=1 only when the sim should change)
 ```
 
@@ -510,6 +512,12 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
     soldiers read a quiet fight sooner and flank faster). Composure: accuracy under fire. Teamwork: crossfire bonus.
   - Anchor / Breach / Objective IQ: King of the Hill (below). Injury: injury chance. **Toughness**: only how long
     an injury lasts.
+- **Abilities** (`scripts/core/abilities.gd`, issue #124; state and rules in place, match effects and the player-page UI come next): 25 named
+  combinations of ratings from different groups. A soldier holds up to 4 (`Soldier.abilities`). Tier = his lowest required rating:
+  bronze 75, silver 88, gold 95. He earns an ability the first time its ratings are met and he has a free slot (ranked by margin over
+  the ability's league median); below bronze it **locks** but keeps its slot, so slots are never freed and nothing replaces it; it
+  returns if the ratings recover. Refreshed on every rating change (`Soldier.log_progress`) and by a league sweep (new league, each
+  week, offseason steps, load).
 - **Schemes** (`scripts/core/scheme.gd`): six formations of the same three roles.
   - **Swing**: 2 Frontmen, Center, Left Flex, Right Flex. **Wide-Left / Wide-Right**: 2 Frontmen, Center, both
     Flexes on one side. **Wall**: 3 Frontmen, a Mid Flex behind, Center at the back. **Spread**: 4 Flexes (2 per

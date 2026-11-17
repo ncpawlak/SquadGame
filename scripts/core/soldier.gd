@@ -59,6 +59,10 @@ var skill_points: int = 0
 ## Nudges how the AI spends skill points.
 var usage: Dictionary = {}
 
+## Abilities he holds (see Abilities): [{id, tier, year}] in the order earned, at most Abilities.MAX_SLOTS.
+## Tier 0 = locked (keeps its slot). Kept current by Abilities.refresh.
+var abilities: Array = []
+
 # Condition
 ## 0-100. Builds from matches and training, recovers each week. Hurts performance above ~50
 ## and raises injury chance.
@@ -469,6 +473,8 @@ func log_progress(reason: String, changes: Dictionary, ovr_before: int, dev_from
 	for st in changes:
 		if int(changes[st]) != 0:
 			deltas[st] = int(changes[st])
+	if not deltas.is_empty():
+		Abilities.refresh(self)
 	if deltas.is_empty() and dev_from == dev_to:
 		return
 	if not history.is_empty() and dev_from == dev_to:
