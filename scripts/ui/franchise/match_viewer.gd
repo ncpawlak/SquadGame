@@ -10,6 +10,7 @@ signal finished(result: MatchResult)
 const SPEEDS := [2.0, 3.0, 5.0]
 const TRACER_S := 0.22
 const POPUP_S := 0.9
+const KILL_RING_S := 0.5
 const BANNER_S := 1.6
 const DOT_RADIUS := 21.0
 const PANEL_W := 340
@@ -31,6 +32,9 @@ var _patch_tex: Texture2D  # this match's puddles / snow patches, built on first
 var _by_id := {}  # soldier id -> Combatant
 var _tracers: Array = []  # {from_id, to, team, born, result}
 var _popups: Array = []  # {id, text, color, born}
+var _kills: Array = []  # {pos, born}: expanding ring where a soldier fell
+var _hp_trail := {}  # soldier id -> trailing hp fraction (the white drain behind the health bar)
+var _dt := 0.0
 var _banner := ""
 var _banner_until := 0.0
 var _hold := false  # waiting on an intermission / final card
@@ -76,7 +80,7 @@ func _ready() -> void:
 	mid.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	mid.add_theme_constant_override("separation", 10)
 	root.add_child(mid)
-	mid.add_child(_build_team_panel(0))
+	mid.add_child(_build_team_panel(1))  # away on the left, home on the right ("away @ home")
 	var center := VBoxContainer.new()
 	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	center.add_theme_constant_override("separation", 6)
@@ -96,14 +100,14 @@ func _ready() -> void:
 	_feed.custom_minimum_size.y = 130
 	_feed.add_theme_font_size_override("normal_font_size", 16)
 	feed_panel.add_child(_feed)
-	mid.add_child(_build_team_panel(1))
+	mid.add_child(_build_team_panel(0))
 
 	root.add_child(_build_controls())
 
 	_card = UiKit.panel(Color(UiKit.PANEL_HI, 0.97), 14)
 	_card.visible = false
 	add_child(_card)
-	_log("[color=#8b97ab]%s vs %s  -  best of 3. Space pauses.[/color]" % [UiKit.esc(teams[0].name), UiKit.esc(teams[1].name)])
+	_log("[color=#8b97ab]%s @ %s  -  best of 3. Space pauses.[/color]" % [UiKit.esc(teams[1].name), UiKit.esc(teams[0].name)])
 	_refresh_hud()
 
 
@@ -134,6 +138,7 @@ func set_speed(s: float) -> void:
 
 func _process(delta: float) -> void:
 	_clock += delta
+	_dt = delta
 	if not paused and not _hold and not engine.finished and _clock >= _banner_until:
 		_acc += delta * speed / MatchEngine.TICK_SECONDS
 		while _acc >= 1.0 and not _hold and not engine.finished:
@@ -160,6 +165,9 @@ func _consume_events() -> void:
 				_popup(e["id"], "RELOAD", UiKit.INFO)
 			"kill":
 				_log_kill(e)
+				if not Fx.is_reduced():
+					var fallen: MatchEngine.Combatant = _by_id[e["victim"]]
+					_kills.append({"pos": fallen.pos, "born": _clock})
 			"respawn":
 				_log("[color=%s]%s[/color] [color=#8b97ab]wiped - respawning in formation[/color]" % [_team_hex(e["team"]), teams[e["team"]].abbrev])
 			"hill":
@@ -228,6 +236,7 @@ func _log(text: String) -> void:
 func _expire_effects() -> void:
 	_tracers = _tracers.filter(func(t): return _clock - t["born"] < TRACER_S)
 	_popups = _popups.filter(func(p): return _clock - p["born"] < POPUP_S)
+	_kills = _kills.filter(func(k): return _clock - k["born"] < KILL_RING_S)
 
 
 # --- cards --------------------------------------------------------------------------
@@ -237,7 +246,7 @@ func _show_intermission(g: Dictionary) -> void:
 	var r := engine.result()
 	var body := "GAME %d  -  %s\n%s win  %s\n\nSeries  %s %d - %d %s\nNext: %s" % [
 		g["number"], MatchEngine.mode_name(g["mode"]).to_upper(), teams[w].name, MatchResult.game_score_text(g),
-		teams[0].abbrev, r.score[0], r.score[1], teams[1].abbrev, MatchEngine.mode_name(MatchEngine.GAME_ORDER[g["number"]])]
+		teams[1].abbrev, r.score[1], r.score[0], teams[0].abbrev, MatchEngine.mode_name(MatchEngine.GAME_ORDER[g["number"]])]
 	_open_card(body, teams[w].color, "Continue", func():
 		_card.visible = false
 		_hold = false)
@@ -286,7 +295,8 @@ func _build_scoreboard() -> Control:
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 16)
 	p.add_child(h)
-	for i in 2:
+	for k in 2:
+		var i := 1 - k  # left slot shows the away team (teams[1]), right shows home (teams[0])
 		var side := HBoxContainer.new()
 		side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		side.alignment = BoxContainer.ALIGNMENT_END if i == 0 else BoxContainer.ALIGNMENT_BEGIN
@@ -298,11 +308,11 @@ func _build_scoreboard() -> Control:
 		name_l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var score := UiKit.label("0", 40, Color.WHITE)
 		score.custom_minimum_size.x = 110
-		score.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT if i == 0 else HORIZONTAL_ALIGNMENT_LEFT
-		var parts: Array = [sw, name_l, score] if i == 0 else [score, name_l, sw]
+		score.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT if k == 0 else HORIZONTAL_ALIGNMENT_LEFT
+		var parts: Array = [sw, name_l, score] if k == 0 else [score, name_l, sw]
 		for c in parts:
 			side.add_child(c)
-		if i == 0:
+		if k == 0:
 			_score_l = score
 			h.add_child(side)
 			var mid := VBoxContainer.new()
@@ -407,11 +417,11 @@ func _refresh_hud() -> void:
 	var score := engine.game_score()
 	var r := engine.result()
 	if mode == MatchEngine.MODE_KOTH:
-		_score_l.text = MatchEngine._fmt_secs(score[0])
-		_score_r.text = MatchEngine._fmt_secs(score[1])
+		_score_l.text = MatchEngine._fmt_secs(score[1])
+		_score_r.text = MatchEngine._fmt_secs(score[0])
 	else:
-		_score_l.text = str(int(score[0]))
-		_score_r.text = str(int(score[1]))
+		_score_l.text = str(int(score[1]))
+		_score_r.text = str(int(score[0]))
 	var goal := ""
 	match mode:
 		MatchEngine.MODE_TDM:
@@ -427,7 +437,7 @@ func _refresh_hud() -> void:
 			goal = "ROUND %d  -  FIRST TO %d" % [engine.round_number(), MatchEngine.ROUNDS_TO_WIN]
 	_mid_label.text = "[b]GAME %d  -  %s[/b]\n%s   [color=#8b97ab]%s[/color]" % [
 		maxi(engine.game_number(), 1), MatchEngine.MODE_SHORT.get(mode, "TDM"), goal, MatchEngine._fmt_secs(engine.clock_s())]
-	_series.text = "SERIES  %s  %s  %s" % [_pips(r.score[0]), "-", _pips(r.score[1])]
+	_series.text = "SERIES  %s  %s  %s" % [_pips(r.score[1]), "-", _pips(r.score[0])]
 	for id in _rows:
 		var c: MatchEngine.Combatant = _by_id[id]
 		var row: Dictionary = _rows[id]
@@ -462,12 +472,16 @@ func _scale() -> float:
 	return minf(_map.size.x / (ArenaMap.HALF.x * 2.0), _map.size.y / (ArenaMap.HALF.y * 2.0))
 
 
+## World -> screen. The map is mirrored left-right so the away team starts on the left and the home
+## team on the right, matching the "away @ home" scoreboard and panels.
 func _to_screen(p: Vector2) -> Vector2:
-	return _map.size / 2.0 + p * _scale()
+	return _map.size / 2.0 + Vector2(-p.x, p.y) * _scale()
 
 
 func _rect_to_screen(r: Rect2) -> Rect2:
-	return Rect2(_to_screen(r.position), r.size * _scale())
+	var a := _to_screen(r.position)
+	var b := _to_screen(r.end)
+	return Rect2(Vector2(minf(a.x, b.x), minf(a.y, b.y)), (b - a).abs())
 
 
 func _display_pos(c: MatchEngine.Combatant) -> Vector2:
@@ -479,13 +493,18 @@ func _display_pos(c: MatchEngine.Combatant) -> Vector2:
 func _draw_map() -> void:
 	var sc := _scale()
 	var arena := _rect_to_screen(Rect2(-ArenaMap.HALF, ArenaMap.HALF * 2.0))
+	# Floor, patches, start zones and props are drawn through a left-right mirror (see _to_screen);
+	# text and the logo are drawn upright outside it.
+	var mirror := Transform2D(Vector2(-1, 0), Vector2(0, 1), Vector2(_map.size.x, 0))
+	_map.draw_set_transform_matrix(mirror)
 	FieldPainter.draw_floor(_map, engine.arena, _map.size / 2.0, sc)
 	if _patch_tex == null and not engine.weather.is_clear():
 		_patch_tex = FieldPainter.patch_texture(engine.weather)
 	FieldPainter.draw_patches(_map, _patch_tex, _map.size / 2.0, sc)
 	# Both starting areas wear the home team's tint, so the field reads as the home team's ground.
 	var tint := FieldPainter.start_tint(teams[0], engine.arena.surface)
-	FieldPainter.draw_start_areas(_map, _map.size / 2.0, sc, [tint, tint], [teams[0].abbrev, teams[1].abbrev], _font)
+	FieldPainter.draw_start_areas(_map, _map.size / 2.0, sc, [tint, tint], ["", ""], null)
+	_map.draw_set_transform_matrix(Transform2D.IDENTITY)  # the hill uses _rect_to_screen, which already mirrors
 	if engine.mode() == MatchEngine.MODE_KOTH:
 		var hs := engine.hill_state()
 		var col := Color(1, 1, 1, 0.10)
@@ -497,7 +516,20 @@ func _draw_map() -> void:
 		_map.draw_rect(hr, col)
 		_map.draw_rect(hr, Color(1, 1, 1, 0.55), false, 2.0)
 		_map.draw_string(_font, hr.position + Vector2(4, 14), "HILL", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.6))
-	FieldPainter.draw_props(_map, engine.arena, _map.size / 2.0, sc, UiKit.logo_tex(teams[0].abbrev))
+	_map.draw_set_transform_matrix(mirror)
+	FieldPainter.draw_props(_map, engine.arena, _map.size / 2.0, sc)
+	_map.draw_set_transform_matrix(Transform2D.IDENTITY)
+	var logo := UiKit.logo_tex(teams[0].abbrev)
+	if logo != null:
+		var ls := FieldPainter.LOGO_METRES * sc
+		_map.draw_texture_rect(logo, Rect2(_map.size / 2.0 - Vector2(ls, ls) / 2.0, Vector2(ls, ls)), false, Color(1, 1, 1, 0.4))
+	for i in 2:  # start-zone labels: world side 0 is home (now drawn on the right), side 1 is away
+		var zx0 := -ArenaMap.HALF.x if i == 0 else ArenaMap.START_X
+		var zx1 := -ArenaMap.START_X if i == 0 else ArenaMap.HALF.x
+		var zr := _rect_to_screen(Rect2(zx0, -ArenaMap.HALF.y, zx1 - zx0, ArenaMap.HALF.y * 2.0))
+		var zt: String = teams[0 if i == 0 else 1].abbrev
+		var zw := _font.get_string_size(zt, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+		_map.draw_string(_font, Vector2(zr.get_center().x - zw / 2.0, zr.position.y + 18.0), zt, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 1, 1, 0.55))
 	_map.draw_rect(arena, Color(1, 1, 1, 0.25), false, 2.0)
 	var venue_line := engine.arena.venue.to_upper()
 	if not engine.weather.is_clear():
@@ -528,6 +560,11 @@ func _draw_map() -> void:
 				if c.alive != pass_alive:
 					continue
 				_draw_soldier(c, sc)
+
+	for k in _kills:
+		var age: float = (_clock - k["born"]) / KILL_RING_S
+		var ring_at := _to_screen(k["pos"])
+		_map.draw_arc(ring_at, DOT_RADIUS + 26.0 * age, 0.0, TAU, 32, Color(1.0, 0.35, 0.25, 0.85 * (1.0 - age)), 3.0 * (1.0 - age) + 1.0, true)
 
 	FieldPainter.draw_precip(_map, engine.weather, _map.size, _clock)
 
@@ -560,8 +597,15 @@ func _draw_soldier(c: MatchEngine.Combatant, _sc: float) -> void:
 	_map.draw_circle(at, DOT_RADIUS, Color(t.color, a))
 	_map.draw_arc(at, DOT_RADIUS, 0, TAU, 32, Color(t.color2, a), 2.5, true)
 	if c.alive and c.target and c.target.alive:
-		var dir := (c.target.pos - c.pos).normalized()
+		# Aim direction in screen space: the map is mirrored left-right, so a world-space vector would point backwards.
+		var dir := (_to_screen(_display_pos(c.target)) - at).normalized()
 		_map.draw_circle(at + dir * (DOT_RADIUS + 3.0), 3.0, Color(t.color2, 0.9))
+	if c.alive:
+		# Posture: what the soldier is doing right now (cover, peeking, bounding, falling back...).
+		var label := String(c.posture).to_upper()
+		var pw := _font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 9).x
+		_map.draw_string(_font, at + Vector2(-pw / 2.0, -DOT_RADIUS - 4.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 9,
+			Color(1, 1, 1, 0.85))
 	var tag := c.soldier.tag()
 	var fs := 12
 	while fs > 7 and _font.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > DOT_RADIUS * 1.8:
@@ -574,6 +618,13 @@ func _draw_soldier(c: MatchEngine.Combatant, _sc: float) -> void:
 		var top := at + Vector2(-bw / 2.0, DOT_RADIUS + 3.0)
 		_map.draw_rect(Rect2(top, Vector2(bw, 4)), Color(0, 0, 0, 0.6))
 		var frac := clampf(c.hp / 100.0, 0.0, 1.0)
+		if not Fx.is_reduced():
+			var sid: int = c.soldier.id
+			var trail: float = _hp_trail.get(sid, frac)
+			trail = maxf(frac, trail - _dt * 0.9) if trail > frac else frac
+			_hp_trail[sid] = trail
+			if trail > frac:
+				_map.draw_rect(Rect2(top, Vector2(bw * trail, 4)), Color(1, 1, 1, 0.75))
 		_map.draw_rect(Rect2(top, Vector2(bw * frac, 4)), UiKit.GOOD if frac > 0.6 else (UiKit.ACCENT if frac > 0.3 else UiKit.BAD))
 	else:
 		_map.draw_line(at + Vector2(-7, -7), at + Vector2(7, 7), Color(1, 1, 1, 0.5), 2.0)

@@ -345,14 +345,11 @@ static func _reason(into: Dictionary, so: Soldier, reason: String, chance: float
 
 static func _find(league: League, id: int) -> Soldier:
 	for t in league.teams:
-		for s in t.roster:
+		for s in t.org():
 			if s.id == id:
 				return s
 	return null
 
 
 static func _team_of(league: League, so: Soldier) -> Team:
-	for t in league.teams:
-		if t.roster.has(so):
-			return t
-	return null
+	return league.team_of(so)

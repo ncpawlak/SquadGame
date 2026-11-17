@@ -16,6 +16,7 @@ func _init() -> void:
 			tests.append(String(method["name"]))
 	# Legacy tests run on a generated 5-team single-division league (fast); the expansion
 	# tests switch to the fixed 20-team league themselves.
+	Trades.difficulty_override = Trades.Difficulty.NORMAL
 	Season.fixture_teams = 5
 	Season.backfill_careers = false
 	Season.seed_records = false
@@ -479,7 +480,7 @@ func test_season_review_and_aging() -> void:
 	# Rookies get their draft year.
 	var rookies := 0
 	for t in s.league.teams:
-		for so in t.roster:
+		for so in t.org():
 			if so.draft_year == 2026:
 				rookies += 1
 	check(rookies > 0, "drafted soldiers record their draft year")
@@ -517,6 +518,35 @@ func test_draft_class_and_points() -> void:
 				for role in [Scheme.Role.FRONTMAN, Scheme.Role.CENTER, Scheme.Role.FLEX]:
 					check(p.soldier.ovr_at_role(role) >= 55, "phenom good at every role")
 	check(total >= 25 and total <= 60, "about one phenom per class (%d in 40)" % total)
+
+
+func test_scout_notes() -> void:
+	var d := Draft.generate(79, 2026, 1)
+	d.scout_points = 500
+	var p := d.prospects[0]
+	check(p.notes.is_empty(), "no notes before scouting")
+	while d.can_scout(p):
+		var before := p.notes.size()
+		d.scout(p)
+		check(p.notes.size() == before + 1, "each scout point adds exactly one note")
+		var n: Dictionary = p.notes[-1]
+		check(int(n["point"]) == p.points, "note remembers its scout point")
+		check(String(n["text"]) != "" and int(n["mood"]) >= -2 and int(n["mood"]) <= 2, "note has text and a mood")
+	var seen := {}
+	for n in p.notes:
+		check(not seen.has(n["stat"]), "no rating is noted twice")
+		seen[n["stat"]] = true
+	# The best rating in the class is called out as such.
+	for st in Stats.ALL:
+		var top := d.prospects[0]
+		for o in d.prospects:
+			if o.soldier.get_stat(st) > top.soldier.get_stat(st):
+				top = o
+		var standing := d.stat_standing(top, st)
+		check(standing.x == 0, "the class leader has nobody better")
+		var note := Draft.note_for(st, standing.x, standing.y, d.prospects.size())
+		check(int(note["mood"]) == 2 and String(note["text"]) == Draft.SUPERLATIVES[st][0], "class leader gets the best-in-class line")
+	check(int(Draft.note_for(Stats.SPEED, 55, 55, 110)["mood"]) == 0, "a middling rating is an average note")
 
 
 func test_scouting_windows() -> void:
@@ -569,7 +599,20 @@ func test_scouting_windows() -> void:
 	check(not d2.can_scout(d2.prospects[1]), "no points, no scouting")
 	check(Draft.window_text(Stats.ACCURACY, Vector2i(1, 4)) == "Inconsistent - Sharpshooter", "window text")
 	check(Draft.window_text(Stats.ACCURACY, null) == "?", "unseen text")
-	check(Draft.tier_of(57) == 0 and Draft.tier_of(58) == 1 and Draft.tier_of(85) == 3 and Draft.tier_of(86) == 4, "tier thresholds")
+	check(Draft.tier_for_pct(0.0) == 4 and Draft.tier_for_pct(0.049) == 4 and Draft.tier_for_pct(0.05) == 3 and Draft.tier_for_pct(0.19) == 3 and Draft.tier_for_pct(0.20) == 2 and Draft.tier_for_pct(0.54) == 2 and Draft.tier_for_pct(0.55) == 1 and Draft.tier_for_pct(0.84) == 1 and Draft.tier_for_pct(0.85) == 0, "tier percentile cutoffs")
+	for g in Stats.GROUP_ORDER:
+		var counts := [0, 0, 0, 0, 0]
+		var best := 0
+		for q in d.prospects:
+			counts[q.true_tier(g)] += 1
+			best = maxi(best, q.soldier.group_rating(g))
+		check(counts[4] >= 1 and counts[4] <= Draft.CLASS_SIZE * 0.1, "few elite prospects per group")
+		check(counts[0] >= Draft.CLASS_SIZE * 0.1, "some bottom-tier prospects per group")
+		var leader_ok := false
+		for q in d.prospects:
+			if q.soldier.group_rating(g) == best and q.true_tier(g) == 4:
+				leader_ok = true
+		check(leader_ok, "the class leader in a group is top tier")
 
 
 func test_draft_order_and_picks() -> void:
@@ -589,7 +632,7 @@ func test_draft_order_and_picks() -> void:
 	check(d.on_the_clock() == user, "stopped at user pick")
 	var p := d.available()[0]
 	check(d.make_pick(p), "user pick")
-	check(p.drafted_by == user and user.roster.has(p.soldier), "user got prospect")
+	check(p.drafted_by == user and user.green_team.has(p.soldier), "user got prospect (on the Green Team)")
 	check(not d.make_pick(p), "can't pick twice")
 	s.finish_draft()
 	check(d.is_complete(), "draft completed")
@@ -2023,6 +2066,318 @@ func test_trades() -> void:
 		check(t.roster.size() >= Trades.MIN_ROSTER and t.roster.size() <= Team.ROSTER_SIZE, "rosters stay legal (%s %d)" % [t.abbrev, t.roster.size()])
 
 
+# --- trade fairness (issue #103) -----------------------------------------------------
+
+## A fixed league with the user's team ready to receive offers: every AI team can trade, and the
+## user has a few players on the block.
+func _offer_league(seed_value: int) -> Season:
+	var s := _fixed(seed_value)
+	s.trades.block.clear()
+	for p in s.user_team().roster.slice(0, 3):
+		if Trades.tradeable(p):
+			s.trades.block[p.id] = true
+	return s
+
+
+func _gen_offers(s: Season, rounds: int, rng: RandomNumberGenerator) -> Array:
+	var out: Array = []
+	for r in rounds:
+		s.trades.offers.clear()
+		for t in s.league.teams:
+			s.trades.patience[t.abbrev] = Trades.PATIENCE
+		if s.trades.offer_to_user(s, rng):
+			out.append(s.trades.offers.back())
+	s.trades.offers.clear()
+	return out
+
+
+func _soldier_count(list: Array) -> int:
+	return list.filter(func(a): return not Trades.is_pick(a)).size()
+
+
+func test_trade_offers_fair() -> void:
+	var rng := RandomNumberGenerator.new()
+	for diff in [Trades.Difficulty.NORMAL, Trades.Difficulty.HARD, Trades.Difficulty.EASY]:
+		Trades.difficulty_override = diff
+		var total := 0
+		for sd in [201, 202]:
+			rng.seed = sd
+			var s := _offer_league(sd)
+			var tr := s.trades
+			var user := s.user_team()
+			for o in _gen_offers(s, 8, rng):
+				total += 1
+				var ai: Team = o["team"]
+				var give: Array = o["give"]
+				var get: Array = o["get"]
+				var f := tr.fair_ratio(s, give, get)
+				check(f >= Trades.FAIR_LOW and f <= Trades.FAIR_HIGH, "[%d] offer is market-fair for the user (%.2f)" % [diff, f])
+				var back := tr.fair_ratio(s, get, give)
+				check(back >= Trades.FAIR_LOW and back <= Trades.FAIR_HIGH, "[%d] and for the CPU team (%.2f)" % [diff, back])
+				check(tr.validate(s, user, get, ai, give) == "", "[%d] offer is legal" % diff)
+				check(tr.interest(s, ai, get, give) >= 1.0, "[%d] the CPU team is willing (interest %.2f)" % [diff, tr.interest(s, ai, get, give)])
+				check(String(o.get("reason", "")) != "", "[%d] offer explains itself" % diff)
+				check(user.roster.size() - _soldier_count(get) + _soldier_count(give) <= Team.ROSTER_SIZE, "[%d] offer doesn't force the user to cut" % diff)
+				check(ai.roster.size() - _soldier_count(give) + _soldier_count(get) <= Team.ROSTER_SIZE, "[%d] or the CPU team" % diff)
+				check(tr._guard(s, ai, give, get) == "", "[%d] CPU guardrails hold (%s)" % [diff, tr._guard(s, ai, give, get)])
+				check(is_equal_approx(float(o["fair"]), f), "[%d] offer records its fairness" % diff)
+		check(total > 0, "[%d] some offers were generated" % diff)
+	Trades.difficulty_override = Trades.Difficulty.NORMAL
+
+
+## Offers made to the user have to be worth having: players coming back help the lineup, they aren't
+## just rating points that would sit on the bench.
+func test_trade_offers_useful() -> void:
+	var rng := RandomNumberGenerator.new()
+	for diff in [Trades.Difficulty.NORMAL, Trades.Difficulty.HARD]:
+		Trades.difficulty_override = diff
+		var total := 0
+		for sd in [231, 232, 233]:
+			rng.seed = sd
+			var s := _offer_league(sd)
+			var tr := s.trades
+			var user := s.user_team()
+			for o in _gen_offers(s, 8, rng):
+				total += 1
+				var give: Array = o["give"]
+				var get: Array = o["get"]
+				check(tr.useful_ratio(s, user, give, get) >= Trades.FAIR_LOW, "[%d] offered package is usable to the user (%.2f)" % [diff, tr.useful_ratio(s, user, give, get)])
+				if _soldier_count(give) > 0:
+					check(tr.lineup_change(user, get, give) >= -Trades.OFFER_LINEUP_TOLERANCE, "[%d] and doesn't gut the lineup (%.2f)" % [diff, tr.lineup_change(user, get, give)])
+				check(o.has("useful") and o.has("lineup"), "[%d] offer records usefulness" % diff)
+		check(total > 0, "[%d] some usable offers were generated" % diff)
+	Trades.difficulty_override = Trades.Difficulty.NORMAL
+
+
+## The reported bad deal: a young starter for two 32-year-olds, one a marginal starter, one bench filler.
+func test_trade_bad_consolidation() -> void:
+	var s := _fixed(241)
+	var tr := s.trades
+	var user := s.user_team()
+	var top: Soldier = user.starters()[0]
+	for x in user.starters():
+		if x.best_ovr() > top.best_ovr():
+			top = x
+	top.age = 26
+	var role := Scheme.best_role(top.stats)
+	# Two real players a few points below him at the same role, made 32 with expiring deals.
+	var cands: Array = []
+	for t in s.league.teams:
+		if t.user_controlled:
+			continue
+		for p in t.roster:
+			if Scheme.best_role(p.stats) == role and p.best_ovr() <= top.best_ovr() - 4 and p.best_ovr() >= top.best_ovr() - 9:
+				cands.append(p)
+	cands.sort_custom(func(p: Soldier, q: Soldier): return p.best_ovr() > q.best_ovr())
+	check(cands.size() >= 2, "found two lesser players to offer")
+	if cands.size() < 2:
+		return
+	for p: Soldier in cands.slice(0, 2):
+		p.age = 32
+		p.contract = Contract.make(Contracts.MIN_SALARY, 1, s.year)
+	var give := [Trades.player_asset(top)]
+	var get := [Trades.player_asset(cands[0]), Trades.player_asset(cands[1])]
+	var u := tr.useful_ratio(s, user, get, give)
+	check(u < Trades.FAIR_LOW, "two older, lesser players for a young star isn't usable value (%.2f)" % u)
+	check(tr._guard(s, user, give, get) != "", "so it wouldn't be generated as an offer")
+	check(tr.lineup_change(user, give, []) < 0.0, "and losing the star alone weakens the lineup")
+	# The same player at 29, 30 and 34: worth less with age, and the drop accelerates.
+	var sample: Soldier = cands[0]
+	sample.contract = Contract.make(Contracts.MIN_SALARY, 3, s.year)  # no expiring-rental discount in the comparison
+	var vals: Array = []
+	for age in [29, 30, 34]:
+		sample.age = age
+		vals.append(tr._player_base(s, sample, Trades.BALANCED, false, 0.0))
+	check(vals[0] > vals[1] and vals[1] > vals[2], "value falls with age (%.0f > %.0f > %.0f)" % [vals[0], vals[1], vals[2]])
+	check(vals[1] - vals[2] > (vals[0] - vals[1]) * 2.0, "and falls faster the older he gets")
+
+
+## Projection: prospects climb toward their potential, veterans fall off, faster the older they get.
+func test_trade_projection() -> void:
+	var s := _fixed(251)
+	var sample: Soldier = s.user_team().roster[0]
+	sample.age = 22
+	check(Trades.projected_ovr(sample, 0) == float(sample.best_ovr()), "year 0 is his rating today")
+	check(Trades.projected_ovr(sample, 3) >= Trades.projected_ovr(sample, 0), "a 22-year-old doesn't project to get worse")
+	sample.age = 31
+	var d1 := Trades.projected_ovr(sample, 0) - Trades.projected_ovr(sample, 1)
+	var d3 := Trades.projected_ovr(sample, 2) - Trades.projected_ovr(sample, 3)
+	check(d1 > 0.0 and d3 > d1, "a veteran declines, and faster later (%.1f then %.1f)" % [d1, d3])
+	check(Trades.projected_avg(sample, 3) < float(sample.best_ovr()), "so his three-season average is below today's rating")
+
+
+## The reported sidegrade: an older, lower-potential player one point better now would bench a
+## younger starter with the same or better outlook. It must not be offered, and the user is warned.
+func test_trade_sidegrade() -> void:
+	var s := _fixed(261)
+	var tr := s.trades
+	var user := s.user_team()
+	var starter: Soldier = user.starters()[0]
+	for x in user.starters():
+		if x.best_ovr() < starter.best_ovr():
+			starter = x
+	starter.age = 24
+	var role := Scheme.best_role(starter.stats)
+	var vet: Soldier = null
+	for t in s.league.teams:
+		if t.user_controlled:
+			continue
+		for p in t.roster:
+			if Scheme.best_role(p.stats) == role and p.best_ovr() >= starter.best_ovr() and p.best_ovr() <= starter.best_ovr() + 4 and (vet == null or p.best_ovr() < vet.best_ovr()):
+				vet = p
+	check(vet != null, "found an older player a little better now")
+	if vet == null:
+		return
+	vet.age = 31
+	vet.contract = Contract.make(20000000, 4, s.year)
+	# Bench everyone else so the vet takes the young starter's slot... then trade a different bench body.
+	var bench_body: Soldier = user.bench()[0] if not user.bench().is_empty() else user.roster[user.roster.size() - 1]
+	var give := [Trades.player_asset(bench_body)]
+	var get := [Trades.player_asset(vet)]
+	if tr.lineup_change(user, give, get) > 0.0:
+		check(tr.sidegrade(user, give, get), "an older, lesser-outlook player who benches a starter is a sidegrade")
+		check(tr._guard(s, user, give, get) != "", "and wouldn't be generated as an offer")
+	# A straight swap counts too: trading the young starter away for the older player who takes his slot.
+	var swap_give := [Trades.player_asset(starter)]
+	var swap_used: Dictionary = tr._lineup_pick(user, tr._roster_after(user, swap_give, get))["used"]
+	check(swap_used.has(vet), "the vet takes the traded starter's slot")
+	if swap_used.has(vet):
+		check(tr.sidegrade(user, swap_give, get), "swapping a young starter for an older, lesser-outlook player in his slot is a sidegrade")
+		check(tr._guard(s, user, swap_give, get) != "", "and wouldn't be offered to the user")
+	# A much better young player isn't a sidegrade.
+	check(not tr.sidegrade(user, give, []), "taking nothing back is never a sidegrade")
+
+
+func test_trade_guardrails() -> void:
+	var s := _fixed(211)
+	var tr := s.trades
+	var user := s.user_team()
+	var ai: Team = s.league.teams.filter(func(t: Team): return t != user)[0]
+	tr.mode(s, ai)
+	tr._modes[ai] = Trades.BALANCED
+	var top: Soldier = ai.roster[0]
+	for x in ai.roster:
+		if x.best_ovr() > top.best_ovr():
+			top = x
+	var filler := PlayerGenerator.generate(RandomNumberGenerator.new(), 9300, Scheme.Role.FLEX, 45.0, 27)
+	filler.contract = Contract.make(Contracts.MIN_SALARY, 2, s.year)
+	var junk := [Trades.player_asset(filler)]
+	check(tr._guard(s, ai, [Trades.player_asset(top)], junk).contains("best player") or tr._guard(s, ai, [Trades.player_asset(top)], junk) != "", "a CPU team won't trade its best player for filler")
+	var pick := [Trades.pick_asset(s.draft.year, Draft.ROUNDS, user)]
+	check(tr._guard(s, ai, [Trades.player_asset(top)], pick) != "", "or for a late pick")
+	# Roster limit: a full team can't take a second body for one.
+	check(ai.roster.size() == Team.ROSTER_SIZE, "a full CPU roster")
+	var mid: Soldier = ai.roster.filter(func(x: Soldier): return x != top)[0]
+	check(tr._guard(s, ai, [Trades.player_asset(mid)], [Trades.player_asset(filler), Trades.player_asset(filler)]).contains("roster limit"), "no deal that forces a CPU team over the roster limit")
+	check(tr._guard(s, user, [], junk).contains("roster limit"), "or the user")
+	# A rebuilding team may sell a veteran best player.
+	tr._modes[ai] = Trades.REBUILDING
+	top.age = 33
+	check(tr._guard(s, ai, [Trades.player_asset(top)], pick).find("best player") < 0, "a rebuilding team can move its aging best player")
+	# Generated deals never leave a team under the roster minimum.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var s2 := _offer_league(212)
+	for o in _gen_offers(s2, 6, rng):
+		var ai2: Team = o["team"]
+		check(ai2.roster.size() - _soldier_count(o["give"]) + _soldier_count(o["get"]) >= Trades.MIN_ROSTER, "offers keep the CPU roster at the minimum")
+
+
+func test_trade_modes() -> void:
+	var s := _fixed(221)
+	var tr := s.trades
+	var ai: Team = s.league.teams.filter(func(t: Team): return not t.user_controlled)[0]
+	tr.mode(s, ai)
+	var starter: Soldier = ai.starters()[0]
+	var bench: Soldier = ai.bench()[0]
+	var pick := Trades.pick_asset(s.draft.year, 1, ai)
+	tr._modes[ai] = Trades.CONTENDER
+	check(tr._give_penalty(s, ai, pick) < tr._give_penalty(s, ai, Trades.player_asset(starter)), "a contender spends picks before starters")
+	check(tr._give_penalty(s, ai, Trades.player_asset(bench)) < tr._give_penalty(s, ai, Trades.player_asset(starter)), "and bench players before starters")
+	tr._modes[ai] = Trades.REBUILDING
+	var vet := bench
+	vet.age = 31
+	var kid := starter
+	kid.age = 22
+	check(tr._give_penalty(s, ai, Trades.player_asset(vet)) < tr._give_penalty(s, ai, Trades.player_asset(kid)), "a rebuilder moves veterans before young starters")
+	check(tr._give_penalty(s, ai, Trades.player_asset(vet)) < tr._give_penalty(s, ai, pick), "and before picks")
+	# What they go looking for.
+	var user := s.user_team()
+	var old: Soldier = user.roster[0]
+	old.age = 32
+	check(not tr._wants(s, ai, old), "a rebuilder doesn't shop for a 32-year-old")
+	var prospect: Soldier = user.roster[1]
+	prospect.age = 22
+	tr._modes[ai] = Trades.CONTENDER
+	check(tr._wants(s, ai, prospect) == (tr.need_factor(s, ai, prospect) >= 0.85 and prospect.age <= 33 and FreeAgency.would_start(ai, prospect)), "a contender only wants players who would start for it")
+	# Offers explain mode-specific reasons.
+	tr._modes[ai] = Trades.REBUILDING
+	check(tr._reason(s, ai, prospect, [pick]).begins_with("Rebuilding"), "rebuilding reason")
+	tr._modes[ai] = Trades.CONTENDER
+	check(tr._reason(s, ai, prospect, [pick]).begins_with("Contender"), "contender reason")
+	tr._modes[ai] = Trades.BALANCED
+	check(tr._reason(s, ai, prospect, [Trades.player_asset(bench)]).contains("players they can spare"), "balanced reason names the payment")
+
+
+func test_trade_difficulty() -> void:
+	var s := _fixed(231)
+	var tr := s.trades
+	var user := s.user_team()
+	var ai: Team = s.league.teams.filter(func(t: Team): return t != user)[0]
+	Trades.difficulty_override = Trades.Difficulty.EASY
+	var easy_m := Trades.accept_margin()
+	Trades.difficulty_override = Trades.Difficulty.NORMAL
+	var normal_m := Trades.accept_margin()
+	Trades.difficulty_override = Trades.Difficulty.HARD
+	var hard_m := Trades.accept_margin()
+	check(easy_m < normal_m and normal_m < hard_m, "harder difficulty wants a bigger edge")
+	check(is_equal_approx(normal_m, Trades.ACCEPT_MARGIN), "Normal keeps the original margin")
+	# Over every single-asset swap: Normal and Hard never say yes to a deal where the AI overpays.
+	var theirs: Array = tr.assets_of(s, ai)
+	var mine: Array = tr.assets_of(s, user)
+	var fleeced := 0
+	for diff in [Trades.Difficulty.EASY, Trades.Difficulty.NORMAL, Trades.Difficulty.HARD]:
+		Trades.difficulty_override = diff
+		for g in theirs:
+			for x in mine:
+				var f := tr.fair_ratio(s, [x], [g])
+				var yes := tr.interest(s, ai, [x], [g]) >= 1.0
+				if yes and f < Trades.fair_floor() - 0.0001:
+					check(diff == Trades.Difficulty.EASY, "[%d] the AI accepted overpaying (%.2f)" % [diff, f])
+				if diff == Trades.Difficulty.EASY and yes and f < Trades.FAIR_LOW:
+					fleeced += 1
+	check(fleeced > 0, "on Easy the AI can be fleeced (%d swaps)" % fleeced)
+	# Same deal, three difficulties: interest falls as it gets harder.
+	var g0: Dictionary = theirs[0]
+	var x0: Dictionary = mine[0]
+	var interests: Array = []
+	for diff in [Trades.Difficulty.EASY, Trades.Difficulty.NORMAL, Trades.Difficulty.HARD]:
+		Trades.difficulty_override = diff
+		interests.append(tr.interest(s, ai, [x0], [g0]))
+	check(interests[0] >= interests[1] and interests[1] >= interests[2], "interest drops with difficulty (%s)" % str(interests))
+	check(Trades.fairness_label(1.0) == "Fair" and Trades.fairness_label(0.3).contains("Lopsided") and Trades.fairness_label(2.0).contains("Lopsided"), "fairness labels")
+	Trades.difficulty_override = Trades.Difficulty.NORMAL
+
+
+func test_trade_ai_to_ai_fair() -> void:
+	var s := _fixed(241)
+	var tr := s.trades
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var deals := 0
+	for r in 25:
+		var before := tr.history.size()
+		tr.ai_to_ai(s, rng)
+		if tr.history.size() > before:
+			var e: Dictionary = tr.history.back()
+			deals += 1
+			check(e["ai"], "AI deal flagged as AI")
+			check(float(e["fair"]) >= Trades.FAIR_LOW and float(e["fair"]) <= Trades.FAIR_HIGH, "AI-to-AI deals are market-fair (%.2f)" % float(e["fair"]))
+	for t: Team in s.league.teams:
+		check(t.roster.size() >= Trades.MIN_ROSTER and t.roster.size() <= Team.ROSTER_SIZE, "AI-to-AI keeps rosters legal (%s %d)" % [t.abbrev, t.roster.size()])
+	check(deals > 0, "AI teams do trade among themselves (%d)" % deals)
+
+
 func test_roster_rules() -> void:
 	var s := Season.new_franchise(321)
 	var tr := s.trades
@@ -2166,6 +2521,7 @@ func _fixed(seed_value: int, team_index := 0) -> Season:
 func test_fixed_league() -> void:
 	var a := _fixed(5)
 	var b := _fixed(6, 3)
+	var raw := League.load_fixed(5)
 	check(a.league.teams.size() == 20, "20 teams (%d)" % a.league.teams.size())
 	check(a.divisions().size() == 4, "4 divisions")
 	for d in a.divisions():
@@ -2175,7 +2531,8 @@ func test_fixed_league() -> void:
 		var row: Array = LeagueData.TEAMS[i]
 		check(t.abbrev == row[0] and t.division == row[5] and t.backstory != "", "%s identity from LeagueData" % t.abbrev)
 		check(t.roster.size() == Team.ROSTER_SIZE, "%s has %d players" % [t.abbrev, t.roster.size()])
-		check(absi(t.team_ovr() - int(row[7])) <= 2, "%s OVR %d near target %d" % [t.abbrev, t.team_ovr(), row[7]])
+		check(absi(raw.teams[i].team_ovr() - int(row[7])) <= 2, "%s OVR %d near target %d" % [t.abbrev, raw.teams[i].team_ovr(), row[7]])
+		check(t.green_team.size() == Team.GREEN_SIZE and t.team_ovr() >= raw.teams[i].team_ovr(), "%s Green Team built from its weakest players" % t.abbrev)
 		check(t.color == Color(row[3]) and t.color2 == Color(row[4]), "%s colors" % t.abbrev)
 		# Fixed rosters: the same players whatever the seed.
 		var names_a: Array = t.roster.map(func(x: Soldier): return x.full_name())
@@ -2596,6 +2953,10 @@ func test_news_history() -> void:
 	for w in range(1, s.total_weeks() + 1):
 		var real := SeasonReview.player_of_week(s, w)
 		var e := NewsHistory.potw_of(book, s.year, w)
+		# A winner who was cut later in the season (a roster move) can't be found by the league's own
+		# lookup any more, so only the book's entry is checked for him.
+		if not e.is_empty() and SeasonReview._find(s.league, int(e["id"])) == null:
+			continue
 		check(not real.is_empty() and not e.is_empty() and int(e["id"]) == (real["soldier"] as Soldier).id, "week %d award matches the league's" % w)
 	var before := (book["potw"] as Array).size()
 	NewsHistory.record_week(book, s, s.total_weeks())
@@ -3798,3 +4159,376 @@ func test_keep_value_protects_prospects() -> void:
 	t.roster.append(kid)
 	t.roster.append(vet)
 	check(t.keep_value(kid) > t.keep_value(vet), "young 4-star is kept over a late-20s 2-star (%.1f vs %.1f; ovr %d/%d pot %d/%d role %d/%d)" % [t.keep_value(kid), t.keep_value(vet), kid.best_ovr(), vet.best_ovr(), kid.potential_ovr(), vet.potential_ovr(), Scheme.best_role(kid.stats), Scheme.best_role(vet.stats)])
+
+
+# --- Green Team ----------------------------------------------------------------
+
+func test_green_team_setup() -> void:
+	var s := Season.new_franchise(321)
+	check(s.green_version == 1, "green version stamped")
+	for t in s.league.teams:
+		check(t.roster.size() == Team.ROSTER_SIZE and t.green_team.size() == Team.GREEN_SIZE, "%s %d + %d" % [t.abbrev, t.roster.size(), t.green_team.size()])
+		var worst_up := 999
+		for so in t.roster:
+			worst_up = mini(worst_up, so.best_ovr())
+		var moved := 0
+		for so in t.green_team:
+			check(so.contract != null and so.contract.green and so.contract.years == 1, "green deal")
+			check(so.contract.salary >= Contracts.GREEN_MIN and so.contract.salary <= Contracts.GREEN_MAX, "green salary in range")
+			if so.season_lines.size() > 0 or so.age > 22:
+				moved += 1
+				check(so.best_ovr() <= worst_up, "only the weakest players move down")
+		check(t.has_player(t.green_team[0]) and s.league.team_of(t.green_team[0]) == t, "green players belong to the club")
+	check(s.user_roster_error() == "", "a new franchise is legal")
+	# Old saves get a Green Team on load.
+	var old := Season.new_franchise(322)
+	for t in old.league.teams:
+		for so in t.green_team.duplicate():
+			t.green_team.erase(so)
+	old.green_version = 0
+	var back := SaveSystem.from_text(SaveSystem.to_text(old))
+	check(back.green_version == 1 and back.user_team().green_team.size() == Team.GREEN_SIZE, "old saves build a Green Team")
+
+
+func test_green_team_offseason_no_limit() -> void:
+	var s := Season.new_franchise(324)
+	var u := s.user_team()
+	s.phase = Season.PHASE_OFFSEASON
+	# Free agents sign straight to the Green Team past GREEN_SIZE (young, minimum-level players only).
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var q := 40.0
+	while s.league.free_agents.filter(func(x: Soldier): return Contracts.market_value(x) <= GreenTeam.SIGN_MAX_MARKET).size() < 3:
+		var gen := PlayerGenerator.generate(rng, s.league.next_soldier_id, Scheme.Role.FLEX, q, 20)
+		s.league.next_soldier_id += 1
+		s.league.add_free_agent(gen, s.year)
+	var pool: Array = s.league.free_agents.duplicate()
+	pool.sort_custom(func(a: Soldier, b: Soldier): return Contracts.market_value(a) < Contracts.market_value(b))
+	var signed := 0
+	for fa in pool:
+		if Contracts.market_value(fa) > GreenTeam.SIGN_MAX_MARKET or signed >= 3:
+			break
+		fa.age = 21
+		fa.season_lines.clear()
+		check(GreenTeam.sign(s, u, fa) == "", "sign %s to the Green Team" % fa.full_name())
+		check(u.green_team.has(fa) and fa.contract.green and not s.league.free_agents.has(fa), "joined on a Green Team deal")
+		signed += 1
+	check(signed == 3, "found cheap young free agents")
+	check(u.green_team.size() == Team.GREEN_SIZE + 3, "no Green Team limit in the offseason")
+	check(GreenTeam.user_error(u).contains("before Week 1"), "but Week 1 needs it trimmed")
+	var pricey: Soldier = pool[pool.size() - 1]
+	pricey.age = 21
+	pricey.season_lines.clear()
+	check(GreenTeam.sign_error(s, u, pricey).contains("main-roster"), "valuable free agents want a real contract")
+	# Call-ups past ROSTER_SIZE are fine in the offseason too.
+	for i in 3:
+		check(GreenTeam.call_up(s, u, u.green_team[0]) == "", "offseason call-up %d" % i)
+	check(u.roster_count() == Team.ROSTER_SIZE + 3, "no roster limit in the offseason")
+	check(u.green_team.size() == Team.GREEN_SIZE, "Green Team back to its limit")
+	# In season the Green Team takes no free-agent signings.
+	s.phase = Season.PHASE_REGULAR
+	s.week = 1
+	if not s.league.free_agents.is_empty():
+		check(GreenTeam.sign_error(s, u, s.league.free_agents[0]).contains("offseason"), "no Green Team signings in season")
+
+
+func test_green_team_call_up_and_send_down() -> void:
+	var s := Season.new_franchise(323)
+	var u := s.user_team()
+	var g: Soldier = u.green_team[0]
+	check(GreenTeam.call_up_error(s, u, g) != "", "can't call up onto a full roster")
+	var young: Soldier = null
+	for so in u.roster:
+		if GreenTeam.send_down_error(s, u, so) == "":
+			young = so
+			break
+	if young == null:
+		young = u.roster[u.roster.size() - 1]
+		young.age = 22
+		young.season_lines.clear()
+	check(GreenTeam.send_down_tag(s, u, young) == "AVAIL", "send-down available")
+	check(GreenTeam.send_down(s, u, young) == "", "send down")
+	check(u.green_team.has(young) and young.send_down_used and u.roster_count() == Team.ROSTER_SIZE - 1, "sent down, used")
+	check(GreenTeam.send_down_tag(s, u, young) == "USED", "send-down used")
+	var sal := g.contract.salary
+	check(GreenTeam.call_up(s, u, g) == "", "call up")
+	check(u.roster.has(g) and g.callup_pending and g.contract.salary == sal, "called up on his Green Team deal")
+	check(GreenTeam.call_up(s, u, young) != "", "roster full again")
+	s.release_player(u, u.least_valuable())
+	check(GreenTeam.call_up(s, u, young) == "", "back up")
+	check(GreenTeam.send_down(s, u, young).contains("already"), "only one send-down")
+	var vet: Soldier = null
+	for so in u.roster:
+		if so.age > GreenTeam.MAX_AGE:
+			vet = so
+	if vet != null:
+		check(GreenTeam.send_down_error(s, u, vet) != "", "veterans can't be sent down")
+	# Called-up players are on the re-sign list at season end, even if sent back down.
+	g.send_down_used = false
+	check(GreenTeam.send_down(s, u, g) == "", "called-up player sent back down")
+	s.sim_to_end_of_season()
+	check(Contracts.expiring(u).has(g), "call-ups must negotiate at season end")
+	var renewed := 0
+	for so in u.green_team:
+		if not so.callup_pending and so.contract != null and so.contract.green and not so.contract.is_expiring():
+			renewed += 1
+	check(renewed > 0, "Green Team deals renew")
+	for so in u.green_team:
+		check(so.green_seasons >= 1, "Green Team season counted")
+	s.advance_offseason()
+	check(not u.has_player(g) or not g.contract.is_expiring(), "unsigned call-ups leave in free agency")
+
+
+func test_green_team_injury_cover() -> void:
+	var s := Season.new_franchise(324)
+	var u := s.user_team()
+	s.prepare_week()
+	var hurt: Soldier = u.starters()[0]
+	hurt.injury_weeks = 1
+	hurt.injury_name = "Sprain"
+	var g: Soldier = null
+	for so in u.green_team:
+		if not so.send_down_used:
+			g = so
+			break
+	check(GreenTeam.cover_error(s, u, hurt, g) != "", "short injuries get no replacement")
+	hurt.injury_weeks = 3
+	check(GreenTeam.coverable(u).has(hurt), "long injury is coverable")
+	check(GreenTeam.cover(s, u, hurt, g) == "", "injury replacement")
+	check(u.roster.has(g) and g.injury_cover_for == hurt.id and u.roster_count() == Team.ROSTER_SIZE, "replacement doesn't count")
+	check(not g.callup_pending and GreenTeam.send_down_error(s, u, g) != "", "no talks, can't be sent down by hand")
+	check(GreenTeam.cover_error(s, u, hurt, u.green_team[0]) != "", "one replacement per injury")
+	hurt.injury_weeks = 0
+	hurt.injury_name = ""
+	GreenTeam.update_covers(s)
+	check(u.green_team.has(g) and g.send_down_used and g.injury_cover_for == 0, "back down when healthy, send-down used")
+	# Convert keeps him up for good.
+	var h2: Soldier = u.roster[1]
+	h2.injury_weeks = 4
+	var g2: Soldier = null
+	for so in u.green_team:
+		if not so.send_down_used:
+			g2 = so
+			break
+	check(GreenTeam.cover(s, u, h2, g2) == "", "second replacement")
+	check(GreenTeam.convert_error(s, u, g2) != "", "convert needs an open spot")
+	s.release_player(u, u.least_valuable() if u.least_valuable() != g2 else u.roster[2])
+	check(GreenTeam.convert_cover(s, u, g2) == "", "convert")
+	h2.injury_weeks = 0
+	GreenTeam.update_covers(s)
+	check(u.roster.has(g2) and not g2.send_down_used and g2.callup_pending, "converted replacement stays up")
+	# Fewer than 5 healthy players: an automatic replacement.
+	var n := 0
+	for so in u.roster:
+		if n < u.roster.size() - 4:
+			so.injury_weeks = 1
+		n += 1
+	var before := u.covers().size()
+	GreenTeam.auto_covers(s)
+	check(u.covers().size() > before, "automatic replacement when short-handed")
+
+
+func test_green_team_reps_and_potential() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var so := PlayerGenerator.generate(rng, 7, Scheme.Role.FLEX, 60.0, 20)
+	so.reps = 0.0
+	check(so.potential_text() == "?", "unknown potential")
+	so.reps = 5.0
+	check(so.potential_text().contains("-"), "a range")
+	so.reps = 9.0
+	check(so.potential_text().contains("/"), "two grades")
+	so.add_reps(100.0)
+	check(so.reps == Soldier.REP_MAX and so.potential_known() and so.potential_text() == so.potential_letter(), "fully known")
+	var s := Season.new_franchise(325)
+	var u := s.user_team()
+	var g: Soldier = u.green_team[0]
+	g.reps = 0.0
+	g.intensity = Soldier.INTENSITY_HEAVY
+	var bench: Soldier = u.bench()[0]
+	bench.reps = 0.0
+	s.sim_week()
+	check(g.reps > bench.reps, "Green Team players gain reps faster than the bench")
+
+
+
+# --- fantasy draft -----------------------------------------------------------------
+
+func _fantasy_user_auto(s: Season) -> void:
+	var d := s.fantasy_draft
+	while not d.is_complete():
+		d.sim_to_user_pick()
+		if d.user_on_clock():
+			check(d.make_pick(d.ai_choice(d.user_team)) == "", "user pick accepted")
+
+
+func _soldier_ids(list: Array) -> Array:
+	var out: Array = []
+	for so in list:
+		out.append(so.id)
+	out.sort()
+	return out
+
+
+func test_fantasy_draft_pool_and_snake_order() -> void:
+	var s := _fixed(901, 3)
+	var all_ids := _soldier_ids(s.league.all_soldiers())
+	check(s.fantasy_draft == null and s.fantasy_draft_state == &"" and not s.roster_set_open, "defaults off")
+	s.start_fantasy_draft()
+	var d := s.fantasy_draft
+	check(s.fantasy_draft_state == &"drafting" and s.phase == Season.PHASE_OFFSEASON, "drafting in the offseason phase")
+	check(_soldier_ids(d.pool) == all_ids and all_ids.size() == 20 * 16, "pool covers every league player exactly once (%d)" % all_ids.size())
+	for t in s.league.teams:
+		check(t.roster.is_empty() and t.green_team.is_empty(), "teams emptied")
+	check(d.order.size() == 20 * FantasyDraft.ROUNDS and FantasyDraft.ROUNDS == 15, "300 picks")
+	var first := d.order.slice(0, 20)
+	var uniq := {}
+	for t in first:
+		uniq[t] = true
+	check(uniq.size() == 20, "round 1 holds every team once")
+	var moved := false
+	for i in 20:
+		if first[i] != s.league.teams[i]:
+			moved = true
+	check(moved, "round 1 order is randomized")
+	for r in FantasyDraft.ROUNDS:
+		for i in 20:
+			var want: Team = first[i] if r % 2 == 0 else first[19 - i]
+			check(d.order[r * 20 + i] == want, "snake order r%d i%d" % [r, i])
+	for t in s.league.teams:
+		check(d.picks_left_for(t) == 15, "15 picks each")
+	check(d.round_number() == 1 and d.pick_number() == 1 and d.current_team() == d.order[0], "clock starts at pick 1")
+	var av := d.available()
+	for i in av.size() - 1:
+		check(av[i].best_ovr() >= av[i + 1].best_ovr(), "available sorted by overall")
+	# The advance/camp paths stay shut while drafting.
+	check(not s.camp_open() and s.advance_offseason().is_empty(), "nothing else runs mid-draft")
+	s.start_next_season()
+	check(s.year == 2026 and s.fantasy_draft_state == &"drafting", "start_next_season refuses mid-draft")
+
+
+func test_fantasy_draft_pick_rules() -> void:
+	var s := _fixed(902, 5)
+	s.start_fantasy_draft()
+	var d := s.fantasy_draft
+	var guard := 0
+	while not d.user_on_clock() and guard < 400:
+		d.sim_next()
+		guard += 1
+	check(d.user_on_clock() and d.current_team() == s.user_team(), "user comes up")
+	check(d.sim_to_user_pick().is_empty(), "no AI picks while the user is on the clock")
+	var taken: Soldier = d.picks[0]["soldier"] if not d.picks.is_empty() else null
+	if taken != null:
+		check(d.make_pick(taken) != "", "drafted player can't be picked again")
+	var n := d.pick_index
+	var want: Soldier = d.available()[3]
+	check(d.make_pick(want) == "" and d.pick_index == n + 1, "user pick advances the clock")
+	check(s.user_team().roster.has(want), "pick lands on the user's roster")
+	check(d.team_picks(s.user_team()).size() == 1 and d.results().size() == n + 1, "results tracked")
+	check(not d.user_on_clock() and d.make_pick(d.available()[0]) != "", "not your turn is an error")
+	var sim := d.sim_to_user_pick()
+	for p in sim:
+		check(p.has("team") and p.has("soldier") and p.has("pick") and p.has("round") and p["team"] != s.user_team(), "sim_to_user_pick dicts")
+
+
+func test_fantasy_draft_full_flow() -> void:
+	var s := _fixed(903, 7)
+	var all := s.league.all_soldiers()
+	var snap := {}
+	for so in all:
+		snap[so.id] = [so.contract.salary, so.contract.years, JSON.stringify(so.career), so.season_lines.size(), so.age, so.best_ovr(), so.dev]
+	var all_ids := _soldier_ids(all)
+	s.start_fantasy_draft()
+	var d := s.fantasy_draft
+	_fantasy_user_auto(s)
+	check(d.is_complete() and d.picks.size() == 300 and d.pick_index == 300, "300 picks made")
+	check(d.pool.size() == 20 and not s.roster_set_open and s.fantasy_draft_state == &"drafting", "20 left, not finished yet")
+	var seen := {}
+	for p in d.results():
+		check(not seen.has(p["soldier"].id), "drafted once")
+		seen[p["soldier"].id] = true
+	for t in s.league.teams:
+		check(d.team_picks(t).size() == 15 and t.roster.size() == 10 and t.green_team.size() == 5, "team has 10 + 5 (%d/%d)" % [t.roster.size(), t.green_team.size()])
+	var dpicks := d.results()
+	s.finish_fantasy_draft()
+	check(s.fantasy_draft_state == &"done" and s.roster_set_open, "done and roster-set open")
+	check(s.phase == Season.PHASE_REGULAR and s.week == 1 and s.camp_open() and s.preseason_camp, "preseason camp reached")
+	check(s.year == 2026, "year unchanged")
+	var placed := {}
+	var dup := 0
+	for t in s.league.teams:
+		check(t.roster.size() <= Team.ROSTER_SIZE and t.green_team.size() <= Team.GREEN_SIZE, "limits respected")
+		if not t.user_controlled:
+			check(t.roster.size() == Team.ROSTER_SIZE, "AI roster full (%d)" % t.roster.size())
+		for so in t.org():
+			dup += 1 if placed.has(so.id) else 0
+			placed[so.id] = true
+	for so in s.league.free_agents:
+		dup += 1 if placed.has(so.id) else 0
+		placed[so.id] = true
+	check(dup == 0, "%d players appear twice" % dup)
+	for id in all_ids:
+		check(placed.has(id), "player %d missing after the draft" % id)
+	check(d.undrafted.size() == 20 and d.pool.is_empty(), "20 undrafted recorded")
+	var everyone := s.league.all_soldiers()
+	for so in d.undrafted:
+		check(s.league.free_agents.has(so) or everyone.has(so), "undrafted player went to free agency (or signed)")
+	# Contracts and careers are untouched for everyone who kept his place.
+	var kept := 0
+	for p in dpicks:
+		var so: Soldier = p["soldier"]
+		if p["team"].has_player(so):
+			kept += 1
+			var sn: Array = snap[so.id]
+			check(so.contract != null and so.contract.salary == sn[0] and so.contract.years == sn[1], "contract kept")
+			check(JSON.stringify(so.career) == sn[2] and so.season_lines.size() == sn[3], "career kept")
+		check(so.age == snap[so.id][4] and so.best_ovr() == snap[so.id][5] and so.dev == snap[so.id][6], "no progression or aging")
+	check(kept >= 250, "most drafted players stay put (%d)" % kept)
+	# Idempotent.
+	var fa_n := s.league.free_agents.size()
+	var hist_n := s.fa.history.size()
+	s.finish_fantasy_draft()
+	s.start_fantasy_draft()
+	check(s.league.free_agents.size() == fa_n and s.fa.history.size() == hist_n and s.fantasy_draft == d and s.fantasy_draft_state == &"done", "finish and start are idempotent")
+	# Camp closes -> roster-set window closes; the season plays.
+	s.close_preseason_camp()
+	check(not s.roster_set_open and not s.camp_open() and not s.preseason_camp, "roster_set_open false once camp closes")
+	var played := s.sim_week()
+	check(not played.is_empty() and s.week == 2, "season plays on")
+
+
+func test_fantasy_draft_sim_to_end_and_determinism() -> void:
+	var texts: Array = []
+	for i in 2:
+		var s := _fixed(904, 2)
+		s.start_fantasy_draft()
+		var made := s.fantasy_draft.sim_to_end()
+		check(made.size() == 300 and s.fantasy_draft.is_complete(), "auto-draft completes")
+		var ids: Array = []
+		for p in s.fantasy_draft.results():
+			ids.append("%d:%s:%d" % [p["pick"], p["team"].abbrev, p["soldier"].id])
+		texts.append("|".join(ids))
+		s.finish_fantasy_draft()
+		check(s.user_team().roster.size() == Team.ROSTER_SIZE, "user auto-drafted a full roster")
+	check(texts[0] == texts[1], "same seed -> same draft")
+	var s2 := _fixed(905, 2)
+	s2.start_fantasy_draft()
+	s2.fantasy_draft.sim_to_end()
+	var other: Array = []
+	for p in s2.fantasy_draft.results():
+		other.append("%d:%s:%d" % [p["pick"], p["team"].abbrev, p["soldier"].id])
+	check("|".join(other) != texts[0], "different seed -> different draft")
+
+
+func test_fantasy_draft_ai_values_rating() -> void:
+	var s := _fixed(906, 0)
+	s.start_fantasy_draft()
+	var d := s.fantasy_draft
+	var top: int = d.available()[0].best_ovr()
+	var t := d.current_team()
+	var pick: Soldier = d.ai_choice(t)
+	check(pick != null and d.pool.has(pick), "suggestion is an available player")
+	check(pick.best_ovr() >= top - 10, "AI takes a top-rated player first (%d vs %d)" % [pick.best_ovr(), top])
+	check(d.ai_choice(t) == pick and d.pick_index == 0, "suggestion has no side effects")
+	var p := d.sim_next()
+	check(p["pick"] == 1 and p["round"] == 1 and p["team"] == t, "sim_next dict")

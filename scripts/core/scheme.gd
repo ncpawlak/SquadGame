@@ -51,7 +51,7 @@ const ROLE_BEHAVIOUR := {
 		# Before the flank lands, flexes are swung out wide; afterwards they collapse in.
 		"distance_offset": 20.0, "flanked_distance_offset": -5.0,
 		"exposure": 0.5, "flanked_exposure": 0.9,
-		"engage_mod": -0.5, "flanked_engage_mod": 0.4,
+		"engage_mod": -0.5, "flanked_engage_mod": 0.2,
 		"preferred_range": &"",
 	},
 }

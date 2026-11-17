@@ -160,6 +160,7 @@ func all_soldiers() -> Array[Soldier]:
 	var out: Array[Soldier] = []
 	for t in teams:
 		out.append_array(t.roster)
+		out.append_array(t.green_team)
 	return out
 
 
@@ -222,6 +223,6 @@ func team_by_abbrev(abbrev: String) -> Team:
 
 func team_of(s: Soldier) -> Team:
 	for t in teams:
-		if t.roster.has(s):
+		if t.roster.has(s) or t.green_team.has(s):
 			return t
 	return null

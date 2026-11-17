@@ -8,6 +8,8 @@ var salary: int = 0
 var years: int = 1
 var signed_year: int = 0
 var rookie := false
+## Green Team deal: one cheap year, renewed every offseason while he stays on the Green Team.
+var green := false
 ## Signing bonus paid when he signed ($K; paid from the club fund, off the cap).
 var bonus: int = 0
 ## No-trade clause: he can't be traded for the life of the deal (unless he asks out).

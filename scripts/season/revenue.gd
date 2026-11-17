@@ -398,7 +398,7 @@ func board_review(season: Season) -> Array:
 		r["awards"] = minf(AWARD_CAP, AWARD_GRANT * int(honors.get(k, 0)))
 		var dev := int(gains.get(k, 0))
 		for so in t.roster:
-			if so.contract != null and so.contract.rookie and Contracts.market_value(so) >= so.contract.salary + ROOKIE_BEAT:
+			if so.contract != null and (so.contract.rookie or so.contract.green) and Contracts.market_value(so) >= so.contract.salary + ROOKIE_BEAT:
 				dev += 1
 		r["development"] = minf(DEV_CAP, DEV_GRANT * dev)
 		r["savings"] = SAVINGS_SHARE * maxi(0, Contracts.SALARY_CAP - Contracts.payroll(t, season.year))

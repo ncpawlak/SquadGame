@@ -347,6 +347,8 @@ func _buy(id: StringName) -> void:
 	var us := s.user_team()
 	var e := s.facilities.upgrade(s, us, id)
 	hub.app.toast(e if e != "" else "%s upgraded to level %d." % [Facilities.facility_name(id), Facilities.level(us, id)])
+	if e == "":
+		hub.app.stamp("Upgraded", "%s  -  level %d" % [Facilities.facility_name(id), Facilities.level(us, id)])
 	hub.replace("Facilities", facilities)
 
 
