@@ -10,6 +10,18 @@ func _init() -> void:
 	root.add_child(app)
 	await process_frame
 
+	# New Franchise opens the start-point screen: a Manager card and a coming-soon Player card.
+	app.show_mode_select()
+	await process_frame
+	var cards: Array = app.screen.find_children("*", "Button", true, false).filter(func(n): return n.custom_minimum_size.x >= 400)
+	_check(cards.size() == 2, "mode select shows two cards")
+	if cards.size() == 2:
+		cards[1].pressed.emit()
+		_check(app.screen != null and app.screen.find_children("*", "Button", true, false).size() >= 3, "Player card stays on the mode screen")
+		cards[0].pressed.emit()
+		await process_frame
+		_check(app.screen.find_children("*", "Button", true, false).size() > 10, "Manager card opens team select")
+
 	app.show_team_select()
 	await process_frame
 	app.start_franchise(4242, 2)
@@ -94,7 +106,7 @@ func _init() -> void:
 	hub.page_stack.clear()
 	hub.refresh()
 	# Player Progression: only players who can afford an upgrade are listed; clicking a group spends SP.
-	for so in hub.season.user_team().roster:
+	for so in hub.season.user_team().org():
 		so.skill_points = 0
 	var prog_guy: Soldier = hub.season.user_team().roster.filter(func(x: Soldier): return not Progression.is_capped(x, Stats.ACCURACY))[0]
 	prog_guy.skill_points = Progression.upgrade_cost(prog_guy, Stats.ACCURACY)
@@ -112,6 +124,9 @@ func _init() -> void:
 		await process_frame
 		await process_frame
 	_check(prog_guy.skill_points == 0, "clicking a group spends SP")
+	# No rating animation: the page closes straight away once nobody is left to level up.
+	await process_frame
+	await process_frame
 	_check(hub.page_stack.is_empty() or hub.page_stack[-1]["title"] != "Player Progression", "progression closes when no one is left to level up")
 	hub.select_tab(1)
 	await process_frame
@@ -144,8 +159,23 @@ func _init() -> void:
 	_check(not hub.season.user_trained(), "not trained yet this week")
 	_check(_press(hub, "Confirm & Train"), "confirm & train button")
 	await process_frame
-	_check(hub.season.user_trained() and hub.season.user_training_report.size() == hub.season.user_team().roster.size(), "weekly training ran")
+	_check(hub.season.user_trained() and hub.season.user_training_report.size() == hub.season.user_team().org().size(), "weekly training ran")
 	_check(hub.page_stack[-1]["title"] == "Training Results", "training results page")
+	# The XP bars replay on first view; a skip lands them on the real progress.
+	for i in 3:
+		await process_frame
+	_check(Fx.is_reduced() or Fx.busy(), "training results animate")
+	Fx.skip_all()
+	await process_frame
+	var bars: Array = []
+	_collect_bars(hub._content, bars)
+	var bar_sum := 0.0
+	for b in bars:
+		bar_sum += b.value
+	var xp_sum := 0.0
+	for so in hub.season.user_team().org():
+		xp_sum += Progression.xp_progress(so)[0]
+	_check(not bars.is_empty() and is_equal_approx(bar_sum, xp_sum), "skipped training bars show real XP (%s vs %s)" % [bar_sum, xp_sum])
 	var xp_after := 0
 	for so in hub.season.user_team().roster:
 		xp_after += so.xp + so.level * 100000
@@ -291,7 +321,7 @@ func _init() -> void:
 		guard_fa += 1
 	_check(hub.season.phase == Season.PHASE_OFFSEASON, "can't skip the draft")
 	_check(hub.season.offseason_stage == Season.OFF_DRAFT, "free agency days finished into the draft")
-	var before_draft := user.roster.size()
+	var before_draft := user.org().size()
 	var my_picks: int = hub.season.trades.picks_of(hub.season, user).filter(func(a): return a["year"] == d.year).size()
 	_check(d.is_started() and not d.is_complete(), "draft is open")
 	hub.advance()  # blocked while picks remain
@@ -307,10 +337,10 @@ func _init() -> void:
 		await create_timer(0.4).timeout
 		_check(d.next_pick == at + 1, "CPU picks when the clock runs out")
 		guard_clock += 1
-	var user_before := user.roster.size()
+	var user_before := user.green_team.size()
 	hub.pages._clock_left = 0.05
 	await create_timer(0.4).timeout
-	_check(user.roster.size() == user_before + 1, "user's clock expiring auto-picks")
+	_check(user.green_team.size() == user_before + 1, "user's clock expiring auto-picks")
 	_check(_press(hub, "Sim to next pick") or d.on_the_clock().user_controlled, "sim to next pick button")
 	await process_frame
 	while not d.is_complete():
@@ -319,7 +349,7 @@ func _init() -> void:
 		else:
 			_check(_press(hub, "Sim "), "sim to pick button")
 		await process_frame
-	_check(user.roster.size() == before_draft + my_picks, "user drafted %d (%d)" % [my_picks, user.roster.size() - before_draft])
+	_check(user.org().size() == before_draft + my_picks, "user drafted %d (%d)" % [my_picks, user.org().size() - before_draft])
 	await _visit_pages(hub, "post-draft")
 	hub.advance()  # draft -> roster review
 	await process_frame
@@ -428,7 +458,7 @@ func _subtab_flow(hub) -> void:
 	_check(hub.cycle_subtab(1) and hub.league_view == 1, "3 / RT steps the League sub-tab")
 	hub.select_tab(tabs["TEAM"])
 	await process_frame
-	_check(hub.cycle_subtab(-1) and hub.team_view == 1, "1 / LT wraps the Team sub-tab")
+	_check(hub.cycle_subtab(-1) and hub.team_view == hub.TEAM_VIEWS.size() - 1, "1 / LT wraps the Team sub-tab")
 	hub.select_tab(tabs["LEAGUE"])
 	await process_frame
 	_check(hub.league_view == 1, "League remembers its sub-tab")
@@ -733,6 +763,13 @@ func _visit_pages(hub, phase: String) -> void:
 
 
 ## Presses the first enabled button in the current page whose text starts with `prefix`.
+func _collect_bars(n: Node, out: Array) -> void:
+	if n is ProgressBar:
+		out.append(n)
+	for c in n.get_children():
+		_collect_bars(c, out)
+
+
 func _press(hub, prefix: String) -> bool:
 	var b := _find_button(hub._content, prefix)
 	if b == null:

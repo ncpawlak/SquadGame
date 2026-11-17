@@ -45,7 +45,23 @@ static func run_week(team: Team) -> Dictionary:
 		var report := Progression.gain_xp(soldier, xp_for(soldier.intensity) * mult)
 		report["intensity"] = soldier.intensity
 		reports[soldier.id] = report
+	for soldier in team.green_team:
+		var gx := (BASE_XP * FILM_STUDY_XP if soldier.is_injured() else xp_for(soldier.intensity)) * mult * GreenTeam.XP_MULT
+		var g := Progression.gain_xp(soldier, gx)
+		g["intensity"] = &"film" if soldier.is_injured() else soldier.intensity
+		g["green"] = true
+		reports[soldier.id] = g
 	return reports
+
+
+## XP `soldier` would earn this week at `intensity` (injured soldiers earn film-study XP whatever they pick;
+## Green Team players earn the Green Team bonus). Mirrors run_week, for the Weekly Training preview.
+static func projected_xp(team: Team, soldier: Soldier, intensity: StringName) -> int:
+	var base := BASE_XP * FILM_STUDY_XP if soldier.is_injured() else xp_for(intensity)
+	var mult := Facilities.training_mult(team)
+	if team.green_team.has(soldier):
+		mult *= GreenTeam.XP_MULT
+	return roundi(base * mult * Progression.xp_multiplier(soldier))
 
 
 ## AI intensity: rest the exhausted, ease veterans, push fresh young players.
@@ -64,3 +80,5 @@ static func ai_set_intensities(team: Team) -> void:
 	var starters := team.starters()
 	for soldier in team.roster:
 		soldier.intensity = ai_intensity(soldier, starters.has(soldier))
+	for soldier in team.green_team:
+		soldier.intensity = ai_intensity(soldier, false)

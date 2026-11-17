@@ -46,6 +46,9 @@ func _init(s: Soldier, diameter := 48, ring := UiKit.LINE, team: Team = null) ->
 	_ring_node.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_ring_node.draw.connect(_draw_ring)
 	add_child(_ring_node)
+	# Big portraits (detail pages) fade in; list thumbnails stay instant.
+	if diameter >= 64:
+		UiKit.fade_in(self, 0.05, 0.3)
 
 
 func _draw() -> void:

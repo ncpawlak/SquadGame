@@ -316,13 +316,13 @@ func matchup(m: ScheduledMatch) -> Control:
 	_add_weather_chip(v, m)
 	var h := _row(20)
 	h.alignment = BoxContainer.ALIGNMENT_CENTER
-	h.add_child(_matchup_side(m.home, "HOME"))
-	var vs := UiKit.label("VS", 54, UiKit.MUTED)
+	h.add_child(_matchup_side(m.away, "AWAY"))
+	var vs := UiKit.label("@", 54, UiKit.MUTED)
 	vs.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	vs.custom_minimum_size.x = 90
 	vs.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	h.add_child(vs)
-	h.add_child(_matchup_side(m.away, "AWAY"))
+	h.add_child(_matchup_side(m.home, "HOME"))
 	v.add_child(h)
 	var btns := _row(20)
 	btns.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -383,6 +383,7 @@ func _click_wrap(content: Control, cb: Callable, height: float) -> Button:
 	b.add_theme_stylebox_override("normal", UiKit.flat(Color(0, 0, 0, 0), 6))
 	b.add_theme_stylebox_override("hover", UiKit.flat(UiKit.PANEL_HI, 6, 2, UiKit.ACCENT.darkened(0.3)))
 	b.custom_minimum_size.y = height
+	UiKit._hook_pop(b)
 	content.set_anchors_preset(Control.PRESET_FULL_RECT)
 	content.offset_left = 4
 	content.offset_right = -8
@@ -454,7 +455,7 @@ func recap(m: ScheduledMatch) -> Control:
 	for rec: Dictionary in m.records:
 		v.add_child(UiKit.label(_record_banner(rec), 16, UiKit.ACCENT))
 	v.add_child(_pbp_button(m))
-	for t in r.teams:
+	for t in [m.away, m.home]:
 		v.add_child(_section("%s BOX SCORE" % t.name.to_upper()))
 		var rows: Array = []
 		var colors := {}
@@ -512,7 +513,10 @@ func match_summary(m: ScheduledMatch, persp: Team = null) -> Control:
 		top_text = "[color=%s][b]%s[/b][/color]   [color=#8b97ab]%s[/color]" % [UiKit.hex(UiKit.GOOD if won else UiKit.BAD), "VICTORY" if won else "DEFEAT", top_text]
 	else:
 		top_text = "[color=#8b97ab]%s[/color]" % top_text
-	v.add_child(UiKit.rich("[center][font_size=22]%s[/font_size][/center]" % top_text, 18))
+	var verdict := UiKit.rich("[center][font_size=22]%s[/font_size][/center]" % top_text, 18)
+	v.add_child(verdict)
+	if persp != null:
+		Fx.stamp(verdict, 0.9, 1.25)
 	var card := PanelContainer.new()
 	var csb := UiKit.flat(UiKit.PANEL, 2, 1, Color(1, 1, 1, 0.1))
 	csb.set_content_margin_all(0)
@@ -532,6 +536,7 @@ func match_summary(m: ScheduledMatch, persp: Team = null) -> Control:
 	sc.size_flags_vertical = Control.SIZE_FILL
 	sc.custom_minimum_size.x = 260
 	sc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	Fx.count_pair(sc, m.games_for(m.away), m.games_for(m.home), "%d  -  %d", 0.7, 0.25)
 	head.add_child(sc)
 	head.add_child(_summary_side(m, m.home, "HOME"))
 	var hm := MarginContainer.new()
@@ -547,6 +552,7 @@ func match_summary(m: ScheduledMatch, persp: Team = null) -> Control:
 	for g in r.games:
 		var winner_team: Team = r.teams[g["winner"]]
 		var p := UiKit.panel(winner_team.color.darkened(0.45), 10)
+		Fx.reveal(p, 0.5 + 0.18 * float(g["number"] - 1))
 		var col := _vbox(4)
 		col.add_child(UiKit.label("GAME %d  -  %s" % [g["number"], MatchEngine.mode_name(g["mode"]).to_upper()], 13, UiKit.MUTED))
 		col.add_child(UiKit.label("%s %s %s" % [m.away.abbrev, MatchResult.game_score_text(g, r.teams[0] != m.away), m.home.abbrev], 26, Color.WHITE))
@@ -713,7 +719,190 @@ func roster() -> Control:
 	return _roster_table(null, func(): hub.page_refresh("Roster", roster))
 
 
-## Player Progression: players who can afford an upgrade on the left; the selected (or hovered)
+# --- green team --------------------------------------------------------------------
+
+## Team > Green Team: the development roster (roster-style table) with Call Up buttons, the
+## injured list's replacement options and active injury replacements.
+func green_team() -> Control:
+	var s := _season()
+	var team := s.user_team()
+	var rebuild := func(): hub.page_refresh("Green Team", green_team)
+	var mode := &"green"
+	var v := _vbox()
+	var help := UiKit.label("Your development roster (max %d by Week 1; no limit in the offseason). Draft picks and young free agents signed in the offseason start here on small Green Team deals. They earn %sx XP and weekly reps that reveal their true potential. Call a player up when he's ready. A player can be sent back down once in his career. Players kept down too long get frustrated and may ask out." % [
+		Team.GREEN_SIZE, str(GreenTeam.XP_MULT)], 15, UiKit.MUTED)
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(help)
+	var err := GreenTeam.user_error(team)
+	if err != "":
+		v.add_child(UiKit.label(err, 16, UiKit.BAD))
+	# Injury list: replacements wanted / in place.
+	if s.phase != Season.PHASE_OFFSEASON:
+		for inj in GreenTeam.coverable(team):
+			var row := _row(12)
+			row.add_child(UiKit.rich("[color=#ef4444]INJURED[/color]  [color=white]%s[/color] (%s, %d wks) has no replacement." % [
+				UiKit.esc(inj.display_name()), inj.injury_name, inj.injury_weeks], 16))
+			var who: Soldier = inj
+			var b := UiKit.button("Bring Up Injury Replacement", func(): confirm_cover(who, rebuild), 15)
+			b.disabled = team.green_team.all(func(x: Soldier): return GreenTeam.cover_error(s, team, who, x) != "")
+			if b.disabled:
+				b.tooltip_text = "No Green Team player can cover (injured or send-down already used)."
+			row.add_child(b)
+			v.add_child(row)
+		for c in team.covers():
+			var row := _row(12)
+			var inj := GreenTeam.covered(team, c)
+			row.add_child(UiKit.rich("[color=#38bdf8]INJ REPLACEMENT[/color]  [color=white]%s[/color] is up for %s%s. He goes back down when %s returns (uses his send-down)." % [
+				UiKit.esc(c.display_name()), UiKit.esc(inj.display_name()) if inj != null else "an injured teammate",
+				" (%d wks left)" % inj.injury_weeks if inj != null else "", "he" if inj != null else "the player"], 16))
+			var who: Soldier = c
+			var b := UiKit.button("Keep Up for Good", func(): confirm_convert(who, rebuild), 15)
+			var cerr := GreenTeam.convert_error(s, team, c)
+			b.disabled = cerr != ""
+			b.tooltip_text = cerr
+			row.add_child(b)
+			v.add_child(row)
+	if team.green_team.is_empty():
+		v.add_child(UiKit.label("The Green Team is empty. Draft picks land here.", 18, UiKit.MUTED))
+		return v
+	var list := _sorted(team.green_team, mode, team)
+	var pane := _player_pane()
+	v.add_child(pane)
+	_fill_pane(pane, list[0], team)
+	var table := _vbox(4)
+	table.add_child(_sort_header(mode, _roster_cols(mode), rebuild))
+	for so in list:
+		var line := _row(8)
+		line.add_child(_roster_row(team, so, mode, pane))
+		var who: Soldier = so
+		var b := UiKit.action_button("Call Up", func(): confirm_call_up(who, rebuild), 15)
+		b.custom_minimum_size = Vector2(110, 54)
+		var cerr := GreenTeam.call_up_error(s, team, so)
+		b.disabled = cerr != ""
+		b.tooltip_text = cerr
+		line.add_child(b)
+		table.add_child(line)
+	v.add_child(table)
+	return v
+
+
+## "Call up X?" with what it means: his deal now, the end-of-season negotiation and his send-down.
+func confirm_call_up(so: Soldier, after: Callable) -> void:
+	var s := _season()
+	var team := s.user_team()
+	var lines: PackedStringArray = []
+	var ask := GreenTeam.projected_ask(so)
+	var yrs := Contracts.preferred_years(so)
+	if s.phase == Season.PHASE_OFFSEASON and so.contract != null and so.contract.green and not so.contract.is_expiring() and not so.callup_pending:
+		lines.append("Offseason call-up: he signs his first pro contract now at [color=white]%s x %d yr%s[/color]." % [Contracts.money(ask), yrs, "" if yrs == 1 else "s"])
+	elif so.contract != null and so.contract.green:
+		lines.append("He keeps his [color=white]%s[/color] Green Team deal for the rest of this season." % Contracts.money(so.contract.salary))
+		lines.append("At season's end he must be re-signed in the [color=white]Call-Ups[/color] section of Re-sign Players (projected ask [color=white]%s / yr[/color]) or he leaves in free agency. That applies even if you send him back down." % Contracts.money(ask))
+	else:
+		lines.append("He keeps his current contract.")
+	if so.send_down_used:
+		lines.append("[color=#f59e0b]He has already used his one send-down: once he's up, he can't go back to the Green Team.[/color]")
+	elif GreenTeam.send_down_tag(s, team, so) == "AVAIL":
+		lines.append("Sending him back down later uses his [color=white]one send-down[/color]. After that he can never go back.")
+	lines.append("He takes a main-roster spot (%d / %d after this call-up)." % [team.roster_count() + 1, Team.ROSTER_SIZE])
+	if s.phase == Season.PHASE_OFFSEASON and team.roster_count() + 1 > Team.ROSTER_SIZE:
+		lines.append("[color=#f59e0b]No roster limit in the offseason, but you must be back to %d before Week 1.[/color]" % Team.ROSTER_SIZE)
+	_confirm_modal(_confirm_body("CALL UP %s?" % so.full_name().to_upper(), lines), "Call Up", func():
+		var err := GreenTeam.call_up(s, team, so)
+		hub.app.toast(err if err != "" else "%s called up to the main roster." % so.full_name())
+		if err == "":
+			hub.app.stamp("Called up", so.full_name())
+		after.call())
+
+
+## "Send down X?": uses his one send-down; he keeps any call-up negotiation.
+func confirm_send_down(so: Soldier, after: Callable) -> void:
+	var s := _season()
+	var team := s.user_team()
+	var lines: PackedStringArray = []
+	lines.append("This uses his [color=white]one send-down[/color]. He can never be sent down again.")
+	if so.callup_pending:
+		lines.append("He was called up this season, so you still negotiate with him at season's end (Call-Ups) or he leaves in free agency.")
+	lines.append("Being sent down costs him morale (%d)." % roundi(GreenTeam.SEND_DOWN_MORALE))
+	if s.phase != Season.PHASE_OFFSEASON and team.green_team.size() >= Team.GREEN_SIZE:
+		lines.append("[color=#f59e0b]The Green Team will be over its limit (%d / %d) until you call someone up.[/color]" % [team.green_team.size() + 1, Team.GREEN_SIZE])
+	elif team.green_team.size() >= Team.GREEN_SIZE:
+		lines.append("[color=#f59e0b]Your Green Team will have %d players. Get it back to %d (call up or release) before Week 1.[/color]" % [team.green_team.size() + 1, Team.GREEN_SIZE])
+	_confirm_modal(_confirm_body("SEND DOWN %s?" % so.full_name().to_upper(), lines), "Send Down", func():
+		var err := GreenTeam.send_down(s, team, so)
+		hub.app.toast(err if err != "" else "%s sent down to the Green Team." % so.full_name())
+		after.call())
+
+
+## "Sign X to the Green Team?": a free agent joins on a Green Team deal at once (offseason only).
+func confirm_green_sign(so: Soldier, after: Callable) -> void:
+	var s := _season()
+	var team := s.user_team()
+	var lines: PackedStringArray = []
+	lines.append("He signs a one-year [color=white]%s Green Team deal[/color] right away - no negotiation." % Contracts.money(Contracts.green_salary_for(so)))
+	lines.append("He develops on the Green Team (%sx XP, weekly reps) and can be called up any time." % str(GreenTeam.XP_MULT))
+	if team.green_team.size() >= Team.GREEN_SIZE:
+		lines.append("[color=#f59e0b]Your Green Team will have %d players. Get it back to %d (call up or release) before Week 1.[/color]" % [team.green_team.size() + 1, Team.GREEN_SIZE])
+	_confirm_modal(_confirm_body("SIGN %s TO THE GREEN TEAM?" % so.full_name().to_upper(), lines), "Sign", func():
+		var err := GreenTeam.sign(s, team, so)
+		hub.app.toast(err if err != "" else "%s signed to your Green Team." % so.full_name())
+		if err == "":
+			hub.app.stamp("Signed", so.full_name() + "  -  Green Team")
+		after.call())
+
+
+## Pick a Green Team player to cover for `injured`, with the injury-replacement rules.
+func confirm_cover(injured: Soldier, after: Callable) -> void:
+	var s := _season()
+	var team := s.user_team()
+	var options: Array = team.green_team.filter(func(x: Soldier): return GreenTeam.cover_error(s, team, injured, x) == "")
+	if options.is_empty():
+		hub.app.toast("No Green Team player can cover for %s." % injured.full_name())
+		return
+	options.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
+	var lines: PackedStringArray = [
+		"He stays up while %s is on the injured list and [color=white]doesn't count[/color] against the %d-man roster." % [injured.full_name(), Team.ROSTER_SIZE],
+		"When %s is healthy he goes back down automatically: no new contract, but it [color=white]uses his one send-down[/color]." % injured.short_name(),
+		"Want him to stay? Keep him up for good before then (a regular call-up)."]
+	var body := _confirm_body("INJURY REPLACEMENT FOR %s" % injured.full_name().to_upper(), lines)
+	var pick := OptionButton.new()
+	pick.custom_minimum_size = Vector2(420, 44)
+	UiKit.style_button(pick)
+	for o: Soldier in options:
+		pick.add_item("%s  -  %s  OVR %d  POT %s" % [o.display_name(), Scheme.ROLE_NAMES[Scheme.best_role(o.stats)], o.best_ovr(), o.potential_text()])
+	body.add_child(pick)
+	_confirm_modal(body, "Bring Him Up", func():
+		var so: Soldier = options[maxi(0, pick.selected)]
+		var err := GreenTeam.cover(s, team, injured, so)
+		hub.app.toast(err if err != "" else "%s is up as %s's injury replacement." % [so.full_name(), injured.short_name()])
+		after.call())
+
+
+## Turn an injury replacement into a full call-up.
+func confirm_convert(so: Soldier, after: Callable) -> void:
+	var s := _season()
+	var team := s.user_team()
+	var lines: PackedStringArray = [
+		"He stays on the main roster for good and takes a roster spot (%d / %d after this)." % [team.roster_count() + 1, Team.ROSTER_SIZE],
+		"His send-down stays unused, but he joins the [color=white]Call-Ups[/color] negotiation at season's end (projected ask [color=white]%s / yr[/color]) or leaves in free agency." % Contracts.money(GreenTeam.projected_ask(so))]
+	_confirm_modal(_confirm_body("KEEP %s UP?" % so.full_name().to_upper(), lines), "Keep Him Up", func():
+		var err := GreenTeam.convert_cover(s, team, so)
+		hub.app.toast(err if err != "" else "%s is now a full call-up." % so.full_name())
+		after.call())
+
+
+func _confirm_body(title: String, lines: PackedStringArray) -> VBoxContainer:
+	var v := _vbox(10)
+	v.custom_minimum_size.x = 620
+	v.add_child(UiKit.label(title, 22, Color.WHITE))
+	for l in lines:
+		var r := UiKit.rich("•  " + l, 16)
+		r.custom_minimum_size.x = 620
+		v.add_child(r)
+	return v
+
+
+## Player Progression: players who can afford an upgrade on the left; the selected
 ## one on the right with his stat groups as 0-99 cap bars. Click a group to spend SP on it.
 var _prog_sel_id := -1
 
@@ -733,14 +922,15 @@ func _build_progression(root: VBoxContainer, focus_group: StringName = &"") -> v
 		root.remove_child(c)
 		c.queue_free()
 	var team := _season().user_team()
-	var eligible: Array = team.roster.filter(func(x: Soldier): return Progression.can_level_up(x))
+	var eligible: Array = team.org().filter(func(x: Soldier): return Progression.can_level_up(x))
 	eligible.sort_custom(func(a: Soldier, b: Soldier):
 		return a.skill_points > b.skill_points if a.skill_points != b.skill_points else a.id < b.id)
+	var ready_n := eligible.filter(func(x: Soldier): return Progression.can_level_up(x)).size()
 	var actions := _row()
-	var auto := UiKit.button("Auto-progress all (%d can level up)" % eligible.size(), func():
+	var auto := UiKit.button("Auto-progress all (%d can level up)" % ready_n, func():
 		var raised := 0
 		var players := 0
-		for s in team.roster:
+		for s in team.org():
 			if s.skill_points <= 0:
 				continue
 			var groups: Array = Progression.auto_spend(s, _row_role(team, s))
@@ -749,7 +939,7 @@ func _build_progression(root: VBoxContainer, focus_group: StringName = &"") -> v
 				raised += groups.size()
 		hub.app.toast("Auto-progressed %d players (%d group upgrades)." % [players, raised] if players > 0 else "No skill points could be spent.")
 		_build_progression(root))
-	auto.disabled = eligible.is_empty()
+	auto.disabled = ready_n == 0
 	actions.add_child(auto)
 	actions.add_child(UiKit.label("Pick a soldier, then click a stat group to spend skill points on it.", 15, UiKit.MUTED))
 	root.add_child(actions)
@@ -770,7 +960,7 @@ func _build_progression(root: VBoxContainer, focus_group: StringName = &"") -> v
 	var list := _vbox(6)
 	list.custom_minimum_size.x = 430
 	list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	list.add_child(UiKit.label("READY TO LEVEL UP  (%d)" % eligible.size(), 13, UiKit.MUTED))
+	list.add_child(UiKit.label("READY TO LEVEL UP  (%d)" % ready_n, 13, UiKit.MUTED))
 	var detail := _player_pane()
 	detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	detail.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
@@ -805,7 +995,7 @@ func _progression_select(ctx: Dictionary, s: Soldier) -> void:
 
 
 ## One soldier in the left list: name / role, OVR, POT and banked SP. Hover previews him on the
-## right (leaving goes back to the selected soldier); click or focus selects him.
+## right; click or focus selects him (no hover preview, so the list stays easy to navigate).
 func _progression_list_row(s: Soldier, ctx: Dictionary) -> Button:
 	var team: Team = ctx["team"]
 	var b := Button.new()
@@ -814,11 +1004,6 @@ func _progression_list_row(s: Soldier, ctx: Dictionary) -> Button:
 	b.set_meta(&"prog_sid", s.id)
 	b.pressed.connect(func(): _progression_select(ctx, s))
 	b.focus_entered.connect(func(): _progression_select(ctx, s))
-	b.mouse_entered.connect(func(): _fill_progression(ctx["detail"], s, ctx))
-	b.mouse_exited.connect(func():
-		var cur := _progression_soldier(ctx)
-		if cur != null:
-			_fill_progression(ctx["detail"], cur, ctx))
 	var hb := _row(14)
 	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -854,7 +1039,7 @@ func _fill_progression(pane: Control, s: Soldier, ctx: Dictionary) -> void:
 	mid.add_child(UiKit.label(s.full_name().to_upper(), 15, UiKit.ACCENT))
 	mid.add_child(UiKit.label(("\"%s\"" % s.callsign.to_upper()) if s.callsign != "" else s.last_name.to_upper(), 36, Color.WHITE))
 	var slot := team.slot_of(s)
-	var where := "Starting " + team.scheme.label_for_slot(slot) if slot != &"" else "Bench"
+	var where := "Green Team" if team.green_team.has(s) else ("Starting " + team.scheme.label_for_slot(slot) if slot != &"" else "Bench")
 	mid.add_child(UiKit.label("%s   ·   AGE %d   ·   %s" % [Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), s.age, where.to_upper()], 15, UiKit.MUTED))
 	var facts := _row(30)
 	var role := _row_role(team, s)
@@ -946,7 +1131,7 @@ func _progression_group_row(s: Soldier, g: StringName, ctx: Dictionary) -> Contr
 
 ## Column sort per table mode: mode -> [key, descending].
 var _sort := {}
-const DEFAULT_SORT := {&"roster": [&"slot", false], &"fa": [&"ovr", true], &"contracts": [&"salary", true], &"drill": [&"ovr", true],
+const DEFAULT_SORT := {&"roster": [&"slot", false], &"green": [&"ovr", true], &"fa": [&"ovr", true], &"contracts": [&"salary", true], &"drill": [&"ovr", true],
 	&"team_stats": [&"kills", true], &"league_stats": [&"kills", true], &"prospects": [&"proj", true], &"league_teams": [&"w", true]}
 
 
@@ -971,6 +1156,9 @@ func _sort_value(s: Soldier, key: StringName, team: Team) -> Variant:
 		&"ovr": return _row_ovr(team, s)
 		&"slot": return _slot_order(team, s) if team != null else 0
 		&"morale": return s.morale
+		&"reps": return s.reps
+		&"gseason": return s.green_seasons * 10 + (2 if s.trade_request else (1 if team != null and GreenTeam.is_frustrated(team, s) else 0))
+		&"down": return 0 if s.send_down_used else (1 if GreenTeam.send_down_tag(_season(), team, s) == "-" else 2)
 		&"fatigue": return s.fatigue
 		&"asking": return Contracts.asking(s, Contracts.preferred_years(s))
 		&"offers": return _season().fa.offers_for(s).size()
@@ -1004,12 +1192,15 @@ func _sorted(list: Array, mode: StringName, team: Team) -> Array:
 
 
 ## A sortable header row: one flat button per column; the active column shows an arrow.
-func _sort_header(mode: StringName, cols: Array, rebuild: Callable) -> Control:
+## `cols` entries are [title, min width, sort key (optional), stretch ratio (optional: the column then fills spare width)].
+## `right_pad` leaves room on the right for controls the rows have after the columns.
+func _sort_header(mode: StringName, cols: Array, rebuild: Callable, right_pad := 0) -> Control:
 	var panel := PanelContainer.new()
 	var sb := UiKit.flat(UiKit.PANEL_HI, 4)
 	sb.content_margin_top = 2
 	sb.content_margin_bottom = 2
 	sb.content_margin_left = 14
+	sb.content_margin_right = right_pad
 	panel.add_theme_stylebox_override("panel", sb)
 	var hb := _row(PCOL_SEP)
 	var st := _sort_state(mode)
@@ -1022,6 +1213,9 @@ func _sort_header(mode: StringName, cols: Array, rebuild: Callable) -> Control:
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.clip_text = true
 		b.custom_minimum_size = Vector2(c[1], 30)
+		if c.size() > 3:
+			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			b.size_flags_stretch_ratio = c[3]
 		b.add_theme_font_size_override("font_size", 15)
 		b.add_theme_color_override("font_color", UiKit.ACCENT if active else UiKit.MUTED)
 		b.add_theme_color_override("font_hover_color", Color.WHITE)
@@ -1074,23 +1268,31 @@ const RCOL_AGE := 44
 const RCOL_POT := 64
 const RCOL_OVR := 84
 const RCOL_GROUP := 96
+const RCOL_GROUP_NARROW := 76  # Green Team table: leaves room for the Call Up button
 const RCOL_MORALE := 70
 const RCOL_STATUS := 150
 const RCOL_CONTRACT := 110
 const RCOL_OFFERS := 150
+const RCOL_REPS := 80
+const RCOL_DOWN := 80
 
 
 func _roster_cols(mode: StringName) -> Array:
 	var cols := [["SOLDIER", RCOL_NAME, &"name"], ["AGE", RCOL_AGE, &"age"], ["POT", RCOL_POT, &"pot"], ["OVR", RCOL_OVR, &"ovr"]]
 	for g in Stats.GROUP_ORDER:
-		cols.append([Stats.GROUP_LABELS[g].to_upper(), RCOL_GROUP, g])
+		cols.append([Stats.GROUP_LABELS[g].to_upper().left(4) if mode == &"green" else Stats.GROUP_LABELS[g].to_upper(), RCOL_GROUP_NARROW if mode == &"green" else RCOL_GROUP, g])
 	match mode:
 		&"fa":
 			cols.append(["ASKING", RCOL_CONTRACT, &"asking"])
 			cols.append(["OFFERS", RCOL_OFFERS, &"offers"])
+		&"green":
+			cols.append(["REPS", RCOL_REPS, &"reps"])
+			cols.append(["MORALE", RCOL_MORALE, &"morale"])
+			cols.append(["SEASON / STATUS", RCOL_STATUS, &"gseason"])
 		_:
 			cols.append(["MORALE", RCOL_MORALE, &"morale"])
 			cols.append(["SLOT / STATUS", RCOL_STATUS, &"slot"])
+			cols.append(["SEND DN", RCOL_DOWN, &"down"])
 	return cols
 
 
@@ -1161,7 +1363,7 @@ func _roster_row(team: Team, s: Soldier, mode: StringName, pane: Control = null)
 	hb.add_child(_pot_cell(s, RCOL_POT))
 	hb.add_child(_ovr_cell(_row_ovr(team, s), s.morale_ovr_delta(_row_role(team, s)), RCOL_OVR))
 	for g in Stats.GROUP_ORDER:
-		hb.add_child(_rating_cell(s.group_rating(g), RCOL_GROUP))
+		hb.add_child(_rating_cell(s.group_rating(g), RCOL_GROUP_NARROW if mode == &"green" else RCOL_GROUP))
 	if mode == &"fa":
 		var yrs := Contracts.preferred_years(s)
 		hb.add_child(_two_lines(Contracts.money(Contracts.asking(s, yrs)), Color.WHITE, "%d yr%s" % [yrs, "" if yrs == 1 else "s"], RCOL_CONTRACT, 16))
@@ -1175,10 +1377,35 @@ func _roster_row(team: Team, s: Soldier, mode: StringName, pane: Control = null)
 			UiKit.style_button(info, UiKit.INFO.darkened(0.7), UiKit.ACCENT, 6)
 		return info
 	hb.add_child(_big_cell(str(roundi(s.morale)), morale_color(s.morale), RCOL_MORALE, 18))
+	if mode == &"green":
+		hb.add_child(_two_lines("%d / %d" % [floori(s.reps), int(Soldier.REP_MAX)], Color.WHITE if s.potential_known() else UiKit.INFO,
+			"POT KNOWN" if s.potential_known() else "SCOUTING", RCOL_REPS, 16))
+		var st: Array = _green_status(team, s)
+		hb.add_child(_two_lines("Year %d of %d" % [s.green_seasons + 1, GreenTeam.MAX_SEASONS], Color.WHITE, st[0], RCOL_STATUS, 15, st[1]))
+		return info
 	var slot := team.slot_of(s)
 	var slot_text := team.scheme.label_for_slot(slot) if slot != &"" else "Bench"
-	hb.add_child(_two_lines(slot_text, Color.WHITE if slot != &"" else UiKit.MUTED, _status_text(s), RCOL_STATUS, 15))
+	var status := _status_text(s)
+	if s.injury_cover_for != 0:
+		var inj := GreenTeam.covered(team, s)
+		status = "INJ REPL%s" % (" for %s" % inj.short_name() if inj != null else "")
+	hb.add_child(_two_lines(slot_text, Color.WHITE if slot != &"" else UiKit.MUTED, status, RCOL_STATUS, 15))
+	var tag := GreenTeam.send_down_tag(_season(), team, s)
+	hb.add_child(_big_cell(tag, UiKit.GOOD if tag == "AVAIL" else (UiKit.BAD if tag == "USED" else UiKit.MUTED), RCOL_DOWN, 15))
 	return info
+
+
+## Green Team row status: [text, color] - trade request, frustrated, ready to help, or condition.
+func _green_status(team: Team, s: Soldier) -> Array:
+	if s.trade_request:
+		return ["WANTS OUT", UiKit.BAD]
+	if s.is_injured():
+		return [_status_text(s), UiKit.BAD]
+	if GreenTeam.is_frustrated(team, s):
+		return ["FRUSTRATED", Color("#f97316")]
+	if GreenTeam.is_ready(team, s):
+		return ["READY", UiKit.GOOD]
+	return ["Developing", UiKit.MUTED]
 
 
 ## The big "selected player" pane over roster-style tables (Madden / 2K roster screen).
@@ -1211,7 +1438,7 @@ func _fill_pane(pane: Control, s: Soldier, team: Team) -> void:
 	mid.add_child(UiKit.label(s.full_name().to_upper(), 16, UiKit.ACCENT))
 	mid.add_child(UiKit.label(("\"%s\"" % s.callsign.to_upper()) if s.callsign != "" else s.last_name.to_upper(), 40, Color.WHITE))
 	var slot := team.slot_of(s) if team != null else &""
-	var where := ("Starting " + team.scheme.label_for_slot(slot) if slot != &"" else "Bench") if team != null else "Free agent"
+	var where := ("Green Team" if team.green_team.has(s) else ("Starting " + team.scheme.label_for_slot(slot) if slot != &"" else "Bench")) if team != null else "Free agent"
 	mid.add_child(UiKit.label("%s   ·   AGE %d   ·   %s" % [Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), s.age, where.to_upper()], 15, UiKit.MUTED))
 	var facts := _row(34)
 	facts.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1281,7 +1508,7 @@ func _contract_cell(s: Soldier, width: int) -> Control:
 	if c == null:
 		return _two_lines("-", UiKit.MUTED, "", width, 16)
 	var yrs_text := "EXPIRING" if c.is_expiring() else "%d yr%s left" % [c.years, "" if c.years == 1 else "s"]
-	return _two_lines(Contracts.money(c.salary), Color.WHITE, yrs_text + (" (R)" if c.rookie else ""), width, 16)
+	return _two_lines(Contracts.money(c.salary), Color.WHITE, yrs_text + (" (G)" if c.green else (" (R)" if c.rookie else "")), width, 16)
 
 
 func _big_cell(text: String, color: Color, width: int, size := 24) -> Control:
@@ -1321,9 +1548,14 @@ static func potential_color(grade: int) -> Color:
 	return TIER_COLORS[clampi(grade, 0, TIER_COLORS.size() - 1)]
 
 
-## His Potential letter in its grade color (BBCode).
+## His Potential as the club knows it (see Soldier.potential_text): the grade color once reps reveal it.
+static func pot_color(s: Soldier) -> Color:
+	return potential_color(s.potential_grade()) if s.potential_known() else UiKit.MUTED
+
+
+## His Potential letter (or scouted range) in its grade color (BBCode).
 static func pot_bb(s: Soldier) -> String:
-	return "[color=%s]%s[/color]" % [UiKit.hex(potential_color(s.potential_grade())), s.potential_letter()]
+	return "[color=%s]%s[/color]" % [UiKit.hex(pot_color(s)), s.potential_text()]
 
 
 ## Potential letter plus dev stars as text (BBCode), where the insignia graphic doesn't fit.
@@ -1334,7 +1566,7 @@ static func pot_dev_bb(s: Soldier, star_font := 0) -> String:
 
 ## Plain "B ★★★" for text tables.
 static func pot_dev_text(s: Soldier) -> String:
-	return "%s %s" % [s.potential_letter(), s.dev_text()]
+	return "%s %s" % [s.potential_text(), s.dev_text()]
 
 
 ## Table cell: the Potential letter with the dev-star insignia beside it.
@@ -1343,7 +1575,7 @@ func _pot_cell(s: Soldier, width: int, size := 24, star := 9.0) -> Control:
 	hb.custom_minimum_size.x = width
 	hb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var l := UiKit.label(s.potential_letter(), size, potential_color(s.potential_grade()))
+	var l := UiKit.label(s.potential_text(), size if s.potential_known() else mini(size, 18), pot_color(s))
 	l.add_theme_font_override("font", UiKit.font_heavy)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.add_child(l)
@@ -1368,7 +1600,17 @@ func _potential_legend() -> Control:
 func _slot_order(team: Team, s: Soldier) -> int:
 	var slot := team.slot_of(s)
 	var ids := team.scheme.slot_ids()
+	if team.green_team.has(s):
+		return 200 + team.green_team.find(s)
 	return ids.find(slot) if slot != &"" else 100 + team.roster.find(s)
+
+
+## Short slot label for list rows: the lineup slot, "BN" on the bench, "GT" on the Green Team.
+func _slot_tag(team: Team, s: Soldier) -> String:
+	if team.green_team.has(s):
+		return "GT"
+	var slot := team.slot_of(s)
+	return String(slot) if slot != &"" else "BN"
 
 
 ## Player page tabs (Madden player card): Overview, Ratings, Contract, Stats, DNA.
@@ -1465,7 +1707,7 @@ func _player_header(s: Soldier, team: Team) -> Control:
 		where = "Retired %d" % s.retired_year
 	elif team != null:
 		var slot := team.slot_of(s)
-		where = "%s  ·  %s" % [team.name, ("Starting " + team.scheme.label_for_slot(slot)) if slot != &"" else "Bench"]
+		where = "%s  ·  %s" % [team.name, "Green Team" if team.green_team.has(s) else (("Starting " + team.scheme.label_for_slot(slot)) if slot != &"" else "Bench")]
 	var yrs_in := maxi(1, _season().year - s.draft_year + 1) if s.draft_year > 0 else 0
 	mid.add_child(UiKit.label("%s   ·   AGE %d   ·   %s%s" % [Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), s.age, where.to_upper(),
 		("   ·   YEAR %d" % yrs_in) if yrs_in > 0 else ""], 15, UiKit.MUTED))
@@ -1664,7 +1906,18 @@ func _player_overview(s: Soldier, team: Team) -> Control:
 		b.disabled = not enabled
 		rail.add_child(b)
 	if editable:
-		add_action.call("View in Lineup", func(): hub.open("Lineup", lineup))
+		var season := _season()
+		var back := func(): _player_refresh(s, 0)
+		if team.green_team.has(s):
+			var cerr := GreenTeam.call_up_error(season, team, s)
+			add_action.call("Call Up to Roster", func(): confirm_call_up(s, back), cerr == "")
+		else:
+			add_action.call("View in Lineup", func(): hub.open("Lineup", lineup))
+			if s.injury_cover_for != 0:
+				add_action.call("Keep Up for Good", func(): confirm_convert(s, back), GreenTeam.convert_error(season, team, s) == "")
+			else:
+				add_action.call("Send Down", func(): confirm_send_down(s, back),
+					GreenTeam.send_down_error(season, team, s) == "")
 		add_action.call("Upgrade Ratings (%d SP)" % s.skill_points, func(): _player_refresh(s, 1))
 		add_action.call("Contract", func(): _player_refresh(s, 2))
 		add_action.call("Release", func(): _player_refresh(s, 2))
@@ -1678,6 +1931,7 @@ func _player_overview(s: Soldier, team: Team) -> Control:
 		add_action.call("Shop in Trade Center", func(): open_trade(null, {}, Trades.player_asset(s)), Trades.tradeable(s))
 	elif team == null and s.retired_year == 0:
 		add_action.call("Make Offer", func(): open_offer(s))
+		add_action.call("Sign to Green Team", func(): confirm_green_sign(s, func(): _player_refresh(s, 0)), GreenTeam.sign_error(_season(), _season().user_team(), s) == "")
 		add_action.call("Ratings", func(): _player_refresh(s, 1))
 	else:
 		if team != null and s.retired_year == 0:
@@ -1733,7 +1987,7 @@ func _player_overview(s: Soldier, team: Team) -> Control:
 
 	body.add_child(_section("CORE ATTRIBUTES  -  (±n) = today's morale + chemistry effect"))
 	var grid := GridContainer.new()
-	grid.columns = 7
+	grid.columns = 4  # 16 stats = 4 even rows; 7 across was wider than a 1600px window once text was boosted
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 10)
 	var mods := s.stat_mods()
@@ -1747,7 +2001,8 @@ func _player_overview(s: Soldier, team: Team) -> Control:
 
 func _attr_tile(st: StringName, value: int, delta: int) -> Control:
 	var p := UiKit.panel(UiKit.PANEL_HI, 8)
-	p.custom_minimum_size.x = 132
+	p.custom_minimum_size.x = 108
+	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var box := _vbox(4)
 	box.add_child(UiKit.label(Stats.LABELS[st].to_upper(), 11, UiKit.MUTED))
 	var r := UiKit.rich("[font_size=26][color=white]%d[/color][/font_size]%s" % [value, delta_bb(delta, 15)], 16)
@@ -1757,7 +2012,7 @@ func _attr_tile(st: StringName, value: int, delta: int) -> Control:
 	bar.max_value = 99
 	bar.value = value
 	bar.show_percentage = false
-	bar.custom_minimum_size = Vector2(100, 5)
+	bar.custom_minimum_size = Vector2(70, 5)
 	bar.add_theme_stylebox_override("background", _bar_style(UiKit.LINE))
 	bar.add_theme_stylebox_override("fill", _bar_style(UiKit.ovr_color(value)))
 	box.add_child(bar)
@@ -1810,10 +2065,15 @@ func _player_ratings(s: Soldier, team: Team) -> Control:
 		title.autowrap_mode = TextServer.AUTOWRAP_OFF
 		title.custom_minimum_size.x = 330
 		head_row.add_child(title)
+		if not _stat_fx.is_empty() and _stat_fx["group"] == g and int(_stat_fx["sid"]) == s.id and int(_stat_fx["old_rating"]) < gr:
+			Fx.rise_text(title, "+%d" % (gr - int(_stat_fx["old_rating"])), UiKit.GOOD, 22, Vector2(-40, -4), 0.1, 30.0, true)
+			Fx.flash(title, 0.6, 0.6)
 		if editable and upgradable:
 			var group := g
 			var up := UiKit.button("+1 (%d SP)" % Progression.upgrade_cost(s, g), func():
+				var snap := {"sid": s.id, "group": group, "before": s.stats.duplicate(), "old_rating": s.group_rating(group)}
 				Progression.upgrade_group(s, group)
+				_stat_fx = snap
 				_player_refresh(s), 13)
 			up.custom_minimum_size.x = 110
 			up.disabled = not Progression.can_upgrade(s, g)
@@ -1824,6 +2084,7 @@ func _player_ratings(s: Soldier, team: Team) -> Control:
 		for st in Stats.group_stats(g):
 			box.add_child(_stat_row(s, st, weights.has(st)))
 		grid.add_child(box)
+	_stat_fx = {}
 	v.add_child(grid)
 	return v
 
@@ -1844,7 +2105,14 @@ func _player_contract(s: Soldier, team: Team) -> Control:
 		v.add_child(facts)
 		var actions := _row()
 		actions.add_child(UiKit.action_button("Make Offer", func(): open_offer(s), 16))
+		var gerr := GreenTeam.sign_error(season, season.user_team(), s)
+		var gb := UiKit.button("Sign to Green Team", func(): confirm_green_sign(s, func(): _player_refresh(s, 2)), 16)
+		gb.disabled = gerr != ""
+		gb.tooltip_text = gerr
+		actions.add_child(gb)
 		v.add_child(actions)
+		if gerr != "":
+			v.add_child(UiKit.label("Green Team: " + gerr, 14, UiKit.MUTED))
 		return v
 	var c := s.contract
 	if c == null:
@@ -1855,7 +2123,7 @@ func _player_contract(s: Soldier, team: Team) -> Control:
 	for item in [["SALARY", "%s / yr" % Contracts.money(c.salary)],
 			["YEARS LEFT", "[color=#f59e0b]EXPIRING[/color]" if c.is_expiring() else str(c.years)],
 			["REMAINING", Contracts.money(c.remaining_value())], ["SIGNED", str(c.signed_year)],
-			["TYPE", "Rookie deal" if c.rookie else "Veteran"], ["MARKET VALUE", Contracts.money(Contracts.market_value(s))],
+			["TYPE", "Green Team deal" if c.green else ("Rookie deal" if c.rookie else "Veteran")], ["MARKET VALUE", Contracts.money(Contracts.market_value(s))],
 			["CAP SHARE", "%.1f%%" % (100.0 * c.salary / Contracts.SALARY_CAP)]]:
 		facts.add_child(_fact_box(item[0], item[1]))
 	v.add_child(facts)
@@ -1863,7 +2131,7 @@ func _player_contract(s: Soldier, team: Team) -> Control:
 		v.add_child(UiKit.rich("[color=%s]EXTENSION AGREED[/color]   %s, starting %d" % [UiKit.hex(UiKit.GOOD), _ext_text(s), season.year + 1], 16))
 	var effect := Morale.contract_effect(s)
 	v.add_child(UiKit.label("Contract morale: %s" % ("feels underpaid (morale drops weekly)" if effect < 0.0 else ("happy with his pay" if effect > 0.0 else
-		("rookie deal (no effect)" if c.rookie else "neutral"))), 15, UiKit.BAD if effect < 0.0 else (UiKit.GOOD if effect > 0.0 else UiKit.MUTED)))
+		("Green Team deal (no effect)" if c.green else ("rookie deal (no effect)" if c.rookie else "neutral")))), 15, UiKit.BAD if effect < 0.0 else (UiKit.GOOD if effect > 0.0 else UiKit.MUTED)))
 	if not team.user_controlled:
 		return v
 	v.add_child(_section("ACTIONS"))
@@ -1883,7 +2151,7 @@ func _player_contract(s: Soldier, team: Team) -> Control:
 		var charged := season.release_player(team, s)
 		hub.app.toast("Released %s. %s dead money." % [s.full_name(), Contracts.money(charged)])
 		hub.go_back(), 16)
-	rel.disabled = team.roster.size() <= min_roster
+	rel.disabled = team.roster.has(s) and team.roster.size() <= min_roster
 	if confirming:
 		UiKit.style_button(rel, UiKit.BAD.darkened(0.5), Color.WHITE, 8)
 	actions.add_child(rel)
@@ -2288,7 +2556,10 @@ func _meter(label: String, value: float, max_value: float, color: Color, detail:
 	fill.content_margin_bottom = 0
 	bar.add_theme_stylebox_override("fill", fill)
 	h.add_child(bar)
-	h.add_child(UiKit.label(detail, font, UiKit.TEXT))
+	var detail_l := UiKit.label(detail, font, UiKit.TEXT)
+	h.add_child(detail_l)
+	h.set_meta(&"bar", bar)
+	h.set_meta(&"detail", detail_l)
 	return h
 
 
@@ -2324,6 +2595,11 @@ func _stat_row(s: Soldier, st: StringName, counts: bool) -> Control:
 	val.autowrap_mode = TextServer.AUTOWRAP_OFF
 	val.custom_minimum_size.x = 70
 	cell.add_child(val)
+	# Just upgraded: the gain floats up beside the bar.
+	if not _stat_fx.is_empty() and int(_stat_fx["sid"]) == s.id and _stat_fx["before"].has(st) and int(_stat_fx["before"][st]) < s.stats[st]:
+		var was := int(_stat_fx["before"][st])
+		var now: int = s.stats[st]
+		Fx.rise_text(bar, "+%d" % (now - was), UiKit.GOOD, 17, Vector2(-34, -6), 0.55, 24.0, true)
 	return cell
 
 
@@ -2584,59 +2860,76 @@ func _lineup_click(team: Team, s: Soldier, slot: StringName, refresh: Callable) 
 	refresh.call()
 
 
+## Weekly Training: every soldier's intensity as a four-way strip that shows what each choice costs and
+## pays (XP, fatigue, injury risk), grouped into starters / bench / Green Team under a team-wide summary.
+## Nothing is rebuilt on a pick: the row and the summary update in place and animate the change.
 func training() -> Control:
 	var season := _season()
 	var team := season.user_team()
-	var v := _vbox()
-	var info := "Each soldier trains at their own intensity every week. "
-	for it in Training.INTENSITIES:
-		var d: Dictionary = Training.INTENSITY_INFO[it]
-		info += "%s: %d XP%s.  " % [d["label"], roundi(Training.xp_for(it)),
-			", extra recovery" if it == Soldier.INTENSITY_REST else ", +%d fatigue" % roundi(float(d["load"]))]
-	var info_lbl := UiKit.label(info, 15, UiKit.MUTED)
-	info_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(info_lbl)
-	var fat_lbl := UiKit.label("Starting a match adds +%d fatigue. Endurance shrinks fatigue gain; age raises it and slows recovery. Above 50 fatigue, accuracy and speed drop (steeply above 75) and injuries get likelier." % roundi(Conditioning.MATCH_LOAD), 15, UiKit.MUTED)
-	fat_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(fat_lbl)
+	var ctx := {
+		"team": team,
+		"plays": season.team_plays_this_week(team),
+		"starters": team.starters(),
+		"rows": [],
+		"tiles": {},
+	}
+	var v := _vbox(14)
+	v.add_child(_training_summary(ctx))
+
 	var top := _row()
 	top.add_child(UiKit.button("Auto-set intensities", func():
 		Training.ai_set_intensities(team)
-		hub.replace("Weekly Training", training)))
+		_training_refresh_all(ctx)))
 	top.add_child(UiKit.button("All Normal", func():
-		for so in team.roster:
+		for so in team.org():
 			so.intensity = Soldier.INTENSITY_NORMAL
-		hub.replace("Weekly Training", training)))
+		_training_refresh_all(ctx)))
+	var rest_btn := UiKit.button("Rest advised", func():
+		for r in ctx["rows"]:
+			if r["advised"] and not r["s"].is_injured():
+				r["s"].intensity = Soldier.INTENSITY_REST
+		_training_refresh_all(ctx))
+	ctx["rest_btn"] = rest_btn
+	top.add_child(rest_btn)
+	# Blanket-set everyone (healthy) to one chosen intensity.
+	var set_pick := OptionButton.new()
+	set_pick.custom_minimum_size = Vector2(130, 44)
+	UiKit.style_button(set_pick)
+	for it in Training.INTENSITIES:
+		set_pick.add_item(Training.label(it))
+	set_pick.select(Training.INTENSITIES.find(Soldier.INTENSITY_NORMAL))
+	top.add_child(UiKit.button("Set everyone to:", func():
+		var chosen: StringName = Training.INTENSITIES[set_pick.selected]
+		for so in team.org():
+			if not so.is_injured():
+				so.intensity = chosen
+		_training_refresh_all(ctx)))
+	top.add_child(set_pick)
+	var hint := UiKit.label("Buttons show XP earned and net fatigue change.", 15, UiKit.MUTED)
+	hint.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top.add_child(hint)
 	v.add_child(top)
-	var list: Array = team.roster.duplicate()
-	list.sort_custom(func(a: Soldier, b: Soldier): return _slot_order(team, a) < _slot_order(team, b))
-	for so: Soldier in list:
-		var row := _row(16)
-		var slot := team.slot_of(so)
-		var name_l := UiKit.label("%s  %s" % [slot if slot != &"" else "BN", so.full_name()], 17, Color.WHITE)
-		name_l.custom_minimum_size.x = 270
-		row.add_child(name_l)
-		var age_l := UiKit.label("age %d" % so.age, 15, UiKit.MUTED)
-		age_l.custom_minimum_size.x = 70
-		row.add_child(age_l)
-		var fat := UiKit.label("FAT %d  %s" % [roundi(so.fatigue), Conditioning.status(so.fatigue)], 16, fatigue_color(so.fatigue))
-		fat.custom_minimum_size.x = 170
-		row.add_child(fat)
-		if so.is_injured():
-			row.add_child(UiKit.label("INJURED (%s, %d wk) - rehab, no training" % [so.injury_name, so.injury_weeks], 16, UiKit.BAD))
-		else:
-			var pick := OptionButton.new()
-			pick.custom_minimum_size = Vector2(200, 44)
-			UiKit.style_button(pick)
-			for it in Training.INTENSITIES:
-				pick.add_item(Training.label(it))
-			pick.select(Training.INTENSITIES.find(so.intensity))
-			var who := so
-			pick.item_selected.connect(func(i: int):
-				who.intensity = Training.INTENSITIES[i]
-				hub.replace("Weekly Training", training))
-			row.add_child(pick)
-		v.add_child(row)
+
+	var by_slot := func(a: Soldier, b: Soldier): return _slot_order(team, a) < _slot_order(team, b)
+	var starters: Array = team.roster.filter(func(x: Soldier): return ctx["starters"].has(x))
+	var bench: Array = team.roster.filter(func(x: Soldier): return not ctx["starters"].has(x))
+	starters.sort_custom(by_slot)
+	bench.sort_custom(by_slot)
+	var n := 0
+	for g in [["Starters", starters], ["Bench", bench], ["Green Team", team.green_team.duplicate()]]:
+		var list: Array = g[1]
+		if list.is_empty():
+			continue
+		var head := _row(14)
+		head.add_child(UiKit.heading(g[0], 22))
+		var cnt := UiKit.label("%d soldiers" % list.size(), 15, UiKit.MUTED)
+		cnt.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		head.add_child(cnt)
+		v.add_child(head)
+		for so: Soldier in list:
+			v.add_child(_training_row(ctx, so, minf(0.6, 0.03 * n)))
+			n += 1
+
 	var foot := _row()
 	if not season.can_train_user_team():
 		foot.add_child(UiKit.label("Weekly training starts in Week 1. Set intensities now; they carry over.", 15, UiKit.MUTED))
@@ -2651,7 +2944,408 @@ func training() -> Control:
 		foot.add_child(go)
 		foot.add_child(UiKit.label("Skipping it? Training still runs at these intensities when the week is played.", 14, UiKit.MUTED))
 	v.add_child(foot)
+	var note := UiKit.label(("Starting a match adds +%d fatigue. Endurance shrinks fatigue gain; age raises it and slows recovery. " +
+		"Above 50 fatigue, accuracy and speed drop (steeply above 75) and injuries get likelier. Injured soldiers only study film.") % roundi(Conditioning.MATCH_LOAD), 14, UiKit.MUTED)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(note)
+	_training_refresh_all(ctx, true)
 	return v
+
+
+## What `s` would get at `intensity` this week: XP, end-of-week fatigue, injury chance and the level-ups that XP brings.
+func _train_calc(ctx: Dictionary, s: Soldier, intensity: StringName) -> Dictionary:
+	var team: Team = ctx["team"]
+	var green := team.green_team.has(s)
+	var played: bool = ctx["plays"] and not green and ctx["starters"].has(s)
+	var bye: bool = not ctx["plays"]
+	var xp := Training.projected_xp(team, s, intensity)
+	var x := s.xp + xp
+	var lvl := s.level
+	var levels := 0
+	while x >= Progression.xp_to_next(lvl):
+		x -= Progression.xp_to_next(lvl)
+		lvl += 1
+		levels += 1
+	return {
+		"xp": xp,
+		"fat": Conditioning.projected_fatigue(s, intensity, played, bye),
+		"risk": 0.0 if green else Conditioning.projected_injury_chance(s, intensity, played, bye, Facilities.medical_rating(team, s.stats[Stats.INJURY])),
+		"levels": levels,
+		"xp_after": x,
+		"next_max": Progression.xp_to_next(lvl),
+	}
+
+
+## Should this soldier rest? Worn out already, or Normal training would leave him exhausted or likely to get hurt.
+func _train_rest_advised(ctx: Dictionary, s: Soldier) -> bool:
+	if s.is_injured():
+		return false
+	var normal := _train_calc(ctx, s, Soldier.INTENSITY_NORMAL)
+	return s.fatigue >= 65.0 or float(normal["fat"]) >= 75.0 or float(normal["risk"]) >= 0.04
+
+
+static func _risk_color(p: float) -> Color:
+	if p < 0.02:
+		return UiKit.GOOD
+	if p < 0.04:
+		return Color("#eab308")
+	return UiKit.BAD
+
+
+## A bar that shows `cur` solid and the move towards `proj` as a lighter extension (or a lighter remainder when it falls).
+## Pass max_value for the scale; `ticks` are 0..1 marks drawn across it.
+func _train_dual_bar(ticks: Array = []) -> Control:
+	var c := Control.new()
+	c.custom_minimum_size = Vector2(150, 14)
+	c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	c.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for key in [&"back", &"front"]:
+		var bar := ProgressBar.new()
+		bar.show_percentage = false
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bar.set_anchors_preset(Control.PRESET_FULL_RECT)
+		bar.add_theme_stylebox_override("background", UiKit.flat(UiKit.LINE if key == &"back" else Color.TRANSPARENT, 4))
+		var fill := UiKit.flat(UiKit.INFO, 4)
+		fill.content_margin_top = 0
+		fill.content_margin_bottom = 0
+		bar.add_theme_stylebox_override("fill", fill)
+		c.add_child(bar)
+		c.set_meta(key, bar)
+		c.set_meta(String(key) + "_fill", fill)
+	for t in ticks:
+		var tick := ColorRect.new()
+		tick.color = Color(0, 0, 0, 0.55)
+		tick.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tick.anchor_left = float(t)
+		tick.anchor_right = float(t)
+		tick.anchor_bottom = 1.0
+		tick.offset_left = -1
+		tick.offset_right = 1
+		c.add_child(tick)
+	return c
+
+
+## Points a dual bar at cur -> proj. The lower value is the solid bar, the higher the lighter one behind it.
+func _train_set_dual(c: Control, max_value: float, cur: float, proj: float, color_of: Callable, animate: bool) -> void:
+	var lo := minf(cur, proj)
+	var hi := maxf(cur, proj)
+	var back: ProgressBar = c.get_meta(&"back")
+	var front: ProgressBar = c.get_meta(&"front")
+	back.max_value = max_value
+	front.max_value = max_value
+	(c.get_meta("back_fill") as StyleBoxFlat).bg_color = Color(color_of.call(hi), 0.5)
+	(c.get_meta("front_fill") as StyleBoxFlat).bg_color = color_of.call(lo)
+	for pair in [[back, hi], [front, lo]]:
+		var bar: ProgressBar = pair[0]
+		if animate and not Fx.is_reduced() and bar.is_inside_tree():
+			bar.create_tween().tween_property(bar, "value", float(pair[1]), 0.28).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		else:
+			bar.value = float(pair[1])
+
+
+func _training_row(ctx: Dictionary, s: Soldier, delay: float) -> Control:
+	var team: Team = ctx["team"]
+	var panel := PanelContainer.new()
+	var r := {"s": s, "ctx": ctx, "panel": panel, "advised": false, "last": &""}
+	var h := _row(14)
+	panel.add_child(h)
+	h.add_child(Portrait.new(s, 76, team.color, team))
+
+	# Who he is, and the traits that drive training.
+	var who := _vbox(2)
+	who.custom_minimum_size.x = 290
+	who.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var nm := UiKit.label(s.callsign.to_upper() if s.callsign != "" else s.last_name.to_upper(), 24, Color.WHITE)
+	nm.clip_text = true
+	who.add_child(nm)
+	var full := UiKit.label(s.full_name(), 14, UiKit.MUTED)
+	full.clip_text = true
+	who.add_child(full)
+	var line3 := UiKit.label("%s  ·  %s  ·  AGE %d" % [_slot_tag(team, s), Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), s.age], 14, UiKit.TEXT)
+	line3.clip_text = true
+	who.add_child(line3)
+	var muted := UiKit.hex(UiKit.MUTED)
+	var traits := UiKit.rich("[color=%s]END[/color] [color=%s]%d[/color]  [color=%s]INJ[/color] [color=%s]%d[/color]  [color=%s]XP×[/color] %.2f  [color=%s]SP[/color] [color=%s]%d[/color]" % [
+		muted, UiKit.hex(UiKit.ovr_color(s.stats[Stats.ENDURANCE])), s.stats[Stats.ENDURANCE],
+		muted, UiKit.hex(UiKit.ovr_color(s.stats[Stats.INJURY])), s.stats[Stats.INJURY],
+		muted, Progression.xp_multiplier(s),
+		muted, UiKit.hex(UiKit.INFO), s.skill_points], 14)
+	traits.autowrap_mode = TextServer.AUTOWRAP_OFF
+	traits.tooltip_text = "Endurance shrinks fatigue gain. Injury rating lowers injury chance. XP× is his development rate (age and dev trait). SP = banked skill points."
+	traits.mouse_filter = Control.MOUSE_FILTER_PASS
+	who.add_child(traits)
+	h.add_child(who)
+
+	# OVR and potential.
+	var op := _vbox(2)
+	op.custom_minimum_size.x = 92
+	op.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var role := _row_role(team, s)
+	var ovr := _row_ovr(team, s)
+	op.add_child(UiKit.label("OVR", 13, UiKit.MUTED))
+	op.add_child(_ovr_cell(ovr, s.morale_ovr_delta(role), 92, 28))
+	op.add_child(_pot_cell(s, 92, 18, 8.0))
+	h.add_child(op)
+
+	# XP column: where he is, what this week adds, and what is left to the next level.
+	var xcol := _vbox(3)
+	xcol.custom_minimum_size.x = 190
+	xcol.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	xcol.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var xtop := _row(8)
+	r["xp_now"] = UiKit.label("", 14, UiKit.MUTED)
+	r["xp_now"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	xtop.add_child(r["xp_now"])
+	r["xp_gain"] = UiKit.label("", 17, UiKit.INFO)
+	xtop.add_child(r["xp_gain"])
+	xcol.add_child(xtop)
+	r["xp_bar"] = _train_dual_bar()
+	xcol.add_child(r["xp_bar"])
+	r["xp_after"] = UiKit.label("", 14, UiKit.MUTED)
+	r["xp_after"].clip_text = true
+	xcol.add_child(r["xp_after"])
+	h.add_child(xcol)
+
+	# Fatigue column: now -> after this week, with the 50 / 75 thresholds marked on the bar.
+	var fcol := _vbox(3)
+	fcol.custom_minimum_size.x = 190
+	fcol.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	fcol.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var ftop := _row(8)
+	r["fat_now"] = UiKit.label("", 14, UiKit.MUTED)
+	r["fat_now"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ftop.add_child(r["fat_now"])
+	r["fat_after"] = UiKit.label("", 17, UiKit.TEXT)
+	ftop.add_child(r["fat_after"])
+	fcol.add_child(ftop)
+	r["fat_bar"] = _train_dual_bar([0.5, 0.75])
+	fcol.add_child(r["fat_bar"])
+	r["fat_note"] = UiKit.label("", 14, UiKit.MUTED)
+	r["fat_note"].clip_text = true
+	fcol.add_child(r["fat_note"])
+	h.add_child(fcol)
+
+	# Injury risk and the rest flag.
+	var rcol := _vbox(2)
+	rcol.custom_minimum_size.x = 112
+	rcol.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	rcol.add_child(UiKit.label("INJURY RISK", 13, UiKit.MUTED))
+	r["risk"] = UiKit.label("", 24, UiKit.GOOD)
+	rcol.add_child(r["risk"])
+	r["flag"] = UiKit.label("", 13, UiKit.GOLD)
+	rcol.add_child(r["flag"])
+	h.add_child(rcol)
+
+	# The intensity strip, or the injury notice.
+	if s.is_injured():
+		var inj := UiKit.label("INJURED  ·  %s  ·  %d wk\nRehab only: film study XP" % [s.injury_name, s.injury_weeks], 15, UiKit.BAD)
+		inj.custom_minimum_size.x = 354
+		inj.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		h.add_child(inj)
+	else:
+		var seg := _row(6)
+		seg.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		r["btns"] = {}
+		r["btn_lbls"] = {}
+		for it in Training.INTENSITIES:
+			var b := Button.new()
+			b.custom_minimum_size = Vector2(84, 78)
+			b.focus_mode = Control.FOCUS_ALL
+			var box := _vbox(1)
+			box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			box.set_anchors_preset(Control.PRESET_FULL_RECT)
+			box.alignment = BoxContainer.ALIGNMENT_CENTER
+			b.add_child(box)
+			var tl := UiKit.label(Training.label(it), 16, Color.WHITE)
+			tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			box.add_child(tl)
+			var xl := UiKit.label("", 14, UiKit.INFO)
+			xl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			box.add_child(xl)
+			var fl := UiKit.label("", 14, UiKit.TEXT)
+			fl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			box.add_child(fl)
+			r["btns"][it] = b
+			r["btn_lbls"][it] = [xl, fl]
+			var pick: StringName = it
+			b.pressed.connect(func():
+				if s.intensity == pick:
+					return
+				s.intensity = pick
+				_training_refresh_row(r, true)
+				_training_refresh_summary(ctx))
+			seg.add_child(b)
+		h.add_child(seg)
+
+	ctx["rows"].append(r)
+	UiKit.fade_in(panel, delay)
+	return panel
+
+
+func _training_refresh_all(ctx: Dictionary, initial := false) -> void:
+	for r in ctx["rows"]:
+		_training_refresh_row(r, not initial)
+	_training_refresh_summary(ctx)
+
+
+func _training_refresh_row(r: Dictionary, animate: bool) -> void:
+	var s: Soldier = r["s"]
+	var ctx: Dictionary = r["ctx"]
+	var it: StringName = s.intensity
+	var changed: bool = r["last"] != &"" and r["last"] != it
+	r["last"] = it
+	var c := _train_calc(ctx, s, it)
+	r["calc"] = c
+	var advised := _train_rest_advised(ctx, s)
+	r["advised"] = advised
+
+	# XP: now, this week's gain, and where that leaves him.
+	var xmax := float(Progression.xp_to_next(s.level))
+	r["xp_now"].text = "XP  %d / %d" % [s.xp, int(xmax)]
+	r["xp_gain"].text = "+%d" % c["xp"]
+	var levels := int(c["levels"])
+	var proj_in_level := xmax if levels > 0 else float(s.xp + int(c["xp"]))
+	_train_set_dual(r["xp_bar"], xmax, float(s.xp), proj_in_level, func(_v): return UiKit.GOOD if levels > 0 else UiKit.INFO, animate)
+	if levels > 0:
+		r["xp_after"].text = "LEVEL UP  ·  +%d SP" % (levels * Progression.SKILL_POINTS_PER_LEVEL)
+		r["xp_after"].add_theme_color_override("font_color", UiKit.GOOD)
+	else:
+		r["xp_after"].text = "%d to next level" % maxi(0, int(xmax) - s.xp - int(c["xp"]))
+		r["xp_after"].add_theme_color_override("font_color", UiKit.MUTED)
+
+	# Fatigue: now -> after, bar zones, and what that costs in matches.
+	var fat := float(c["fat"])
+	r["fat_now"].text = "FATIGUE  %d  %s" % [roundi(s.fatigue), Conditioning.status(s.fatigue)]
+	r["fat_now"].add_theme_color_override("font_color", fatigue_color(s.fatigue))
+	r["fat_after"].text = "→ %d" % roundi(fat)
+	r["fat_after"].add_theme_color_override("font_color", fatigue_color(fat))
+	_train_set_dual(r["fat_bar"], 100.0, s.fatigue, fat, func(v): return fatigue_color(v), animate)
+	var pen := Conditioning.penalty(fat) * 100.0
+	r["fat_note"].text = "%s  ·  -%.1f%% match stats" % [Conditioning.status(fat), pen]
+	r["fat_note"].add_theme_color_override("font_color", fatigue_color(fat))
+
+	# Injury risk and the flag.
+	var risk := float(c["risk"])
+	var risk_l: Label = r["risk"]
+	if s.is_injured() or ctx["team"].green_team.has(s):
+		risk_l.text = "—"
+		risk_l.add_theme_color_override("font_color", UiKit.MUTED)
+	else:
+		risk_l.text = "%.1f%%" % (risk * 100.0)
+		risk_l.add_theme_color_override("font_color", _risk_color(risk))
+	var flag: Label = r["flag"]
+	if advised:
+		flag.text = "RESTING" if it == Soldier.INTENSITY_REST else "REST ADVISED"
+		flag.add_theme_color_override("font_color", UiKit.GOOD if it == Soldier.INTENSITY_REST else UiKit.GOLD)
+	else:
+		flag.text = ""
+
+	# Row outline: gold while he is advised to rest but is not resting.
+	var hot := advised and it != Soldier.INTENSITY_REST
+	(r["panel"] as PanelContainer).add_theme_stylebox_override("panel", UiKit.flat(UiKit.PANEL, 10, 2 if (hot or advised) else 1,
+		UiKit.GOLD if hot else (Color(UiKit.GOOD, 0.5) if advised else UiKit.LINE)))
+
+	# The strip: what each choice would do for him, the chosen one lit.
+	if r.has("btns"):
+		for opt in Training.INTENSITIES:
+			var o: Dictionary = _train_calc(ctx, s, opt)
+			var delta := roundi(float(o["fat"]) - s.fatigue)
+			var lbls: Array = r["btn_lbls"][opt]
+			lbls[0].text = "%d XP" % o["xp"]
+			lbls[1].text = "%s%d FAT" % ["+" if delta > 0 else ("−" if delta < 0 else "±"), absi(delta)]
+			lbls[1].add_theme_color_override("font_color", fatigue_color(float(o["fat"])))
+			var b: Button = r["btns"][opt]
+			b.tooltip_text = "%s: +%d XP%s\nFatigue %d → %d (%s)\nInjury risk %.1f%%" % [Training.label(opt), o["xp"],
+				"  (level up)" if int(o["levels"]) > 0 else "", roundi(s.fatigue), roundi(float(o["fat"])),
+				Conditioning.status(float(o["fat"])), float(o["risk"]) * 100.0]
+			if opt == it:
+				UiKit.style_button(b, UiKit.ACCENT.darkened(0.5), UiKit.ACCENT, 6, false)
+				b.add_theme_stylebox_override("normal", UiKit.flat(UiKit.ACCENT.darkened(0.5), 6, 2, UiKit.ACCENT))
+			else:
+				UiKit.style_button(b, UiKit.PANEL_HI, UiKit.ACCENT, 6, false)
+				if advised and opt == Soldier.INTENSITY_REST:
+					b.add_theme_stylebox_override("normal", UiKit.flat(UiKit.PANEL_HI, 6, 2, UiKit.GOLD))
+		if changed and animate:
+			Fx.pop(r["btns"][it], 1.08, 0.25)
+			Fx.flash(r["xp_gain"], 0.6, 0.5)
+			Fx.flash(r["fat_after"], 0.6, 0.5)
+			Fx.flash(risk_l, 0.6, 0.5)
+
+
+## The team-wide summary tiles above the list.
+func _training_summary(ctx: Dictionary) -> Control:
+	var row := _row(12)
+	for t in [["xp", "TEAM XP THIS WEEK"], ["levels", "LEVEL-UPS"], ["fat", "AVG FATIGUE AFTER"], ["inj", "EXPECTED INJURIES"], ["rest", "REST ADVISED"], ["mix", "INTENSITY MIX"]]:
+		var p := UiKit.panel(UiKit.PANEL, 10)
+		p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var v := _vbox(2)
+		p.add_child(v)
+		v.add_child(UiKit.label(t[1], 13, UiKit.MUTED))
+		var val := UiKit.label("", 30, UiKit.TEXT)
+		v.add_child(val)
+		var sub := UiKit.label("", 14, UiKit.MUTED)
+		sub.clip_text = true
+		v.add_child(sub)
+		ctx["tiles"][t[0]] = {"v": val, "s": sub}
+		row.add_child(p)
+	return row
+
+
+func _training_refresh_summary(ctx: Dictionary) -> void:
+	var tiles: Dictionary = ctx["tiles"]
+	var xp := 0
+	var levels := 0
+	var fat_now := 0.0
+	var fat_after := 0.0
+	var inj := 0.0
+	var advised := 0
+	var resting_advised := 0
+	var mix := {}
+	for r in ctx["rows"]:
+		var s: Soldier = r["s"]
+		var c: Dictionary = r["calc"]
+		xp += int(c["xp"])
+		if int(c["levels"]) > 0:
+			levels += 1
+		fat_now += s.fatigue
+		fat_after += float(c["fat"])
+		inj += float(c["risk"])
+		if r["advised"]:
+			advised += 1
+			if s.intensity == Soldier.INTENSITY_REST:
+				resting_advised += 1
+		if not s.is_injured():
+			mix[s.intensity] = int(mix.get(s.intensity, 0)) + 1
+	var n := maxi(1, ctx["rows"].size())
+	Fx.count_memo(tiles["xp"]["v"], "train_xp", xp, "+%d", true, 1)
+	tiles["xp"]["s"].text = "across %d soldiers" % ctx["rows"].size()
+	Fx.count_memo(tiles["levels"]["v"], "train_levels", levels, "%d", true, 1)
+	tiles["levels"]["s"].text = "soldiers who level up"
+	var avg_after := roundi(fat_after / n)
+	Fx.count_memo(tiles["fat"]["v"], "train_fat", avg_after, "%d", true, -1)
+	tiles["fat"]["v"].add_theme_color_override("font_color", fatigue_color(fat_after / n))
+	tiles["fat"]["s"].text = "now %d" % roundi(fat_now / n)
+	var inj_l: Label = tiles["inj"]["v"]
+	var inj_text := "%.1f" % inj
+	if inj_l.text != inj_text:
+		inj_l.text = inj_text
+		Fx.flash(inj_l, 0.6, 0.5)
+	inj_l.add_theme_color_override("font_color", _risk_color(inj / n))
+	tiles["inj"]["s"].text = "chance-weighted, this week"
+	Fx.count_memo(tiles["rest"]["v"], "train_rest", advised - resting_advised, "%d", true, -1)
+	tiles["rest"]["v"].add_theme_color_override("font_color", UiKit.GOLD if advised > resting_advised else UiKit.GOOD)
+	tiles["rest"]["s"].text = "%d advised, %d resting" % [advised, resting_advised]
+	var parts: PackedStringArray = []
+	for it in Training.INTENSITIES:
+		parts.append("%s %d" % [Training.label(it)[0], int(mix.get(it, 0))])
+	tiles["mix"]["v"].text = "  ".join(parts)
+	tiles["mix"]["v"].add_theme_font_size_override("font_size", UiKit.fs(22))
+	tiles["mix"]["s"].text = "Rest · Light · Normal · Heavy"
+	if ctx.has("rest_btn"):
+		var rb: Button = ctx["rest_btn"]
+		rb.text = "Rest advised (%d)" % (advised - resting_advised)
+		rb.disabled = advised == resting_advised
 
 
 ## The user's weekly training results: XP gained, the new XP bar and any skill points earned.
@@ -2667,13 +3361,17 @@ func training_results() -> Control:
 		total_sp += int(r["points"])
 	v.add_child(UiKit.label("%s training complete  -  +%d XP across the roster%s" % [season.week_label(season.week), total_xp,
 		("  -  %d skill points earned" % total_sp) if total_sp > 0 else ""], 20, Color.WHITE))
-	var list: Array = team.roster.filter(func(x: Soldier): return report.has(x.id))
+	var list: Array = team.org().filter(func(x: Soldier): return report.has(x.id))
 	list.sort_custom(func(a: Soldier, b: Soldier): return _slot_order(team, a) < _slot_order(team, b))
+	# The bars replay once per week's results, not every time the page is reopened.
+	var fx_key := "%d-%d" % [season.year, season.week]
+	var animate := _training_fx_key != fx_key and not Fx.is_reduced()
+	_training_fx_key = fx_key
+	var n := 0
 	for so: Soldier in list:
 		var r: Dictionary = report[so.id]
 		var row := _row(16)
-		var slot := team.slot_of(so)
-		var name_l := UiKit.label("%s  %s" % [slot if slot != &"" else "BN", so.display_name()], 17, Color.WHITE)
+		var name_l := UiKit.label("%s  %s" % [_slot_tag(team, so), so.display_name()], 17, Color.WHITE)
 		name_l.custom_minimum_size.x = 300
 		row.add_child(name_l)
 		var it_l := UiKit.label(Training.label(r["intensity"]), 15, UiKit.MUTED)
@@ -2683,17 +3381,86 @@ func training_results() -> Control:
 		xp_l.custom_minimum_size.x = 100
 		row.add_child(xp_l)
 		var prog: Array = Progression.xp_progress(so)
-		row.add_child(_meter("XP", prog[0], prog[1], UiKit.INFO, "%d / %d" % [prog[0], prog[1]]))
+		var meter := _meter("XP", prog[0], prog[1], UiKit.INFO, "%d / %d" % [prog[0], prog[1]])
+		row.add_child(meter)
+		var badge: Label = null
 		if int(r["points"]) > 0:
-			row.add_child(UiKit.label("  LEVEL UP  +%d SP" % int(r["points"]), 17, UiKit.GOOD))
+			badge = UiKit.label("  LEVEL UP  +%d SP" % int(r["points"]), 17, UiKit.GOOD)
+			row.add_child(badge)
 		if Progression.can_level_up(so):
 			row.add_child(UiKit.label("  can level up", 15, UiKit.GOOD))
 		v.add_child(_click_wrap(row, func(): open_player(so), 46))
+		if animate:
+			_animate_xp_row(row, meter, xp_l, badge, so, r, minf(0.8, 0.05 * n))
+		n += 1
 	var cont := UiKit.button("Continue  >>", func(): hub.go_home(), 20)
 	cont.custom_minimum_size = Vector2(260, 52)
 	cont.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	v.add_child(cont)
 	return v
+
+
+var _training_fx_key := ""
+## Player page: the group just upgraded {sid, group, before (stat -> old rating), old_rating}; consumed by the rebuild.
+var _stat_fx := {}
+
+
+## Replays one training-results row: the "+N XP" counts up, a "+N" floats off the bar and the bar fills
+## from where it was. Each level crossed fills it to the end, flashes it, stamps the LEVEL UP badge
+## and washes the row green, then restarts the bar from 0 for the next level. The end state is
+## always the real progress, so skipping (a click) just lands there.
+func _animate_xp_row(row: Control, meter: Control, xp_l: Label, badge: Label, so: Soldier, r: Dictionary, delay: float) -> void:
+	if not r.has("xp_before"):
+		return
+	var bar: ProgressBar = meter.get_meta(&"bar")
+	var detail: Label = meter.get_meta(&"detail")
+	var gained := int(r["xp"])
+	var levels := int(r["levels"])
+	var lvl := int(r["level_before"])
+	var cur_max := Progression.xp_to_next(lvl)
+	var final_prog: Array = Progression.xp_progress(so)
+	bar.max_value = cur_max
+	bar.value = int(r["xp_before"])
+	detail.text = "%d / %d" % [int(r["xp_before"]), cur_max]
+	if badge != null:
+		badge.modulate.a = 0.0
+	Fx.count_between(xp_l, 0, gained, "+%d XP", 0.6, delay)
+	var tw := Fx.tween(row, true)
+	tw.tween_interval(delay)
+	tw.tween_callback(func():
+		var frac := float(bar.value) / maxf(1.0, float(bar.max_value))
+		Fx.rise_text(bar, "+%d" % gained, UiKit.INFO, 18, Vector2(bar.size.x * frac, 2)))
+	var from_xp := int(r["xp_before"])
+	for i in levels + 1:
+		var last := i == levels
+		var seg_max := cur_max
+		var to_xp: int = int(final_prog[0]) if last else seg_max
+		var seg_t := 0.15 + 0.6 * float(to_xp - from_xp) / maxf(1.0, float(seg_max))
+		tw.tween_method(func(x: float):
+			bar.value = x
+			detail.text = "%d / %d" % [roundi(x), seg_max], float(from_xp), float(to_xp), seg_t).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		if last:
+			break
+		var first := i == 0
+		var next_max := Progression.xp_to_next(lvl + i + 1)
+		tw.tween_callback(func():
+			Fx.cue(&"level_up")
+			Fx.flash(bar, 1.2, 0.5)
+			Fx.wash(row, Color(UiKit.GOOD, 0.28), 0.9)
+			if first and badge != null:
+				Fx.stamp(badge)
+			bar.max_value = next_max
+			bar.value = 0
+			detail.text = "0 / %d" % next_max)
+		tw.tween_interval(0.3)
+		cur_max = next_max
+		from_xp = 0
+	tw.tween_callback(func():
+		bar.max_value = final_prog[1]
+		bar.value = final_prog[0]
+		detail.text = "%d / %d" % [final_prog[0], final_prog[1]]
+		if badge != null:
+			badge.modulate.a = 1.0)
 
 
 func injuries() -> Control:
@@ -3403,63 +4170,101 @@ const AREA_COLORS := {"A": Color("#22c55e"), "B+": Color("#38bdf8"), "B": Color(
 	"D": Color("#f97316"), "F": Color("#ef4444")}
 
 
-## Scouting tools: once-a-season region scout, auto-scout, region/favorites filters.
-func _scout_tools(d: Draft) -> Control:
-	var v := _vbox(6)
-	var r1 := _row(8)
-	r1.add_child(UiKit.label("Region scout (once a season, free):", 15, UiKit.MUTED))
+## Scouting toolbar: the once-a-season region scout, auto-scout and the draft shortcuts in one panel.
+func _scout_toolbar(d: Draft) -> Control:
+	var pn := UiKit.panel(UiKit.PANEL, 10)
+	var h := _row(28)
+	var reg := _vbox(4)
+	reg.add_child(UiKit.label("REGION SCOUT  -  once a season, free", 12, UiKit.MUTED))
+	var rr := _row(6)
 	for region in LeagueData.DIVISIONS:
-		var reg: String = region
-		var b := UiKit.button("%s (%d)" % [reg, d.in_region(reg).size()], func():
-			var n := d.scout_region(reg)
-			hub.app.toast("Scouted %d prospects from the %s region." % [n, reg] if n >= 0 else "Region scout already used this season.")
+		var rname: String = region
+		var b := UiKit.button("%s (%d)" % [rname, d.in_region(rname).size()], func():
+			var n := d.scout_region(rname)
+			hub.app.toast("Scouted %d prospects from the %s region." % [n, rname] if n >= 0 else "Region scout already used this season.")
 			hub.replace("Scouting", scouting), 15)
 		b.disabled = d.region_scouted != "" or _season().preseason_camp
-		r1.add_child(b)
+		rr.add_child(b)
 	if d.region_scouted != "":
-		r1.add_child(UiKit.label("used on the %s" % d.region_scouted, 15, UiKit.ACCENT))
-	v.add_child(r1)
-	var r2 := _row(8)
-	r2.add_child(UiKit.label("Auto-scout (favorites first, then the big board):", 15, UiKit.MUTED))
+		rr.add_child(UiKit.label("used on the %s" % d.region_scouted, 15, UiKit.ACCENT))
+	reg.add_child(rr)
+	h.add_child(reg)
+	var auto := _vbox(4)
+	auto.add_child(UiKit.label("AUTO-SCOUT  -  favorites first, then the big board", 12, UiKit.MUTED))
+	var ar := _row(6)
 	for lvl in Draft.AUTO_SCOUT_LEVELS:
 		var level: int = lvl
-		var b := UiKit.button("Up to %d" % level, func():
+		var b := UiKit.button("Up to %d points" % level, func():
 			var n := d.auto_scout(level)
 			hub.app.toast("Auto-scouted %d prospects. %d points left." % [n, d.scout_points])
 			hub.replace("Scouting", scouting), 15)
 		b.disabled = d.scout_points <= 0
-		r2.add_child(b)
-	v.add_child(r2)
-	var r3 := _row(8)
-	r3.add_child(UiKit.label("Region:", 15, UiKit.MUTED))
+		ar.add_child(b)
+	auto.add_child(ar)
+	h.add_child(auto)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.add_child(spacer)
+	var nav := _vbox(4)
+	nav.add_child(UiKit.label("THE DRAFT", 12, UiKit.MUTED))
+	var nr := _row(6)
+	nr.add_child(UiKit.button("Mock Draft", hub.open_mock_draft, 15))
+	nr.add_child(UiKit.button("Draft Room", hub.open_draft_room, 15))
+	nav.add_child(nr)
+	h.add_child(nav)
+	pn.add_child(h)
+	return pn
+
+
+## Position and region filters plus the favorites toggle on one line, the grade legend on the right.
+func _scout_filters() -> Control:
+	var h := _row(10)
+	h.add_child(UiKit.label("POSITION", 12, UiKit.MUTED))
+	for o in [[-1, "All"], [Scheme.Role.FRONTMAN, "Frontman"], [Scheme.Role.CENTER, "Center"], [Scheme.Role.FLEX, "Flex"]]:
+		var val: int = o[0]
+		h.add_child(_seg(o[1], role_filter == val, func():
+			role_filter = val
+			hub.replace("Scouting", scouting), 15))
+	var gap := Control.new()
+	gap.custom_minimum_size.x = 18
+	h.add_child(gap)
+	h.add_child(UiKit.label("REGION", 12, UiKit.MUTED))
 	for region in [""] + LeagueData.DIVISIONS:
 		var reg: String = region
-		var name := "All" if reg == "" else reg
-		var b := _seg(name, region_filter == reg, func():
+		h.add_child(_seg("All" if reg == "" else reg, region_filter == reg, func():
 			region_filter = reg
-			hub.replace("Scouting", scouting), 15)
-		r3.add_child(b)
-	v.add_child(r3)
-	return v
+			hub.replace("Scouting", scouting), 15))
+	h.add_child(_fav_toggle("Scouting", scouting))
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.add_child(spacer)
+	h.add_child(_grade_legend())
+	return h
 
 
 ## Prospect table layout (shared by Scouting and the Draft Room): portrait, name/age/pos,
-## projection, one column per stat group, then the action button.
+## projection, one column per stat group, then the action button. The name and group
+## columns stretch to fill the window; the rest are fixed.
 const PCOL_PORTRAIT := 48
-const PCOL_NAME := 180
-const PCOL_PROJ := 104
+const PCOL_NAME := 210
+const PCOL_PROJ := 112
 const PCOL_AREA := 66
-const PCOL_GROUP := 136
+const PCOL_GROUP := 130
 const PCOL_ACTION := 96
+const PCOL_STAR := 44
 const PCOL_SEP := 10
+## Space after the stretching columns: the row's right padding, then separator, action, separator, star.
+const PCOL_TRAIL := 14 + PCOL_SEP + PCOL_ACTION + PCOL_SEP + PCOL_STAR
+const PCOL_NAME_STRETCH := 1.4
+const PCOL_GROUP_STRETCH := 1.0
 
 
 ## Sortable prospect header (shared by Scouting and the Draft Room).
 func _prospect_header(rebuild: Callable) -> Control:
-	var cols := [["", PCOL_PORTRAIT], ["PROSPECT", PCOL_NAME, &"name"], ["SCOUT", PCOL_AREA, &"area"], ["PROJECTED", PCOL_PROJ, &"proj"]]
+	var cols := [["", PCOL_PORTRAIT], ["PROSPECT", PCOL_NAME, &"name", PCOL_NAME_STRETCH], ["SCOUT", PCOL_AREA, &"area"], ["PROJECTED", PCOL_PROJ, &"proj"]]
 	for g in Stats.GROUP_ORDER:
-		cols.append([Stats.GROUP_LABELS[g].to_upper(), PCOL_GROUP, g])
-	return _sort_header(&"prospects", cols, rebuild)
+		cols.append([Stats.GROUP_LABELS[g].to_upper(), PCOL_GROUP, g, PCOL_GROUP_STRETCH])
+	return _sort_header(&"prospects", cols, rebuild, PCOL_TRAIL)
 
 
 ## Sort value for a prospect column: a group sorts by the middle of its scouted window
@@ -3499,45 +4304,46 @@ func _sorted_prospects(list: Array[Prospect]) -> Array[Prospect]:
 	return out
 
 
-## One grade column: a 5-segment bar (lit where his true grade could be), then the low and
-## high grade names, each in its own color.
+const TIER_WORDS := ["Poor", "Below avg", "Average", "Good", "Elite"]
+
+
+## One grade column in the table: the tier bar, then the revealed grade in its color (a range shows
+## its two ends as generic words; a pinned group shows the group's own tier name).
 func _grade_cell(g: StringName, w: Variant) -> Control:
-	var v := _vbox(2)
+	var v := _vbox(4)
 	v.custom_minimum_size.x = PCOL_GROUP
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.size_flags_stretch_ratio = PCOL_GROUP_STRETCH
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var bar := _row(2)
-	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	for t in Draft.TIER_COUNT:
-		var seg := ColorRect.new()
-		seg.custom_minimum_size = Vector2((PCOL_GROUP - 2 * (Draft.TIER_COUNT - 1)) / float(Draft.TIER_COUNT), 6)
-		var lit: bool = w != null and t >= (w as Vector2i).x and t <= (w as Vector2i).y
-		seg.color = TIER_COLORS[t] if lit else UiKit.LINE
-		seg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		bar.add_child(seg)
-	v.add_child(bar)
-	if w == null:
-		v.add_child(UiKit.label("?", 14, UiKit.MUTED))
-		return v
-	var wv: Vector2i = w
-	var hi := UiKit.label(Draft.tier_name(g, wv.y), 14, TIER_COLORS[wv.y])
-	hi.clip_text = true
-	v.add_child(hi)
-	if wv.x != wv.y:
-		var lo := UiKit.label(Draft.tier_name(g, wv.x), 14, TIER_COLORS[wv.x])
-		lo.clip_text = true
-		v.add_child(lo)
+	v.add_child(TierBar.new(w, 10.0))
+	var txt := "[color=#8b97ab]not scouted[/color]"
+	if w != null:
+		var wv: Vector2i = w
+		if wv.x == wv.y:
+			txt = "[color=%s]%s[/color]" % [UiKit.hex(TIER_COLORS[wv.y]), Draft.tier_name(g, wv.y)]
+		else:
+			txt = "[color=%s]%s[/color] [color=#8b97ab]to[/color] [color=%s]%s[/color]" % [UiKit.hex(TIER_COLORS[wv.x]), TIER_WORDS[wv.x],
+				UiKit.hex(TIER_COLORS[wv.y]), TIER_WORDS[wv.y]]
+	var l := UiKit.rich(txt, 14)
+	l.autowrap_mode = TextServer.AUTOWRAP_OFF
+	l.clip_contents = true
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(l)
 	return v
 
 
-func _two_lines(top: String, top_color: Color, bottom: String, width: int, top_size := 16) -> Control:
+func _two_lines(top: String, top_color: Color, bottom: String, width: int, top_size := 16, bottom_color := UiKit.MUTED, stretch := 0.0) -> Control:
 	var v := _vbox(2)
 	v.custom_minimum_size.x = width
+	if stretch > 0.0:
+		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		v.size_flags_stretch_ratio = stretch
 	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var a := UiKit.label(top, top_size, top_color)
 	a.clip_text = true
 	v.add_child(a)
-	var b := UiKit.label(bottom, 13, UiKit.MUTED)
+	var b := UiKit.label(bottom, 13, bottom_color)
 	b.clip_text = true
 	v.add_child(b)
 	return v
@@ -3548,8 +4354,9 @@ func _prospect_row(p: Prospect, action_text: String, action_enabled: bool, actio
 	var row := _row(PCOL_SEP)
 	var info := Button.new()
 	UiKit.style_button(info, UiKit.PANEL, UiKit.ACCENT, 6)
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info.custom_minimum_size = Vector2(PCOL_PORTRAIT + PCOL_NAME + PCOL_AREA + PCOL_PROJ + PCOL_GROUP * Stats.GROUP_ORDER.size()
-		+ PCOL_SEP * (3 + Stats.GROUP_ORDER.size()) + 28, 70)
+		+ PCOL_SEP * (3 + Stats.GROUP_ORDER.size()) + 28, 72)
 	info.pressed.connect(func(): hub.open(p.soldier.full_name(), func(): return prospect(p)))
 	var hb := _row(PCOL_SEP)
 	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -3559,11 +4366,13 @@ func _prospect_row(p: Prospect, action_text: String, action_enabled: bool, actio
 	hb.offset_top = 6
 	hb.offset_bottom = -6
 	info.add_child(hb)
-	hb.add_child(Portrait.new(p.soldier, PCOL_PORTRAIT))
+	var face := Portrait.new(p.soldier, PCOL_PORTRAIT)
+	face.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hb.add_child(face)
 	hb.add_child(_two_lines(("★ " if p.favorite else "") + p.soldier.full_name(), Color.WHITE,
-		"age %d  -  %s  -  %s" % [p.soldier.age, Scheme.ROLE_NAMES[p.listed_role], p.soldier.home_state], PCOL_NAME))
+		"age %d  -  %s  -  %s" % [p.soldier.age, Scheme.ROLE_NAMES[p.listed_role], p.soldier.home_state], PCOL_NAME, 17, UiKit.MUTED, PCOL_NAME_STRETCH))
 	var gr := p.scout_grade().trim_suffix("?")
-	var area := UiKit.label(p.scout_grade(), 22, AREA_COLORS.get(gr, UiKit.TEXT))
+	var area := UiKit.label(p.scout_grade(), 24, AREA_COLORS.get(gr, UiKit.TEXT))
 	area.custom_minimum_size.x = PCOL_AREA
 	area.tooltip_text = ("Confirmed grade: fully scouted, this is where he really ranks in the class\n(A = top 5%%, F = bottom)." if p.grade_confirmed() else
 		"Scout grade: your area scouts' quick read on where he ranks in this class\n(A = top 5%%, F = bottom). A noisy hint - scout him to %d points to confirm his true grade.") % ([] if p.grade_confirmed() else [Draft.MAX_POINTS_PER_PROSPECT])
@@ -3581,16 +4390,20 @@ func _prospect_row(p: Prospect, action_text: String, action_enabled: bool, actio
 		hb.add_child(cell)
 	row.add_child(info)
 	var act := UiKit.action_button(action_text, action, 15) if action_enabled and action_text.begins_with("Draft") else UiKit.button(action_text, action, 15)
-	act.custom_minimum_size = Vector2(PCOL_ACTION, 70)
+	act.custom_minimum_size = Vector2(PCOL_ACTION, 72)
 	act.disabled = not action_enabled
 	row.add_child(act)
 	if p.is_available():
 		var star := UiKit.button("★" if p.favorite else "☆", func():
 			p.favorite = not p.favorite
 			hub.replace(hub.page_stack[-1]["title"], hub.page_stack[-1]["build"]), 18)
-		star.custom_minimum_size = Vector2(44, 70)
+		star.custom_minimum_size = Vector2(PCOL_STAR, 72)
 		star.tooltip_text = "Favorite: auto-scout covers favorites first"
 		row.add_child(star)
+	else:
+		var pad := Control.new()
+		pad.custom_minimum_size = Vector2(PCOL_STAR, 72)
+		row.add_child(pad)
 	return row
 
 
@@ -3602,7 +4415,10 @@ func _scout_and_toast(p: Prospect) -> void:
 	var parts: PackedStringArray = []
 	for g in gs:
 		parts.append("%s: %s" % [Stats.GROUP_LABELS[g], Draft.window_text(g, p.reveals[g])])
-	hub.app.toast("%s  %s" % [p.soldier.short_name(), "   ".join(parts)])
+	var note := ""
+	if not p.notes.is_empty():
+		note = "\nNew note: " + String(p.notes[-1]["text"])
+	hub.app.toast("%s  %s%s" % [p.soldier.short_name(), "   ".join(parts), note])
 
 
 func _grade_legend() -> Control:
@@ -3610,34 +4426,77 @@ func _grade_legend() -> Control:
 	var parts: PackedStringArray = []
 	for i in names.size():
 		parts.append("[color=%s]%s[/color]" % [UiKit.hex(TIER_COLORS[i]), names[i]])
-	return UiKit.rich("[color=#8b97ab]Grade colors:[/color]   " + "   ".join(parts) + "   [color=#8b97ab]?  = not scouted yet[/color]", 14)
+	var legend := UiKit.rich("[color=#8b97ab]Grades:[/color]  " + "   ".join(parts), 14)
+	legend.autowrap_mode = TextServer.AUTOWRAP_OFF
+	legend.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return legend
+
+
+var _scout_help_open := false
+
+
+## Title, the scout points on hand and the how-it-works toggle.
+func _scout_banner(d: Draft) -> Control:
+	var h := _row(20)
+	var left := _vbox(2)
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.add_child(UiKit.display("%d DRAFT CLASS" % d.year, 30, UiKit.TEXT))
+	left.add_child(UiKit.label("%d prospects  -  scout a prospect to sharpen his grades and unlock notes on his best and worst ratings" % d.prospects.size(), 15, UiKit.MUTED))
+	h.add_child(left)
+	h.add_child(UiKit.button("How scouting works" if not _scout_help_open else "Hide help", func():
+		_scout_help_open = not _scout_help_open
+		hub.replace("Scouting", scouting), 15))
+	var pts := UiKit.panel(UiKit.PANEL_HI, 10)
+	var pv := _vbox(0)
+	var big := UiKit.label(str(d.scout_points), 34, UiKit.INFO)
+	big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pv.add_child(big)
+	var sub := UiKit.label("SCOUT POINTS  (+%d / week)" % _season().scout_points_per_week(), 12, UiKit.MUTED)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pv.add_child(sub)
+	pts.add_child(pv)
+	pts.tooltip_text = "Unspent points carry over."
+	h.add_child(pts)
+	return h
+
+
+func _scout_help() -> Control:
+	var pn := UiKit.panel(UiKit.PANEL, 10)
+	var l := UiKit.label("SCOUT is the grade from your area scouts: a quick read on where he ranks in the whole class (A = top 5%%, F = bottom) - a noisy hint, marked with a '?'. Scout him to %d points and the '?' drops: that's his true grade.\nEach point scouts 2 random stat groups: the first look shows a 3-grade range, a second narrows it to 2; once every group is down to 2 grades, each point pins 1 group to its exact grade. Every point also adds a NOTE about one rating in those groups - where it ranks in the class.\nProjected rounds are the league consensus. His potential stays hidden until draft day." % Draft.MAX_POINTS_PER_PROSPECT, 14, UiKit.MUTED)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	pn.add_child(l)
+	return pn
+
+
+## The latest prospect stories, two across.
+func _scout_news(d: Draft) -> Control:
+	var v := _vbox(6)
+	v.add_child(UiKit.label("PROSPECT NEWS  -  latest first  -  click a story for the prospect", 12, UiKit.MUTED))
+	var h := _row(10)
+	var recent: Array = d.news.slice(maxi(0, d.news.size() - 2))
+	recent.reverse()
+	for n in recent:
+		var card := _story_panel(n, true, true)
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		h.add_child(card)
+	v.add_child(h)
+	return v
 
 
 func scouting() -> Control:
 	var d := _season().draft
-	var v := _vbox(10)
-	v.add_child(UiKit.rich("[font_size=22][color=white]%d DRAFT CLASS[/color][/font_size]     [color=#38bdf8]%d scout points[/color] available  (+%d per week, unspent points carry over)" % [
-		d.year, d.scout_points, _season().scout_points_per_week()], 16))
-	var help := UiKit.label("SCOUT is the grade from your area scouts: a quick read on where he ranks in the whole class (A = top 5%%, F = bottom of the class) - a noisy hint, not a guarantee, marked with a '?'. Scout him to %d points and the '?' drops: that's his true grade. Each point scouts 2 random stat groups: the first look at a group shows a 3-grade range, a second narrows it to 2. Once every group is down to 2 grades, each point pins 1 group to its exact grade. Up to %d points per prospect. Projected rounds are the league consensus - potential stays hidden until draft day." % [Draft.MAX_POINTS_PER_PROSPECT, Draft.MAX_POINTS_PER_PROSPECT], 14, UiKit.MUTED)
-	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(help)
+	var v := _vbox(12)
+	v.add_child(_scout_banner(d))
+	if _scout_help_open:
+		v.add_child(_scout_help())
 	if _season().preseason_camp:
 		v.add_child(UiKit.label("Scouting opens in Week 1. Your first %d points arrive when training camp ends." % _season().scout_points_per_week(), 18, UiKit.ACCENT))
-	v.add_child(_grade_legend())
-	var nav := _row()
-	nav.add_child(UiKit.button("Mock Draft", hub.open_mock_draft, 15))
-	nav.add_child(UiKit.button("Draft Room", hub.open_draft_room, 15))
-	v.add_child(nav)
+	v.add_child(_scout_toolbar(d))
 	if not d.news.is_empty():
-		v.add_child(_section("PROSPECT NEWS  -  latest first  -  click a story for the prospect"))
-		var recent: Array = d.news.slice(maxi(0, d.news.size() - 4))
-		recent.reverse()
-		for n in recent:
-			v.add_child(_story_panel(n, true))
-	v.add_child(_scout_tools(d))
-	v.add_child(_filter_row("Scouting", scouting))
+		v.add_child(_scout_news(d))
+	v.add_child(_scout_filters())
 	var list := _sorted_prospects(_filtered(d.prospects))
-	v.add_child(_section("%d PROSPECTS  -  click a column to sort  -  click a row for his full report" % list.size()))
+	v.add_child(UiKit.label("%d PROSPECTS  -  click a column to sort  -  click a row for his full report" % list.size(), 12, UiKit.MUTED))
 	var rows := _vbox(4)
 	rows.add_child(_prospect_header(func(): hub.replace("Scouting", scouting)))
 	for p in list:
@@ -3649,54 +4508,165 @@ func scouting() -> Control:
 	return v
 
 
+## The scouting report on one prospect: who he is, a tier bar per stat group and the notes each scout point earned.
 func prospect(p: Prospect) -> Control:
 	var d := _season().draft
-	var s := p.soldier
 	var v := _vbox(14)
-	var drafted := ""
+	v.add_child(_prospect_hero(p, d))
+	var cols := _row(18)
+	var left := _vbox(10)
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.size_flags_stretch_ratio = 3.0
+	left.add_child(UiKit.label("SCOUTING REPORT  -  lit segments are where his true rating could be in this class", 13, UiKit.MUTED))
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for g in Stats.GROUP_ORDER:
+		grid.add_child(_prospect_group_card(p, g))
+	left.add_child(grid)
+	cols.add_child(left)
+	var right := _vbox(10)
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.size_flags_stretch_ratio = 2.0
+	right.add_child(_prospect_notes(p))
+	var stories: Array = d.news_for(p)
+	if not stories.is_empty():
+		right.add_child(UiKit.label("PROSPECT NEWS  -  rumours, not guarantees", 13, UiKit.MUTED))
+		for n in stories:
+			right.add_child(_story_panel(n, false))
+	cols.add_child(right)
+	v.add_child(cols)
+	return v
+
+
+## Portrait, name, origin and the headline numbers, with the scout / favorite buttons.
+func _prospect_hero(p: Prospect, d: Draft) -> Control:
+	var s := p.soldier
+	var pn := UiKit.panel(UiKit.PANEL, 12)
+	var h := _row(24)
+	var face := Portrait.new(s, 150)
+	face.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(face)
+	var mid := _vbox(6)
+	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mid.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	mid.add_child(UiKit.label(("%s %s" % [s.first_name, s.last_name]).to_upper(), 15, UiKit.ACCENT))
+	var callsign := ("\"%s\"" % s.callsign.to_upper()) if s.callsign != "" else s.last_name.to_upper()
+	mid.add_child(UiKit.label(callsign, 40, Color.WHITE))
+	var origin := LeagueData.state_name(s.home_state) if s.home_state != "" else "Unknown"
+	var region := LeagueData.region_of(s.home_state) if s.home_state != "" else ""
+	var tail := ""
 	if not p.is_available():
-		drafted = "   -   [color=#f59e0b]Drafted by %s, pick %d[/color]" % [UiKit.esc(p.drafted_by.name), p.pick_number]
-	v.add_child(UiKit.rich("[font_size=30][color=white]%s[/color][/font_size]   age %d  -  %s prospect%s\nProjected: [color=#f59e0b]%s[/color]   -   Scout grade [color=white]%s[/color]   -   Scouted %d / %d   -   Potential: unknown   -   [color=#38bdf8]%d scout points[/color] available" % [
-		UiKit.esc(s.full_name()), s.age, Scheme.ROLE_NAMES[p.listed_role], drafted, Draft.projection_text(p.projected_rank), p.scout_grade(), p.points,
-		Draft.MAX_POINTS_PER_PROSPECT, d.scout_points], 16))
-	var actions := _row()
+		tail = "   -   DRAFTED BY %s, PICK %d" % [p.drafted_by.name.to_upper(), p.pick_number]
+	mid.add_child(UiKit.label("%s PROSPECT   -   AGE %d   -   %s%s%s" % [Scheme.ROLE_NAMES[p.listed_role].to_upper(), s.age, origin.to_upper(),
+		(" (%s)" % region.to_upper()) if region != "" else "", tail], 15, UiKit.MUTED))
+	if s.callsign == "":
+		mid.add_child(UiKit.label("No callsign yet - he earns one when he is drafted.", 13, UiKit.MUTED))
+	var facts := _row(12)
+	var gr := p.scout_grade().trim_suffix("?")
+	facts.add_child(_fact_box("SCOUT GRADE", "[color=%s]%s[/color]" % [UiKit.hex(AREA_COLORS.get(gr, UiKit.TEXT)), p.scout_grade()]))
+	facts.add_child(_fact_box("PROJECTED", "[color=#f59e0b]%s[/color]" % Draft.projection_text(p.projected_rank)))
+	facts.add_child(_fact_box("BIG BOARD", "#%d" % p.projected_rank))
+	facts.add_child(_fact_box("POTENTIAL", "[color=#8b97ab]Unknown[/color]"))
+	facts.add_child(_fact_box("SCOUTED", "%d / %d" % [p.points, Draft.MAX_POINTS_PER_PROSPECT]))
+	mid.add_child(facts)
+	h.add_child(mid)
+	var actions := _vbox(8)
+	actions.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var pts := UiKit.rich("[color=#38bdf8][font_size=30]%d[/font_size][/color]  scout points" % d.scout_points, 16)
+	pts.autowrap_mode = TextServer.AUTOWRAP_OFF
+	actions.add_child(pts)
 	var b := UiKit.button("Scout (1 point)", func():
 		_scout_and_toast(p)
-		hub.replace(s.full_name(), func(): return prospect(p)))
+		hub.replace(s.full_name(), func(): return prospect(p)), 18)
+	b.custom_minimum_size = Vector2(220, 48)
 	b.disabled = not d.can_scout(p)
 	actions.add_child(b)
 	var fav := UiKit.button("★ Favorited" if p.favorite else "☆ Favorite", func():
 		p.favorite = not p.favorite
-		hub.replace(s.full_name(), func(): return prospect(p)))
+		hub.replace(s.full_name(), func(): return prospect(p)), 16)
 	fav.tooltip_text = "Star this prospect to filter for him in Scouting, the Draft Room and the Mock Draft."
 	actions.add_child(fav)
 	if not p.is_available() and d.is_complete():
-		actions.add_child(UiKit.button("Full profile (ratings revealed)", func(): open_player(s)))
-	v.add_child(actions)
-	var stories: Array = d.news_for(p)
-	if not stories.is_empty():
-		v.add_child(_section("PROSPECT NEWS  -  rumours, not guarantees"))
-		for n in stories:
-			v.add_child(_story_panel(n, false))
-	v.add_child(_section("SCOUTING REPORT  -  highlighted grades are where his true rating could be"))
-	v.add_child(_grade_legend())
-	for g in Stats.GROUP_ORDER:
-		var times: int = p.scouts.get(g, 0)
-		var w: Variant = p.reveals.get(g)
-		var head := UiKit.label("%s  -  %s" % [Stats.GROUP_LABELS[g].to_upper(),
-			"not scouted" if w == null else ("scouted %d time%s" % [times, "" if times == 1 else "s"])], 15, UiKit.MUTED)
-		v.add_child(head)
-		var ladder := _row(6)
-		for t in Draft.TIER_COUNT:
-			var inside: bool = w != null and t >= (w as Vector2i).x and t <= (w as Vector2i).y
-			var chip := UiKit.panel(TIER_COLORS[t].darkened(0.55) if inside else UiKit.PANEL, 6)
-			chip.custom_minimum_size = Vector2(170, 34)
-			var l := UiKit.label(Draft.tier_name(g, t), 15, Color.WHITE if inside else UiKit.MUTED)
-			l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			chip.add_child(l)
-			ladder.add_child(chip)
-		v.add_child(ladder)
-	return v
+		actions.add_child(UiKit.button("Full profile", func(): open_player(s), 16))
+	h.add_child(actions)
+	pn.add_child(h)
+	return pn
+
+
+## One stat group: name and times scouted, the tier bar and what the window says.
+func _prospect_group_card(p: Prospect, g: StringName) -> Control:
+	var times: int = p.scouts.get(g, 0)
+	var w: Variant = p.reveals.get(g)
+	var pn := UiKit.panel(UiKit.PANEL, 10)
+	pn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var v := _vbox(8)
+	var head := _row(8)
+	var title := UiKit.display(Stats.GROUP_LABELS[g].to_upper(), 20, UiKit.TEXT)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(title)
+	var dots := ""
+	for i in Draft.WINDOW_WIDTHS.size():
+		dots += "●" if i < times else "○"
+	var dl := UiKit.label("%s  %s" % [dots, "not scouted" if w == null else ("scouted %d time%s" % [times, "" if times == 1 else "s"])], 13, UiKit.MUTED)
+	dl.tooltip_text = "Each scout look narrows the window: 5 grades, then 3, then 2, then his exact grade."
+	head.add_child(dl)
+	v.add_child(head)
+	v.add_child(TierBar.new(w, 26.0))
+	var line := _row(0)
+	if w == null:
+		line.add_child(UiKit.label("Spend a scout point to get a first look.", 15, UiKit.MUTED))
+	else:
+		var wv: Vector2i = w
+		var txt: String
+		if wv.x == wv.y:
+			txt = "[color=%s]%s[/color]  [color=#8b97ab]exact grade[/color]" % [UiKit.hex(TIER_COLORS[wv.y]), Draft.tier_name(g, wv.y)]
+		else:
+			txt = "[color=%s]%s[/color]  [color=#8b97ab]to[/color]  [color=%s]%s[/color]" % [UiKit.hex(TIER_COLORS[wv.x]), Draft.tier_name(g, wv.x),
+				UiKit.hex(TIER_COLORS[wv.y]), Draft.tier_name(g, wv.y)]
+		var r := UiKit.rich(txt, 17)
+		r.autowrap_mode = TextServer.AUTOWRAP_OFF
+		line.add_child(r)
+	v.add_child(line)
+	pn.add_child(v)
+	return pn
+
+
+const NOTE_COLORS := {2: Color("#22c55e"), 1: Color("#38bdf8"), 0: Color("#8b97ab"), -1: Color("#f97316"), -2: Color("#ef4444")}
+const NOTE_ICONS := {2: "▲▲", 1: "▲", 0: "•", -1: "▼", -2: "▼▼"}
+
+
+## The notes box: one note per scout point, newest first, each about a single rating.
+func _prospect_notes(p: Prospect) -> Control:
+	var pn := UiKit.panel(UiKit.PANEL, 10)
+	var v := _vbox(8)
+	v.add_child(UiKit.display("SCOUT NOTES  (%d)" % p.notes.size(), 20, UiKit.TEXT))
+	if p.notes.is_empty():
+		var l := UiKit.label("Nothing yet. Every scout point adds a note here about one of his ratings - where it ranks in this draft class.", 15, UiKit.MUTED)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.add_child(l)
+	for i in range(p.notes.size() - 1, -1, -1):
+		var n: Dictionary = p.notes[i]
+		var mood: int = n["mood"]
+		var row := UiKit.panel(UiKit.PANEL_HI, 8)
+		var h := _row(10)
+		var icon := UiKit.label(NOTE_ICONS[mood], 16, NOTE_COLORS[mood])
+		icon.custom_minimum_size.x = 34
+		icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		h.add_child(icon)
+		var col := _vbox(0)
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var t := UiKit.label(n["text"], 16, Color.WHITE)
+		t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		col.add_child(t)
+		col.add_child(UiKit.label("Scout point %d  -  %s  -  %s" % [int(n["point"]), Stats.LABELS[n["stat"]], Stats.GROUP_LABELS[Stats.group_of(n["stat"])]], 12, UiKit.MUTED))
+		h.add_child(col)
+		row.add_child(h)
+		v.add_child(row)
+	pn.add_child(v)
+	return pn
 
 
 ## Called after every draft-room pick. Roster cut-downs now happen when the roster review opens.
@@ -3745,7 +4715,7 @@ func _draft_clock(d: Draft, refresh: Callable) -> Control:
 		timer.stop()
 		var p := d.ai_pick()
 		if p != null and t.user_controlled:
-			hub.app.toast("Time's up! Auto-picked %s (%s)." % [p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role]])
+			hub.app.toast("Time's up! Auto-picked %s (%s). He joins your Green Team." % [p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role]])
 		_after_pick()
 		refresh.call_deferred())
 	return lbl
@@ -3758,8 +4728,8 @@ func draft_room() -> Control:
 	var v := _vbox(12)
 	if not d.is_started():
 		v.add_child(UiKit.label("The %d draft is held after the Final." % d.year, 22, Color.WHITE))
-		var rules := UiKit.label("%d rounds, same order every round: teams that missed the playoffs pick first, the champion picks last. Rookies sign slotted %d-year deals (%s for the #1 pick down to %s). Use your weekly scout points until then." % [
-			Draft.ROUNDS, Contracts.ROOKIE_YEARS, Contracts.money(Contracts.ROOKIE_TOP), Contracts.money(Contracts.ROOKIE_BOTTOM)], 15, UiKit.MUTED)
+		var rules := UiKit.label("%d rounds, same order every round: teams that missed the playoffs pick first, the champion picks last. 		Picks join your Green Team on 1-year development deals (%s for the #1 pick down to %s) and earn reps that reveal their true potential. Call them up when they're ready. Use your weekly scout points until then." % [
+					Draft.ROUNDS, Contracts.money(Contracts.GREEN_MAX), Contracts.money(Contracts.GREEN_MIN)], 15, UiKit.MUTED)
 		rules.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(rules)
 		v.add_child(UiKit.button("Go to Scouting", hub.open_scouting))
@@ -3768,7 +4738,7 @@ func draft_room() -> Control:
 		var fa_now := s.offseason_stage == Season.OFF_FREE_AGENCY
 		v.add_child(UiKit.label("Free agency (day %d of %d) comes first: the draft starts after it." % [s.fa_day, Season.FA_DAYS] if fa_now
 			else "Re-signing window: free agency, then the draft, follow.", 22, Color.WHITE))
-		var rules := UiKit.label("Anyone you don't re-sign hits free agency when the window closes. Leave roster spots and cap room for your rookies - over-cap teams must cut down before camp. You pick in the order below.", 15, UiKit.MUTED)
+		var rules := UiKit.label("Anyone you don't re-sign hits free agency when the window closes. Your picks join the Green Team, not the main roster - leave a little cap room for them. Over-cap teams must cut down before camp. You pick in the order below.", 15, UiKit.MUTED)
 		rules.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(rules)
 		var nav := _row()
@@ -3803,7 +4773,8 @@ func draft_room() -> Control:
 		if t.user_controlled:
 			actions.add_child(UiKit.button("Auto-pick for me", func():
 				var p := d.ai_pick()
-				hub.app.toast("You select %s (%s)." % [p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role]])
+				hub.app.toast("You select %s (%s). He joins your Green Team." % [p.soldier.full_name(), Scheme.ROLE_NAMES[p.listed_role]])
+				hub.app.stamp("Drafted", p.soldier.full_name())
 				_after_pick()
 				refresh.call()))
 		else:
@@ -3835,7 +4806,8 @@ func draft_room() -> Control:
 				var pick := p
 				rows.add_child(_prospect_row(p, "Draft", true, func():
 					d.make_pick(pick)
-					hub.app.toast("You select %s (%s)." % [pick.soldier.full_name(), Scheme.ROLE_NAMES[pick.listed_role]])
+					hub.app.toast("You select %s (%s). He joins your Green Team." % [pick.soldier.full_name(), Scheme.ROLE_NAMES[pick.listed_role]])
+					hub.app.stamp("Drafted", pick.soldier.full_name())
 					_after_pick()
 					refresh.call()))
 			v.add_child(rows)
@@ -3926,7 +4898,7 @@ func mock_draft() -> Control:
 
 
 ## One prospect news story. With `clickable`, the panel opens the prospect.
-func _story_panel(n: Dictionary, clickable: bool) -> Control:
+func _story_panel(n: Dictionary, clickable: bool, compact := false) -> Control:
 	var p: Prospect = n["prospect"]
 	var tag: Array = {&"rising": ["STOCK UP", UiKit.GOOD], &"falling": ["STOCK DOWN", UiKit.BAD]}.get(n["kind"], ["SCOUTING NOTE", UiKit.INFO])
 	var txt := "[color=%s]%s[/color]   [color=#8b97ab]%s  -  %s, %s  -  proj. %s[/color]\n[color=white]%s[/color]" % [
@@ -3938,7 +4910,7 @@ func _story_panel(n: Dictionary, clickable: bool) -> Control:
 		return pn
 	var b := Button.new()
 	UiKit.style_button(b, UiKit.PANEL, UiKit.ACCENT, 8)
-	b.custom_minimum_size = Vector2(1000, 64)
+	b.custom_minimum_size = Vector2(0, 92) if compact else Vector2(1000, 64)
 	var r := UiKit.rich(txt, 16)
 	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	r.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -4130,7 +5102,7 @@ func _camp_autofill() -> void:
 			continue
 		var best: Soldier = null
 		var best_v := -INF
-		for so in user.roster:
+		for so in user.org():
 			if _camp_planned_group(so) != &"" or s.camp_check(g, so) != "":
 				continue
 			var v := _camp_fit(user, g, so)
@@ -4323,7 +5295,7 @@ func _camp_card(s: Season, g: StringName, open: bool) -> Control:
 			nv.add_child(UiKit.label("OVR %d > %d%s" % [res["ovr_before"], res["ovr_after"], ("  (+%d)" % d) if d > 0 else ""], 14,
 				UiKit.GOOD if d > 0 else UiKit.MUTED))
 		else:
-			var pool := Camp.pool_range(who.dev)
+			var pool := Camp.known_pool(who)
 			nv.add_child(UiKit.label("%d OVR  ·  %s POT  ·  %d-%d pts" % [who.best_ovr(), pot_dev_text(who), pool[0], pool[1]], 14, UiKit.GOOD))
 		for c in nv.get_children():
 			c.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -4356,22 +5328,22 @@ func _camp_board(s: Season) -> Control:
 	var v := _vbox(8)
 	v.add_child(UiKit.rich("[font_size=13][color=#8b97ab]CAMP BOARD  ·  ASSIGNING TO[/color][/font_size]  [font_size=20][color=%s]%s[/color][/font_size]  [font_size=14][color=#8b97ab]%s  -  click a player to assign, click again to remove[/color][/font_size]" % [
 		UiKit.hex(UiKit.ACCENT.lightened(0.3)), Camp.drill_name(g).to_upper(), Stats.GROUP_LABELS[g]], 16))
-	var head := _row(14)
+	var head := _row(10)
 	var spacer := Control.new()
-	spacer.custom_minimum_size.x = 14 + 48 + 14 + 260
+	spacer.custom_minimum_size.x = 14 + 48 + 10 + 190
 	head.add_child(spacer)
 	for c in [["OVR", 64], ["POT", 64], ["POOL", 70]]:
 		head.add_child(_col_head(c[0], c[1]))
 	for gr in Stats.GROUP_ORDER:
-		var hl := _col_head(Stats.GROUP_LABELS[gr].to_upper(), 92)
+		var hl := _col_head(Stats.GROUP_LABELS[gr].to_upper(), 90)
 		if gr == g:
 			hl.add_theme_color_override("font_color", UiKit.ACCENT.lightened(0.3))
 			hl.text = "▼ " + hl.text
 		head.add_child(hl)
-	head.add_child(_col_head("BEST DRILL", 170))
-	head.add_child(_col_head("CAMP", 200))
+	head.add_child(_col_head("BEST DRILL", 150))
+	head.add_child(_col_head("CAMP", 150))
 	v.add_child(head)
-	var list: Array = user.roster.filter(func(so: Soldier): return not s.camp.has_attended(so))
+	var list: Array = user.org().filter(func(so: Soldier): return not s.camp.has_attended(so))
 	list.sort_custom(func(a: Soldier, b: Soldier):
 		var oa := s.camp_check(g, a) == ""
 		var ob := s.camp_check(g, b) == ""
@@ -4394,7 +5366,7 @@ func _camp_board(s: Season) -> Control:
 		row.custom_minimum_size.y = 64
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.pressed.connect(func(): _camp_assign(p))
-		var hb := _row(14)
+		var hb := _row(10)
 		hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		hb.set_anchors_preset(Control.PRESET_FULL_RECT)
 		hb.offset_left = 14
@@ -4404,18 +5376,18 @@ func _camp_board(s: Season) -> Control:
 		por.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		hb.add_child(por)
 		hb.add_child(_two_lines(so.display_name(), Color.WHITE if why == "" else UiKit.MUTED,
-			"%s  ·  age %d" % [Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], so.age], 260, 17))
+			"%s  ·  age %d" % [Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], so.age], 190, 17))
 		var ovr := so.best_ovr()
 		var ol := _big_cell(str(ovr), UiKit.ovr_color(ovr), 64, 30)
 		ol.add_theme_font_override("font", UiKit.font_heavy)
 		hb.add_child(ol)
 		hb.add_child(_pot_cell(so, 64, 26))
-		var pool := Camp.pool_range(so.dev)
+		var pool := Camp.known_pool(so)
 		hb.add_child(_big_cell("%d-%d" % [pool[0], pool[1]], UiKit.GOOD, 70, 18))
 		for gr in Stats.GROUP_ORDER:
-			hb.add_child(_rating_cell(so.group_rating(gr), 92))
+			hb.add_child(_rating_cell(so.group_rating(gr), 90))
 		var best := _camp_best_drill(s, so)
-		hb.add_child(_big_cell(Camp.drill_name(best) if best != &"" else "-", UiKit.TRIM if best == g else UiKit.MUTED, 170, 15))
+		hb.add_child(_big_cell(Camp.drill_name(best) if best != &"" else "-", UiKit.TRIM if best == g else UiKit.MUTED, 150, 15))
 		var tag := "+ Assign"
 		var tag_c := UiKit.INFO
 		if here:
@@ -4427,7 +5399,7 @@ func _camp_board(s: Season) -> Control:
 		elif why != "":
 			tag = "Injured" if so.is_injured() else ("Capped" if why.contains("capped") else "Unavailable")
 			tag_c = UiKit.BAD
-		hb.add_child(_big_cell(tag, tag_c, 200, 15))
+		hb.add_child(_big_cell(tag, tag_c, 150, 15))
 		v.add_child(row)
 	return v
 
@@ -4476,7 +5448,7 @@ func _camp_confirm_card() -> Control:
 		if not _camp_plan.has(g):
 			continue
 		var so: Soldier = _camp_plan[g]
-		var pool := Camp.pool_range(so.dev)
+		var pool := Camp.known_pool(so)
 		var h := _row(14)
 		h.add_child(Portrait.new(so, 44, team.color, team))
 		h.add_child(_big_cell(Camp.drill_name(g), UiKit.TRIM, 200, 16))
@@ -4512,7 +5484,7 @@ func drill_pick(group: StringName) -> Control:
 	for c in cols:
 		headers.append(c[0])
 		widths.append(c[1])
-	var list: Array = _sorted(user.roster.filter(func(so: Soldier): return not s.camp.has_attended(so)), &"drill", null)
+	var list: Array = _sorted(user.org().filter(func(so: Soldier): return not s.camp.has_attended(so)), &"drill", null)
 	var rows: Array = []
 	var colors := {}
 	if list.is_empty():
@@ -4567,7 +5539,7 @@ func drill_pick(group: StringName) -> Control:
 ## "Are you sure?" card for sending `so` to the `group` drill.
 func _drill_confirm_card(group: StringName, so: Soldier) -> Control:
 	var team := _season().user_team()
-	var pool := Camp.pool_range(so.dev)
+	var pool := Camp.known_pool(so)
 	var v := _vbox(14)
 	v.add_child(UiKit.label("SEND TO %s?" % Camp.drill_name(group).to_upper(), 16, UiKit.ACCENT))
 	var h := _row(22)
@@ -4708,7 +5680,11 @@ func awards() -> Control:
 		for a in latest.awards:
 			rows.append([a["award"], a["soldier"].full_name(), a["team"].abbrev if a["team"] != null else "-", a["line"]])
 			targets.append(a["soldier"])
-		v.add_child(_soldier_table(["AWARD", "SOLDIER", "TEAM", "SEASON"], rows, [200, 220, 70, 330], targets))
+		var award_table := _soldier_table(["AWARD", "SOLDIER", "TEAM", "SEASON"], rows, [200, 220, 70, 330], targets)
+		v.add_child(award_table)
+		# The MVP row (first) gets a gold wash the first time the awards are shown this season.
+		if award_table.get_child_count() > 1 and Fx.memo("awards_shown", latest.year) != latest.year:
+			Fx.wash(award_table.get_child(1), Color("#eab308", 0.4), 1.6, 0.5)
 		v.add_child(_section("%d ALL-LEAGUE TEAM" % latest.year))
 		rows = []
 		targets = []
@@ -4729,7 +5705,15 @@ func awards() -> Control:
 		if rows.is_empty():
 			v.add_child(UiKit.label("No changes.", 15, UiKit.MUTED))
 		else:
-			v.add_child(_soldier_table(["SOLDIER", "TEAM", "AGE", "FROM", "TO", "WHY"], rows, [220, 70, 50, 70, 70, 400], targets, colors))
+			var dev_table := _soldier_table(["SOLDIER", "TEAM", "AGE", "FROM", "TO", "WHY"], rows, [220, 70, 50, 70, 70, 400], targets, colors)
+			v.add_child(dev_table)
+			# Stars gained wash green, stars lost wash red, one after another down the list.
+			var dev_i := 0
+			for c in latest.dev_changes:
+				if dev_i >= 12 or dev_i + 1 >= dev_table.get_child_count():
+					break
+				Fx.wash(dev_table.get_child(dev_i + 1), Color(UiKit.GOOD if int(c["to"]) > int(c["from"]) else UiKit.BAD, 0.3), 1.0, 0.6 + 0.12 * dev_i)
+				dev_i += 1
 	if not s.aging_report.is_empty():
 		v.add_child(_section("AGING  -  declines at the start of the %d season (groups decline after their peak age)" % s.year))
 		var rows: Array = []
@@ -4858,7 +5842,10 @@ func free_agents() -> Control:
 	var pending := s.fa.offers_by(user)
 	v.add_child(_cap_banner(user))
 	v.add_child(UiKit.rich("Roster %d / %d   -   %d pending offer%s   -   [color=#8b97ab]players weigh money (70%%), team quality and playing time[/color]" % [
-		user.roster.size(), Team.ROSTER_SIZE, pending.size(), "" if pending.size() == 1 else "s"], 15))
+		user.roster_count(), Team.ROSTER_SIZE, pending.size(), "" if pending.size() == 1 else "s"], 15))
+	if s.phase == Season.PHASE_OFFSEASON:
+		v.add_child(UiKit.rich("[color=#8b97ab]Young free agents (%d or younger, market value %s or less) can also be signed straight to your [color=white]Green Team[/color] from their player page. Green Team now: %d (no limit until Week 1, then %d).[/color]" % [
+			GreenTeam.MAX_AGE, Contracts.money(GreenTeam.SIGN_MAX_MARKET), user.green_team.size(), Team.GREEN_SIZE], 15))
 	var filters := _row(8)
 	filters.add_child(UiKit.label("POSITION", 13, UiKit.MUTED))
 	for r in [-1] + range(Scheme.ROLE_NAMES.size()):
@@ -5147,7 +6134,7 @@ func contracts() -> Control:
 	var summary := _row(14)
 	for item in [["%d CAP" % cy, Contracts.money(Contracts.SALARY_CAP), Color.WHITE], ["PAYROLL", Contracts.money(payroll), Color.WHITE],
 			["DEAD MONEY", Contracts.money(dead), UiKit.BAD if dead > 0 else UiKit.MUTED], ["CAP SPACE", Contracts.money(space), UiKit.GOOD if space >= 0 else UiKit.BAD],
-			["ROSTER", "%d / %d" % [user.roster.size(), Team.ROSTER_SIZE], UiKit.BAD if user.is_over_roster_limit() else Color.WHITE]]:
+			["ROSTER", "%d / %d  +%d GT" % [user.roster_count(), Team.ROSTER_SIZE, user.green_team.size()], UiKit.BAD if user.is_over_roster_limit() else Color.WHITE]]:
 		var p := UiKit.panel(UiKit.PANEL_HI, 8)
 		var box := _vbox(2)
 		box.add_child(UiKit.label(item[0], 13, UiKit.MUTED))
@@ -5166,13 +6153,13 @@ func contracts() -> Control:
 		else "[color=#8b97ab]under the cap[/color]"))], 15))
 	var roster_err := s.user_roster_error()
 	if user.is_over_roster_limit():
-		var extra := user.roster.size() - Team.ROSTER_SIZE
+		var extra := user.roster_count() - Team.ROSTER_SIZE
 		var by := "Week 1" if s.phase == Season.PHASE_OFFSEASON or s.preseason_camp or (s.phase == Season.PHASE_REGULAR and s.week == 1) else "your next match"
 		v.add_child(UiKit.label("Over the roster limit: release or trade %d player%s before %s." % [extra, "" if extra == 1 else "s", by], 16, UiKit.BAD))
 	elif roster_err != "":
 		v.add_child(UiKit.label(roster_err, 16, UiKit.ACCENT))
 	v.add_child(_section("CONTRACTS  -  click a player to re-sign or release him (releasing leaves %d%% of his remaining salary as dead money)" % roundi(Contracts.DEAD_MONEY_SHARE * 100)))
-	var list := _sorted(user.roster, &"contracts", user)
+	var list := _sorted(user.org(), &"contracts", user)
 	var table := _vbox(4)
 	table.add_child(_sort_header(&"contracts", CONTRACT_COLS, func(): hub.replace("Contracts & Payroll", contracts)))
 	for so: Soldier in list:
@@ -5185,7 +6172,7 @@ func contracts() -> Control:
 		var yr := cy + k
 		var committed := Contracts.payroll(user, cy, k)
 		var under := 0
-		for so in user.roster:
+		for so in user.org():
 			if (so.contract != null and so.contract.years > k) or Contracts.extension_covers(so, k):
 				under += 1
 		rows.append([yr, under, Contracts.money(int(user.dead_money.get(yr, 0))), Contracts.money(int(user.bonus_money.get(yr, 0))), Contracts.money(committed),
@@ -5219,7 +6206,9 @@ func _contract_row(team: Team, so: Soldier) -> Control:
 	var o := _row_ovr(team, so)
 	var slot := team.slot_of(so)
 	var tags: Array[String] = []
-	if c != null and c.rookie:
+	if c != null and c.green:
+		tags.append("Green Team deal")
+	elif c != null and c.rookie:
 		tags.append("rookie deal")
 	if c != null and c.no_trade:
 		tags.append("NTC")
@@ -5239,7 +6228,7 @@ func _contract_row(team: Team, so: Soldier) -> Control:
 	var dm := Contracts.dead_money_if_released(so)
 	hb.add_child(_big_cell(Contracts.money(dm), UiKit.BAD if dm > 0 else UiKit.MUTED, 120, 16))
 	hb.add_child(_big_cell(str(roundi(so.morale)), morale_color(so.morale), 80, 18))
-	hb.add_child(_big_cell(team.scheme.label_for_slot(slot) if slot != &"" else "Bench", Color.WHITE if slot != &"" else UiKit.MUTED, 110, 15))
+	hb.add_child(_big_cell("Green Team" if team.green_team.has(so) else (team.scheme.label_for_slot(slot) if slot != &"" else "Bench"), Color.WHITE if slot != &"" else UiKit.MUTED, 110, 15))
 	return b
 
 
@@ -5253,8 +6242,11 @@ func resign() -> Control:
 	var expiring := Contracts.expiring(user)
 	if s.phase != Season.PHASE_OFFSEASON:
 		v.add_child(UiKit.label("Re-signing opens after the Final.", 22, Color.WHITE))
-		var upcoming: Array = user.roster.filter(func(x: Soldier): return x.contract != null and x.contract.years == 1 and not x.has_extension())
+		var upcoming: Array = user.roster.filter(func(x: Soldier): return x.contract != null and x.contract.years == 1 and not x.has_extension() and not x.callup_pending)
 		v.add_child(UiKit.label("Contracts ending this season: %s" % (", ".join(PackedStringArray(upcoming.map(func(x: Soldier): return x.full_name()))) if not upcoming.is_empty() else "none"), 16, UiKit.MUTED))
+		var ups: Array = user.org().filter(func(x: Soldier): return x.callup_pending)
+		if not ups.is_empty():
+			v.add_child(UiKit.label("Call-ups to negotiate with after the Final: %s" % ", ".join(PackedStringArray(ups.map(func(x: Soldier): return x.full_name()))), 16, UiKit.MUTED))
 		if s.extension_open():
 			v.add_child(UiKit.button("Extend them now", func(): hub.open_extensions(), 15))
 		return v
@@ -5269,14 +6261,27 @@ func resign() -> Control:
 	if expiring.is_empty():
 		v.add_child(UiKit.label("No expiring contracts.", 16, UiKit.MUTED))
 	var refresh := func(): hub.replace("Re-sign Players", resign)
-	for so in expiring:
+	var ordered: Array = expiring.filter(func(x: Soldier): return not x.callup_pending)
+	var callups: Array = expiring.filter(func(x: Soldier): return x.callup_pending)
+	if not callups.is_empty():
+		if not ordered.is_empty():
+			ordered.push_front(&"regular")
+		ordered.append(&"callups")
+		ordered.append_array(callups)
+	for so in ordered:
+		if so is StringName:
+			if so == &"regular":
+				v.add_child(_section("EXPIRING CONTRACTS"))
+			else:
+				v.add_child(_section("CALL-UPS  -  called up from the Green Team this season (even if sent back down). Sign them or they leave in free agency."))
+			continue
 		var ref: Soldier = so
 		var n := s.negotiation(user, so)
 		var yrs: int = _resign_years.get(so.id, Contracts.preferred_years(so))
 		var row := _row(10)
 		row.add_child(Portrait.new(so, 44, user.color, user))
-		var info := UiKit.button("%s   -   age %d   -   OVR %d   -   POT %s   -   %s" % [so.display_name(), so.age, so.best_ovr(), pot_dev_text(so),
-			Scheme.ROLE_NAMES[Scheme.best_role(so.stats)]], func(): open_player(ref, 4), 15)
+		var info := UiKit.button("%s   -   age %d   -   OVR %d   -   POT %s   -   %s%s" % [so.display_name(), so.age, so.best_ovr(), pot_dev_text(so),
+			Scheme.ROLE_NAMES[Scheme.best_role(so.stats)], "   -   GREEN TEAM" if user.green_team.has(so) else ""], func(): open_player(ref, 4), 15)
 		info.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		info.custom_minimum_size.x = 470
 		row.add_child(info)
@@ -5304,6 +6309,8 @@ func resign() -> Control:
 		var b := UiKit.action_button("Sign at Ask", func():
 			var err := s.resign_player(user, ref, yrs)
 			hub.app.toast(err if err != "" else "%s re-signed: %s x %d." % [ref.full_name(), Contracts.money(ref.contract.salary), yrs])
+			if err == "":
+				hub.app.stamp("Re-signed", ref.full_name())
 			refresh.call(), 15)
 		b.disabled = not s.can_resign()
 		row.add_child(b)
@@ -5974,7 +6981,7 @@ func _team_of(s: Soldier) -> Team:
 
 
 func _grade(s: Soldier) -> String:
-	return s.potential_letter()
+	return s.potential_text()
 
 
 # --- trades -------------------------------------------------------------------------
@@ -6018,7 +7025,7 @@ func _owns(team: Team, a: Dictionary) -> bool:
 	var tr := _season().trades
 	if Trades.is_pick(a):
 		return tr.owner_of(a) == team and not tr.pick_used(_season(), a)
-	return team.roster.has(a["soldier"]) and Trades.tradeable(a["soldier"])
+	return team.has_player(a["soldier"]) and Trades.tradeable(a["soldier"])
 
 
 func trade_center() -> Control:
@@ -6068,6 +7075,11 @@ func trade_center() -> Control:
 	q.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	irow.add_child(q)
 	v.add_child(irow)
+	if not _trade_give.is_empty() and not _trade_get.is_empty():
+		v.add_child(UiKit.rich("[color=#8b97ab]MARKET VALUE FOR YOU[/color]   %s" % _fairness_text(tr.fair_ratio(s, _trade_get, _trade_give)), 15))
+		v.add_child(UiKit.rich("[color=#8b97ab]YOUR LINEUP[/color]   %s" % _lineup_text(tr.lineup_change(user, _trade_give, _trade_get), tr.useful_ratio(s, user, _trade_get, _trade_give)), 15))
+		if tr.sidegrade(user, _trade_give, _trade_get):
+			v.add_child(UiKit.label("Heads up: an incoming player would bench a starter without a clearly better outlook over the next 3 seasons (older or lower potential).", 15, UiKit.BAD))
 	var err := "" if both_empty else tr.validate(s, user, _trade_give, ai, _trade_get)
 	v.add_child(UiKit.rich(_trade_after_text(user, _trade_give, _trade_get) + "\n" + _trade_after_text(ai, _trade_get, _trade_give), 15))
 	if err != "":
@@ -6150,7 +7162,8 @@ func _trade_after_text(t: Team, out_assets: Array, in_assets: Array) -> String:
 	for a in players_out:
 		sal -= a["soldier"].contract.salary
 	var space := Contracts.cap_space(t, s.cap_year()) - sal
-	var roster := t.roster.size() + players_in.size() - players_out.size()
+	var up := func(a): return not s.league.team_of(a["soldier"]).green_team.has(a["soldier"])
+	var roster := t.roster_count() + players_in.filter(up).size() - players_out.filter(up).size()
 	var note := ""
 	if roster > Team.ROSTER_SIZE:
 		note = "  [color=#ef4444](%s)[/color]" % ("must cut %d before the next match" % (roster - Team.ROSTER_SIZE) if t.user_controlled else "will shop or cut %d" % (roster - Team.ROSTER_SIZE))
@@ -6266,7 +7279,7 @@ func _asset_list(title: String, team: Team, mine: bool) -> Control:
 		hdr.add_child(l)
 	v.add_child(hdr)
 	var chosen := _trade_give if mine else _trade_get
-	var roster: Array = team.roster.duplicate()
+	var roster: Array = team.org()
 	roster.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
 	for so: Soldier in roster:
 		var asset := Trades.player_asset(so)
@@ -6284,8 +7297,8 @@ func _asset_list(title: String, team: Team, mine: bool) -> Control:
 		hb.add_child(_two_lines(Contracts.money(so.contract.salary) if so.contract != null else "-", Color.WHITE,
 			("%d yr%s" % [so.contract.years, "" if so.contract.years == 1 else "s"]) if ok else "EXPIRING", 110, 15))
 		var slot := team.slot_of(so)
-		hb.add_child(_two_lines(team.scheme.label_for_slot(slot) if slot != &"" else "Bench", Color.WHITE if slot != &"" else UiKit.MUTED,
-			_status_text(so), 90, 14))
+		var slot_text := "Green Team" if team.green_team.has(so) else (team.scheme.label_for_slot(slot) if slot != &"" else "Bench")
+		hb.add_child(_two_lines(slot_text, Color.WHITE if slot != &"" else UiKit.MUTED, _status_text(so), 90, 14))
 		var row := _row(6)
 		var btn := _click_wrap(hb, func(): _toggle_asset(asset, mine), 46)
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -6350,6 +7363,7 @@ func _counter_panel(ai: Team) -> Control:
 			return
 		s.trades.execute(s, s.user_team(), c["give"], ai, c["get"])
 		hub.app.toast("Trade complete with %s." % ai.name)
+		hub.app.stamp("Trade complete", ai.name)
 		_trade_give = []
 		_trade_get = []
 		_trade_counter = {}
@@ -6486,6 +7500,26 @@ func league_block() -> Control:
 		v.add_child(row)
 	return v
 
+## "Fair (0.97x market value)" coloured by how even a deal is for the user (r = value they get / give).
+func _fairness_text(r: float) -> String:
+	var col := "#22c55e" if r >= Trades.FAIR_LOW and r <= Trades.FAIR_HIGH else ("#f59e0b" if r >= Trades.FAIR_LOW * 0.75 and r <= Trades.FAIR_HIGH * 1.2 else "#ef4444")
+	return "[color=%s]%s[/color]  [color=#8b97ab](you get %.2fx the market value you give)[/color]" % [col, Trades.fairness_label(r), r]
+
+
+## "Your lineup: weaker (-1.1 avg)" plus how much of the incoming value would actually play.
+## `delta` is the change in the user's average lineup rating, `useful` usable value / market value given.
+func _lineup_text(delta: float, useful: float) -> String:
+	var word := "unchanged"
+	var col := "#8b97ab"
+	if delta <= -0.05:
+		word = "weaker (%.1f avg rating)" % delta
+		col = "#ef4444" if delta <= -0.4 else "#f59e0b"
+	elif delta >= 0.05:
+		word = "stronger (+%.1f avg rating)" % delta
+		col = "#22c55e"
+	var use_col := "#22c55e" if useful >= Trades.FAIR_LOW else ("#f59e0b" if useful >= Trades.FAIR_LOW * 0.75 else "#ef4444")
+	return "[color=%s]%s[/color]  [color=#8b97ab](usable value [/color][color=%s]%.2fx[/color][color=#8b97ab] of what you give)[/color]" % [col, word, use_col, useful]
+
 
 func trade_offers() -> Control:
 	var s := _season()
@@ -6506,10 +7540,17 @@ func trade_offers() -> Control:
 		pv.add_child(UiKit.team_chip(team, 16))
 		pv.add_child(UiKit.rich("[color=#8b97ab]THEY OFFER[/color]   [color=white]%s[/color]" % UiKit.esc(", ".join(PackedStringArray(offer["give"].map(func(a): return Trades.asset_text(s, a))))), 17))
 		pv.add_child(UiKit.rich("[color=#8b97ab]FOR YOUR[/color]     [color=white]%s[/color]" % UiKit.esc(", ".join(PackedStringArray(offer["get"].map(func(a): return Trades.asset_text(s, a))))), 17))
+		if String(offer.get("reason", "")) != "":
+			pv.add_child(UiKit.rich("[color=#8b97ab]WHY[/color]  [i]%s[/i]" % UiKit.esc(String(offer["reason"])), 15))
+		pv.add_child(UiKit.rich("[color=#8b97ab]VALUE[/color]  %s" % _fairness_text(tr.fair_ratio(s, offer["give"], offer["get"])), 15))
+		var me := s.user_team()
+		pv.add_child(UiKit.rich("[color=#8b97ab]LINEUP[/color]  %s" % _lineup_text(tr.lineup_change(me, offer["get"], offer["give"]), tr.useful_ratio(s, me, offer["give"], offer["get"])), 15))
 		var h := _row(10)
 		h.add_child(UiKit.action_button("Accept", func():
 			var err := tr.accept_offer(s, offer)
 			hub.app.toast(err if err != "" else "Trade complete with %s." % team.name)
+			if err == "":
+				hub.app.stamp("Trade complete", team.name)
 			hub.replace("Trade Offers", trade_offers), 16))
 		h.add_child(UiKit.button("Counter in builder", func():
 			_trade_partner = team
@@ -6533,7 +7574,7 @@ func trade_block() -> Control:
 	var user := s.user_team()
 	var v := _vbox(8)
 	v.add_child(UiKit.label("Put players on the block and AI teams send you offers for them (check Trade Offers each week).", 17, Color.WHITE))
-	var roster: Array = user.roster.duplicate()
+	var roster: Array = user.org()
 	roster.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
 	var head := _row(14)
 	var spacer := Control.new()
@@ -6905,6 +7946,10 @@ func _news_nav(i: int) -> Control:
 	newer.disabled = i >= nr.count() - 1
 	row.add_child(newer)
 	return row
+
+
+
+
 
 
 ## Every issue, newest first, grouped by season. Unread issues carry a NEW tag.

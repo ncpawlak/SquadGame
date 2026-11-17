@@ -42,8 +42,10 @@ const WINDOW_WIDTHS := [3, 2, 1]
 const GROUPS_PER_POINT := 2
 ## Scouts a group needs before the one-group, exact-tier phase starts.
 const BROAD_SCOUTS := 2
-## Group rating thresholds for tiers 1..4 (tier 0 is below the first).
-const TIER_THRESHOLDS := [58, 68, 77, 86]
+## Class-relative tier cutoffs: a prospect's tier in a group comes from the share of the class
+## rated strictly better than him in it. Tier 4 = top 5%, 3 = next 15%, 2 = next 35%, 1 = next 30%,
+## 0 = bottom 15%. Rookies all rate middling, so tiers rank him against his class, not 0-99.
+const TIER_PCT_CUTOFFS := [0.85, 0.55, 0.20, 0.05]
 const TIER_COUNT := 5
 const TIER_NAMES := {
 	Stats.ACCURACY: ["Spray & Pray", "Inconsistent", "Steady Aim", "Marksman", "Sharpshooter"],
@@ -53,6 +55,29 @@ const TIER_NAMES := {
 	Stats.OBJECTIVE: ["Point Shy", "Wanderer", "Contester", "Point Man", "King of the Hill"],
 	Stats.DURABILITY: ["Glass", "Fragile", "Durable", "Sturdy", "Iron Man"],
 }
+## Scout notes: stat -> [best-in-class line, worst-in-class line].
+const SUPERLATIVES := {
+	Stats.AWARENESS: ["Reads the game better than anyone in the class", "Least aware player in the class"],
+	Stats.SHORT_ACC: ["Deadliest shot up close in the class", "Worst close-range shot in the class"],
+	Stats.MEDIUM_ACC: ["Best mid-range shot in the class", "Worst mid-range shot in the class"],
+	Stats.LONG_ACC: ["Best long-range shooter in the class", "Worst long-range shooter in the class"],
+	Stats.GROUPING: ["Tightest shot grouping in the class", "Loosest shot grouping in the class"],
+	Stats.SWAY: ["Steadiest aim on the move in the class", "Shakiest aim in the class"],
+	Stats.SPEED: ["Fastest in the class", "Slowest in the class"],
+	Stats.STRENGTH: ["Strongest in the class", "Weakest in the class"],
+	Stats.AGILITY: ["Most agile in the class", "Least agile in the class"],
+	Stats.ENDURANCE: ["Best endurance in the class", "Gasses out first in the class"],
+	Stats.RELOAD: ["Quickest reload in the class", "Slowest reload in the class"],
+	Stats.COMPOSURE: ["Coolest under fire in the class", "Most rattled under fire in the class"],
+	Stats.TOUGHNESS: ["Toughest in the class", "Most brittle in the class"],
+	Stats.INJURY: ["Hardest to injure in the class", "Most injury-prone in the class"],
+	Stats.TEAMWORK: ["Best teammate in the class", "Worst teammate in the class"],
+	Stats.ANCHOR: ["Best at holding the point in the class", "Worst at holding the point in the class"],
+	Stats.BREACH: ["Best at breaching the point in the class", "Worst at breaching the point in the class"],
+	Stats.OBJ_IQ: ["Highest objective IQ in the class", "Lowest objective IQ in the class"],
+}
+## Candidate stats weighed per note; the one furthest from the class middle becomes the note.
+const NOTE_CANDIDATES := 3
 const PROSPECT_QUALITY := 58.0
 const PROSPECT_QUALITY_SD := 6.0
 ## Blue-chippers per class [min, max], their OVR at the listed position [min, max], minimum dev
@@ -220,6 +245,7 @@ static func generate(seed_value: int, draft_year: int, first_id: int) -> Draft:
 		p.consensus = true_value(p) + rng.randfn(0.0, CONSENSUS_NOISE) - (PHENOM_UNDERRATE if p.phenom else 0.0)
 	d.rerank()
 	d._grade_area(rng)
+	d._assign_tiers()
 	return d
 
 
@@ -236,6 +262,31 @@ func _grade_area(rng: RandomNumberGenerator) -> void:
 	truth.sort_custom(func(a: Prospect, b: Prospect): return true_value(a) > true_value(b))
 	for i in truth.size():
 		truth[i].true_grade = _grade_for_pct(float(i + 1) / truth.size())
+
+
+## Ranks the class in every stat group and stores each prospect's class-relative tier.
+## Equal ratings share a tier (rank = number of prospects strictly better).
+func _assign_tiers() -> void:
+	var n := prospects.size()
+	for g in Stats.GROUP_ORDER:
+		var ratings: Array[int] = []
+		for p in prospects:
+			ratings.append(p.soldier.group_rating(g))
+		for i in n:
+			var better := 0
+			for r in ratings:
+				if r > ratings[i]:
+					better += 1
+			prospects[i].tiers[g] = tier_for_pct(float(better) / n)
+
+
+## Tier 0..4 for a prospect with `pct` of the class (0..1) rated strictly better in a group.
+static func tier_for_pct(pct: float) -> int:
+	var t := 0
+	for c in TIER_PCT_CUTOFFS:
+		if pct < c:
+			t += 1
+	return t
 
 
 static func _grade_for_pct(pct: float) -> String:
@@ -454,14 +505,6 @@ func _make_phenom(p: Prospect) -> void:
 
 # --- tiers -------------------------------------------------------------------------
 
-static func tier_of(rating: int) -> int:
-	var t := 0
-	for th in TIER_THRESHOLDS:
-		if rating >= th:
-			t += 1
-	return t
-
-
 static func tier_name(group: StringName, tier: int) -> String:
 	return TIER_NAMES[group][clampi(tier, 0, TIER_COUNT - 1)]
 
@@ -506,9 +549,92 @@ func scout(p: Prospect) -> Array[StringName]:
 		options.erase(g)
 		_narrow(p, g)
 		out.append(g)
+	_add_note(p, out)
 	p.points += 1
 	scout_points -= 1
 	return out
+
+
+## Adds the note for the point being spent: one rating, from the groups just scouted, that he is notable
+## (or unremarkable) for next to the rest of the class. Own RNG, so notes never disturb the scouting rolls.
+func _add_note(p: Prospect, groups: Array[StringName]) -> void:
+	var noted := {}
+	for n in p.notes:
+		noted[n["stat"]] = true
+	var pool: Array[StringName] = []
+	for g in groups:
+		for st in Stats.group_stats(g):
+			if not noted.has(st):
+				pool.append(st)
+	if pool.is_empty():
+		for st in Stats.ALL:
+			if not noted.has(st):
+				pool.append(st)
+	if pool.is_empty():
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([p.soldier.id, p.points, year, 0x5C07])
+	var best: Dictionary = {}
+	var best_edge := 999
+	for i in mini(NOTE_CANDIDATES, pool.size()):
+		var st: StringName = pool.pop_at(rng.randi_range(0, pool.size() - 1))
+		var standing := stat_standing(p, st)
+		var edge := mini(standing.x, standing.y)
+		if edge < best_edge:
+			best_edge = edge
+			best = note_for(st, standing.x, standing.y, prospects.size())
+	best["point"] = p.points + 1
+	p.notes.append(best)
+
+
+## Vector2i(better, worse): how many classmates are strictly better / worse than `p` in `stat`.
+func stat_standing(p: Prospect, stat: StringName) -> Vector2i:
+	var mine := p.soldier.get_stat(stat)
+	var better := 0
+	var worse := 0
+	for o in prospects:
+		var v := o.soldier.get_stat(stat)
+		if v > mine:
+			better += 1
+		elif v < mine:
+			worse += 1
+	return Vector2i(better, worse)
+
+
+## The note for a rating with `better` / `worse` classmates ahead of / behind him out of `n`:
+## {stat, text, mood} with mood 2 = elite .. -2 = very poor.
+static func note_for(stat: StringName, better: int, worse: int, n: int) -> Dictionary:
+	var label: String = Stats.LABELS[stat]
+	var text: String
+	var mood: int
+	if better == 0:
+		text = SUPERLATIVES[stat][0]
+		mood = 2
+	elif worse == 0:
+		text = SUPERLATIVES[stat][1]
+		mood = -2
+	elif better < 3:
+		text = "Top 3 in the class in %s" % label
+		mood = 2
+	elif worse < 3:
+		text = "Bottom 3 in the class in %s" % label
+		mood = -2
+	elif better < 10:
+		text = "Top 10 in the class in %s" % label
+		mood = 1
+	elif worse < 10:
+		text = "Bottom 10 in the class in %s" % label
+		mood = -1
+	elif better < n / 4:
+		text = "%s is well above the class average" % label
+		mood = 1
+	elif worse < n / 4:
+		text = "%s is well below the class average" % label
+		mood = -1
+	else:
+		text = "%s is right around the class average" % label
+		mood = 0
+	return {"stat": stat, "text": text, "mood": mood}
 
 
 ## Scouts `p` up to `level` points without spending the user's points (region scouting).
@@ -652,8 +778,11 @@ func make_pick(p: Prospect) -> bool:
 	p.pick_number = next_pick
 	p.soldier.draft_year = year
 	p.soldier.draft_pick = p.pick_number
-	p.soldier.contract = Contracts.rookie_contract(p.pick_number, order.size(), year)
-	team.roster.append(p.soldier)
+	p.soldier.contract = Contracts.green_contract_for_pick(p.pick_number, order.size(), year)
+	# Every pick starts on the Green Team. Scouting him before the draft is a head start on reps.
+	team.green_team.append(p.soldier)
+	p.soldier.reps = GreenTeam.draft_reps(p, team)
+	p.soldier.green_seasons = 0
 	p.soldier.morale = 82.0
 	if league != null:
 		league.give_callsign(p.soldier)

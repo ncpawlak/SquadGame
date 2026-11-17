@@ -698,7 +698,7 @@ func _opening() -> void:
 	else:
 		var richer: Soldier = null
 		for so in team.roster:
-			if so == s or so.contract == null or so.contract.rookie or so.contract.is_expiring():
+			if so == s or so.contract == null or so.contract.rookie or so.contract.green or so.contract.is_expiring():
 				continue
 			if so.best_ovr() < s.best_ovr() and so.contract.salary > Contracts.resign_asking(s, Contracts.preferred_years(s)):
 				if richer == null or so.contract.salary > richer.contract.salary:
@@ -745,6 +745,7 @@ func _sign(salary: int, years: int, terms: Dictionary) -> void:
 		soldier.contract = Contract.make(salary, years, season.year)
 		soldier.contract.bonus = bonus
 		soldier.contract.no_trade = no_trade
+		soldier.callup_pending = false
 	season.revenue.pay_bonus(season, team, bonus)
 	soldier.morale = maxf(soldier.morale, 82.0)
 	soldier.add_trust(SIGN_TRUST)
@@ -933,7 +934,7 @@ func _build_arguments() -> Array:
 	var comps: Array = []
 	for t in season.league.teams:
 		for so in t.roster:
-			if so == s or so.contract == null or so.contract.rookie:
+			if so == s or so.contract == null or so.contract.rookie or so.contract.green:
 				continue
 			if Scheme.best_role(so.stats) == role and absi(so.best_ovr() - s.best_ovr()) <= 2:
 				comps.append(so.contract.salary)

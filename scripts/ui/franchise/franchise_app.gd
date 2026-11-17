@@ -10,6 +10,8 @@ var screen: Control
 var debug_layer: Control
 var preview_seed := 0
 var _toast: PanelContainer
+## New-franchise settings popup (over team select), or null.
+var settings_popup: Control
 
 
 func _ready() -> void:
@@ -76,7 +78,7 @@ func show_title() -> void:
 	col.add_child(_spacer(24))
 	if season:
 		col.add_child(_menu_button("Resume Franchise", show_hub))
-	col.add_child(_menu_button("New Franchise", show_team_select))
+	col.add_child(_menu_button("New Franchise", show_mode_select))
 	col.add_child(_menu_button("Load Franchise", show_load_menu))
 	col.add_child(_menu_button("Exhibition Match", func(): toast("Exhibition mode is coming soon. Use Debug Sim Tools for now.")))
 	col.add_child(_menu_button("Data Edit", show_data_edit))
@@ -92,6 +94,117 @@ func show_title() -> void:
 		UiKit.fade_in(c, 0.04 * i, 0.3)
 		i += 1
 	_set_screen(wrap)
+
+
+## New Franchise step 1: choose a start point. Manager continues to team select; Player is not built yet.
+func show_mode_select() -> void:
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 10)
+	var margin := _margin(root, 22)
+
+	var head := HBoxContainer.new()
+	root.add_child(head)
+	var back := UiKit.button("< Back", show_title, 18)
+	UiKit.style_skewed(back)
+	back.custom_minimum_size = Vector2(120, 48)
+	back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	back.set_meta(&"skip_autofocus", true)
+	head.add_child(back)
+	head.add_child(_spacer_w(16))
+	var tt := VBoxContainer.new()
+	tt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tt.add_child(UiKit.display("CHOOSE YOUR START", 44, Color.WHITE, true))
+	var bar := ColorRect.new()
+	bar.color = UiKit.ACCENT
+	bar.custom_minimum_size = Vector2(90, 4)
+	bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	tt.add_child(bar)
+	tt.add_child(UiKit.label("Pick how you want to build your franchise  -  hover a mode to preview it, click to begin", 15, UiKit.MUTED))
+	head.add_child(tt)
+
+	var center := CenterContainer.new()
+	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(center)
+	var cards := HBoxContainer.new()
+	cards.add_theme_constant_override("separation", 28)
+	center.add_child(cards)
+	cards.add_child(_mode_card("MANAGER / GM", "RUN THE CLUB",
+		"Take over one of 20 teams as its general manager. You set the roster and the lineup, run training, "
+		+ "negotiate contracts, work the draft and free agency, and steer the club through every season.",
+		["Pick your team and take over", "Training camp, drills and development", "Contracts, cap and free agency", "Draft, scouting and the full league season"],
+		false, show_team_select))
+	cards.add_child(_mode_card("PLAYER", "LIVE THE CAREER",
+		"Control a single soldier from the draft to retirement while the rest of the league runs on its own. "
+		+ "Build your ratings, talk contracts with your agent, pick your team in free agency and chase a legacy.",
+		["Create a soldier and enter the draft", "Ratings, training and playing time", "Agent talks and free-agency choices", "Retirement and your career legacy"],
+		true, func(): toast("Player mode is coming soon. Start as Manager / GM for now.")))
+	var i := 0
+	for c in cards.get_children():
+		UiKit.fade_in(c, 0.08 * i, 0.3)
+		i += 1
+	_set_screen(margin)
+
+
+## A large start-point card. Active cards glow in the accent on hover/focus; a coming-soon card stays
+## muted but still reacts, and its click only shows a toast.
+func _mode_card(title: String, tagline: String, desc: String, points: Array, soon: bool, cb: Callable) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(470, 440)
+	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	b.focus_mode = Control.FOCUS_ALL
+	var acc := UiKit.ACCENT if not soon else UiKit.MUTED
+	var base := UiKit.PANEL if not soon else UiKit.PANEL.darkened(0.25)
+	UiKit.style_button(b, base, acc, 6)
+	var rest := UiKit.flat(base, 6)
+	rest.set_border_width_all(0)
+	rest.border_width_bottom = 4
+	rest.border_color = acc if not soon else UiKit.LINE
+	b.add_theme_stylebox_override("normal", rest)
+	var hv := UiKit.flat(base.lightened(0.08), 6, 2, acc)
+	hv.shadow_color = Color(acc, 0.35)
+	hv.shadow_size = 12
+	b.add_theme_stylebox_override("hover", hv)
+	b.add_theme_stylebox_override("pressed", UiKit.flat(base.darkened(0.12), 6, 2, acc))
+	b.pressed.connect(cb)
+
+	var col := VBoxContainer.new()
+	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 26)
+	col.add_theme_constant_override("separation", 8)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var top := HBoxContainer.new()
+	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tag := UiKit.display(tagline, 18, acc if not soon else UiKit.MUTED, true)
+	tag.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(tag)
+	if soon:
+		var chip := PanelContainer.new()
+		var csb := UiKit.flat(Color(0, 0, 0, 0.55), 3, 1, UiKit.GOLD)
+		csb.content_margin_left = 10
+		csb.content_margin_right = 10
+		csb.content_margin_top = 1
+		csb.content_margin_bottom = 1
+		chip.add_theme_stylebox_override("panel", csb)
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chip.add_child(UiKit.display("COMING SOON", 15, UiKit.GOLD, true))
+		top.add_child(chip)
+	col.add_child(top)
+	col.add_child(UiKit.display(title, 54, Color.WHITE if not soon else Color(1, 1, 1, 0.7), true))
+	var rule := ColorRect.new()
+	rule.color = acc
+	rule.custom_minimum_size = Vector2(90, 4)
+	rule.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(rule)
+	col.add_child(_spacer(4))
+	var body := UiKit.label(desc, 17, UiKit.TEXT if not soon else UiKit.MUTED)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(body)
+	col.add_child(_spacer(6))
+	for p in points:
+		var line := UiKit.label("-  " + str(p), 16, Color(1, 1, 1, 0.85) if not soon else UiKit.MUTED)
+		col.add_child(line)
+	b.add_child(col)
+	return b
 
 
 func show_team_select() -> void:
@@ -148,7 +261,7 @@ func show_team_select() -> void:
 			var show := func(): _fill_team_pane(pane, preview, t, rank, ranked.size())
 			b.mouse_entered.connect(show)
 			b.focus_entered.connect(show)
-			b.pressed.connect(func(): start_franchise(preview_seed, idx, t))
+			b.pressed.connect(func(): open_settings_popup(idx, t))
 			line.add_child(b)
 			if first == null:
 				first = b
@@ -387,12 +500,110 @@ func show_load_menu() -> void:
 	_set_screen(root)
 
 
-## `team` (the team-select preview's copy) only colours the loading screen.
-func start_franchise(seed_value: int, team_index: int, team: Team = null) -> void:
+## Franchise settings popup shown when a team is picked: Accept starts the franchise, Cancel returns
+## to team select.
+func open_settings_popup(team_index: int, team: Team) -> void:
+	if settings_popup:
+		return
+	var cfg := FranchiseSettings.from_globals()
+	cfg.fantasy_draft = false
+	var layer := Control.new()
+	layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.7)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(center)
+	var card := PanelContainer.new()
+	var sb := UiKit.flat(UiKit.PANEL, 10, 2, UiKit.accent_of(team))
+	sb.set_content_margin_all(26)
+	card.add_theme_stylebox_override("panel", sb)
+	card.custom_minimum_size.x = 560
+	center.add_child(card)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 14)
+	card.add_child(col)
+	col.add_child(UiKit.display("FRANCHISE SETTINGS", 32, Color.WHITE, true))
+	col.add_child(UiKit.label("%s  -  you can change these later in Settings" % team.name, 15, UiKit.MUTED))
+
+	var diff_btn := UiKit.button("", func(): pass, 18)
+	var anim_btn := UiKit.button("", func(): pass, 18)
+	var draft_btn := UiKit.button("", func(): pass, 18)
+	var refresh := func():
+		diff_btn.text = String(Trades.DIFFICULTY_NAMES[cfg.trade_difficulty])
+		anim_btn.text = "Reduced" if cfg.reduce_animations else "On"
+		draft_btn.text = "On" if cfg.fantasy_draft else "Off"
+	for b in [diff_btn, anim_btn, draft_btn]:
+		b.custom_minimum_size = Vector2(170, 44)
+		b.set_meta(&"skip_autofocus", true)
+	diff_btn.pressed.connect(func():
+		cfg.trade_difficulty = (cfg.trade_difficulty + 1) % Trades.DIFFICULTY_NAMES.size()
+		refresh.call())
+	anim_btn.pressed.connect(func():
+		cfg.reduce_animations = not cfg.reduce_animations
+		refresh.call())
+	draft_btn.pressed.connect(func():
+		cfg.fantasy_draft = not cfg.fantasy_draft
+		refresh.call())
+	refresh.call()
+	var rows := [
+		["Trade difficulty", "Easy: the AI can be fleeced. Hard: it wants an edge.", diff_btn],
+		["Animations", "Reduced skips menu motion and count-ups.", anim_btn],
+		["Fantasy draft", "Start with every player in a pool and draft the league.", draft_btn],
+	]
+	for r in rows:
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 16)
+		var txt := VBoxContainer.new()
+		txt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		txt.add_child(UiKit.label(r[0], 19, Color.WHITE))
+		txt.add_child(UiKit.label(r[1], 13, UiKit.MUTED))
+		line.add_child(txt)
+		line.add_child(r[2])
+		col.add_child(line)
+
+	var btns := HBoxContainer.new()
+	btns.add_theme_constant_override("separation", 14)
+	btns.alignment = BoxContainer.ALIGNMENT_END
+	var cancel := UiKit.button("Cancel", close_settings_popup, 18)
+	cancel.custom_minimum_size = Vector2(130, 48)
+	btns.add_child(cancel)
+	var accept := UiKit.primary_button("Accept", func():
+		close_settings_popup()
+		start_franchise(preview_seed, team_index, team, cfg), 20)
+	accept.custom_minimum_size = Vector2(160, 48)
+	btns.add_child(accept)
+	col.add_child(btns)
+	settings_popup = layer
+	add_child(layer)
+	if _toast:
+		move_child(_toast, -1)
+	accept.grab_focus.call_deferred()
+
+
+func close_settings_popup() -> void:
+	if settings_popup:
+		settings_popup.queue_free()
+		settings_popup = null
+
+
+## `team` (the team-select preview's copy) only colours the loading screen. `cfg` are the franchise
+## settings (defaults to the global ones).
+func start_franchise(seed_value: int, team_index: int, team: Team = null, cfg: FranchiseSettings = null) -> void:
+	if cfg == null:
+		cfg = FranchiseSettings.from_globals()
 	var ls := LoadingScreen.make(team, "New Franchise")
 	_set_screen(ls)
 	await ls.step("Generating the league: rosters, contracts, scouting & schedule", 0.0, 1.0)
 	season = Season.new_franchise(seed_value, team_index, 2026, true)
+	season.settings = cfg
+	cfg.apply()
+	if cfg.fantasy_draft and season.has_method("start_fantasy_draft"):
+		season.start_fantasy_draft()
 	await ls.step("Opening training camp", 0.9, 1.0)
 	preview_seed = 0
 	show_hub()
@@ -417,6 +628,7 @@ func load_franchise(slot: int) -> void:
 		return
 	await ls.step("Opening your front office", 0.9, 1.0)
 	season = loaded
+	season.settings.apply()
 	show_hub()
 	ls.queue_free()
 	toast("Loaded %s %d." % [loaded.user_team().name, loaded.year])
@@ -468,11 +680,56 @@ func toast(text: String) -> void:
 	_toast.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_toast.position.y -= 70
 	add_child(_toast)
-	var t: WeakRef = weakref(_toast)
-	get_tree().create_timer(2.5).timeout.connect(func():
-		var node: Node = t.get_ref()
-		if node != null:
-			node.queue_free())
+	Fx.reveal(_toast, 0.0, 0.2)
+	var tw := _toast.create_tween()
+	tw.tween_interval(2.3 if not Fx.is_reduced() else 2.5)
+	if not Fx.is_reduced():
+		tw.tween_property(_toast, "modulate:a", 0.0, 0.25)
+	tw.tween_callback(_toast.queue_free)
+
+
+var _stamp_node: Control
+
+
+## A big banner stamped onto the middle of the screen for a moment ("SIGNED", "TRADE COMPLETE").
+## It ignores the mouse, so play carries on underneath. The toast still carries the details.
+func stamp(text: String, sub := "", color := UiKit.ACCENT) -> void:
+	Fx.cue(&"signed")
+	if Fx.is_reduced():
+		return
+	if _stamp_node != null and is_instance_valid(_stamp_node):
+		_stamp_node.queue_free()
+	var p := PanelContainer.new()
+	var sb := UiKit.flat(Color(color.darkened(0.6), 0.94), 4, 3, color)
+	sb.skew = Vector2(UiKit.SKEW, 0)
+	sb.content_margin_left = 48
+	sb.content_margin_right = 48
+	sb.content_margin_top = 10
+	sb.content_margin_bottom = 12
+	p.add_theme_stylebox_override("panel", sb)
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", -4)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var big := UiKit.display(text.to_upper(), 56, Color.WHITE, true)
+	big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(big)
+	if sub != "":
+		var sl := UiKit.label(sub, 18, Color(1, 1, 1, 0.8))
+		sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		col.add_child(sl)
+	p.add_child(col)
+	p.set_anchors_preset(Control.PRESET_CENTER)
+	p.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	p.grow_vertical = Control.GROW_DIRECTION_BOTH
+	p.z_index = 60
+	add_child(p)
+	_stamp_node = p
+	Fx.stamp(p, 0.0, 1.7)
+	var tw := p.create_tween()
+	tw.tween_interval(1.25)
+	tw.tween_property(p, "modulate:a", 0.0, 0.35)
+	tw.tween_callback(p.queue_free)
 
 
 # --- input ------------------------------------------------------------------
@@ -486,6 +743,9 @@ static var mouse_mode := Input.get_connected_joypads().is_empty()
 
 
 func _input(event: InputEvent) -> void:
+	# A click or key press snaps any running results animation to its end state.
+	if ((event is InputEventMouseButton and event.pressed) or (event is InputEventKey and event.pressed and not event.echo)) and Fx.busy():
+		Fx.skip_all()
 	if event is InputEventMouseMotion or event is InputEventMouseButton:
 		if not mouse_mode:
 			mouse_mode = true
@@ -513,6 +773,11 @@ func _drop_focus() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if settings_popup:
+		if event.is_action_pressed(&"ui_cancel"):
+			close_settings_popup()
+		accept_event()
+		return
 	if debug_layer:
 		if event.is_action_pressed(&"ui_cancel"):
 			close_debug()

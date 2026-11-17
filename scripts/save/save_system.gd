@@ -43,6 +43,8 @@ static func save(season, slot: int, label := "") -> String:
 	var err := DirAccess.make_dir_recursive_absolute(DIR)
 	if err != OK:
 		return "Could not create save folder (%s)." % error_string(err)
+	if season.get("settings") != null:
+		season.settings.sync_from_globals()  # the in-game settings cards edit the globals
 	var text := to_text(season)
 	var tmp := slot_path(slot) + ".tmp"
 	var f := FileAccess.open_compressed(tmp, FileAccess.WRITE, COMPRESSION)
@@ -156,6 +158,7 @@ static func from_text(text: String) -> Season:
 		s.ensure_history()
 		s.ledger.ensure(s)
 		s.league.ensure_callsigns()
+		s.ensure_green_team()
 	return s
 
 

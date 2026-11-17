@@ -79,9 +79,44 @@ const COVER_HIT_MULT := 0.6
 const HUNT_AFTER_TICKS := 10
 ## Frontmen on the hunt close to this range before planting.
 const FRONT_PUSH_RANGE := 11.0
-## How far a soldier under fire will run for cover, and how long he stays there.
+## How far a soldier under fire will run for cover.
 const COVER_SEARCH_RADIUS := 9.0
-const COVER_TICKS := 10
+## Contact memory: ticks after last seeing an enemy that a soldier still plays "in a fight".
+const CONTACT_MEMORY := 8
+## Cover-to-cover bounds reach this far (metres), scaling with Awareness.
+const BOUND_RADIUS_MIN := 6.0
+const BOUND_RADIUS_MAX := 14.0
+## Ticks between cover decisions for a soldier in contact.
+const PLAN_EVERY := 3
+## Peek/duck rhythm: a soldier in cover fires for PEEK ticks, then ducks for DUCK ticks. Composure lengthens
+## the peek, Awareness shortens the duck; a hurt soldier stays down longer.
+const PEEK_BASE := 4
+const DUCK_BASE := 2
+## Extra shot chance while peeking out of cover (they stand and aim instead of firing on the move).
+const PEEK_ENGAGE_MULT := 2.0
+## Hit chance against a soldier hugging cover: ducked down, or mid-peek (on top of a crate between them).
+const DUCKED_HIT_MULT := 0.7
+const PEEKING_HIT_MULT := 0.9
+## Soldiers stop closing the distance to the enemy once inside this standoff range (metres).
+const FRONT_STANDOFF := 12.0
+const FLEX_STANDOFF := 17.0
+## A soldier at a spot this close to where his role wants him is "there".
+const AT_SPOT := 3.0
+## KOTH point relief: a Center at or below this HP wants to be relieved.
+const HURT_HP := 50.0
+## A soldier within this distance of the hill counts as arriving for relief.
+const ARRIVING_DIST := 14.0
+## Someone sent to the point stops using cover this close to it and commits to the dash onto the hill.
+const COMMIT_DIST := 12.0
+## Accuracy bonus for a Flex whose flank has landed.
+const FLANK_ACC_MULT := 1.1
+const POSTURE_POINT := &"point"
+const POSTURE_ADVANCE := &"advancing"
+const POSTURE_BOUND := &"bounding"
+const POSTURE_DUCK := &"ducked"
+const POSTURE_PEEK := &"peeking"
+const POSTURE_FALLBACK := &"falling back"
+const POSTURE_FLANK := &"flanking"
 ## Squared distance from the cover spot that counts as being in cover (telemetry).
 const COVER_REACHED_SQ := 2.25
 const REPATH_TICKS := 4
@@ -138,8 +173,18 @@ class Combatant:
 	var visible: Array = []
 	var last_contact_tick := 0
 	var hunting := false
-	var cover_spot := Vector2.ZERO
-	var cover_until := -1
+	## Cover he is at or heading for (Vector2.INF = none), peeking (firing) or ducked, and when the phase flips.
+	var cover_spot := Vector2.INF
+	var peeking := true
+	var phase_end := 0
+	var plan_tick := -100
+	## Closest known enemy and when he was last seen; drives cover choice.
+	var threat_pos := Vector2.INF
+	var threat_tick := -100
+	## A hurt Center relieved on the point who has fallen back to give support fire.
+	var falling_back := false
+	## What he is doing this tick (for the viewer).
+	var posture: StringName = &"advancing"
 	## Tick of this life's start, and whether he has fired since (telemetry only).
 	var spawn_tick := 0
 	var engaged := false
@@ -176,6 +221,14 @@ class Combatant:
 
 	func on_point() -> bool:
 		return alive and ArenaMap.on_hill(pos)
+
+	## Hugging his cover spot.
+	func in_cover() -> bool:
+		return cover_spot != Vector2.INF and pos.distance_squared_to(cover_spot) < COVER_REACHED_SQ
+
+	## Ducked down behind cover: no shooting until he peeks again.
+	func ducked() -> bool:
+		return in_cover() and not peeking
 
 	func behaviour(key: String) -> float:
 		return _flanked_behaviour[key] if flanked() else _behaviour[key]
@@ -466,7 +519,14 @@ func _reset_life(c: Combatant) -> void:
 	c.spawn_tick = _tick
 	c.engaged = false
 	c.hunting = false
-	c.cover_until = -1
+	c.cover_spot = Vector2.INF
+	c.peeking = true
+	c.phase_end = _tick
+	c.plan_tick = -100
+	c.threat_pos = Vector2.INF
+	c.threat_tick = -100
+	c.falling_back = false
+	c.posture = POSTURE_ADVANCE
 	c.waypoint_goal = Vector2.INF
 	c.repath_tick = 0
 
@@ -484,7 +544,7 @@ func _tick_sudden_death() -> void:
 		var enemies: Array = squads[1 - c.team]
 		if _alive_count(enemies) == 0:
 			break
-		_move(c, enemies)
+		_move(c, squads[c.team], enemies)
 		if c.reload_ticks > 0:
 			continue
 		_act(c, squads[c.team], enemies)
@@ -541,7 +601,7 @@ func _tick_arena() -> void:
 			continue
 		_advance_state(c)
 		var enemies: Array = squads[1 - c.team]
-		_move(c, enemies)
+		_move(c, squads[c.team], enemies)
 		if c.reload_ticks > 0 or _alive_count(enemies) == 0:
 			continue
 		_act(c, squads[c.team], enemies)
@@ -573,9 +633,9 @@ func _spawn(squad: Array, first: bool) -> void:
 		if not first:
 			c.fatigue *= RESPAWN_RECOVERY
 		c.goes_point = false
-		if _mode == MODE_KOTH:
-			var chance := float(POINT_ROLE_BASE[c.role]) + (c.stat(Stats.OBJ_IQ) - 60.0) / 100.0
-			_set_goes_point(c, _rng.randf() < clampf(chance, 0.05, 0.95))
+		# KOTH: Centers take the point; everyone else sets up around it until Objective IQ says otherwise.
+		if _mode == MODE_KOTH and c.role == Scheme.Role.CENTER:
+			_set_goes_point(c, true)
 
 
 func _set_goes_point(c: Combatant, value: bool) -> void:
@@ -585,37 +645,97 @@ func _set_goes_point(c: Combatant, value: bool) -> void:
 		c.hill_spot = Vector2(_rng.randf_range(inner.position.x, inner.end.x), _rng.randf_range(inner.position.y, inner.end.y))
 
 
-## KOTH: who plays the point. A squad with nobody heading to the point rotates someone onto it
-## (faster with Objective IQ); smart players also crash a point the enemy holds alone, and
-## low-IQ players sometimes wander off the point to chase kills.
+## KOTH: who plays the point. Centers hold it. Objective IQ (helped by Teamwork) decides everyone else's
+## timing: a Frontman or Flex relieves a hurt Center (who falls back to cover and keeps firing), a Flex
+## crashes the point once an enemy contests it, a Frontman steps in when no Center is on it, and a
+## Frontman standing on the point steps off when a Center is coming. Low-IQ players are slow to read
+## all of this, so they leave a hurt Center alone, or stay on a point a Center is already walking onto.
 func _point_decisions() -> void:
+	var hill_c := ArenaMap.HILL.get_center()
 	for i in 2:
 		var squad: Array = squads[i]
-		var goers := 0
+		var enemies: Array = squads[1 - i]
+		var enemy_on := _on_point_count(enemies)
+		var enemy_near := 0
+		for e: Combatant in enemies:
+			if e.alive and e.pos.distance_to(hill_c) < BREACH_ZONE + 6.0:
+				enemy_near += 1
+		var pressure := maxi(enemy_on, enemy_near)
+		var mine_on := _on_point_count(squad)
+		# Healthy Centers on or heading to the point, and Centers arriving (alive, not yet on it).
+		var center_holding := false
+		var center_arriving := false
+		var hurt_center: Combatant = null
+		for c: Combatant in squad:
+			if not c.alive or c.role != Scheme.Role.CENTER:
+				continue
+			if c.goes_point:
+				if c.hp > HURT_HP:
+					center_holding = true
+				elif hurt_center == null:
+					hurt_center = c
+				if not c.on_point() and c.pos.distance_to(hill_c) < ARRIVING_DIST:
+					center_arriving = true
+		var on_count := 0
 		for c: Combatant in squad:
 			if c.alive and c.goes_point:
-				goers += 1
-		var enemy_alone := _on_point_count(squads[1 - i]) > 0 and _on_point_count(squad) == 0
+				on_count += 1
 		for c: Combatant in squad:
 			if not c.alive:
 				continue
 			var iq := c.stat(Stats.OBJ_IQ) / 100.0
+			var tw := c.stat(Stats.TEAMWORK) / 100.0
+			var read := 0.04 + iq * 0.32 + tw * 0.08
+			if c.role == Scheme.Role.CENTER:
+				if c.goes_point:
+					# Hurt, and somebody is on the way or already there to take over: fall back.
+					var relief := false
+					for o: Combatant in squad:
+						if o != c and o.alive and o.goes_point and o.role != Scheme.Role.CENTER \
+								and o.pos.distance_to(hill_c) < ARRIVING_DIST:
+							relief = true
+					if c.hp <= HURT_HP and relief and on_count > 1:
+						_set_goes_point(c, false)
+						c.falling_back = true
+						on_count -= 1
+				elif not c.goes_point and (c.hp > HURT_HP or on_count == 0) and (not c.falling_back or on_count == 0):
+					# Recovered (or the point is empty): back on it.
+					_set_goes_point(c, true)
+					c.falling_back = false
+					on_count += 1
+				continue
 			if c.goes_point:
-				if goers > 1 and _rng.randf() < (1.0 - iq) * 0.01:
+				# A non-Center on the point leaves when a Center is coming and nothing is contesting it.
+				if center_holding or center_arriving:
+					if on_count > 1 and pressure == 0 and _rng.randf() < read * 0.5:
+						_set_goes_point(c, false)
+						on_count -= 1
+				elif not center_holding and hurt_center == null and on_count > 1 and pressure == 0 \
+						and _rng.randf() < (1.0 - iq) * 0.01:
 					_set_goes_point(c, false)
-					goers -= 1
+					on_count -= 1
 				continue
 			var chance := 0.0
-			if goers == 0:
-				chance = 0.04 + iq * 0.3
-			elif enemy_alone:
-				chance = iq * 0.05
+			if hurt_center != null and hurt_center.on_point() and on_count <= 1:
+				# Relieve the hurt Center.
+				chance = read
+			elif on_count == 0:
+				# Nobody is on the point. Frontmen step in first; Flexes only when it is contested.
+				if c.role == Scheme.Role.FRONTMAN or pressure > 0:
+					chance = read
+			elif enemy_on > mine_on:
+				# An enemy is on the point and we aren't matching him there: Flexes crash it, Frontmen
+				# (who hold the line in front of it) are slower to give it up.
+				chance = read * 0.7 if c.role == Scheme.Role.FLEX else iq * 0.1
 			if chance > 0.0 and _rng.randf() < chance:
 				_set_goes_point(c, true)
 				c.soldier.add_usage(Stats.OBJ_IQ, 0.5)
-				if goers == 0:
-					_result.events.append("%s %s rotates to the point." % [_stamp(), _name(c)])
-				goers += 1
+				if on_count == 0 or hurt_center != null:
+					_result.events.append("%s %s %s." % [_stamp(), _name(c),
+						"relieves the point" if hurt_center != null else "rotates to the point"])
+				on_count += 1
+				if hurt_center != null:
+					hurt_center = null
 
 
 ## Banks hold time for a team alone on the point.
@@ -684,52 +804,186 @@ func _update_vision() -> void:
 
 
 ## Where the soldier wants to be this tick (world coordinates).
-func _goal(c: Combatant, enemies: Array) -> Vector2:
-	if _mode == MODE_KOTH and c.goes_point:
-		return c.hill_spot
-	if c.cover_until >= _tick:
-		return c.cover_spot
-	var hold: Vector2
-	if c.role == Scheme.Role.FLEX:
+## Nearest living enemy that can be fired on (the sim's "radio chatter": roles know roughly where the fight is).
+func _nearest_enemy(c: Combatant, enemies: Array) -> Combatant:
+	var nearest: Combatant = null
+	var best := INF
+	for e: Combatant in enemies:
+		if e.alive and not e.spawn_safe():
+			var d := c.pos.distance_squared_to(e.pos)
+			if d < best:
+				best = d
+				nearest = e
+	return nearest
+
+
+## Where a soldier's role wants him, before cover is considered. Roles, not fixed slots: the scheme only
+## supplies the spawn and the lane (y) he works.
+##  Frontman: pushes up and forms the line (in KOTH, in front of the point with it behind him).
+##  Center: plays behind the line (in KOTH he is on the point; this is only where he falls back to).
+##  Flex: runs the flank, then wide on the enemy's side (in KOTH, wide around the point).
+func _role_goal(c: Combatant, allies: Array, enemies: Array) -> Vector2:
+	var koth := _mode == MODE_KOTH
+	var lane := c.scheme.hold_of(c.slot_id, koth).y
+	if c.falling_back:
+		return ArenaMap.world(c.team, Vector2(-9.0, clampf(lane * 1.5, -12.0, 12.0)))
+	match c.role:
+		Scheme.Role.FRONTMAN:
+			if koth:
+				return ArenaMap.world(c.team, Vector2(7.0, clampf(lane * 0.8, -8.0, 8.0)))
+			return ArenaMap.world(c.team, Vector2(1.0, lane))
+		Scheme.Role.CENTER:
+			if koth:
+				return ArenaMap.world(c.team, Vector2(-9.0, lane * 0.5))
+			var fx := 0.0
+			var n := 0
+			for a: Combatant in allies:
+				if a.alive and a.role == Scheme.Role.FRONTMAN:
+					fx += a.pos.x if c.team == 0 else -a.pos.x
+					n += 1
+			var line_x := fx / n if n > 0 else -4.0
+			return ArenaMap.world(c.team, Vector2(clampf(line_x - 9.0, -30.0, -3.0), lane))
+	var side := 1.0 if c.flank_right else -1.0
+	if c.flank_progress < 1.0:
 		var fp := ArenaMap.flank_point(c.flank_progress, c.flank_right)
 		if c.flank_lane > 0:
 			fp.x -= FLANK_LANE_TRAIL
-		hold = ArenaMap.world(c.team, fp)
+		return ArenaMap.world(c.team, fp)
+	if koth:
+		return ArenaMap.world(c.team, Vector2(2.0, side * 13.0))
+	var nearest := _nearest_enemy(c, enemies)
+	return nearest.pos if nearest else ArenaMap.world(c.team, Vector2(10.0, side * 18.0))
+
+
+## How close a soldier wants to get to the enemy before he stops advancing and fights from cover.
+func _standoff(c: Combatant) -> float:
+	match c.role:
+		Scheme.Role.FRONTMAN:
+			return FRONT_STANDOFF
+		Scheme.Role.CENTER:
+			return 30.0
+	return FLEX_STANDOFF if c.flank_progress >= 1.0 else 0.0
+
+
+func _update_threat(c: Combatant) -> void:
+	var best := INF
+	for e: Combatant in c.visible:
+		var d := c.pos.distance_squared_to(e.pos)
+		if d < best:
+			best = d
+			c.threat_pos = e.pos
+			c.threat_tick = _tick
+
+
+## Where he is headed this tick, and his posture. Awareness is tactics: low-Awareness soldiers charge in the
+## open, mid ones duck behind cover once they're shot at, high ones plan their next cover before they're
+## hit, bound from cover to cover toward where their role wants them, and peek out to fire.
+func _goal(c: Combatant, allies: Array, enemies: Array) -> Vector2:
+	var goer := _mode == MODE_KOTH and c.goes_point
+	if goer and ArenaMap.HILL.grow(COMMIT_DIST).has_point(c.pos):
+		# On (or at the edge of) the point: stand and hold it, no ducking away.
+		c.posture = POSTURE_POINT
+		c.cover_spot = Vector2.INF
+		return c.hill_spot
+	_update_threat(c)
+	# On the way to the point he still moves cover to cover; only on the hill does he stop.
+	var want := c.hill_spot if goer else _role_goal(c, allies, enemies)
+	var contact := c.threat_pos != Vector2.INF and _tick - c.threat_tick <= CONTACT_MEMORY
+	var flank_run := c.role == Scheme.Role.FLEX and c.flank_progress < 1.0
+	var aw := c.stat(Stats.AWARENESS) / 100.0
+	if not contact:
+		# A long lull: he reads it and goes looking (not Centers or Flexes holding the point's flanks).
+		if not c.hunting and not flank_run and not c.falling_back and (_mode != MODE_KOTH or c.role == Scheme.Role.FRONTMAN):
+			var quiet := _tick - c.last_contact_tick
+			var read := HUNT_AFTER_TICKS * (1.3 - aw * 0.6)
+			if quiet > read and (c.pos.distance_squared_to(want) < 9.0 or quiet > read * 4):
+				c.hunting = true
+		if c.hunting:
+			var nearest := _nearest_enemy(c, enemies)
+			if nearest:
+				want = nearest.pos
+		c.cover_spot = Vector2.INF
+		c.peeking = true
+		c.posture = POSTURE_POINT if goer else (POSTURE_FLANK if flank_run else (POSTURE_FALLBACK if c.falling_back else POSTURE_ADVANCE))
+		return want
+
+	var dist := c.pos.distance_to(c.threat_pos)
+	var standoff := 0.0 if goer else _standoff(c)
+	if c.in_cover():
+		_rhythm(c, aw)
+		c.posture = POSTURE_PEEK if c.peeking else POSTURE_DUCK
+		# Bound on while ducked, when the role wants to be somewhere else.
+		var far := c.pos.distance_to(want) > AT_SPOT and (dist > standoff or c.falling_back)
+		# Someone sent to the point (or falling back) is in more of a hurry than a soldier fighting from range.
+		var urgency := 0.6 + aw * 0.4 if (goer or c.falling_back) else 0.15 + aw * 0.5
+		if far and not c.peeking and _tick - c.plan_tick >= PLAN_EVERY and _rng.randf() < urgency:
+			c.plan_tick = _tick
+			if _choose_cover(c, allies, want, 1.0):
+				c.posture = POSTURE_BOUND
+				return c.cover_spot
+		return c.cover_spot
+	if c.cover_spot != Vector2.INF:
+		if _tick - c.plan_tick <= 10:
+			c.posture = POSTURE_BOUND
+			return c.cover_spot
+		c.cover_spot = Vector2.INF  # couldn't reach it; rethink
+	if _tick - c.plan_tick >= PLAN_EVERY:
+		c.plan_tick = _tick
+		var preplan := clampf((aw - 0.35) / 0.5, 0.0, 1.0)
+		if _rng.randf() < preplan and _choose_cover(c, allies, want, -4.0):
+			c.posture = POSTURE_BOUND
+			return c.cover_spot
+	c.posture = POSTURE_POINT if goer else (POSTURE_FLANK if flank_run else (POSTURE_FALLBACK if c.falling_back else POSTURE_ADVANCE))
+	# Out in the open: keep closing until inside standoff range, then stand and fight.
+	if dist > standoff or c.falling_back or goer:
+		return want
+	return c.pos
+
+
+## Picks the next cover spot toward `want` (hidden from the known threat, spread out from allies), and sets
+## it as his destination. Better Awareness reaches further; better Teamwork avoids stacking on an ally's spot.
+func _choose_cover(c: Combatant, allies: Array, want: Vector2, gain: float) -> bool:
+	var aw := c.stat(Stats.AWARENESS) / 100.0
+	var taken: Array = []
+	for a: Combatant in allies:
+		if a != c and a.alive and a.cover_spot != Vector2.INF:
+			taken.append(a.cover_spot)
+	var spot := arena.cover_toward(c.pos, want, c.threat_pos, lerpf(BOUND_RADIUS_MIN, BOUND_RADIUS_MAX, aw),
+		gain, taken, 6.0 * c.stat(Stats.TEAMWORK) / 100.0)
+	if spot == Vector2.INF:
+		return false
+	c.cover_spot = spot
+	c.peeking = false
+	c.phase_end = 0
+	c.soldier.add_usage(Stats.AWARENESS, 0.2)
+	return true
+
+
+## Peek and duck. He fires only while peeking; a reload happens ducked. Composure keeps him peeking
+## longer, Awareness shortens the time he spends down, and a hurt soldier stays down longer.
+func _rhythm(c: Combatant, aw: float) -> void:
+	if c.reload_ticks > 0:
+		c.peeking = false
+		c.phase_end = _tick + 1
+		return
+	if _tick < c.phase_end:
+		return
+	c.peeking = not c.peeking
+	var comp := c.stat(Stats.COMPOSURE) / 100.0
+	var ticks: int
+	if c.peeking:
+		ticks = PEEK_BASE + roundi(comp * 2.0) + _rng.randi_range(0, 1)
 	else:
-		hold = ArenaMap.world(c.team, c.scheme.hold_of(c.slot_id, _mode == MODE_KOTH))
-	if not c.visible.is_empty():
-		if not c.hunting:
-			return hold
-		# In a fight while hunting: plant, except frontmen who close to short range.
-		if c.role == Scheme.Role.FRONTMAN and c.target and c.target.alive \
-				and c.pos.distance_to(c.target.pos) > FRONT_PUSH_RANGE:
-			return c.target.pos
-		return c.pos
-	if not c.hunting:
-		var quiet := _tick - c.last_contact_tick
-		var settled := c.pos.distance_squared_to(hold) < 9.0
-		# Awareness: reads the lull and knows when his role should push.
-		var read := HUNT_AFTER_TICKS * (1.3 - c.stat(Stats.AWARENESS) / 100.0 * 0.6)
-		if quiet > read and (settled or quiet > read * 4):
-			c.hunting = true
-	if c.hunting:
-		var nearest: Combatant = null
-		var best := INF
-		for e: Combatant in enemies:
-			if e.alive and not e.spawn_safe():
-				var d := c.pos.distance_squared_to(e.pos)
-				if d < best:
-					best = d
-					nearest = e
-		if nearest:
-			return nearest.pos
-	return hold
+		ticks = DUCK_BASE - roundi(aw * 2.0) + _rng.randi_range(0, 1)
+		if c.hp < 40.0:
+			ticks += roundi((1.0 - comp) * 2.0)
+	c.phase_end = _tick + maxi(1, ticks)
 
 
-func _move(c: Combatant, enemies: Array) -> void:
-	if c.cover_until >= _tick and c.pos.distance_squared_to(c.cover_spot) < COVER_REACHED_SQ:
+func _move(c: Combatant, allies: Array, enemies: Array) -> void:
+	var goal := _goal(c, allies, enemies)
+	if c.in_cover():
 		_result.box[c.soldier.id]["cover_s"] += TICK_SECONDS
-	var goal := _goal(c, enemies)
 	if c.pos.distance_squared_to(goal) < 0.04:
 		return
 	var rate := (0.45 + c.stat(Stats.SPEED) / 100.0 * 0.9) * (1.0 - c.fatigue * 0.3)
@@ -767,16 +1021,22 @@ func _move(c: Combatant, enemies: Array) -> void:
 	c.pos = np
 
 
-## Shot at: an aware soldier not playing the point ducks behind the nearest cover.
+## Shot at: he now knows where the shooter is, and an aware soldier gets down behind the nearest cover.
 func _seek_cover(c: Combatant, shooter: Combatant) -> void:
-	if not c.alive or c.cover_until >= _tick or (_mode == MODE_KOTH and c.goes_point):
+	if not c.alive or (_mode == MODE_KOTH and c.goes_point and ArenaMap.HILL.grow(2.0).has_point(c.pos)):
 		return
-	if _rng.randf() > c.stat(Stats.AWARENESS) / 100.0 * 0.35:
+	c.threat_pos = shooter.pos
+	c.threat_tick = _tick
+	if c.cover_spot != Vector2.INF:
+		return
+	if _rng.randf() > 0.15 + c.stat(Stats.AWARENESS) / 100.0 * 0.6:
 		return
 	var spot := arena.find_cover(c.pos, shooter.pos, COVER_SEARCH_RADIUS)
 	if spot != Vector2.INF:
 		c.cover_spot = spot
-		c.cover_until = _tick + COVER_TICKS
+		c.peeking = false
+		c.phase_end = 0
+		c.plan_tick = _tick
 
 
 # --- shooting ----------------------------------------------------------------------
@@ -801,12 +1061,16 @@ func _act(c: Combatant, allies: Array, enemies: Array) -> void:
 	c.target = target
 	if target == null:
 		return
+	if c.ducked():
+		return  # head down behind cover until the next peek
 	var dist := c.pos.distance_to(target.pos)
 	var band := _band(dist)
 
 	# Getting a shot off: shooter awareness vs target agility (harder to pin down).
 	var engage := BASE_ENGAGE * (1.0 + c.behaviour("engage_mod")) \
 		* (1.0 + (c.stat(Stats.AWARENESS) - 60.0) * 0.006 - (target.stat(Stats.AGILITY) - 60.0) * 0.004)
+	if c.in_cover():
+		engage *= PEEK_ENGAGE_MULT
 	if band == &"long":
 		engage *= LONG_RANGE_ENGAGE_MULT
 	c.soldier.add_usage(Stats.AWARENESS, 0.1)
@@ -868,7 +1132,7 @@ func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band:
 	if Scheme.ROLE_BEHAVIOUR[c.role]["preferred_range"] == band:
 		p *= 1.12
 	if c.flanked():
-		p *= 1.2
+		p *= FLANK_ACC_MULT
 	p *= 1.0 - c.fatigue * 0.4
 	p *= 1.0 + _scheme_edge[c.team][1 if _mode == MODE_KOTH else 0]
 	# Sway: aim steadiness when firing on the move, tired or at long range (neutral at 60).
@@ -897,6 +1161,9 @@ func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band:
 	var covered := arena.through_cover(c.pos, target.pos)
 	if covered:
 		p *= COVER_HIT_MULT
+	# Hugging cover is worth more than just having a crate in the way: ducked is hard to hit, peeking less so.
+	if target.in_cover():
+		p *= PEEKING_HIT_MULT if target.peeking else DUCKED_HIT_MULT
 	if _mode == MODE_KOTH:
 		if c.on_point():
 			# Holding the hill: set angles and cover.

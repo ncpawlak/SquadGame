@@ -35,7 +35,7 @@ func _x(v: float) -> float:
 func _draw() -> void:
 	var y := size.y - BAR_H
 	draw_rect(Rect2(0, y, size.x, BAR_H), HEADROOM)
-	draw_rect(Rect2(0, y, _x(rating), BAR_H), color)
+	draw_rect(Rect2(0, y, _x(float(rating)), BAR_H), color)
 	if cap >= 0 and cap < Stats.MAX_RATING:
 		draw_rect(Rect2(_x(cap), y, size.x - _x(cap), BAR_H), LOCKED)
 	if preview and cap > rating:
