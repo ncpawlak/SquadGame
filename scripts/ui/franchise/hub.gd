@@ -1086,9 +1086,9 @@ var _home_anchor := ""
 
 
 ## Fixed size of Home's week card; the news pane beside it matches its height.
-const CARD_SIZE := Vector2(760, 460)
+const CARD_SIZE := Vector2(700, 460)
 ## The news pane under the week card: fixed height, same width (both fill the space right of the to-dos); it scrolls inside.
-const FEED_SIZE := Vector2(760, 440)
+const FEED_SIZE := Vector2(700, 440)
 
 
 ## Home: three columns. This week's to-dos (stack freely; the page scrolls when they run long),
