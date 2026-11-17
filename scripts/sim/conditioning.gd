@@ -66,7 +66,7 @@ static func weekly_load(soldier: Soldier, played_match: bool) -> float:
 	return load * endurance_mult(soldier) * (1.0 + age_years(soldier) * AGE_LOAD_PER_YEAR)
 
 
-## onus: extra share shed (a Medical Center upgrade).
+## bonus: extra share of fatigue shed.
 static func weekly_recovery(soldier: Soldier, bye: bool, bonus := 0.0) -> float:
 	var r := RECOVERY_RATE + float(Training.INTENSITY_INFO[soldier.intensity]["recovery_bonus"]) + bonus
 	if bye:
@@ -84,8 +84,10 @@ static func fatigue_injury_mult(fatigue: float) -> float:
 	return 1.0 + maxf(0.0, fatigue - 40.0) / 25.0
 
 
-static func injury_chance(soldier: Soldier, played_match: bool) -> float:
-	var c := base_injury_chance(soldier.stats[Stats.INJURY]) * fatigue_injury_mult(soldier.fatigue)
+## `injury_rating` defaults to the soldier's own; end_week passes it with the Medical Center bonus.
+static func injury_chance(soldier: Soldier, played_match: bool, injury_rating := -1) -> float:
+	var rating: int = soldier.stats[Stats.INJURY] if injury_rating < 0 else injury_rating
+	var c := base_injury_chance(rating) * fatigue_injury_mult(soldier.fatigue)
 	if not played_match:
 		c *= TRAINING_ONLY_INJURY_MULT
 	return c
@@ -105,11 +107,10 @@ static func injury_label(weeks: int, rng: RandomNumberGenerator) -> String:
 
 
 ## End-of-week update for one team. played_ids: soldier ids who started a match this week.
-## Returns new injuries as Array of {soldier, weeks, name}. A Medical Center upgrade shortens injuries and
-## speeds recovery.
+## Returns new injuries as Array of {soldier, weeks, name}. A Medical Center upgrade adds flat points to
+## the Injury and Toughness ratings used here.
 static func end_week(team: Team, played_ids: Dictionary, bye: bool, rng: RandomNumberGenerator) -> Array:
 	var injuries: Array = []
-	var bonus := Facilities.recovery_bonus(team)
 	for soldier in team.roster:
 		if soldier.is_injured():
 			soldier.injury_weeks -= 1
@@ -118,10 +119,10 @@ static func end_week(team: Team, played_ids: Dictionary, bye: bool, rng: RandomN
 			soldier.fatigue *= 0.4
 			continue
 		var played := played_ids.has(soldier.id)
-		soldier.fatigue = clampf(soldier.fatigue * (1.0 - weekly_recovery(soldier, bye, bonus)) + weekly_load(soldier, played), 0.0, 100.0)
+		soldier.fatigue = clampf(soldier.fatigue * (1.0 - weekly_recovery(soldier, bye)) + weekly_load(soldier, played), 0.0, 100.0)
 		var active := played or soldier.intensity != Soldier.INTENSITY_REST
-		if active and rng.randf() < injury_chance(soldier, played):
-			soldier.injury_weeks = Facilities.injury_weeks(team, roll_injury_weeks(soldier.stats[Stats.TOUGHNESS], rng))
+		if active and rng.randf() < injury_chance(soldier, played, Facilities.medical_rating(team, soldier.stats[Stats.INJURY])):
+			soldier.injury_weeks = roll_injury_weeks(Facilities.medical_rating(team, soldier.stats[Stats.TOUGHNESS]), rng)
 			soldier.injury_name = injury_label(soldier.injury_weeks, rng)
 			injuries.append({"soldier": soldier, "weeks": soldier.injury_weeks, "name": soldier.injury_name})
 	return injuries

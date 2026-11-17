@@ -4585,8 +4585,8 @@ func _drill_confirm_card(group: StringName, so: Soldier) -> Control:
 	info.add_child(facts)
 	h.add_child(info)
 	v.add_child(h)
-	var note := UiKit.label("The pool is spread at random over %s (max +%d per stat). He can't attend another drill this camp." % [
-		Stats.GROUP_LABELS[group], Camp.MAX_STAT_GAIN], 14, UiKit.MUTED)
+	var note := UiKit.label("The pool is spread at random over %s (max +%d per stat). He earns +%d XP this camp week and can't attend another drill." % [
+		Stats.GROUP_LABELS[group], Camp.MAX_STAT_GAIN, roundi(Camp.DRILL_XP)], 14, UiKit.MUTED)
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	note.custom_minimum_size.x = 520
 	v.add_child(note)

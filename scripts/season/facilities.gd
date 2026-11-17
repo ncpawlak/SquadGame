@@ -7,7 +7,8 @@ extends RefCounted
 ##   Drill Rooms             offseason and camp-week XP +5% a step (Season.offseason_xp); camp drill points
 ##                           +1 at levels 3-4, +2 at 5 (Camp.run)
 ##   Scouting Office         +2 scout points a week a step (the user's draft points)
-##   Medical Center          injuries 5% shorter and +1% weekly fatigue recovery a step (Conditioning)
+##   Medical Center          +2 flat to every rostered player's Injury and Toughness a step, as an effective
+##                           rating (capped at 99; the stored ratings don't change) (Conditioning)
 ##   Marketing Team          extra one-time XP per honor: +50 a step for a Player of the Week, +250 for a season
 ##                           honor (award, All-League, stat leader; on top of SeasonReview.HONOR_XP) (SeasonReview.run)
 ##   Gear Sponsor            the impact part of match XP x1.1 at level 2 up to x1.5 at 5 (Progression.award_match_xp)
@@ -55,8 +56,8 @@ const DRILL_XP := 0.05
 ## Extra camp drill points by level (1..5).
 const DRILL_CAMP_POINTS := [0, 0, 1, 1, 2]
 const SCOUT_POINTS := 2
-const MEDICAL_INJURY := 0.05
-const MEDICAL_RECOVERY := 0.01
+## Flat Injury and Toughness points per step (level - 1): +8 at level 5.
+const MEDICAL_RATING := 2
 const MARKETING_POTW_XP := 50.0
 const MARKETING_HONOR_XP := 250.0
 ## Gear Sponsor: x1.1 at level 2 up to x1.5 at level 5, in even steps between.
@@ -156,15 +157,14 @@ static func scout_points(team: Team) -> int:
 	return Draft.POINTS_PER_WEEK + SCOUT_POINTS * steps(team, SCOUTING)
 
 
-static func injury_weeks(team: Team, weeks: int) -> int:
-	var n := steps(team, MEDICAL)
-	if n == 0:
-		return weeks
-	return maxi(1, roundi(weeks * (1.0 - MEDICAL_INJURY * n)))
+## Flat points the Medical Center adds to Injury and Toughness.
+static func medical_bonus(team: Team) -> int:
+	return MEDICAL_RATING * steps(team, MEDICAL)
 
 
-static func recovery_bonus(team: Team) -> float:
-	return MEDICAL_RECOVERY * steps(team, MEDICAL)
+## `rating` (an Injury or Toughness value) with `team`'s Medical Center bonus, capped at the max rating.
+static func medical_rating(team: Team, rating: int) -> int:
+	return mini(Stats.MAX_RATING, rating + medical_bonus(team))
 
 
 static func potw_xp(team: Team) -> float:
@@ -214,7 +214,7 @@ static func effect_text(id: StringName, lvl: int) -> String:
 		SCOUTING:
 			return "%d scout points a week" % (Draft.POINTS_PER_WEEK + SCOUT_POINTS * n)
 		MEDICAL:
-			return "Injuries %d%% shorter, +%d%% weekly recovery" % [roundi(100 * MEDICAL_INJURY * n), roundi(100 * MEDICAL_RECOVERY * n)]
+			return "+%d Injury and Toughness" % (MEDICAL_RATING * n)
 		MARKETING:
 			return "+%d XP per Player of the Week, +%d per season honor" % [roundi(MARKETING_POTW_XP * n), roundi(MARKETING_HONOR_XP * n)]
 		GEAR:
