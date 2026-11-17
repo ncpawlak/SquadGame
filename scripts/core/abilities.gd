@@ -80,6 +80,23 @@ const DEFS := [
 		"blurb": "Recovers from fatigue faster and misses fewer weeks to injury."},
 ]
 
+## Master switch for every ability effect (match engine and Conditioning). The engine golden test turns it off
+## to prove the old sim is unchanged; everything else leaves it on.
+static var effects_enabled := true
+
+## Effect sizes by tier (index 0 = locked or not held: no effect). Situational, so they only apply while the
+## situation holds, and the engine caps the combined bonus per shot (HIT_CAP) and the combined cut (GUARD_CAP).
+const POWER: Array[float] = [0.0, 0.05, 0.09, 0.14]        # hit-chance bonus
+const GUARD: Array[float] = [0.0, 0.04, 0.07, 0.10]        # hit-chance cut against him / damage cut
+const FRAC: Array[float] = [0.0, 0.4, 0.7, 1.0]            # share of a built-in penalty he shrugs off
+const HEADSHOT: Array[float] = [0.0, 0.02, 0.04, 0.06]     # extra headshot chance per hit
+const RELOAD_CUT: Array[float] = [0.0, 0.15, 0.25, 0.35]   # share of reload time saved
+const INJURY_CUT: Array[float] = [0.0, 0.10, 0.18, 0.25]   # share of weekly injury chance removed
+const RECOVERY: Array[float] = [0.0, 0.03, 0.05, 0.08]     # extra share of fatigue shed each week
+const HEAL_CUT: Array[float] = [0.0, 0.10, 0.20, 0.30]     # share of injury weeks saved
+const HIT_CAP := 1.30
+const GUARD_CAP := 0.75
+
 static var _index := {}
 
 
@@ -179,6 +196,60 @@ static func refresh(s: Soldier, year := -1) -> Array:
 		s.abilities.append({"id": d["id"], "tier": t, "year": year})
 		changes.append({"id": d["id"], "from": -1, "to": t})
 	return changes
+
+
+## What an ability does at `tier`, as the number the sim is applying now: {"value": "+14%", "unit": "hit chance"}.
+## Locked (tier 0) shows a dash. Mirrors how the engine and Conditioning read the tables above.
+static func effect_of(id: StringName, tier: int) -> Dictionary:
+	var t := clampi(tier, LOCKED, GOLD)
+	if t == LOCKED:
+		return {"value": "-", "unit": "locked"}
+	var power := roundi(POWER[t] * 100.0)
+	var guard := roundi(GUARD[t] * 100.0)
+	var frac := roundi(FRAC[t] * 100.0)
+	match id:
+		&"frontline_warrior": return {"value": "+%d%%" % power, "unit": "hit chance, short/medium"}
+		&"marksman": return {"value": "+%d%%" % power, "unit": "hit chance at long range"}
+		&"run_and_gun": return {"value": "%d%%" % frac, "unit": "moving aim penalty cut"}
+		&"headhunter": return {"value": "+%d%%" % roundi(HEADSHOT[t] * 100.0), "unit": "headshot chance"}
+		&"suppressor": return {"value": "+%d%%" % power, "unit": "follow-up bullet hits"}
+		&"quick_hands": return {"value": "-%d%%" % roundi(RELOAD_CUT[t] * 100.0), "unit": "reload time"}
+		&"opening_strike": return {"value": "+%d%%" % power, "unit": "hit chance, opening seconds"}
+		&"gunslinger": return {"value": "+%d%%" % roundi(POWER[t] * 150.0), "unit": "hit chance, first burst"}
+		&"ghost": return {"value": "-%d%%" % guard, "unit": "hit chance vs him moving"}
+		&"cover_specialist": return {"value": "-%d%%" % guard, "unit": "hit chance vs him in cover"}
+		&"stand_fast": return {"value": "-%d%%" % guard, "unit": "damage when below half"}
+		&"marathoner": return {"value": "%d%%" % frac, "unit": "fatigue penalty cut"}
+		&"flanker": return {"value": "+%d%%" % power, "unit": "hit chance once flanking"}
+		&"clutch": return {"value": "+%d%%" % roundi(POWER[t] * 150.0), "unit": "hit chance when outnumbered"}
+		&"field_general": return {"value": "+%d%%" % roundi(POWER[t] * 40.0), "unit": "hit chance for his squad"}
+		&"crossfire_partner": return {"value": "+%d%%" % power, "unit": "hit chance, shared target"}
+		&"guardian_angel": return {"value": "+%d%%" % power, "unit": "hit chance, teammate saves"}
+		&"sixth_sense": return {"value": "%d%%" % frac, "unit": "reload/flank penalty cut"}
+		&"king_of_the_hill": return {"value": "+%d%%" % power, "unit": "hit chance on the point"}
+		&"hill_breaker": return {"value": "+%d%%" % power, "unit": "hit chance vs the point"}
+		&"point_controller": return {"value": "+%d%%" % power, "unit": "hold time banked"}
+		&"retaker": return {"value": "+%d%%" % power, "unit": "hit chance after hill loss"}
+		&"closer": return {"value": "+%d%%" % power, "unit": "hit chance late in a game"}
+		&"iron_man": return {"value": "-%d%%" % roundi(INJURY_CUT[t] * 100.0), "unit": "weekly injury chance"}
+		&"quick_healer": return {"value": "+%d%%" % roundi(RECOVERY[t] * 100.0), "unit": "recovery, injuries -%d%%" % roundi(HEAL_CUT[t] * 100.0)}
+	return {"value": "", "unit": ""}
+
+
+## His active (tier above locked) abilities as id -> tier, ready for the match engine; empty when effects are off.
+static func active_tiers(s: Soldier) -> Dictionary:
+	var out := {}
+	if not effects_enabled:
+		return out
+	for e: Dictionary in s.abilities:
+		if int(e["tier"]) > LOCKED:
+			out[e["id"]] = int(e["tier"])
+	return out
+
+
+## His tier in `id` for the sim: like tier() but 0 while effects are off.
+static func live_tier(s: Soldier, id: StringName) -> int:
+	return tier(s, id) if effects_enabled else LOCKED
 
 
 ## Runs refresh() on every soldier on a roster, Green Team or in the free-agent pool (a safety net for

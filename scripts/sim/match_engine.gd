@@ -129,6 +129,12 @@ const BREACH_ZONE := 8.0
 const FLANK_LANE_TRAIL := 4.0
 const POINT_ROLE_BASE := {Scheme.Role.FRONTMAN: 0.65, Scheme.Role.CENTER: 0.3, Scheme.Role.FLEX: 0.4}
 
+## Opening Strike lasts this many ticks after a spawn; Retaker this many after the squad loses the hill.
+const OPENING_TICKS := 16
+const RETAKE_TICKS := 20
+## Closer: a game is "late" once the leader has this share of the points (or hold time) needed to win.
+const LATE_SHARE := 0.6
+
 const RANGE_BASE_HIT := {&"short": 0.30, &"medium": 0.20, &"long": 0.11}
 const RANGE_STAT := {&"short": &"short_acc", &"medium": &"medium_acc", &"long": &"long_acc"}
 ## Stats reduced by pre-match fatigue.
@@ -195,8 +201,13 @@ class Combatant:
 	var _stats: Dictionary = {}
 	var _behaviour: Dictionary = {}
 	var _flanked_behaviour: Dictionary = {}
+	## His active abilities (id -> tier), fixed for the match (see Abilities).
+	var abil: Dictionary = {}
+	## True from spawning or finishing a reload until his next burst (Gunslinger).
+	var fresh := true
 
 	func setup(weather: Weather = null) -> void:
+		abil = Abilities.active_tiers(soldier)
 		var eff := soldier.effective_stats()
 		for s in Stats.ALL:
 			var v := float(eff[s])
@@ -211,6 +222,10 @@ class Combatant:
 
 	func stat(s: StringName) -> float:
 		return _stats[s]
+
+	## His tier (0 = none) in ability `id`.
+	func ab(id: StringName) -> int:
+		return int(abil.get(id, 0))
 
 	func flanked() -> bool:
 		return role == Scheme.Role.FLEX and flank_progress >= 1.0
@@ -264,6 +279,8 @@ var weather: Weather
 var _need_game := true
 var _need_round := false
 var _holder := -1
+## Per squad: the tick the hill was last lost (for Retaker).
+var _hill_lost_tick: Array[int] = [-1000, -1000]
 var _clutch_candidate: Combatant = null
 ## True until the first kill of a game (or sudden-death round): that kill is the opening kill.
 var _opening_open := false
@@ -446,6 +463,7 @@ func _begin_game() -> void:
 	_arena_score = [0.0, 0.0]
 	_game_over = false
 	_holder = -1
+	_hill_lost_tick = [-1000, -1000]
 	_emit({"t": "game_start", "game": _game_number, "mode": _mode})
 	if _mode == MODE_SUDDEN_DEATH:
 		_begin_round()
@@ -505,6 +523,7 @@ func _reset_life(c: Combatant) -> void:
 	c.hp = 100.0
 	c.alive = true
 	c.mag = MAG_SIZE
+	c.fresh = true
 	c.reload_ticks = 0
 	c.flank_progress = 0.0
 	c.target = null
@@ -751,11 +770,16 @@ func _score_hill() -> void:
 		if on[i].is_empty():
 			continue
 		var before := _arena_score[i]
-		_arena_score[i] += TICK_SECONDS
+		var pressure := 0.0
+		for c: Combatant in on[i]:
+			pressure = maxf(pressure, Abilities.POWER[c.ab(&"point_controller")])
+		_arena_score[i] += TICK_SECONDS * (1.0 + pressure)
 		for c: Combatant in on[i]:
 			_result.box[c.soldier.id]["hill_s"] += TICK_SECONDS
 			c.soldier.add_usage(Stats.ANCHOR, 0.05)
 		if _holder != i:
+			if _holder == 1 - i:
+				_hill_lost_tick[1 - i] = _tick
 			_holder = i
 			for c: Combatant in on[i]:
 				_result.box[c.soldier.id]["caps"] += 1
@@ -1054,6 +1078,7 @@ func _advance_state(c: Combatant) -> void:
 		c.reload_ticks -= 1
 		if c.reload_ticks == 0:
 			c.mag = MAG_SIZE
+			c.fresh = true
 
 
 func _act(c: Combatant, allies: Array, enemies: Array) -> void:
@@ -1080,7 +1105,7 @@ func _act(c: Combatant, allies: Array, enemies: Array) -> void:
 	_fire(c, allies, enemies, target, band, dist)
 	if c.mag <= 0:
 		# 4.0s at 0 reload, ~1.0s at 99, in ticks.
-		c.reload_ticks = maxi(1, ceili((4.0 - c.stat(Stats.RELOAD) * 0.03) / TICK_SECONDS))
+		c.reload_ticks = maxi(1, ceili((4.0 - c.stat(Stats.RELOAD) * 0.03) * (1.0 - Abilities.RELOAD_CUT[c.ab(&"quick_hands")]) / TICK_SECONDS))
 		c.soldier.add_usage(Stats.RELOAD, 1.0)
 		_emit({"t": "reload", "id": c.soldier.id})
 
@@ -1116,6 +1141,8 @@ func _pick_target(c: Combatant, allies: Array) -> Combatant:
 func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band: StringName, dist: float) -> void:
 	var shots := mini(BURST, c.mag)
 	c.mag -= shots
+	var fresh := c.fresh
+	c.fresh = false
 	target.pinned_tick = _tick
 	var acc_stat: StringName = RANGE_STAT[band]
 	var box: Dictionary = _result.box[c.soldier.id]
@@ -1133,14 +1160,15 @@ func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band:
 		p *= 1.12
 	if c.flanked():
 		p *= FLANK_ACC_MULT
-	p *= 1.0 - c.fatigue * 0.4
+	p *= 1.0 - c.fatigue * 0.4 * (1.0 - Abilities.FRAC[c.ab(&"marathoner")])
 	p *= 1.0 + _scheme_edge[c.team][1 if _mode == MODE_KOTH else 0]
 	# Sway: aim steadiness when firing on the move, tired or at long range (neutral at 60).
 	var unsteady := c.fatigue * 0.3
-	if c.pos.distance_squared_to(c.prev_pos) > 0.01:
-		unsteady += 0.25
+	var moving := c.pos.distance_squared_to(c.prev_pos) > 0.01
+	if moving:
+		unsteady += 0.25 * (1.0 - Abilities.FRAC[c.ab(&"run_and_gun")])
 	if band == &"long":
-		unsteady += 0.2
+		unsteady += 0.2 * (1.0 - Abilities.FRAC[c.ab(&"marksman")])
 	if unsteady > 0.0:
 		p *= 1.0 + unsteady * (c.stat(Stats.SWAY) - 60.0) / 100.0
 		c.soldier.add_usage(Stats.SWAY, unsteady)
@@ -1173,10 +1201,11 @@ func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band:
 			# Clearing the hill on the push.
 			p *= 1.0 + (c.stat(Stats.BREACH) - 60.0) / 120.0
 			c.soldier.add_usage(Stats.BREACH, 0.2)
+	p *= _ability_hit_mult(c, target, allies, enemies, band, fresh)
 	p = clampf(p, 0.02, 0.95)
 
 	# Follow-up bullets: grouping consistency plus strength for recoil control.
-	var follow_mult := 0.55 + c.stat(Stats.GROUPING) / 200.0 + c.stat(Stats.STRENGTH) / 400.0
+	var follow_mult := (0.55 + c.stat(Stats.GROUPING) / 200.0 + c.stat(Stats.STRENGTH) / 400.0) * (1.0 + Abilities.POWER[c.ab(&"suppressor")])
 	var p_follow := clampf(p * follow_mult, 0.02, 0.95)
 	if shots > 1:
 		c.soldier.add_usage(Stats.GROUPING, (shots - 1) * 0.3)
@@ -1196,13 +1225,15 @@ func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band:
 		hits += 1
 		box["hits"] += 1
 		var dmg := _rng.randf_range(22.0, 30.0)
-		var headshot := _rng.randf() < 0.06 + c.stat(Stats.GROUPING) * 0.0008
+		var headshot := _rng.randf() < 0.06 + c.stat(Stats.GROUPING) * 0.0008 + Abilities.HEADSHOT[c.ab(&"headhunter")]
 		if headshot:
 			dmg *= 2.2
 			box["headshots"] += 1
 			any_headshot = true
 		# Strength: absorbs hits.
 		dmg *= 1.0 - target.stat(Stats.STRENGTH) / 100.0 * 0.25
+		if target.hp < 50.0:
+			dmg *= 1.0 - Abilities.GUARD[target.ab(&"stand_fast")]
 		if _mode == MODE_KOTH and target.on_point():
 			dmg *= 1.0 - target.stat(Stats.ANCHOR) / 100.0 * 0.35
 		dmg = minf(dmg, target.hp)
@@ -1228,6 +1259,77 @@ func _fire(c: Combatant, allies: Array, enemies: Array, target: Combatant, band:
 			"target": target.soldier.id, "result": res, "shots": shots, "hits": hits, "cover": covered})
 	if not killed:
 		_seek_cover(target, c)
+
+
+## Ability effects on one burst's first-bullet hit chance (issue #124): the shooter's situational bonuses,
+## capped at Abilities.HIT_CAP, times the target's situational cuts, floored at Abilities.GUARD_CAP.
+## No random rolls, and 1.0 when nobody involved has an active ability.
+func _ability_hit_mult(c: Combatant, target: Combatant, allies: Array, enemies: Array, band: StringName, fresh: bool) -> float:
+	if not Abilities.effects_enabled:
+		return 1.0
+	var up := 1.0
+	if band != &"long":
+		up *= 1.0 + Abilities.POWER[c.ab(&"frontline_warrior")]
+	else:
+		up *= 1.0 + Abilities.POWER[c.ab(&"marksman")]
+	if _tick - c.spawn_tick <= OPENING_TICKS:
+		up *= 1.0 + Abilities.POWER[c.ab(&"opening_strike")]
+	if fresh:
+		up *= 1.0 + Abilities.POWER[c.ab(&"gunslinger")] * 1.5
+	if c.flanked():
+		up *= 1.0 + Abilities.POWER[c.ab(&"flanker")]
+	if _alive_count(allies) < _alive_count(enemies):
+		up *= 1.0 + Abilities.POWER[c.ab(&"clutch")] * 1.5
+	if _mode == MODE_KOTH:
+		if c.on_point():
+			up *= 1.0 + Abilities.POWER[c.ab(&"king_of_the_hill")]
+		elif c.goes_point and target.on_point():
+			up *= 1.0 + Abilities.POWER[c.ab(&"hill_breaker")]
+		if _tick - _hill_lost_tick[c.team] <= RETAKE_TICKS:
+			up *= 1.0 + Abilities.POWER[c.ab(&"retaker")]
+	if _late():
+		up *= 1.0 + Abilities.POWER[c.ab(&"closer")]
+	var leader := c.ab(&"field_general")
+	var backed := false
+	var saves := false
+	for a: Combatant in allies:
+		if a == c or not a.alive:
+			continue
+		leader = maxi(leader, a.ab(&"field_general"))
+		if a.target == target:
+			backed = true
+		if a.endangered_by == target and _tick - a.endangered_tick <= SAVE_WINDOW_TICKS:
+			saves = true
+	up *= 1.0 + Abilities.POWER[leader] * 0.4
+	if backed:
+		up *= 1.0 + Abilities.POWER[c.ab(&"crossfire_partner")]
+	if saves:
+		up *= 1.0 + Abilities.POWER[c.ab(&"guardian_angel")]
+	var guard := 1.0
+	if target.pos.distance_squared_to(target.prev_pos) > 0.01:
+		guard *= 1.0 - Abilities.GUARD[target.ab(&"ghost")]
+	if target.in_cover():
+		guard *= 1.0 - Abilities.GUARD[target.ab(&"cover_specialist")]
+	var sense := target.ab(&"sixth_sense")
+	if sense > 0:
+		# Caught mid-reload costs him less, and a flanker's bonus mostly cancels out.
+		if target.reload_ticks > 0:
+			guard *= 1.0 - 0.2 * Abilities.FRAC[sense]
+		if c.flanked():
+			guard *= 1.0 - (FLANK_ACC_MULT - 1.0) * Abilities.FRAC[sense]
+	if c.flanked():
+		guard *= 1.0 - Abilities.GUARD[target.ab(&"flanker")] * 0.7
+	return clampf(up, 1.0, Abilities.HIT_CAP) * clampf(guard, Abilities.GUARD_CAP, 1.0)
+
+
+## A game is "late" once the leader has LATE_SHARE of what wins it; sudden death always counts.
+func _late() -> bool:
+	match _mode:
+		MODE_TDM:
+			return maxf(_arena_score[0], _arena_score[1]) >= TDM_POINTS_TO_WIN * LATE_SHARE
+		MODE_KOTH:
+			return maxf(_arena_score[0], _arena_score[1]) >= KOTH_HOLD_TO_WIN_S * LATE_SHARE
+	return true
 
 
 func _kill(killer: Combatant, victim: Combatant, killer_allies: Array, victim_allies: Array,

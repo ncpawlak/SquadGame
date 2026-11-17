@@ -71,7 +71,7 @@ static func weekly_load(soldier: Soldier, played_match: bool, intensity: StringN
 ## bonus: extra share of fatigue shed.
 static func weekly_recovery(soldier: Soldier, bye: bool, bonus := 0.0, intensity: StringName = &"") -> float:
 	var it := soldier.intensity if intensity == &"" else intensity
-	var r := RECOVERY_RATE + float(Training.INTENSITY_INFO[it]["recovery_bonus"]) + bonus
+	var r := RECOVERY_RATE + float(Training.INTENSITY_INFO[it]["recovery_bonus"]) + bonus + Abilities.RECOVERY[Abilities.live_tier(soldier, &"quick_healer")]
 	if bye:
 		r += BYE_RECOVERY_BONUS
 	return clampf(r * (1.0 - age_years(soldier) * AGE_RECOVERY_PER_YEAR), 0.05, 0.95)
@@ -90,7 +90,7 @@ static func fatigue_injury_mult(fatigue: float) -> float:
 ## `injury_rating` defaults to the soldier's own; end_week passes it with the Medical Center bonus.
 static func injury_chance(soldier: Soldier, played_match: bool, injury_rating := -1) -> float:
 	var rating: int = soldier.stats[Stats.INJURY] if injury_rating < 0 else injury_rating
-	var c := base_injury_chance(rating) * fatigue_injury_mult(soldier.fatigue)
+	var c := base_injury_chance(rating) * fatigue_injury_mult(soldier.fatigue) * (1.0 - Abilities.INJURY_CUT[Abilities.live_tier(soldier, &"iron_man")])
 	if not played_match:
 		c *= TRAINING_ONLY_INJURY_MULT
 	return c
@@ -110,7 +110,7 @@ static func projected_injury_chance(soldier: Soldier, intensity: StringName, pla
 	if soldier.is_injured() or (not played and intensity == Soldier.INTENSITY_REST):
 		return 0.0
 	var rating: int = soldier.stats[Stats.INJURY] if injury_rating < 0 else injury_rating
-	var c := base_injury_chance(rating) * fatigue_injury_mult(projected_fatigue(soldier, intensity, played, bye))
+	var c := base_injury_chance(rating) * fatigue_injury_mult(projected_fatigue(soldier, intensity, played, bye)) * (1.0 - Abilities.INJURY_CUT[Abilities.live_tier(soldier, &"iron_man")])
 	if not played:
 		c *= TRAINING_ONLY_INJURY_MULT
 	return c
@@ -146,6 +146,7 @@ static func end_week(team: Team, played_ids: Dictionary, bye: bool, rng: RandomN
 		var active := played or soldier.intensity != Soldier.INTENSITY_REST
 		if active and rng.randf() < injury_chance(soldier, played, Facilities.medical_rating(team, soldier.stats[Stats.INJURY])):
 			soldier.injury_weeks = roll_injury_weeks(Facilities.medical_rating(team, soldier.stats[Stats.TOUGHNESS]), rng)
+			soldier.injury_weeks = maxi(1, roundi(soldier.injury_weeks * (1.0 - Abilities.HEAL_CUT[Abilities.live_tier(soldier, &"quick_healer")])))
 			soldier.injury_name = injury_label(soldier.injury_weeks, rng)
 			injuries.append({"soldier": soldier, "weeks": soldier.injury_weeks, "name": soldier.injury_name})
 	# Green Team: heals and recovers, but no injury rolls (it plays no matches).

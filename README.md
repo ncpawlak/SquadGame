@@ -512,12 +512,18 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
     soldiers read a quiet fight sooner and flank faster). Composure: accuracy under fire. Teamwork: crossfire bonus.
   - Anchor / Breach / Objective IQ: King of the Hill (below). Injury: injury chance. **Toughness**: only how long
     an injury lasts.
-- **Abilities** (`scripts/core/abilities.gd`, issue #124; state and rules in place, match effects and the player-page UI come next): 25 named
+- **Abilities** (`scripts/core/abilities.gd`, issue #124): 25 named
   combinations of ratings from different groups. A soldier holds up to 4 (`Soldier.abilities`). Tier = his lowest required rating:
   bronze 75, silver 88, gold 95. He earns an ability the first time its ratings are met and he has a free slot (ranked by margin over
   the ability's league median); below bronze it **locks** but keeps its slot, so slots are never freed and nothing replaces it; it
   returns if the ratings recover. Refreshed on every rating change (`Soldier.log_progress`) and by a league sweep (new league, each
   week, offseason steps, load).
+  **Effects** are situational and always positive (tables in `Abilities`: POWER, GUARD, FRAC, ...; a gold is about +14% hit chance
+  in its situation, bronze +5%). The engine multiplies them into a burst's first-bullet hit chance (`MatchEngine._ability_hit_mult`,
+  bonus capped at x1.30, cuts floored at x0.75) and into a few built-in penalties (moving, long range, fatigue), reload time, headshot
+  chance, follow-up bullets, damage taken and KOTH hold time; Iron Man and Quick Healer act in `Conditioning`. No random rolls.
+  `Abilities.effects_enabled = false` switches them all off (the engine golden runs that way). `tools/ability_tuning.gd` measures the
+  win-rate swing (a full set vs none is worth about 5 points between equal teams).
 - **Schemes** (`scripts/core/scheme.gd`): six formations of the same three roles.
   - **Swing**: 2 Frontmen, Center, Left Flex, Right Flex. **Wide-Left / Wide-Right**: 2 Frontmen, Center, both
     Flexes on one side. **Wall**: 3 Frontmen, a Mid Flex behind, Center at the back. **Spread**: 4 Flexes (2 per

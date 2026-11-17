@@ -2070,6 +2070,20 @@ func _ability_card(s: Soldier, e: Dictionary) -> Control:
 		parts.append("[color=%s]%s[/color] [color=%s]%d[/color]" % [UiKit.hex(UiKit.MUTED), Stats.ABBREV[st], UiKit.hex(c), val])
 	box.add_child(UiKit.rich("   ".join(parts), 14))
 	h.add_child(box)
+	# What the sim is applying right now at this tier.
+	var fx := Abilities.effect_of(e["id"], tier)
+	var chip := _vbox(-2)
+	chip.custom_minimum_size.x = 170
+	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var val := UiKit.display(String(fx["value"]), 28, col if tier > 0 else UiKit.MUTED, true)
+	val.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	chip.add_child(val)
+	var unit := UiKit.label(String(fx["unit"]), 12, UiKit.MUTED)
+	unit.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	unit.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	unit.custom_minimum_size.x = 170
+	chip.add_child(unit)
+	h.add_child(chip)
 	p.add_child(h)
 	return p
 
