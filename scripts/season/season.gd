@@ -112,6 +112,8 @@ var fa := FreeAgency.new()
 var relationships := Relationships.new()
 ## Divisional and team-specific rivalries: heat, head-to-head records and emergent rivalries.
 var rivalries := Rivalries.new()
+## Season-long storylines (see Storylines).
+var storylines := Storylines.new()
 ## Team market (a fixed rating) and the buzz that moves with results.
 var market := Market.new()
 ## Club revenue and cash (behind the scenes: nothing in contracts or the cap reads it).
@@ -609,6 +611,7 @@ func finish_week() -> Array:
 	Morale.update_week(league, played)
 	relationships.week(league, played)
 	rivalries.record_week(self, played)
+	storylines.week(self, played, week)
 	var news_week := week
 	if phase == PHASE_REGULAR and week == midseason_week():
 		_ai_extend()
@@ -1448,6 +1451,7 @@ func _begin_season() -> void:
 	market.begin_season(self)
 	revenue.begin_season(self)
 	news.begin_season(self)
+	storylines.begin_season(self)
 	newsroom.publish_preseason(self)
 	_stamp_log()
 
