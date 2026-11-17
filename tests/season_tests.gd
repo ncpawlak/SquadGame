@@ -1145,19 +1145,22 @@ func test_training_camp_and_offseason_xp() -> void:
 	check(a.group_rating(Stats.PHYSICALITY) <= a.group_cap(Stats.PHYSICALITY), "drill never passes the cap")
 	check(s.camp_check(Stats.ACCURACY, a) != "", "one drill per player")
 	check(s.camp_check(Stats.PHYSICALITY, b) != "", "one player per drill")
-	var inj_before: int = b.stats[Stats.INJURY] + b.stats[Stats.TOUGHNESS]
-	check(not s.run_drill(Stats.DURABILITY, b).is_empty(), "durability drill")
-	check(b.stats[Stats.INJURY] + b.stats[Stats.TOUGHNESS] > inj_before, "durability drill raises injury/toughness")
+	check(not Camp.DRILLS.has(Stats.DURABILITY) and Camp.DRILLS.size() == 5, "no injury drill")
+	check(not s.run_drill(Stats.ACCURACY, b).is_empty(), "second drill runs")
+	var other: Soldier = user.roster.filter(func(x: Soldier): return x != a and x != b)[0]
 	var hurt: Soldier = user.bench()[0]
 	hurt.injury_weeks = 3
 	check(s.camp_check(Stats.MENTALITY, hurt) != "", "injured soldiers can't drill")
 	hurt.injury_weeks = 0
 	check(s.camp.drills_left(user) == Camp.DRILLS.size() - 2, "drills left")
 	# Camp week: AI teams run their drills and everyone gets bonus xp.
-	var x1 := _xp_total(probe)
+	var x1 := _xp_total(other)
+	var xa := _xp_total(a)
+	var dm := Facilities.drill_mult(user)
 	s.advance_offseason()
 	check(s.offseason_stage == Season.OFF_DONE and not s.camp_open(), "camp closes")
-	check(_xp_total(probe) - x1 == roundi(Season.CAMP_WEEK_XP * Progression.xp_multiplier(probe)), "camp week bonus xp")
+	check(_xp_total(other) - x1 == roundi(Season.CAMP_WEEK_XP * dm * Progression.xp_multiplier(other)), "non-attendees still get camp week xp")
+	check(_xp_total(a) - xa == roundi((Season.CAMP_WEEK_XP + Camp.DRILL_XP) * dm * Progression.xp_multiplier(a)), "drill attendees get extra camp week xp")
 	for t in s.league.teams:
 		if not t.user_controlled:
 			check(s.camp.drills_left(t) == 0, "%s ran every drill" % t.abbrev)
@@ -1208,12 +1211,15 @@ func test_preseason_camp() -> void:
 	var a: Soldier = s.user_team().roster.filter(func(x: Soldier): return x.group_headroom(Stats.ACCURACY) > 0 and not x.is_injured())[0]
 	check(not s.run_drill(Stats.ACCURACY, a).is_empty(), "drill runs in preseason")
 	check(s.camp_check(Stats.HANDLING, a) != "", "one drill per player")
-	var probe: Soldier = s.user_team().roster[1]
+	var probe: Soldier = s.user_team().roster.filter(func(x: Soldier): return x != a)[0]
 	var x0 := _xp_total(probe)
+	var xa := _xp_total(a)
+	var dm := Facilities.drill_mult(s.user_team())
 	s.close_preseason_camp()
 	check(not s.preseason_camp and not s.camp_open(), "camp closed")
 	check(s.draft.scout_points == Draft.POINTS_PER_WEEK, "Week 1 scout points arrive")
-	check(_xp_total(probe) - x0 == roundi(Season.CAMP_WEEK_XP * Progression.xp_multiplier(probe)), "camp week xp")
+	check(_xp_total(probe) - x0 == roundi(Season.CAMP_WEEK_XP * dm * Progression.xp_multiplier(probe)), "camp week xp")
+	check(_xp_total(a) - xa == roundi((Season.CAMP_WEEK_XP + Camp.DRILL_XP) * dm * Progression.xp_multiplier(a)), "drill attendee extra camp xp")
 	for t in s.league.teams:
 		if not t.user_controlled:
 			check(s.camp.drills_left(t) == 0, "%s ran its drills" % t.abbrev)
@@ -3378,7 +3384,7 @@ func test_facility_effects() -> void:
 	us.facility_levels.clear()
 	# Level 1 changes nothing.
 	check(Facilities.training_mult(us) == 1.0 and Facilities.drill_mult(us) == 1.0 and Facilities.camp_points(us) == 0 and Facilities.gear_mult(us) == 1.0, "level 1: no XP effects")
-	check(Facilities.injury_weeks(us, 7) == 7 and Facilities.recovery_bonus(us) == 0.0 and Facilities.potw_xp(us) == 0.0 and Facilities.honor_xp(us) == 0.0, "level 1: no medical or marketing effects")
+	check(Facilities.medical_bonus(us) == 0 and Facilities.medical_rating(us, 60) == 60 and Facilities.potw_xp(us) == 0.0 and Facilities.honor_xp(us) == 0.0, "level 1: no medical or marketing effects")
 	check(Facilities.lab_gain_mult(us) == 1.0 and Facilities.lab_loss_mult(us) == 1.0 and Facilities.institute_chance(us) == 0.0, "level 1: no lab or institute effects")
 	check(s.scout_points_per_week() == Draft.POINTS_PER_WEEK, "level 1: base scout points")
 	# Level 5 is four steps.
@@ -3391,14 +3397,14 @@ func test_facility_effects() -> void:
 		pts.append(Facilities.camp_points(us))
 	check(pts == [0, 0, 1, 1, 2], "Drill Rooms camp points %s" % [pts])
 	check(s.scout_points_per_week() == 28, "level 5: 28 scout points a week")
-	check(Facilities.injury_weeks(us, 10) == 8 and Facilities.injury_weeks(us, 1) == 1 and is_equal_approx(Facilities.recovery_bonus(us), 0.04), "level 5: injuries -20%, recovery +4%")
+	check(Facilities.medical_bonus(us) == 8 and Facilities.medical_rating(us, 60) == 68 and Facilities.medical_rating(us, 95) == 99, "level 5: +8 Injury and Toughness, capped at 99")
 	check(Facilities.potw_xp(us) == 200.0 and Facilities.honor_xp(us) == 1000.0, "level 5: marketing XP")
 	check(is_equal_approx(Facilities.gear_mult(us), 1.5), "level 5: impact XP x1.5")
 	check(is_equal_approx(Facilities.lab_gain_mult(us), 1.4) and is_equal_approx(Facilities.lab_loss_mult(us), 0.4), "level 5: lab gains +40%, losses -60%")
 	check(is_equal_approx(Facilities.institute_chance(us), 0.12), "level 5: 12% institute chance")
 	var so: Soldier = us.roster[0]
 	so.fatigue = 50.0
-	check(Conditioning.weekly_recovery(so, false, Facilities.recovery_bonus(us)) > Conditioning.weekly_recovery(so, false), "Medical Center speeds recovery")
+	check(Conditioning.injury_chance(so, true, Facilities.medical_rating(us, 60)) < Conditioning.injury_chance(so, true, 60), "Medical Center lowers injury chance")
 	# Training and offseason XP scale with the facility.
 	us.facility_levels = {}
 	for st in us.roster:

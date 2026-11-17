@@ -2869,7 +2869,6 @@ func training() -> Control:
 	var ctx := {
 		"team": team,
 		"plays": season.team_plays_this_week(team),
-		"bonus": Facilities.recovery_bonus(team),
 		"starters": team.starters(),
 		"rows": [],
 		"tiles": {},
@@ -2969,8 +2968,8 @@ func _train_calc(ctx: Dictionary, s: Soldier, intensity: StringName) -> Dictiona
 		levels += 1
 	return {
 		"xp": xp,
-		"fat": Conditioning.projected_fatigue(s, intensity, played, bye, ctx["bonus"]),
-		"risk": 0.0 if green else Conditioning.projected_injury_chance(s, intensity, played, bye, ctx["bonus"]),
+		"fat": Conditioning.projected_fatigue(s, intensity, played, bye),
+		"risk": 0.0 if green else Conditioning.projected_injury_chance(s, intensity, played, bye, Facilities.medical_rating(team, s.stats[Stats.INJURY])),
 		"levels": levels,
 		"xp_after": x,
 		"next_max": Progression.xp_to_next(lvl),
@@ -5558,8 +5557,8 @@ func _drill_confirm_card(group: StringName, so: Soldier) -> Control:
 	info.add_child(facts)
 	h.add_child(info)
 	v.add_child(h)
-	var note := UiKit.label("The pool is spread at random over %s (max +%d per stat). He can't attend another drill this camp." % [
-		Stats.GROUP_LABELS[group], Camp.MAX_STAT_GAIN], 14, UiKit.MUTED)
+	var note := UiKit.label("The pool is spread at random over %s (max +%d per stat). He earns +%d XP this camp week and can't attend another drill." % [
+		Stats.GROUP_LABELS[group], Camp.MAX_STAT_GAIN, roundi(Camp.DRILL_XP)], 14, UiKit.MUTED)
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	note.custom_minimum_size.x = 520
 	v.add_child(note)

@@ -4,8 +4,9 @@ extends RefCounted
 ## Each team sends one soldier to each drill and a soldier can attend only one drill per camp.
 ## A drill hands the soldier a pool of points (rolled from his dev stars) that is spread at
 ## random over the group's stats (max MAX_STAT_GAIN per stat, 99 max). Drills respect the
-## group caps: a capped group can't be drilled and points stop landing at the cap. The
-## Durability drill (no cap) is the only way to raise Injury/Toughness. Each drill also has a small,
+## group caps: a capped group can't be drilled and points stop landing at the cap. Every
+## attendee also earns DRILL_XP extra XP in camp week; everyone else still gets the base camp-week XP.
+## Injury/Toughness have no drill (the Medical Center lifts them). Each drill also has a small,
 ## age-scaled chance (DEV_UP_CHANCE) to earn the soldier a dev star (at most one star change a season).
 ## Drill Rooms upgrades add points to every drill; a Sports Science Lab raises the star chance.
 
@@ -15,8 +16,10 @@ const DRILLS := {
 	Stats.PHYSICALITY: {"name": "Combine Gauntlet", "blurb": "Sprints, cone drills, sled pushes and the ruck march."},
 	Stats.MENTALITY: {"name": "War Room", "blurb": "Film, comms and high-pressure decision drills."},
 	Stats.OBJECTIVE: {"name": "Hill Assault", "blurb": "Capture, hold and retake reps on a live point."},
-	Stats.DURABILITY: {"name": "Iron Conditioning", "blurb": "Prehab, contact work and pain tolerance."},
 }
+## Extra base XP (before the dev multiplier and Drill Rooms) a soldier who attends a drill earns in camp
+## week, on top of the CAMP_WEEK_XP every rostered soldier gets (Season.offseason_xp).
+const DRILL_XP := 150.0
 ## Point pool [min, max] per dev star (1..4).
 const POINT_POOLS := [[3, 6], [5, 8], [7, 10], [9, 13]]
 ## Base chance a drill earns a dev star, scaled by age (DEV_UP_AGE: [max age, factor]).

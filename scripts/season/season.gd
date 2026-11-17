@@ -880,7 +880,7 @@ func close_preseason_camp() -> void:
 		if not t.user_controlled:
 			camp.ai_run(t, _rng)
 	_camp_star_news()
-	offseason_xp(CAMP_WEEK_XP)
+	offseason_xp(CAMP_WEEK_XP, Camp.DRILL_XP)
 	preseason_camp = false
 	draft.scout_points += scout_points_per_week()
 
@@ -1044,7 +1044,7 @@ func _advance_offseason_step() -> Array:
 				if not t.user_controlled:
 					camp.ai_run(t, _rng)
 			_camp_star_news()
-			offseason_xp(CAMP_WEEK_XP)
+			offseason_xp(CAMP_WEEK_XP, Camp.DRILL_XP)
 			offseason_stage = OFF_DONE
 			relationships.offseason_week(league)
 			_trade_tick()
@@ -1059,12 +1059,13 @@ func _advance_offseason_step() -> Array:
 
 ## One offseason week of XP for every rostered soldier (potential-scaled, more with Drill Rooms); AI teams spend it.
 ## Returns soldier_id -> gain_xp report.
-func offseason_xp(base_xp: float) -> Dictionary:
+func offseason_xp(base_xp: float, bonus_xp := 0.0) -> Dictionary:
 	var reports := {}
 	for t in league.teams:
 		var xp := base_xp * Facilities.drill_mult(t)
 		for so in t.roster:
-			reports[so.id] = Progression.gain_xp(so, xp)
+			var extra := bonus_xp * Facilities.drill_mult(t) if bonus_xp > 0.0 and camp != null and camp.has_attended(so) else 0.0
+			reports[so.id] = Progression.gain_xp(so, xp + extra)
 		for so in t.green_team:
 			reports[so.id] = Progression.gain_xp(so, xp * GreenTeam.XP_MULT)
 		Progression.auto_spend_team(t, _rng)

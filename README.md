@@ -288,14 +288,14 @@ Title → New Franchise → choose a start point (Manager / GM, or Player, comin
   - A player can stay down 3 seasons, then must be called up or let go. After his first season a player who wants to
     play gets frustrated (by DNA) and may ask out. Green Team matches, poaching and loans are planned (#94).
 - **Training camp** (`scripts/season/camp.gd`, Home → Training Camp): one drill per rating group (Marksmanship Range,
-  Weapons Lab, Combine Gauntlet, War Room, Hill Assault, Iron Conditioning). Pick a drill, pick a soldier, see his ratings boost.
+  Weapons Lab, Combine Gauntlet, War Room, Hill Assault; Injury/Toughness have no drill, the Medical Center lifts them). Pick a drill, pick a soldier, see his ratings boost. Attendees also earn +150 base XP in camp week on top of the 250 everyone gets.
   One soldier per drill and one drill per soldier. The point pool depends on dev stars (4★ 9-13, 3★ 7-10, 2★ 5-8, 1★ 3-6), spread at random over the group's stats (max +4 each). Drills respect group caps: a capped group
   shows "Capped" and can't be drilled, and points stop landing once the group reaches its cap. Each drill has a small chance to earn a dev star (4%, x1.25 at 22 and under, x0.6 at 27-30, x0.3 at 31+; max one star change a season). AI teams run theirs when camp closes; advancing with
   unused drills asks you to confirm first.
   A new franchise opens in a **preseason training camp** before Week 1 (same drills; "Start 2026 Season" closes it). The home hero shows the camp, not Week 1. Drill pick tables sort by any column and hide soldiers who already attended a drill.
   Hovering a row shows the soldier in the pane above; clicking opens an "are you sure" popup with his portrait, age,
   OVR, potential and point pool.
-- **Offseason XP**: every offseason step is an XP week (100 base XP, scaled by age and dev stars), and camp week gives 250.
+- **Offseason XP**: every offseason step is an XP week (100 base XP, scaled by age and dev stars), and camp week gives 250 (+150 more for soldiers who attended a drill).
 - **Free agency** (`scripts/season/free_agency.gd`, League → Free Agents): unsigned soldiers with all ratings
   visible. A big **Available to spend** readout on top shows cap − current salaries (incl. dead money) − pending offers. Bidding: make offers (salary and years) during FA days or in-season. In-season (training camp included) a free agent answers your offer on the spot, weighing every current
   offer: he signs with you, picks another team, or turns you down so you can raise it. In the offseason each round every free agent scores
