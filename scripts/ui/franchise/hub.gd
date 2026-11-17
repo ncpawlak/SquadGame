@@ -1061,6 +1061,9 @@ Leave it and they are retired when the season starts." % [proposals, "" if propo
 	var news_tile := _news_todo()
 	if news_tile != null:
 		out.append(news_tile)
+	var story_tile := _storyline_todo()
+	if story_tile != null:
+		out.append(story_tile)
 	if not off and not season.preseason_camp:
 		var pts := season.draft.scout_points
 		out.append(_todo("Scout", ("[color=#38bdf8]%d scout points[/color]\n%d of %d prospects scouted" % [pts, _scouted_count(), Draft.CLASS_SIZE]) if pts > 0
@@ -1873,6 +1876,30 @@ func _news_todo() -> Button:
 	if fresh > 1:
 		body += "  -  [color=#38bdf8]%d new issues[/color]" % fresh
 	return _todo("Weekly News", body, Color("#e2e8f0"), func(): open_news(), fresh == 0)
+
+
+## The Storylines to-do: the lead story. Urgent while a decision is waiting; done (greyed) once
+## nothing is running.
+func _storyline_todo() -> Button:
+	var sl := season.storylines
+	var pending := sl.pending_decisions()
+	var st: Dictionary = {}
+	if not pending.is_empty():
+		st = pending[0]
+	elif not sl.active.is_empty():
+		st = sl.active[0]
+	else:
+		var done_this_year := sl.finished_in(season.year)
+		if done_this_year.is_empty():
+			return null
+		st = done_this_year[0]
+	var body := "[color=white]%s[/color]
+%s" % [UiKit.esc(String(st["title"])), UiKit.esc(sl.status_line(st, season))]
+	return _todo("Storylines", body, Color("#a855f7"), open_storylines, st["status"] != Storylines.STATUS_ACTIVE, not pending.is_empty())
+
+
+func open_storylines() -> void:
+	open("Storylines", func(): return StoryPages.list_page(season, self))
 
 
 ## Opens a Weekly News issue (index into newsroom.issues; -1 = the latest) and marks it read.

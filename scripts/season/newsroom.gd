@@ -71,6 +71,7 @@ func publish_week(season: Season, wk: int) -> void:
 		art = _sidelined_article(wk)
 	else:
 		art = _bye_article(wk)
+	_add_story(art)
 	_close(art)
 
 ## After the final: the season in review (and the final itself if we played in it).
@@ -78,7 +79,9 @@ func publish_wrap(season: Season, wk: int) -> void:
 	NewsHistory.record_week(history, season, wk)
 	if not _open(season, "Season Review", wk):
 		return
-	_close(_wrap_article(wk))
+	var wrap := _wrap_article(wk)
+	_add_story(wrap)
+	_close(wrap)
 
 ## After an offseason step resolves: "Re-signing", "FA Day N", "Draft", "Roster Review", "Camp".
 func publish_offseason(season: Season, step: String) -> void:
@@ -107,6 +110,7 @@ func publish_preseason(season: Season) -> void:
 		return
 	var art := _preseason_article()
 	_add_take(art, _offseason_take())
+	_add_story(art)
 	_close(art)
 
 
@@ -118,6 +122,16 @@ func _add_take(art: Dictionary, take: String) -> void:
 	var body: Array = art["body"]
 	if take != "" and body.size() >= 2:
 		body.insert(body.size() - 1, take)
+
+
+## The storyline beats that just happened (see Storylines), as one paragraph second to last.
+func _add_story(art: Dictionary) -> void:
+	if not art.has("body"):
+		art["body"] = []
+	var body: Array = art["body"]
+	for b in _s.storylines.last_beats:
+		var text := "%s. %s" % [String(b["headline"]), String(b["body"])]
+		body.insert(maxi(0, body.size() - 1), text)
 
 
 func _open(season: Season, when: String, wk: int) -> bool:
