@@ -152,6 +152,14 @@ func note_trade(a: Team, b: Team) -> void:
 	_add_heat(key(a.abbrev, b.abbrev), TRADE_HEAT)
 
 
+## A storyline or event stokes (+) or cools (-) a pair's heat directly.
+func stoke(a: Team, b: Team, amount: float) -> void:
+	var k := key(a.abbrev, b.abbrev)
+	_add_heat(k, amount)
+	if float(heat[k]) < 0.5:
+		heat.erase(k)
+
+
 ## Offseason: heat drops hard and cooled emergent rivalries end.
 func new_season() -> void:
 	for k in heat.keys():

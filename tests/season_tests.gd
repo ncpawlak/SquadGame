@@ -4568,6 +4568,7 @@ func test_storylines_rivalry_run_plays_out() -> void:
 	var sl := s.storylines
 	var id: int = sl.active[0]["id"]
 	var total: int = sl.active[0]["total"]
+	check(sl.choose(s, id, StoryDefs.FUEL) == "", "a choice can be made before the first meeting")
 	var seen_stages := {}
 	var guard := 0
 	while not sl.active.is_empty() and s.phase == Season.PHASE_REGULAR and guard < 30:
@@ -4589,6 +4590,9 @@ func test_storylines_rivalry_run_plays_out() -> void:
 	check(st["status"] == expect, "verdict follows the series (%d of %d won)" % [wins, total])
 	check(s.news.items.any(func(it): return it["kind"] == "storyline"), "beats reach the league wire")
 	check(sl.status_line(st, s) != "", "status line reads")
+	check(st["choice"] == StoryDefs.FUEL and st["applied"].size() >= 1, "the choice and its effects are on file (%s)" % [st["applied"]])
+	var end_e: Dictionary = StoryDefs.RR_END[StoryDefs.FUEL][st["status"]]
+	check(st["applied"].size() == (2 if not end_e.is_empty() else 1), "the outcome effect was applied when the series ended")
 
 
 func test_storylines_next_season_reseeds() -> void:
@@ -4613,3 +4617,48 @@ func test_storylines_save_round_trip() -> void:
 		check(back.storylines.next_id == s.storylines.next_id, "id counter survives")
 		if not s.storylines.active.is_empty():
 			check(back.storylines.active[0]["rival"] == s.storylines.active[0]["rival"], "story contents survive")
+
+
+func test_storylines_choice_effects() -> void:
+	var s := _fixed(108, 0)
+	var sl := s.storylines
+	var st: Dictionary = sl.active[0]
+	var user := s.user_team()
+	var rival := s.league.team_by_abbrev(st["rival"])
+	check(Storylines.decision_open(st) and sl.pending_decisions().size() == 1, "a decision is waiting from the start")
+	var dec := StoryDefs.decision(st)
+	check(dec["open"] and dec["options"].size() == 2, "two options are offered")
+	for o: Dictionary in dec["options"]:
+		check(not o["now"].is_empty() or not o["good"].is_empty(), "option %s lists what it does" % o["id"])
+		check(not o["good"].is_empty() or not o["bad"].is_empty(), "option %s lists rewards or costs" % o["id"])
+	check(not StoryDefs.scenario(st, s).is_empty() and not StoryDefs.objectives(st, s).is_empty(), "scenario and objectives read")
+	check(sl.choose(s, st["id"], &"nonsense") != "", "an unknown option is refused")
+	var heat_before := s.rivalries.heat_of(user, rival)
+	var buzz_heat_before := user.heat
+	check(sl.choose(s, st["id"], StoryDefs.FUEL) == "", "fuel the feud is accepted")
+	check(s.rivalries.heat_of(user, rival) > heat_before + 10.0, "fueling raises rivalry heat")
+	check(user.heat > buzz_heat_before, "fueling adds buzz")
+	check(st["choice"] == StoryDefs.FUEL and st["applied"].size() == 1, "the choice is recorded")
+	check(sl.choose(s, st["id"], StoryDefs.COOL) != "", "a choice cannot be changed")
+	check(not Storylines.decision_open(st) and sl.pending_decisions().is_empty(), "nothing is waiting any more")
+	# Cooling goes the other way.
+	var s2 := _fixed(108, 0)
+	var st2: Dictionary = s2.storylines.active[0]
+	var rival2 := s2.league.team_by_abbrev(st2["rival"])
+	s2.rivalries.stoke(s2.user_team(), rival2, 30.0)
+	var before := s2.rivalries.heat_of(s2.user_team(), rival2)
+	s2.storylines.choose(s2, st2["id"], StoryDefs.COOL)
+	check(s2.rivalries.heat_of(s2.user_team(), rival2) < before, "cooling lowers rivalry heat")
+
+
+func test_storylines_undecided_defaults() -> void:
+	var s := _fixed(109, 0)
+	var sl := s.storylines
+	var id: int = sl.active[0]["id"]
+	var guard := 0
+	while sl.active.size() > 0 and sl.active[0]["results"].is_empty() and guard < 8:
+		s.sim_week()
+		guard += 1
+	var st: Dictionary = sl.active[0] if not sl.active.is_empty() else sl.finished[0]
+	check(st["choice"] == StoryDefs.STAY, "an undecided story falls back to stay (%s)" % st["choice"])
+	check(sl.choose(s, id, StoryDefs.FUEL) != "", "the window closes at the first meeting")

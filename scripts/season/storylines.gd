@@ -8,7 +8,8 @@ extends RefCounted
 ## Kinds today: RIVALRY_RUN (arc). The catalog in issue #104 lists the rest.
 ## Each story is a plain Dictionary so the generic save serializer handles it:
 ##   id, kind, year, team (user abbrev), rival (abbrev), title (rivalry name), total (regular-season
-##   meetings), results [{week, won, score}], stage, status, ended_week.
+##   meetings), results [{week, won, score}], stage, status, ended_week, choice (&"" until decided,
+##   then the option id or StoryDefs.STAY), applied (effect lines shown on the story page).
 
 const RIVALRY_RUN := &"rivalry_run"
 
@@ -113,6 +114,55 @@ func finished_in(year: int) -> Array:
 	return finished.filter(func(st): return int(st["year"]) == year)
 
 
+## A decision is open while the story is active, nothing has been picked and the first meeting is
+## still ahead. Past that point the story plays out on its own (StoryDefs.STAY).
+static func decision_open(st: Dictionary) -> bool:
+	return st["status"] == STATUS_ACTIVE and st["choice"] == &"" and st["results"].is_empty()
+
+
+## Stories that are waiting on the player.
+func pending_decisions() -> Array:
+	return active.filter(func(st): return decision_open(st))
+
+
+## Locks in an option for a story. Returns "" on success, else why it cannot be done.
+func choose(season: Season, id: int, option: StringName) -> String:
+	var st := _find(id)
+	if st.is_empty() or not decision_open(st):
+		return "That decision is no longer open."
+	var label := ""
+	for o: Dictionary in StoryDefs.decision(st)["options"]:
+		if o["id"] == option:
+			label = String(o["label"])
+	if label == "":
+		return "Unknown option."
+	st["choice"] = option
+	var user := season.league.team_by_abbrev(st["team"])
+	var rival := season.league.team_by_abbrev(st["rival"])
+	_apply(season, user, rival, StoryDefs.RR_NOW.get(option, {}), "You chose: %s" % label.to_lower(), st)
+	return ""
+
+
+## Applies an effect dictionary (see StoryDefs) and records what happened on the story.
+func _apply(season: Season, user: Team, rival: Team, e: Dictionary, label: String, st: Dictionary) -> void:
+	if user == null or e.is_empty():
+		return
+	if e.has("heat") and rival != null:
+		season.rivalries.stoke(user, rival, float(e["heat"]))
+	if e.has("buzz"):
+		season.market.ensure(season)
+		season.market.award(season, user, season.week_label(season.week), "%s: %s" % [st["title"], label], float(e["buzz"]))
+	var everyone: Array = user.roster.duplicate()
+	everyone.append_array(user.green_team)
+	for s in everyone:
+		if e.has("morale"):
+			s.add_morale(float(e["morale"]))
+		if e.has("xp"):
+			Progression.gain_xp(s, float(e["xp"]))
+	var who := " (roster and Green Team)" if StoryDefs.reaches_players([e]) else ""
+	st["applied"].append("%s  -  %s%s" % [label, StoryDefs.effect_text(e), who])
+
+
 # --- Rivalry Run -----------------------------------------------------------------------------
 
 ## The user's most heated rival among the clubs they play in the regular season: intensity first,
@@ -145,7 +195,8 @@ func _new_rivalry_run(season: Season, user: Team, rival: Team) -> Dictionary:
 	if title == "":
 		title = "The %s-%s Rivalry" % [user.city, rival.city]
 	var st := {"id": next_id, "kind": RIVALRY_RUN, "year": season.year, "team": user.abbrev, "rival": rival.abbrev,
-		"title": title, "total": total, "results": [], "stage": STAGE_SETUP, "status": STATUS_ACTIVE, "ended_week": 0}
+		"title": title, "total": total, "results": [], "stage": STAGE_SETUP, "status": STATUS_ACTIVE, "ended_week": 0,
+		"choice": &"", "applied": []}
 	next_id += 1
 	return st
 
@@ -165,10 +216,13 @@ func _week_rivalry_run(season: Season, st: Dictionary, played: Array, wk: int) -
 			"score": "%d-%d" % [m.games_for(user), m.games_for(rival)]})
 	if not met:
 		return
+	if st["choice"] == &"":
+		st["choice"] = StoryDefs.STAY
 	var n: int = st["results"].size()
 	if n >= int(st["total"]):
 		st["stage"] = STAGE_RESOLVED
 		_end(st, _verdict(st), wk)
+		_apply(season, user, rival, StoryDefs.RR_END[st["choice"]][st["status"]], "Series %s" % String(st["status"]), st)
 		last_beats.append(_beat(st, "resolve", season))
 	else:
 		st["stage"] = STAGE_SHOWDOWN if n == int(st["total"]) - 1 else STAGE_ESCALATION

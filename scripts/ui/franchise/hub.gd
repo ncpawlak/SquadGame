@@ -1878,11 +1878,15 @@ func _news_todo() -> Button:
 	return _todo("Weekly News", body, Color("#e2e8f0"), func(): open_news(), fresh == 0)
 
 
-## The Storylines to-do: the lead story's stage and status. Done (greyed) once nothing is running.
+## The Storylines to-do: the lead story. Urgent while a decision is waiting; done (greyed) once
+## nothing is running.
 func _storyline_todo() -> Button:
 	var sl := season.storylines
+	var pending := sl.pending_decisions()
 	var st: Dictionary = {}
-	if not sl.active.is_empty():
+	if not pending.is_empty():
+		st = pending[0]
+	elif not sl.active.is_empty():
 		st = sl.active[0]
 	else:
 		var done_this_year := sl.finished_in(season.year)
@@ -1891,7 +1895,11 @@ func _storyline_todo() -> Button:
 		st = done_this_year[0]
 	var body := "[color=white]%s[/color]
 %s" % [UiKit.esc(String(st["title"])), UiKit.esc(sl.status_line(st, season))]
-	return _todo("Storylines", body, Color("#a855f7"), func(): open("Storylines", func(): return StoryPages.page(season)), st["status"] != Storylines.STATUS_ACTIVE)
+	return _todo("Storylines", body, Color("#a855f7"), open_storylines, st["status"] != Storylines.STATUS_ACTIVE, not pending.is_empty())
+
+
+func open_storylines() -> void:
+	open("Storylines", func(): return StoryPages.list_page(season, self))
 
 
 ## Opens a Weekly News issue (index into newsroom.issues; -1 = the latest) and marks it read.
