@@ -19,7 +19,7 @@ const BRAND := &"brand"
 const SPA := &"spa"
 
 const WEEK_ACTIVITIES: Array[StringName] = [PRACTICE, STUDY, OUTING, BRAND, SPA]
-const CAMP_ACTIVITIES: Array[StringName] = [PRACTICE, STUDY, OUTING, BRAND]
+const CAMP_ACTIVITIES: Array[StringName] = [PRACTICE, STUDY, OUTING, BRAND, SPA]
 const LABELS := {PRACTICE: "Practice", STUDY: "Study Session", OUTING: "Team Outing", BRAND: "Brand Exposure", SPA: "Spa"}
 
 const WEEK_POINTS := 4
@@ -210,6 +210,7 @@ static func apply_week(season: Season) -> void:
 	if add_study(s, STUDY_POINTS[clampi(level(plan, STUDY), 0, WEEK_MAX)], season.year):
 		_note(season, "Your study paid off: you are now a %s." % s.dev_text())
 	s.add_morale(SPA_MORALE[clampi(level(plan, SPA), 0, WEEK_MAX)])
+	Wear.record_week(s, level(plan, SPA))
 	apply_outing(team, s, OUTING_MORALE[clampi(level(plan, OUTING), 0, WEEK_MAX)])
 
 
@@ -244,6 +245,7 @@ static func apply_camp(season: Season) -> Dictionary:
 		if int(sm["games"]) > 0:
 			rep["brand"] = brand_gain(b, float(sm["avg"]), s.brand, true)
 			s.brand = minf(BRAND_MAX, s.brand + float(rep["brand"]))
+	s.wear_rehab = clampi(level(plan, SPA), 0, CAMP_MAX)  # camp rehab: each point takes Wear off at the next aging
 	season.camp_outing_level = clampi(level(plan, OUTING), 0, CAMP_MAX)
 	rep["outing"] = season.camp_outing_level
 	return rep
