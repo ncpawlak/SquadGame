@@ -4687,8 +4687,18 @@ func _reseed(s: Season) -> void:
 	s.storylines.begin_season(s)
 
 
+## Index of a mid-table club (neither a title contender nor an underdog) in the fixed league of this seed.
+func _mid_team(seed_value: int) -> int:
+	var probe := _fixed(seed_value, 0)
+	var order: Array = []
+	for i in probe.league.teams.size():
+		order.append(i)
+	order.sort_custom(func(a: int, b: int): return probe.league.teams[a].team_ovr() > probe.league.teams[b].team_ovr())
+	return order[order.size() / 2]
+
+
 func test_storylines_rookie_rise() -> void:
-	var s := _fixed(110, 0)
+	var s := _fixed(110, _mid_team(110))
 	var sl := s.storylines
 	var so := _make_rookie(s)
 	_reseed(s)
@@ -4715,7 +4725,7 @@ func test_storylines_rookie_rise() -> void:
 
 
 func test_storylines_rookie_rise_slow_and_fizzle() -> void:
-	var s := _fixed(111, 0)
+	var s := _fixed(111, _mid_team(111))
 	var sl := s.storylines
 	_make_rookie(s)
 	_reseed(s)
@@ -4728,7 +4738,7 @@ func test_storylines_rookie_rise_slow_and_fizzle() -> void:
 		guard += 1
 	check(st["status"] == Storylines.STATUS_WON, "the patient path pays off while the player is still with the club")
 	# If the prospect leaves, the story fizzles with no effects.
-	var s2 := _fixed(112, 0)
+	var s2 := _fixed(112, _mid_team(112))
 	var so2 := _make_rookie(s2)
 	_reseed(s2)
 	var st2 := _story(s2, Storylines.ROOKIE_RISE)
@@ -4914,7 +4924,7 @@ func _cripple(s: Season) -> void:
 
 
 func test_storylines_last_ride() -> void:
-	var s := _fixed(130, 0)
+	var s := _fixed(130, _mid_team(130))
 	var sl := s.storylines
 	var user := s.user_team()
 	check(_story(s, Storylines.LAST_RIDE).is_empty(), "no last ride without an old starter on an expiring deal")
@@ -4977,3 +4987,72 @@ func test_storylines_press_storm() -> void:
 	s.sim_week()
 	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "the storm resolves within the window (%s)" % st["status"])
 	check(sl.fired.has("%s:%d" % [Storylines.PRESS_STORM, s.year]), "once a season")
+
+
+func test_storylines_title_chase() -> void:
+	var probe := _fixed(140, 0)
+	var strongest := 0
+	var weakest := 0
+	for i in probe.league.teams.size():
+		if probe.league.teams[i].team_ovr() > probe.league.teams[strongest].team_ovr():
+			strongest = i
+		if probe.league.teams[i].team_ovr() < probe.league.teams[weakest].team_ovr():
+			weakest = i
+	check(_story(_fixed(140, weakest), Storylines.TITLE_CHASE).is_empty(), "a weak club is no contender")
+	var s := _fixed(140, strongest)
+	var st := _story(s, Storylines.TITLE_CHASE)
+	check(not st.is_empty(), "a top club gets a title chase")
+	check(s.storylines.active.size() <= Storylines.MAX_ACTIVE and s.storylines._arc_count() <= Storylines.MAX_ARCS, "stays under the caps")
+	check(s.storylines.choose(s, st["id"], StoryDefs.ALL_IN) == "", "going all in is accepted")
+	st["played"] = st["total"] - 1
+	st["wins"] = st["total"] - 1
+	var guard := 0
+	while st["status"] == Storylines.STATUS_ACTIVE and guard < 14:
+		s.sim_week()
+		guard += 1
+	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "it resolves at season end (%s)" % st["status"])
+	check(st.has("rank") and st["rank"] > 0, "the final table position is recorded")
+	check(st["applied"].size() == 2, "the choice and the result are on file")
+
+
+func test_storylines_must_win() -> void:
+	var s := _fixed(141, 0)
+	var sl := s.storylines
+	var user := s.user_team()
+	sl.active.clear()
+	check(sl._try_must_win(s, user).is_empty(), "no must-win early in the season")
+	s.week = s.regular_weeks - 1
+	s.playoff_teams = Storylines.table_rank(s, user)
+	s.prepare_week()
+	var st := _story(s, Storylines.MUST_WIN)
+	check(not st.is_empty(), "a club on the playoff line in the last weeks gets a must-win")
+	check(Storylines.decision_open(st), "the decision is open")
+	check(sl.choose(s, st["id"], StoryDefs.RALLY) == "", "rallying the room is accepted")
+	s.sim_week()
+	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "it resolves with the match (%s)" % st["status"])
+	check(sl.fired.has("%s:%d" % [Storylines.MUST_WIN, s.year]), "once a season")
+
+
+func test_storylines_comeback_trail() -> void:
+	var s := _fixed(142, 0)
+	var sl := s.storylines
+	var user := s.user_team()
+	sl.active.clear()
+	var ranked: Array = user.roster.duplicate()
+	ranked.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
+	var star: Soldier = ranked[0]
+	star.injury_weeks = 5
+	s.sim_week()
+	sl.active.clear()
+	check(_story(s, Storylines.COMEBACK_TRAIL).is_empty(), "nothing while the star is still out")
+	star.injury_weeks = 0
+	s.prepare_week()
+	var st := _story(s, Storylines.COMEBACK_TRAIL)
+	check(not st.is_empty() and st["soldier"] == star.id, "a star back from a long injury starts a comeback trail")
+	check(sl.choose(s, st["id"], StoryDefs.EASE) == "", "easing back is accepted")
+	var guard := 0
+	while st["status"] == Storylines.STATUS_ACTIVE and guard < 5:
+		s.sim_week()
+		guard += 1
+	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "it resolves within the window (%s)" % st["status"])
+	check(sl.fired.has("%s:%d" % [Storylines.COMEBACK_TRAIL, s.year]), "once a season")

@@ -28,12 +28,15 @@ const BENCH_GRUMBLE := &"bench_grumble"
 const LAST_RIDE := &"last_ride"
 const STATEMENT_GAME := &"statement_game"
 const PRESS_STORM := &"press_storm"
+const TITLE_CHASE := &"title_chase"
+const MUST_WIN := &"must_win"
+const COMEBACK_TRAIL := &"comeback_trail"
 
 ## How many stories may run at once, and how many of them may be arcs.
 const MAX_ACTIVE := 3
 const MAX_ARCS := 2
-const ARCS: Array[StringName] = [RIVALRY_RUN, ROOKIE_RISE, CINDERELLA, LAST_RIDE]
-const SPOTLIGHTS: Array[StringName] = [REVENGE_GAME, DERBY_WEEK, STATEMENT_GAME]
+const ARCS: Array[StringName] = [RIVALRY_RUN, ROOKIE_RISE, CINDERELLA, LAST_RIDE, TITLE_CHASE]
+const SPOTLIGHTS: Array[StringName] = [REVENGE_GAME, DERBY_WEEK, STATEMENT_GAME, MUST_WIN]
 
 const STAGE_SETUP := 0
 const STAGE_ESCALATION := 1
@@ -82,12 +85,24 @@ const STATEMENT_GAP := 4
 ## Press Storm: this many losses in a row; the window is two matches.
 const STORM_LOSSES := 3
 const STORM_WINDOW := 2
+## Title Chase: a club ranked this high by team OVR; it is won by a top-4 finish.
+const TITLE_TOP_RANK := 4
+const TITLE_FINISH := 4
+## Must-Win: the last two regular-season weeks, with the club this close to the playoff line.
+const MUST_WEEKS := 2
+const MUST_BUBBLE := 2
+## Comeback Trail: a top-5 player back from at least this many weeks out; the window is two matches.
+const COMEBACK_MIN_WEEKS := 3
+const COMEBACK_STAR_RANK := 5
+const COMEBACK_WINDOW := 2
 
 var active: Array = []
 var finished: Array = []
 var next_id := 1
 ## "kind:year" -> true: spotlight and conditional stories that already ran this season.
 var fired: Dictionary = {}
+## Longest injury seen on each of the user's players (soldier id -> weeks), for Comeback Trail.
+var injured_seen: Dictionary = {}
 ## Beats that happened in the most recent seed / week: [{story, kind, headline, body}]. The newsroom
 ## reads these once for the issue it is writing; the league wire gets them as items.
 var last_beats: Array = []
@@ -112,6 +127,10 @@ func begin_season(season: Season) -> void:
 			var st := _new_rivalry_run(season, user, rival)
 			active.append(st)
 			last_beats.append(_beat(st, "seed", season))
+	if active.size() < MAX_ACTIVE and _arc_count() < MAX_ARCS and _is_contender(season, user):
+		var st := _new_title_chase(season, user)
+		active.append(st)
+		last_beats.append(_beat(st, "seed", season))
 	# An underdog club's story takes a slot before the prospect does.
 	if active.size() < MAX_ACTIVE and _arc_count() < MAX_ARCS and _is_underdog(season, user):
 		var st := _new_cinderella(season, user)
@@ -160,6 +179,14 @@ func prepare_week(season: Season) -> void:
 		var st := _try_storm(season, user)
 		if not st.is_empty():
 			made.append(_beat(st, "seed", season))
+	if active.size() < MAX_ACTIVE and not _has_spotlight() and not fired.has("%s:%d" % [MUST_WIN, season.year]):
+		var st := _try_must_win(season, user)
+		if not st.is_empty():
+			made.append(_beat(st, "seed", season))
+	if active.size() < MAX_ACTIVE and not fired.has("%s:%d" % [COMEBACK_TRAIL, season.year]):
+		var st := _try_comeback(season, user)
+		if not st.is_empty():
+			made.append(_beat(st, "seed", season))
 	if active.size() < MAX_ACTIVE and not fired.has("%s:%d" % [BENCH_GRUMBLE, season.year]):
 		var st := _try_grumble(season, user)
 		if not st.is_empty():
@@ -195,6 +222,13 @@ func week(season: Season, played: Array, wk: int) -> void:
 				_week_statement(season, st, played, wk)
 			PRESS_STORM:
 				_week_storm(season, st, played, wk)
+			TITLE_CHASE:
+				_week_title_chase(season, st, played, wk)
+			MUST_WIN:
+				_week_derby(season, st, played, wk)
+			COMEBACK_TRAIL:
+				_week_comeback(season, st, played, wk)
+	_note_injuries(season)
 	_publish(season, season.week_label(wk), last_beats.filter(func(b): return not b.get("published", false)))
 
 
@@ -283,6 +317,20 @@ func status_line(st: Dictionary, season: Season) -> String:
 			if st["status"] != STATUS_ACTIVE:
 				return "Press storm: %s" % verdict.capitalize()
 			return "Press storm after %d straight losses" % st["streak"]
+		TITLE_CHASE:
+			if st["status"] != STATUS_ACTIVE:
+				return "Title chase: %s  -  %d-%d" % [verdict.capitalize(), st["wins"], st["played"] - st["wins"]]
+			return "Title chase: %d-%d  -  needs a top-%d finish" % [st["wins"], st["played"] - st["wins"], TITLE_FINISH]
+		MUST_WIN:
+			var mopp := season.league.team_by_abbrev(st["rival"])
+			var mon := mopp.nickname if mopp != null else String(st["rival"])
+			if st["status"] != STATUS_ACTIVE:
+				return "Must-win vs the %s: %s" % [mon, verdict.capitalize()]
+			return "Must-win vs the %s: %s" % [mon, season.week_label(st["start_week"])]
+		COMEBACK_TRAIL:
+			if st["status"] != STATUS_ACTIVE:
+				return "%s: %s" % [name, verdict.capitalize()]
+			return "%s is back from injury" % name
 		BENCH_GRUMBLE:
 			if st["status"] != STATUS_ACTIVE:
 				return "%s: %s" % [name, verdict.capitalize()]
@@ -915,6 +963,144 @@ func _week_storm(season: Season, st: Dictionary, played: Array, wk: int) -> void
 		_finish(season, st, STATUS_LOST, wk)
 
 
+# --- Title Chase -----------------------------------------------------------------------------
+
+func _is_contender(season: Season, user: Team) -> bool:
+	var rank := 1
+	for t: Team in season.league.teams:
+		if t != user and t.team_ovr() > user.team_ovr():
+			rank += 1
+	return rank <= TITLE_TOP_RANK
+
+
+func _new_title_chase(season: Season, user: Team) -> Dictionary:
+	var total := 0
+	for m: ScheduledMatch in season.matches_for(user):
+		if m.stage == Season.STAGE_REGULAR:
+			total += 1
+	var st := _base(season, TITLE_CHASE, user, "The %s Title Chase" % user.nickname)
+	st["total"] = total
+	st["wins"] = 0
+	st["played"] = 0
+	return st
+
+
+## The user's place in the table (1 = top), 0 if it cannot be found.
+static func table_rank(season: Season, user: Team) -> int:
+	var rows := season.standings()
+	for i in rows.size():
+		if rows[i].team == user:
+			return i + 1
+	return 0
+
+
+func _week_title_chase(season: Season, st: Dictionary, played: Array, wk: int) -> void:
+	var user := season.league.team_by_abbrev(st["team"])
+	var played_now := false
+	for m: ScheduledMatch in played:
+		if not m.is_played() or m.stage != Season.STAGE_REGULAR or not m.involves(user):
+			continue
+		played_now = true
+		st["played"] += 1
+		if m.winner() == user:
+			st["wins"] += 1
+	if not played_now:
+		return
+	_close_window(st)
+	var n: int = st["played"]
+	var total: int = st["total"]
+	if n >= total:
+		var rank := table_rank(season, user)
+		st["rank"] = rank
+		_finish(season, st, STATUS_WON if rank > 0 and rank <= TITLE_FINISH else STATUS_LOST, wk)
+	elif n * 3 >= total * 2 and st["stage"] < STAGE_SHOWDOWN:
+		st["stage"] = STAGE_SHOWDOWN
+		last_beats.append(_beat(st, "showdown", season))
+	elif n * 3 >= total and st["stage"] < STAGE_ESCALATION:
+		st["stage"] = STAGE_ESCALATION
+		last_beats.append(_beat(st, "meeting", season))
+
+
+# --- Must-Win --------------------------------------------------------------------------------
+
+## One of the last regular-season matches, with the club on the playoff bubble.
+func _try_must_win(season: Season, user: Team) -> Dictionary:
+	if season.week < season.regular_weeks - MUST_WEEKS + 1:
+		return {}
+	var m: ScheduledMatch = null
+	for x: ScheduledMatch in season.matches_for_week(season.week):
+		if x.involves(user) and not x.is_played():
+			m = x
+	if m == null or m.stage != Season.STAGE_REGULAR:
+		return {}
+	var rank := table_rank(season, user)
+	if rank == 0 or absi(rank - season.playoff_teams) > MUST_BUBBLE:
+		return {}
+	var opp := m.opponent_of(user)
+	var st := _base(season, MUST_WIN, user, "Must-Win: %s vs %s" % [user.nickname, opp.nickname])
+	st["rival"] = opp.abbrev
+	st["rank"] = rank
+	active.append(st)
+	fired["%s:%d" % [MUST_WIN, season.year]] = true
+	return st
+
+
+# --- Comeback Trail --------------------------------------------------------------------------
+
+## After a week is played: remembers how long each of the user's players has been out.
+func _note_injuries(season: Season) -> void:
+	var user := season.user_team()
+	if user == null:
+		return
+	for s: Soldier in user.roster:
+		if s.injury_weeks > 0:
+			injured_seen[s.id] = maxi(int(injured_seen.get(s.id, 0)), s.injury_weeks)
+
+
+func _try_comeback(season: Season, user: Team) -> Dictionary:
+	var ranked: Array = user.roster.duplicate()
+	ranked.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
+	var stars: Array = ranked.slice(0, COMEBACK_STAR_RANK)
+	var pick: Soldier = null
+	for s: Soldier in user.roster:
+		if not injured_seen.has(s.id) or s.is_injured():
+			continue
+		if pick == null and int(injured_seen[s.id]) >= COMEBACK_MIN_WEEKS and stars.has(s):
+			pick = s
+		injured_seen.erase(s.id)
+	if pick == null:
+		return {}
+	var st := _base(season, COMEBACK_TRAIL, user, "%s's Comeback" % pick.short_name())
+	st["soldier"] = pick.id
+	st["name"] = pick.short_name()
+	st["played"] = 0
+	active.append(st)
+	fired["%s:%d" % [COMEBACK_TRAIL, season.year]] = true
+	return st
+
+
+## Lost the moment the player is hurt again; won after two matches with a clean bill of health.
+func _week_comeback(season: Season, st: Dictionary, played: Array, wk: int) -> void:
+	var user := season.league.team_by_abbrev(st["team"])
+	var s := find_soldier(season, st)
+	if s == null:
+		_close_window(st)
+		_finish(season, st, STATUS_FIZZLED, wk)
+		return
+	var played_now := false
+	for m: ScheduledMatch in played:
+		if m.is_played() and m.stage == Season.STAGE_REGULAR and m.involves(user):
+			played_now = true
+			st["played"] += 1
+	if not played_now:
+		return
+	_close_window(st)
+	if s.is_injured():
+		_finish(season, st, STATUS_LOST, wk)
+	elif st["played"] >= COMEBACK_WINDOW:
+		_finish(season, st, STATUS_WON, wk)
+
+
 # --- beats (the words) -----------------------------------------------------------------------
 
 func _beat(st: Dictionary, what: String, season: Season) -> Dictionary:
@@ -1079,6 +1265,54 @@ func _beat(st: Dictionary, what: String, season: Season) -> Dictionary:
 					else:
 						head = "%s: the %s hold the line" % [title, son]
 						body = "The %s were beaten by the %s as expected. The statement will have to wait." % [un, son]
+		TITLE_CHASE:
+			match what:
+				"seed":
+					head = "%s: the %s are title contenders" % [title, un]
+					body = "The %s are among the favourites in %s. A top-%d finish would make it a real title run." % [un, st["year"], TITLE_FINISH]
+				"meeting":
+					head = "%s: %d-%d so far" % [title, st["wins"], st["played"] - st["wins"]]
+					body = "The %s are %d-%d after %d matches. The pressure of being favourites is starting to show." % [un, st["wins"], st["played"] - st["wins"], st["played"]]
+				"showdown":
+					head = "%s: the final stretch" % title
+					body = "The %s sit at %d-%d with a third of the season to play. The table decides whether this is a title run." % [un, st["wins"], st["played"] - st["wins"]]
+				"resolve":
+					if st["status"] == STATUS_WON:
+						head = "%s: the %s deliver" % [title, un]
+						body = "The %s finished %d-%d and in the top %d. The run is real." % [un, st["wins"], st["played"] - st["wins"], TITLE_FINISH]
+					else:
+						head = "%s: the %s fall short" % [title, un]
+						body = "The %s finished %d-%d and outside the top %d. The title talk ends with a whimper." % [un, st["wins"], st["played"] - st["wins"], TITLE_FINISH]
+		MUST_WIN:
+			var mopp := season.league.team_by_abbrev(st["rival"])
+			var mon := mopp.nickname if mopp != null else String(st["rival"])
+			match what:
+				"seed":
+					head = "%s: everything on the line" % title
+					body = "The %s are on the playoff bubble and the %s are next. Lose and the season is in real danger." % [un, mon]
+				"resolve":
+					if st["status"] == STATUS_WON:
+						head = "%s: the %s survive" % [title, un]
+						body = "The %s beat the %s and keep their playoff hopes alive." % [un, mon]
+					else:
+						head = "%s: the %s stumble" % [title, un]
+						body = "The %s lost to the %s, and the playoff picture just got harder." % [un, mon]
+		COMEBACK_TRAIL:
+			match what:
+				"seed":
+					head = "%s: back from injury" % title
+					body = "%s is cleared after a long layoff. How hard the %s push the comeback is the story." % [name, un]
+				"resolve":
+					match st["status"]:
+						STATUS_WON:
+							head = "%s: back to full strength" % title
+							body = "%s came through the first matches back without a setback." % name
+						STATUS_LOST:
+							head = "%s: a setback" % title
+							body = "%s is hurt again, and the comeback is on hold." % name
+						_:
+							head = "%s: the story ends" % title
+							body = "%s is no longer with the %s, and the comeback is over." % [name, un]
 		PRESS_STORM:
 			match what:
 				"seed":
