@@ -182,3 +182,63 @@ func test_gear_equip_set_bonus_and_cap() -> void:
 	p.deals.clear()
 	Gear.prune(p)
 	check(p.gear_slots.is_empty() and p.gear_delta.is_empty() and p.best_ovr() == base, "an ended deal takes its gear back")
+
+
+func test_sponsors_follow_heat_and_tier() -> void:
+	var season := _career(920)
+	var p := season.player
+	p.brand = 0.0
+	season.player_pick = 0
+	check(Sponsors.refresh(season) == 0 and p.offers.is_empty(), "no brand, no draft slot, no offers")
+	season.player_pick = 3  # a top pick on the Green Team
+	var heat := float(Sponsors.heat(season)["heat"])
+	check(Sponsors.prospect_value(season) >= 25.0 and Sponsors.tier_ceiling(season) == 1, "a high pick lifts the ceiling one tier")
+	p.brand = 70.0
+	p.dev = 4
+	check(Sponsors.tier_ceiling(season) >= 3, "brand sets the ceiling")
+	check(float(Sponsors.heat(season)["heat"]) > heat, "brand adds heat")
+	var now := Sponsors.prospect_value(season)
+	season.player_log.append({"year": season.year, "week": 1})
+	season.year += 3
+	check(Sponsors.prospect_value(season) < now, "a draft slot fades over the years")
+
+
+func test_sponsor_offers_accept_counter_and_overlap() -> void:
+	var season := _career(921)
+	var p := season.player
+	p.brand = 85.0
+	p.dev = 3
+	season.player_pick = 1
+	var n := 0
+	for i in 6:
+		season.week += 1
+		n += Sponsors.refresh(season)
+	check(n > 0 and not p.offers.is_empty() and p.offers.size() <= Sponsors.MAX_OFFERS, "a hot player draws offers (got %d)" % n)
+	var o: Dictionary = p.offers[0]
+	check(o["slots"].size() >= 1 and int(o["money"]) > 0 and int(o["years"]) >= 1, "an offer has slots, money and years")
+	var base := p.base_ovr()
+	check(Sponsors.accept(season, o) == "", "accepting works")
+	check(Sponsors.holds(p, o["brand"]) and p.base_ovr() == base and p.best_ovr() >= base, "a deal equips its gear, base unchanged")
+	var keep := {"brand": &"haynes", "slots": [Gear.RIFLE], "money": 4, "years": 1, "floor": 0.0, "style": Sponsors.STYLE_MONEY, "countered": false, "expires": season.year + 1, "reason": ""}
+	p.offers = [keep]
+	var r := Sponsors.counter(season, keep)
+	check(r == "countered" or r == "withdrawn", "a counter resolves")
+	if r == "countered":
+		check(keep["style"] == Sponsors.STYLE_GEAR and Sponsors.counter(season, keep) == "", "only one counter, and it flips the style")
+	var clash := {"brand": &"nyke", "slots": Sponsors.covered(p).duplicate(), "money": 1, "years": 1, "floor": 0.0}
+	check(Sponsors.accept_error(p, clash) != "", "overlapping slots are refused")
+
+
+func test_sponsor_season_end_pays_and_drops() -> void:
+	var season := _career(922)
+	var p := season.player
+	p.brand = 50.0
+	p.deals = [{"brand": &"overarmour", "slots": [Gear.HELMET], "money": 30, "years_left": 1, "floor": 30.0, "signed": season.year},
+		{"brand": &"pooma", "slots": [Gear.BOOTS], "money": 30, "years_left": 3, "floor": 60.0, "signed": season.year}]
+	p.gear_slots[Gear.HELMET] = Gear.item(&"overarmour", Gear.HELMET)
+	p.gear_slots[Gear.BOOTS] = Gear.item(&"pooma", Gear.BOOTS)
+	Gear.recalc(p)
+	var rep := Sponsors.season_end(season)
+	check(p.cash == 60 and rep["paid"] == 60, "both deals pay")
+	check(p.deals.is_empty(), "one ran out, one broke its brand floor")
+	check(p.gear_slots.is_empty() and p.gear_delta.is_empty(), "their gear went with them")

@@ -122,3 +122,77 @@ func _empty_reason(p: Soldier, slot: StringName) -> String:
 	if p.deals.is_empty():
 		return "Empty: no sponsor deal yet"
 	return "Empty: no deal covers this slot"
+
+
+# --- sponsors --------------------------------------------------------------------------------------
+
+func sponsors_page() -> Control:
+	var root := _vbox(10)
+	root.custom_minimum_size.x = 1100
+	var holder := _vbox(10)
+	root.add_child(holder)
+	var fns := {}
+	fns["render"] = func():
+		_clear(holder)
+		_fill_sponsors(holder, fns)
+	fns["render"].call()
+	return root
+
+
+func _slots_text(slots: Array) -> String:
+	return ", ".join(slots.map(func(s): return String(Gear.SLOT_LABELS[s]).to_lower()))
+
+
+func _fill_sponsors(box: VBoxContainer, fns: Dictionary) -> void:
+	var s := _season()
+	var p := s.player
+	var h := Sponsors.heat(s)
+	box.add_child(_wrap("Sponsors come to you. Interest builds from your brand, recent performance, your draft slot (it fades) and your dev stars. A deal gives gear for the slots it covers and pays every season; keep your brand above its floor or it ends.", 15))
+	box.add_child(_label("Cash: $%dk   ·   sponsor heat %d   ·   brand %d (%s)" % [p.cash, roundi(h["heat"]), roundi(p.brand), WeeklyPlan.tier_name(p.brand)], 18, Color.WHITE))
+	box.add_child(_wrap("Heat: " + ", ".join(h["parts"].map(func(x): return "%s %d" % [x[0], roundi(x[1])])), 14))
+	box.add_child(UiKit.heading("Your deals", 18))
+	if p.deals.is_empty():
+		box.add_child(_label("No deals yet.", 15, UiKit.MUTED))
+	for d in p.deals:
+		var b := Gear.brand(d["brand"])
+		var warn: bool = p.brand < float(d["floor"]) + 8.0 and float(d["floor"]) > 0.0
+		box.add_child(_label("%s (%s)  ·  %s  ·  $%dk a year  ·  %d year%s left  ·  brand floor %d%s" % [b["name"], Gear.tier_name(int(b["tier"])), _slots_text(d["slots"]), d["money"], d["years_left"], "" if int(d["years_left"]) == 1 else "s", roundi(float(d["floor"])), "   (close to the floor)" if warn else ""], 15, UiKit.BAD if warn else UiKit.TEXT))
+	box.add_child(UiKit.heading("Offers", 18))
+	if p.offers.is_empty():
+		box.add_child(_label("No offers right now.", 15, UiKit.MUTED))
+	for o in p.offers.duplicate():
+		var b := Gear.brand(o["brand"])
+		var row := _vbox(4)
+		row.add_child(_label("%s (%s)  ·  %s  ·  $%dk a year for %d year%s  ·  floor %d  ·  %s" % [b["name"], Gear.tier_name(int(b["tier"])), _slots_text(o["slots"]), o["money"], o["years"], "" if int(o["years"]) == 1 else "s", roundi(float(o["floor"])), "money-heavy" if o["style"] == Sponsors.STYLE_MONEY else "gear-heavy"], 15, Color.WHITE))
+		row.add_child(_label("    " + String(o["reason"]), 14, UiKit.MUTED))
+		var btns := _hbox(10)
+		var err := Sponsors.accept_error(p, o)
+		var accept := UiKit.primary_button("Accept", func():
+			var e := Sponsors.accept(s, o)
+			if e == "":
+				hub.app.toast("Signed with %s." % b["name"])
+			fns["render"].call(), 15)
+		accept.disabled = err != ""
+		btns.add_child(accept)
+		if not bool(o["countered"]):
+			btns.add_child(UiKit.button("Ask for %s" % ("gear" if o["style"] == Sponsors.STYLE_MONEY else "money"), func():
+				var r := Sponsors.counter(s, o)
+				hub.app.toast("They came back with new terms." if r == "countered" else "They walked away.")
+				fns["render"].call(), 15))
+		btns.add_child(UiKit.button("Decline", func():
+			Sponsors.decline(s, o)
+			fns["render"].call(), 15))
+		if err != "":
+			btns.add_child(_label(err, 13, UiKit.BAD))
+		row.add_child(btns)
+		box.add_child(row)
+	box.add_child(UiKit.heading("What the others want", 18))
+	for t in Gear.TIER_BRAND.size():
+		var names := ", ".join(Gear.brands_in_tier(t).map(func(b): return b["name"]))
+		var gated := t > Sponsors.tier_ceiling(s)
+		var line := "%s (%s): heat %d%s" % [Gear.tier_name(t), names, roundi(float(Sponsors.TIER_HEAT[t])), "  ·  needs a bigger brand (or a top prospect)" if gated else ""]
+		box.add_child(_label(line, 14, UiKit.MUTED if gated else UiKit.TEXT))
+	var foot := _hbox(12)
+	foot.add_child(UiKit.button("Loadout", func(): hub.open("Loadout", func(): return loadout_page()), 16))
+	foot.add_child(UiKit.button("Back", func(): hub.go_back(), 16))
+	box.add_child(foot)

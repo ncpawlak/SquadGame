@@ -142,6 +142,7 @@ var gear_delta: Dictionary = {}
 var gear_slots: Dictionary = {}
 ## Sponsor deals he holds (see Sponsors) and the money they have paid him.
 var deals: Array = []
+var offers: Array = []
 var cash := 0
 
 # Green Team (development roster; see Team.green_team and GreenTeam)

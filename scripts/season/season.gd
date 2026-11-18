@@ -1515,6 +1515,8 @@ func _advance() -> void:
 		champion = last_round[0].winner()
 		phase = PHASE_OFFSEASON
 		history.append(SeasonSnapshot.capture(self))
+		if player_mode and player != null:
+			Sponsors.season_end(self)
 		var rrng := RandomNumberGenerator.new()
 		rrng.seed = _mix([league.league_seed, year, 0x4E71])
 		Soldier.log_year = year

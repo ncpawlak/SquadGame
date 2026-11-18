@@ -218,7 +218,10 @@ static func apply_week(season: Season) -> void:
 static func apply_brand(season: Season, score: float) -> float:
 	var s := season.player
 	var gain := brand_gain(level(s.plan, BRAND), score, s.brand)
+	var tier_before := Gear.tier_for_brand(s.brand)
 	s.brand = minf(BRAND_MAX, s.brand + gain)
+	if Gear.tier_for_brand(s.brand) > tier_before:
+		Sponsors.refresh(season)  # a brand tier-up gets the sponsors talking
 	return gain
 
 

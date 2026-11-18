@@ -199,6 +199,10 @@ func _todos() -> Array:
 		out.append(_todo("Set your weekly plan", "Your points are wasted until you do", UiKit.GOLD, func(): open_plan(false), true))
 	else:
 		out.append(_todo("Weekly plan", _plan_summary(p.plan, true), UiKit.TRIM, func(): open_plan(false)))
+	if not p.offers.is_empty():
+		out.append(_todo("Sponsors", "%d offer%s waiting" % [p.offers.size(), "" if p.offers.size() == 1 else "s"], UiKit.GOLD, func(): open_sponsors(), true))
+	else:
+		out.append(_todo("Sponsors", "%d deal%s  ·  $%dk earned" % [p.deals.size(), "" if p.deals.size() == 1 else "s", p.cash], UiKit.TRIM, func(): open_sponsors()))
 	out.append(_todo("Loadout", "Base %d, gear %+d, effective %d" % [p.base_ovr(), p.best_ovr() - p.base_ovr(), p.best_ovr()], UiKit.TRIM, func(): open_loadout()))
 	var notes := s.player_notes
 	if not notes.is_empty():
@@ -282,6 +286,10 @@ func _gear() -> PlayerGearPages:
 
 func open_loadout() -> void:
 	hub.open("Loadout", func(): return _gear().loadout_page())
+
+
+func open_sponsors() -> void:
+	hub.open("Sponsors", func(): return _gear().sponsors_page())
 
 
 func open_cap_raise() -> void:
