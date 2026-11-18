@@ -28,12 +28,19 @@ const FIRE_UP := &"fire_up"
 const CALM := &"calm"
 const MINUTES := &"minutes"
 const IGNORE := &"ignore"
+const TOUR := &"tour"
+const COMPETE := &"compete"
+const FULL := &"full"
+const REST := &"rest"
+const ANSWER := &"answer"
+const SILENCE := &"silence"
 ## Not a choice the player picks: what a story falls back to when its window closes undecided.
 const STAY := &"stay"
 
 const KIND_LABEL := {
 	&"rivalry_run": "ARC", &"rookie_rise": "ARC", &"revenge_game": "SPOTLIGHT", &"contract_standoff": "CONDITIONAL",
 	&"cinderella": "ARC", &"derby_week": "SPOTLIGHT", &"bench_grumble": "CONDITIONAL",
+	&"last_ride": "ARC", &"statement_game": "SPOTLIGHT", &"press_storm": "CONDITIONAL",
 }
 
 # --- Rivalry Run -------------------------------------------------------------------------------
@@ -161,6 +168,60 @@ const GRU_OPTIONS := [
 		"cost": "May ask for a trade if the mood does not recover"},
 ]
 
+# --- Veteran's Last Ride -----------------------------------------------------------------------
+const RIDE_NOW := {
+	&"tour": {"t_morale": 4.0},
+	&"compete": {},
+}
+const RIDE_END := {
+	&"tour": {&"won": {"buzz": 5.0, "morale": 3.0, "xp": 100.0, "t_trust": 5.0}, &"lost": {"t_morale": -6.0, "t_trust": -8.0}, &"split": {}},
+	&"compete": {&"won": {"morale": 1.0}, &"lost": {}, &"split": {}},
+	&"stay": {&"won": {"morale": 1.0}, &"lost": {}, &"split": {}},
+}
+const RIDE_OPTIONS := [
+	{"id": &"tour", "label": "Give a farewell tour",
+		"blurb": "{name} gets guaranteed minutes all season, and the young players learn from the veteran in the lineup."},
+	{"id": &"compete", "label": "Let {name} compete",
+		"blurb": "Minutes go to whoever earns them, veteran or not.",
+		"cost": "No send-off, much smaller payoff"},
+]
+
+# --- Statement Game ----------------------------------------------------------------------------
+const STM_NOW := {
+	&"full": {"morale": 2.0},
+	&"rest": {},
+}
+const STM_END := {
+	&"full": {&"won": {"buzz": 5.0, "morale": 2.0, "xp": 150.0}, &"lost": {"morale": -3.0}, &"split": {}},
+	&"rest": {&"won": {"buzz": 2.0}, &"lost": {}, &"split": {}},
+	&"stay": {&"won": {"buzz": 1.0}, &"lost": {}, &"split": {}},
+}
+const STM_OPTIONS := [
+	{"id": &"full", "label": "Go all out",
+		"blurb": "Treat it as the biggest game of the year and tell the room so."},
+	{"id": &"rest", "label": "Keep the pressure off",
+		"blurb": "Nobody expects a win, so stay relaxed and play it loose.",
+		"cost": "Smaller payoff even in a win"},
+]
+
+# --- Press Storm -------------------------------------------------------------------------------
+const STO_NOW := {
+	&"answer": {"buzz": 2.0, "morale": -1.0},
+	&"silence": {"buzz": -3.0},
+}
+const STO_END := {
+	&"answer": {&"won": {"buzz": 3.0, "morale": 2.0}, &"lost": {"buzz": -3.0}, &"split": {}},
+	&"silence": {&"won": {"morale": 2.0}, &"lost": {"morale": -2.0}, &"split": {}},
+	&"stay": {&"won": {}, &"lost": {"buzz": -2.0}, &"split": {}},
+}
+const STO_OPTIONS := [
+	{"id": &"answer", "label": "Face the press",
+		"blurb": "Take the questions yourself and own the losing streak in public."},
+	{"id": &"silence", "label": "Say nothing",
+		"blurb": "No comment. Keep the noise away from the locker room.",
+		"cost": "Buzz drops right away"},
+]
+
 ## Per kind: effects when a choice is made, effects when the story ends (by choice then verdict),
 ## the options, the prompt, and how a verdict reads on an option card.
 const DEFS := {
@@ -178,6 +239,12 @@ const DEFS := {
 		"verdict": {&"won": "You win", &"split": "", &"lost": "You lose"}},
 	&"bench_grumble": {"now": GRU_NOW, "end": GRU_END, "options": GRU_OPTIONS, "prompt": "What do you tell the player?", "window": "within two matches",
 		"verdict": {&"won": "It settles down", &"split": "", &"lost": "It stays sour"}},
+	&"last_ride": {"now": RIDE_NOW, "end": RIDE_END, "options": RIDE_OPTIONS, "prompt": "How do you send the veteran off?", "window": "before the first match",
+		"verdict": {&"won": "A proper send-off", &"split": "", &"lost": "The minutes don't come"}},
+	&"statement_game": {"now": STM_NOW, "end": STM_END, "options": STM_OPTIONS, "prompt": "How do you approach the big game?", "window": "before the match is played",
+		"verdict": {&"won": "You win", &"split": "", &"lost": "You lose"}},
+	&"press_storm": {"now": STO_NOW, "end": STO_END, "options": STO_OPTIONS, "prompt": "How do you respond to the press?", "window": "within two matches",
+		"verdict": {&"won": "The club wins again", &"split": "", &"lost": "The slide goes on"}},
 }
 
 ## Who morale and XP effects reach.
@@ -319,6 +386,13 @@ static func scenario(st: Dictionary, season: Season) -> String:
 			return "This week's match is against the %s, a division mate or a heated rival. These games carry extra weight with fans and the room." % (dopp.nickname if dopp != null else String(st["rival"]))
 		Storylines.BENCH_GRUMBLE:
 			return "%s is not playing as much as %s would like, and morale has dipped below the line. A word from the front office could settle it, or it could fester." % [name, name]
+		Storylines.LAST_RIDE:
+			return "%s (age %d) is in the final year of a contract and the end of a long career is in sight. The club has to decide whether to give %s a proper send-off or make %s fight for every minute." % [name, int(st.get("age", 0)), name, name]
+		Storylines.STATEMENT_GAME:
+			var sopp := season.league.team_by_abbrev(st["rival"])
+			return "This week's opponent, the %s, is clearly stronger than your club on paper. Nobody outside the building expects a win, which is what makes one worth something." % (sopp.nickname if sopp != null else String(st["rival"]))
+		Storylines.PRESS_STORM:
+			return "The club has lost %d straight and the press is circling. What you say, or do not say, sets the mood for the next couple of weeks." % int(st.get("streak", 0))
 	return ""
 
 
@@ -392,6 +466,26 @@ static func objectives(st: Dictionary, season: Season) -> Array:
 			var s: Soldier = Storylines.find_soldier(season, st)
 			if s != null:
 				out.append("%s morale now: %d (%s)" % [name, roundi(s.morale), Soldier.morale_label(s.morale)])
+		Storylines.LAST_RIDE:
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("%s started %d of %d matches (needed %d)" % [name, st["started"], st["played"], st["need"]])
+				return out
+			if st["choice"] == COMPETE:
+				out.append("Keep %s with the club through the season" % name)
+			else:
+				out.append("Start %s in at least %d of your %d matches  -  %d of %d so far" % [name, st["need"], st["total"], st["started"], st["played"]])
+		Storylines.STATEMENT_GAME:
+			var sopp := season.league.team_by_abbrev(st["rival"])
+			var son := sopp.nickname if sopp != null else String(st["rival"])
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("Result against the %s: %s" % [son, String(st["status"]).capitalize()])
+				return out
+			out.append("Beat the %s: %s" % [son, season.week_label(st["start_week"])])
+		Storylines.PRESS_STORM:
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("Where it ended: %s" % String(st["status"]).capitalize())
+				return out
+			out.append("Win either of your next two matches to stop the slide  -  %d played so far" % int(st["played"]))
 	return out
 
 

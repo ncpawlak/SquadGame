@@ -4904,3 +4904,76 @@ func test_storylines_bench_grumble() -> void:
 	s2.sim_week()
 	s2.sim_week()
 	check(st2["status"] == Storylines.STATUS_LOST and b2.trade_request, "an unhappy player left alone asks out (%s)" % st2["status"])
+
+
+## Every player on the user's club made hopeless, so the club loses and is far below its opponents.
+func _cripple(s: Season) -> void:
+	for so: Soldier in s.user_team().roster:
+		for k in so.stats:
+			so.stats[k] = 25.0
+
+
+func test_storylines_last_ride() -> void:
+	var s := _fixed(130, 0)
+	var sl := s.storylines
+	var user := s.user_team()
+	check(_story(s, Storylines.LAST_RIDE).is_empty(), "no last ride without an old starter on an expiring deal")
+	for so: Soldier in user.roster + user.green_team:
+		so.age = 28
+	var vet: Soldier = user.starters()[0]
+	vet.age = 35
+	vet.contract.years = 1
+	vet.contract.rookie = false
+	_reseed(s)
+	var st := _story(s, Storylines.LAST_RIDE)
+	check(not st.is_empty() and st["soldier"] == vet.id, "the old starter gets a last ride")
+	check(sl.active.size() <= Storylines.MAX_ACTIVE and sl._arc_count() <= Storylines.MAX_ARCS, "stays under the caps")
+	check(sl.choose(s, st["id"], StoryDefs.TOUR) == "", "the farewell tour is accepted")
+	st["played"] = st["total"] - 1
+	st["started"] = st["need"] - 1
+	var guard := 0
+	while st["status"] == Storylines.STATUS_ACTIVE and guard < 14:
+		s.sim_week()
+		guard += 1
+	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "the tour resolves at season end (%s)" % st["status"])
+	check(st["applied"].size() == 2, "the choice and the result are on file")
+
+
+func test_storylines_statement_game() -> void:
+	var s := _fixed(131, 0)
+	var sl := s.storylines
+	var user := s.user_team()
+	sl.active.clear()
+	_cripple(s)
+	s.prepare_week()
+	var st := _story(s, Storylines.STATEMENT_GAME)
+	var opp := s.next_match_for(user).opponent_of(user)
+	check(not st.is_empty() and st["rival"] == opp.abbrev, "a much stronger opponent makes a statement game")
+	check(Storylines.decision_open(st), "the decision is open")
+	check(sl.choose(s, st["id"], StoryDefs.FULL) == "", "going all out is accepted")
+	s.sim_week()
+	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "it resolves with the match (%s)" % st["status"])
+	check(sl.fired.has("%s:%d" % [Storylines.STATEMENT_GAME, s.year]), "once a season")
+
+
+func test_storylines_press_storm() -> void:
+	var s := _fixed(132, 0)
+	var sl := s.storylines
+	var user := s.user_team()
+	check(Storylines.losing_streak(s, user) == 0, "no streak at the start")
+	_cripple(s)
+	var guard := 0
+	while Storylines.losing_streak(s, user) < Storylines.STORM_LOSSES and guard < 8:
+		s.sim_week()
+		guard += 1
+	check(Storylines.losing_streak(s, user) >= Storylines.STORM_LOSSES, "the weakened club piles up losses")
+	sl.active.clear()
+	s.prepare_week()
+	var st := _story(s, Storylines.PRESS_STORM)
+	check(not st.is_empty() and st["streak"] >= Storylines.STORM_LOSSES, "a losing streak starts a press storm")
+	check(Storylines.decision_open(st), "the decision is open")
+	check(sl.choose(s, st["id"], StoryDefs.SILENCE) == "", "saying nothing is accepted")
+	s.sim_week()
+	s.sim_week()
+	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "the storm resolves within the window (%s)" % st["status"])
+	check(sl.fired.has("%s:%d" % [Storylines.PRESS_STORM, s.year]), "once a season")

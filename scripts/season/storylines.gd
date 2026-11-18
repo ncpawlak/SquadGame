@@ -25,12 +25,15 @@ const CONTRACT_STANDOFF := &"contract_standoff"
 const CINDERELLA := &"cinderella"
 const DERBY_WEEK := &"derby_week"
 const BENCH_GRUMBLE := &"bench_grumble"
+const LAST_RIDE := &"last_ride"
+const STATEMENT_GAME := &"statement_game"
+const PRESS_STORM := &"press_storm"
 
 ## How many stories may run at once, and how many of them may be arcs.
 const MAX_ACTIVE := 3
 const MAX_ARCS := 2
-const ARCS: Array[StringName] = [RIVALRY_RUN, ROOKIE_RISE, CINDERELLA]
-const SPOTLIGHTS: Array[StringName] = [REVENGE_GAME, DERBY_WEEK]
+const ARCS: Array[StringName] = [RIVALRY_RUN, ROOKIE_RISE, CINDERELLA, LAST_RIDE]
+const SPOTLIGHTS: Array[StringName] = [REVENGE_GAME, DERBY_WEEK, STATEMENT_GAME]
 
 const STAGE_SETUP := 0
 const STAGE_ESCALATION := 1
@@ -71,6 +74,14 @@ const CINDERELLA_FROM_RANK := 14
 const GRUMBLE_MORALE := 55.0
 const GRUMBLE_FROM_WEEK := 2
 const GRUMBLE_WINDOW := 2
+## Veteran's Last Ride: a starter this old on an expiring deal; the tour needs this share of starts.
+const RIDE_MIN_AGE := 33
+const RIDE_START_SHARE := 0.75
+## Statement Game: the opponent's team OVR is at least this far above yours.
+const STATEMENT_GAP := 4
+## Press Storm: this many losses in a row; the window is two matches.
+const STORM_LOSSES := 3
+const STORM_WINDOW := 2
 
 var active: Array = []
 var finished: Array = []
@@ -112,6 +123,12 @@ func begin_season(season: Season) -> void:
 			var st := _new_rookie_rise(season, user, rookie)
 			active.append(st)
 			last_beats.append(_beat(st, "seed", season))
+	if active.size() < MAX_ACTIVE and _arc_count() < MAX_ARCS:
+		var vet := _pick_veteran(user)
+		if vet != null:
+			var st := _new_last_ride(season, user, vet)
+			active.append(st)
+			last_beats.append(_beat(st, "seed", season))
 	_publish(season, "Preseason", last_beats)
 
 
@@ -133,6 +150,14 @@ func prepare_week(season: Season) -> void:
 			made.append(_beat(st, "seed", season))
 	if active.size() < MAX_ACTIVE and not _has_spotlight() and not fired.has("%s:%d" % [DERBY_WEEK, season.year]):
 		var st := _try_derby(season, user)
+		if not st.is_empty():
+			made.append(_beat(st, "seed", season))
+	if active.size() < MAX_ACTIVE and not _has_spotlight() and not fired.has("%s:%d" % [STATEMENT_GAME, season.year]):
+		var st := _try_statement(season, user)
+		if not st.is_empty():
+			made.append(_beat(st, "seed", season))
+	if active.size() < MAX_ACTIVE and not fired.has("%s:%d" % [PRESS_STORM, season.year]):
+		var st := _try_storm(season, user)
 		if not st.is_empty():
 			made.append(_beat(st, "seed", season))
 	if active.size() < MAX_ACTIVE and not fired.has("%s:%d" % [BENCH_GRUMBLE, season.year]):
@@ -164,6 +189,12 @@ func week(season: Season, played: Array, wk: int) -> void:
 				_week_derby(season, st, played, wk)
 			BENCH_GRUMBLE:
 				_week_grumble(season, st, played, wk)
+			LAST_RIDE:
+				_week_last_ride(season, st, played, wk)
+			STATEMENT_GAME:
+				_week_statement(season, st, played, wk)
+			PRESS_STORM:
+				_week_storm(season, st, played, wk)
 	_publish(season, season.week_label(wk), last_beats.filter(func(b): return not b.get("published", false)))
 
 
@@ -238,6 +269,20 @@ func status_line(st: Dictionary, season: Season) -> String:
 			if st["status"] != STATUS_ACTIVE:
 				return "Derby vs the %s: %s" % [don, verdict.capitalize()]
 			return "Derby vs the %s: %s" % [don, season.week_label(st["start_week"])]
+		LAST_RIDE:
+			if st["status"] != STATUS_ACTIVE:
+				return "%s: %s  -  started %d of %d" % [name, verdict.capitalize(), st["started"], st["played"]]
+			return "%s: started %d of %d  -  needs %d" % [name, st["started"], st["played"], st["need"]]
+		STATEMENT_GAME:
+			var sopp := season.league.team_by_abbrev(st["rival"])
+			var son := sopp.nickname if sopp != null else String(st["rival"])
+			if st["status"] != STATUS_ACTIVE:
+				return "Statement game vs the %s: %s" % [son, verdict.capitalize()]
+			return "Statement game vs the %s: %s" % [son, season.week_label(st["start_week"])]
+		PRESS_STORM:
+			if st["status"] != STATUS_ACTIVE:
+				return "Press storm: %s" % verdict.capitalize()
+			return "Press storm after %d straight losses" % st["streak"]
 		BENCH_GRUMBLE:
 			if st["status"] != STATUS_ACTIVE:
 				return "%s: %s" % [name, verdict.capitalize()]
@@ -740,6 +785,136 @@ func _week_grumble(season: Season, st: Dictionary, played: Array, wk: int) -> vo
 		_finish(season, st, STATUS_WON if ok else STATUS_LOST, wk)
 
 
+# --- Veteran's Last Ride ---------------------------------------------------------------------
+
+func _pick_veteran(user: Team) -> Soldier:
+	var best: Soldier = null
+	for s: Soldier in user.starters():
+		if s.age < RIDE_MIN_AGE or s.contract == null or s.contract.rookie or s.contract.green or s.contract.years > 1:
+			continue
+		if best == null or s.age > best.age or (s.age == best.age and s.best_ovr() > best.best_ovr()):
+			best = s
+	return best
+
+
+func _new_last_ride(season: Season, user: Team, s: Soldier) -> Dictionary:
+	var total := 0
+	for m: ScheduledMatch in season.matches_for(user):
+		if m.stage == Season.STAGE_REGULAR:
+			total += 1
+	var st := _base(season, LAST_RIDE, user, "%s's Last Ride" % s.short_name())
+	st["soldier"] = s.id
+	st["name"] = s.short_name()
+	st["age"] = s.age
+	st["total"] = total
+	st["need"] = ceili(RIDE_START_SHARE * total)
+	st["started"] = 0
+	st["played"] = 0
+	return st
+
+
+func _week_last_ride(season: Season, st: Dictionary, played: Array, wk: int) -> void:
+	var user := season.league.team_by_abbrev(st["team"])
+	var s := find_soldier(season, st)
+	if s == null:
+		_close_window(st)
+		_end(st, STATUS_FIZZLED, wk)
+		return
+	var played_now := false
+	for m: ScheduledMatch in played:
+		if not m.is_played() or m.stage != Season.STAGE_REGULAR or not m.involves(user):
+			continue
+		played_now = true
+		st["played"] += 1
+		if m.result.box.has(s.id):
+			st["started"] += 1
+	if not played_now:
+		return
+	_close_window(st)
+	var n: int = st["played"]
+	var total: int = st["total"]
+	if n >= total:
+		var tour_kept: bool = st["choice"] != StoryDefs.TOUR or st["started"] >= st["need"]
+		_finish(season, st, STATUS_WON if tour_kept else STATUS_LOST, wk)
+	elif n * 3 >= total * 2 and st["stage"] < STAGE_SHOWDOWN:
+		st["stage"] = STAGE_SHOWDOWN
+		last_beats.append(_beat(st, "showdown", season))
+	elif n * 3 >= total and st["stage"] < STAGE_ESCALATION:
+		st["stage"] = STAGE_ESCALATION
+		last_beats.append(_beat(st, "meeting", season))
+
+
+# --- Statement Game --------------------------------------------------------------------------
+
+## This week's regular-season match against a club clearly stronger than yours.
+func _try_statement(season: Season, user: Team) -> Dictionary:
+	var m: ScheduledMatch = null
+	for x: ScheduledMatch in season.matches_for_week(season.week):
+		if x.involves(user) and not x.is_played():
+			m = x
+	if m == null or m.stage != Season.STAGE_REGULAR:
+		return {}
+	var opp := m.opponent_of(user)
+	if opp.team_ovr() - user.team_ovr() < STATEMENT_GAP:
+		return {}
+	var st := _base(season, STATEMENT_GAME, user, "Statement Game: %s vs %s" % [user.nickname, opp.nickname])
+	st["rival"] = opp.abbrev
+	active.append(st)
+	fired["%s:%d" % [STATEMENT_GAME, season.year]] = true
+	return st
+
+
+func _week_statement(season: Season, st: Dictionary, played: Array, wk: int) -> void:
+	_week_derby(season, st, played, wk)
+
+
+# --- Press Storm -----------------------------------------------------------------------------
+
+## Losses in a row at the end of the user's played regular-season matches.
+static func losing_streak(season: Season, user: Team) -> int:
+	var games: Array = season.matches_for(user).filter(func(m: ScheduledMatch): return m.is_played() and m.stage == Season.STAGE_REGULAR)
+	games.sort_custom(func(a: ScheduledMatch, b: ScheduledMatch): return a.week < b.week)
+	var n := 0
+	for i in range(games.size() - 1, -1, -1):
+		if games[i].winner() == user:
+			break
+		n += 1
+	return n
+
+
+func _try_storm(season: Season, user: Team) -> Dictionary:
+	var n := losing_streak(season, user)
+	if n < STORM_LOSSES:
+		return {}
+	var st := _base(season, PRESS_STORM, user, "The %s Press Storm" % user.nickname)
+	st["streak"] = n
+	st["played"] = 0
+	st["wins"] = 0
+	active.append(st)
+	fired["%s:%d" % [PRESS_STORM, season.year]] = true
+	return st
+
+
+## Won if the club wins either of the next two matches; lost if it loses both.
+func _week_storm(season: Season, st: Dictionary, played: Array, wk: int) -> void:
+	var user := season.league.team_by_abbrev(st["team"])
+	var played_now := false
+	for m: ScheduledMatch in played:
+		if not m.is_played() or m.stage != Season.STAGE_REGULAR or not m.involves(user):
+			continue
+		played_now = true
+		st["played"] += 1
+		if m.winner() == user:
+			st["wins"] += 1
+	if not played_now:
+		return
+	_close_window(st)
+	if st["wins"] > 0:
+		_finish(season, st, STATUS_WON, wk)
+	elif st["played"] >= STORM_WINDOW:
+		_finish(season, st, STATUS_LOST, wk)
+
+
 # --- beats (the words) -----------------------------------------------------------------------
 
 func _beat(st: Dictionary, what: String, season: Season) -> Dictionary:
@@ -869,6 +1044,53 @@ func _beat(st: Dictionary, what: String, season: Season) -> Dictionary:
 					else:
 						head = "%s: the %s win the derby" % [title, don]
 						body = "The %s took the bragging rights from the %s this week." % [don, un]
+		LAST_RIDE:
+			match what:
+				"seed":
+					head = "%s: one more year for a veteran" % title
+					body = "%s (%d) is in the final year of the deal and the %s have to decide how to send a veteran off. A farewell tour or a fight for every minute: that is the story." % [name, st["age"], un]
+				"meeting":
+					head = "%s: %d of %d starts" % [title, st["started"], st["played"]]
+					body = "%s has started %d of the %s' first %d matches." % [name, st["started"], un, st["played"]]
+				"showdown":
+					head = "%s: the final stretch" % title
+					body = "%s sits on %d starts from %d matches. The last third of the season decides how this one ends." % [name, st["started"], st["played"]]
+				"resolve":
+					if st["status"] == STATUS_WON:
+						head = "%s: a proper send-off" % title
+						body = "%s finished with %d starts in %d matches, and the %s got the season they wanted for a veteran." % [name, st["started"], st["played"], un]
+					elif st["status"] == STATUS_LOST:
+						head = "%s: the tour that wasn't" % title
+						body = "%s was promised a farewell season and started only %d of %d. The room noticed." % [name, st["started"], st["played"]]
+					else:
+						head = "%s: the story ends" % title
+						body = "%s is no longer with the %s, and the Last Ride is over." % [name, un]
+		STATEMENT_GAME:
+			var sopp := season.league.team_by_abbrev(st["rival"])
+			var son := sopp.nickname if sopp != null else String(st["rival"])
+			match what:
+				"seed":
+					head = "%s: a chance to make a statement" % title
+					body = "The %s are big underdogs against the %s this week. A win would turn heads across the league." % [un, son]
+				"resolve":
+					if st["status"] == STATUS_WON:
+						head = "%s: the %s stun the %s" % [title, un, son]
+						body = "The %s beat a stronger %s side, and the league has noticed." % [un, son]
+					else:
+						head = "%s: the %s hold the line" % [title, son]
+						body = "The %s were beaten by the %s as expected. The statement will have to wait." % [un, son]
+		PRESS_STORM:
+			match what:
+				"seed":
+					head = "%s: questions after %d straight losses" % [title, st["streak"]]
+					body = "The %s have lost %d in a row and the press wants answers. How the club responds sets the tone for the next few weeks." % [un, st["streak"]]
+				"resolve":
+					if st["status"] == STATUS_WON:
+						head = "%s: the %s stop the slide" % [title, un]
+						body = "The %s got a win and the noise has quietened." % un
+					else:
+						head = "%s: the slide goes on" % title
+						body = "The %s lost again, and the questions are getting louder." % un
 		BENCH_GRUMBLE:
 			match what:
 				"seed":
