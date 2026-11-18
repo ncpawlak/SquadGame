@@ -115,6 +115,7 @@ static func record(season: Season, m: ScheduledMatch) -> void:
 		entry.merge(g, true)
 		Progression.gain_xp(season.player, bonus_xp(float(g["score"])))
 		entry["brand"] = WeeklyPlan.apply_brand(season, float(g["score"]))
+		Wear.record_game(season.player)
 	season.player_log.append(entry)
 	PlayerLegacy.update(season)
 

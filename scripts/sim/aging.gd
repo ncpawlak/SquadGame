@@ -24,7 +24,9 @@ static func decline_rate(years_past: int) -> float:
 
 
 ## Ages one soldier by a year. Returns {soldier, age, changes: group -> rating change (<= 0)}.
-static func age_soldier(s: Soldier, rng: RandomNumberGenerator) -> Dictionary:
+static func age_soldier(s: Soldier, rng: RandomNumberGenerator, lab_steps := 0) -> Dictionary:
+	if s.player_controlled:
+		return Wear.age_player(s, lab_steps, rng)  # career mode: the Wear meter decides (caps are kept)
 	s.age += 1
 	var changes := {}
 	var stat_changes := {}
@@ -54,7 +56,7 @@ static func age_league(league: League, rng: RandomNumberGenerator) -> Array:
 	var out: Array = []
 	for t in league.teams:
 		for s in t.roster:
-			var r := age_soldier(s, rng)
+			var r := age_soldier(s, rng, Facilities.steps(t, Facilities.LAB))
 			r["team"] = t
 			if not r["changes"].is_empty():
 				out.append(r)
@@ -62,7 +64,7 @@ static func age_league(league: League, rng: RandomNumberGenerator) -> Array:
 		age_soldier(s, rng)
 	for t in league.teams:
 		for s in t.green_team:
-			var r := age_soldier(s, rng)
+			var r := age_soldier(s, rng, Facilities.steps(t, Facilities.LAB))
 			r["team"] = t
 			if not r["changes"].is_empty():
 				out.append(r)

@@ -38,7 +38,7 @@ func _clear(box: Control) -> void:
 
 # --- weekly / camp plan ---------------------------------------------------------------------------
 
-## The plan screen. `camp`: the offseason camp plan (8 points, no spa, no fatigue meter).
+## The plan screen. `camp`: the offseason camp plan (8 points, spa is rehab, no fatigue meter).
 func plan_page(camp := false) -> Control:
 	var p := _season().player
 	var st := {"plan": (p.camp_plan if camp else p.plan).duplicate()}
@@ -59,7 +59,7 @@ func _fill_plan(box: VBoxContainer, camp: bool, st: Dictionary, fns: Dictionary)
 	var p := s.player
 	var plan: Dictionary = st["plan"]
 	var intro := _label("%d points, at most %d in any one activity. Every point except spa adds fatigue. Your plan repeats until you change it." % [WeeklyPlan.points(camp), WeeklyPlan.max_level(camp)] if not camp \
-		else "Camp: %d points, at most %d in any one activity. Camp has no fatigue and no spa. Your camp plan repeats every offseason." % [WeeklyPlan.points(camp), WeeklyPlan.max_level(camp)], 15, UiKit.MUTED)
+		else "Camp: %d points, at most %d in any one activity. Camp has no fatigue; spa here is rehab and takes Wear off. Your camp plan repeats every offseason." % [WeeklyPlan.points(camp), WeeklyPlan.max_level(camp)], 15, UiKit.MUTED)
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	intro.custom_minimum_size.x = 1100
 	box.add_child(intro)
@@ -177,6 +177,8 @@ func _bonus_text(a: StringName, lvl: int, camp: bool) -> String:
 			var room := maxf(0.0, 1.0 - p.brand / (WeeklyPlan.BRAND_MAX * WeeklyPlan.BRAND_SOFT))
 			return "+%.1f to %.1f brand" % [base * WeeklyPlan.FACTOR_LOW * room, base * WeeklyPlan.FACTOR_HIGH * room]
 		WeeklyPlan.SPA:
+			if camp:
+				return "rehab: -%d Wear" % roundi(lvl * Wear.rehab_per_point)
 			return "+%d%% recovery, +%d morale" % [roundi(WeeklyPlan.SPA_RECOVERY[lvl] * 100.0), roundi(WeeklyPlan.SPA_MORALE[lvl])]
 	return ""
 

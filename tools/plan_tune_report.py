@@ -53,6 +53,7 @@ for (style, age) in sorted(groups):
     print("\n%-8s age %d  (%d runs)" % (style, age, len(g)))
     print("  ovr by season :", ovr)
     print("  games / season:", games)
+    print("  wear by season:", " ".join("%.0f" % mean([r["seasons"][i].get("wear", 0) for r in g if len(r["seasons"]) > i]) for i in range(n)))
     print("  star 2/3/4 in season:", stars, "  brand end: %.0f  mean fatigue: %.0f  hof score end: %.0f" % (brand, fat, hof))
     if verdicts:
         print("  hall: %s  final scores %s" % (verdicts, final))
