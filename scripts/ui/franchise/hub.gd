@@ -556,6 +556,7 @@ var _camp_skip_warned := false
 ## Player mode: the club runs every offseason step (re-signing, free agency, the draft, camp), so they all go
 ## by behind one loading screen and the next season opens with a line about how he grew.
 var _camp_warned_year := 0
+var _cap_warned_year := 0
 
 
 func _advance_offseason_player() -> void:
@@ -564,6 +565,11 @@ func _advance_offseason_player() -> void:
 		_camp_warned_year = season.year
 		player_ui.open_plan(true)
 		app.toast("You have not set a camp plan: its 8 points are wasted. Set one, or advance again to skip.")
+		return
+	if not PlayerLegacy.retired(season) and _cap_warned_year != season.year and not CapRaise.eligible_groups(season).is_empty():
+		_cap_warned_year = season.year
+		player_ui.open_cap_raise()
+		app.toast("A group is at its ceiling: raise its cap before the season rolls over. Advance again to skip.")
 		return
 	var before := season.player.best_ovr()
 	var ls := _begin_loading("%d Season" % (season.year + 1))

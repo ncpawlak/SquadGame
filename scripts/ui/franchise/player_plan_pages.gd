@@ -193,6 +193,54 @@ func _stars_line(p: Soldier, plan: Dictionary, camp: bool) -> String:
 
 # --- skill-point placement --------------------------------------------------------------------------
 
+## The offseason cap raise: pick one capped group and raise its ceiling.
+func cap_raise_page() -> Control:
+	var root := _vbox(10)
+	root.custom_minimum_size.x = 1000
+	var holder := _vbox(10)
+	root.add_child(holder)
+	var fns := {}
+	fns["render"] = func():
+		_clear(holder)
+		_fill_cap_raise(holder, fns)
+	fns["render"].call()
+	return root
+
+
+func _fill_cap_raise(box: VBoxContainer, fns: Dictionary) -> void:
+	var s := _season()
+	var p := s.player
+	var intro := _label("Once an offseason you can raise one group's ceiling. Fill a group to its cap first; the raise is +2, plus a point each for a strong season, a Performance Institute, a camp special and a story (max +%d). A raise lifts the cap only: you still earn the rating with skill points." % CapRaise.MAX_RAISE, 15, UiKit.MUTED)
+	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	intro.custom_minimum_size.x = 960
+	box.add_child(intro)
+	var window := CapRaise.window_error(s)
+	if window != "":
+		box.add_child(_label(window, 16, UiKit.GOLD))
+	for g in Stats.UPGRADABLE_GROUPS:
+		var row := _hbox(14)
+		var name := _label(String(Stats.GROUP_LABELS[g]), 18, Color.WHITE)
+		name.custom_minimum_size.x = 150
+		row.add_child(name)
+		var info := _label("rating %d  /  cap %d" % [p.group_rating(g), p.group_cap(g)], 16, UiKit.TEXT)
+		info.custom_minimum_size.x = 220
+		row.add_child(info)
+		var err := CapRaise.group_error(s, g)
+		if err == "":
+			var n := CapRaise.size(s, g)
+			var why := ", ".join(CapRaise.parts(s, g).map(func(x): return "%s +%d" % [x[0], x[1]]))
+			row.add_child(_label("+%d  (%s)" % [n, why], 14, UiKit.GOOD))
+			var go := UiKit.primary_button("Raise", func():
+				var rep := CapRaise.apply(s, g)
+				if not rep.is_empty():
+					hub.app.toast("%s cap +%d, now %d." % [Stats.GROUP_LABELS[g], rep["size"], rep["cap"]])
+				fns["render"].call(), 16)
+			row.add_child(go)
+		else:
+			row.add_child(_label(err, 14, UiKit.MUTED))
+		box.add_child(row)
+
+
 ## Place a group upgrade by hand: one stat point per stat in the group, up to each stat's cap, then confirm.
 func placement_page(group: StringName) -> Control:
 	var st := {"alloc": {}}

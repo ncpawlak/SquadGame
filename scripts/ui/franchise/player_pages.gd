@@ -184,6 +184,13 @@ func _todos() -> Array:
 	if cost > 0 and p.skill_points >= cost:
 		out.append(_todo("Spend Skill Points", "%d SP ready" % p.skill_points, UiKit.INFO, func(): open_my_player(), true))
 	if s.phase == Season.PHASE_OFFSEASON:
+		var ready := CapRaise.eligible_groups(s)
+		if not ready.is_empty():
+			out.append(_todo("Raise a cap", "%d group%s ready: pick one for a higher ceiling" % [ready.size(), "" if ready.size() == 1 else "s"], UiKit.GOLD, func(): open_cap_raise(), true))
+		elif p.cap_raise_year == s.year:
+			out.append(_todo("Cap raised", "Done for this offseason", UiKit.TRIM, func(): open_cap_raise()))
+		else:
+			out.append(_todo("Raise a cap", "Fill a group to its ceiling first", UiKit.TRIM, func(): open_cap_raise()))
 		if not p.camp_plan_confirmed:
 			out.append(_todo("Set your camp plan", "8 points: practice, study, outing, brand", UiKit.GOLD, func(): open_plan(true), true))
 		else:
@@ -260,6 +267,10 @@ func _plan() -> PlayerPlanPages:
 
 func open_plan(camp: bool) -> void:
 	hub.open("Camp Plan" if camp else "Weekly Plan", func(): return _plan().plan_page(camp))
+
+
+func open_cap_raise() -> void:
+	hub.open("Raise a Cap", func(): return _plan().cap_raise_page())
 
 
 func open_placement(group: StringName) -> void:

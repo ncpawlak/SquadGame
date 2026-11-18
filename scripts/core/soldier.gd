@@ -130,6 +130,11 @@ var wear_weeks := 0
 var wear_games := 0
 var wear_injuries := 0
 var wear_rehab := 0
+## Career-mode growth (see CapRaise): the year of his last cap raise, the group a camp special points at, and story
+## points waiting to add to the next raise.
+var cap_raise_year := 0
+var camp_focus: StringName = &""
+var cap_story_bonus := 0
 
 # Green Team (development roster; see Team.green_team and GreenTeam)
 ## Reps (0..REP_MAX): practice time with the club. They reveal his potential (see potential_text).
