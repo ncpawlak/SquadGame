@@ -66,6 +66,9 @@ var player_mode := false
 ## The created soldier and his archetype id (see Archetypes). Null / &"" in manager mode.
 var player: Soldier = null
 var player_archetype: StringName = &""
+## The combine (phase 2): drill scores so far, and whether it is locked in (ratings written to `player`).
+var player_combine: Combine = null
+var player_combine_done := false
 ## Regular-season length and playoff field (set from the league's shape when the franchise starts).
 var regular_weeks := DIVISION_WEEKS
 var playoff_teams := DIVISION_PLAYOFF_TEAMS

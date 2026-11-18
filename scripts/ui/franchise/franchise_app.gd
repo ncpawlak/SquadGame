@@ -223,8 +223,29 @@ func _on_player_created(choice: Dictionary) -> void:
 	season.player = PlayerCareer.create_soldier(season.league.next_soldier_id, choice["first"], choice["last"],
 		choice["callsign"], choice["head"], int(choice["morph"]), choice["archetype"])
 	season.league.next_soldier_id += 1
+	season.player_combine = Combine.make(choice["archetype"])
 	preview_seed = 0
-	show_player_ready()
+	show_combine()
+
+
+## Player mode step 2: the combine drills. Locking in rolls the hidden talent and writes the ratings.
+func show_combine() -> void:
+	_set_screen(CombineScreen.make(season, _lock_combine, show_title))
+
+
+func _lock_combine() -> void:
+	if season.player_combine_done:
+		show_combine_results()
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash("%d:%s:%s" % [season.player.id, season.player.callsign, season.player_archetype])
+	season.player_combine.finalize(season.player, rng)
+	season.player_combine_done = true
+	show_combine_results()
+
+
+func show_combine_results() -> void:
+	_set_screen(CombineScreen.results(season, show_player_ready))
 
 
 ## Placeholder end of phase 1: the created soldier and his combine ceilings. The combine itself is phase 2.
@@ -239,8 +260,8 @@ func show_player_ready() -> void:
 	root.add_child(UiKit.label("%s %s  -  age %d" % [a["name"], String(Scheme.ROLE_NAMES[Archetypes.role_of(season.player_archetype)]), s.age], 20, UiKit.ACCENT))
 	root.add_child(UiKit.label(String(a["blurb"]), 16, UiKit.MUTED))
 	root.add_child(_spacer(10))
-	root.add_child(UiKit.label("Your soldier is created. The combine, where you earn your ratings, comes next.", 18, UiKit.TEXT))
-	root.add_child(UiKit.label("Combine, draft and the rookie season are not built yet.", 15, UiKit.MUTED))
+	root.add_child(UiKit.label("Your combine is done and your ratings are set.", 18, UiKit.TEXT))
+	root.add_child(UiKit.label("The draft and the rookie season are not built yet.", 15, UiKit.MUTED))
 	root.add_child(_spacer(10))
 	var row := HBoxContainer.new()
 	root.add_child(row)

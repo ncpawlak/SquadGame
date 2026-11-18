@@ -53,8 +53,8 @@ func test_ceilings_cover_every_drilled_stat() -> void:
 	for a in Archetypes.all():
 		var c := Archetypes.ceilings(StringName(a["id"]))
 		for stat in Stats.ALL:
-			if stat == Stats.INJURY:
-				check(not c.has(stat), "injury must not be drilled")
+			if Archetypes.FIXED_STATS.has(stat):
+				check(not c.has(stat), "%s must not have a combine ceiling" % stat)
 				continue
 			check(c.has(stat), "%s has no ceiling for %s" % [a["id"], stat])
 			if c.has(stat):

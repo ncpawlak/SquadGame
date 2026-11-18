@@ -17,6 +17,8 @@ const START_OVR_CAP := 75
 const BASE_CEILING := 78
 const OFFSET_SCALE := 1.5
 const MIN_CEILING := 45
+## Not drilled and not scored: every created soldier starts with these (the Medical Center lifts them later).
+const FIXED_STATS := {&"toughness": 90, &"injury": 90}
 
 const ROLE_KEYS := {"frontman": Scheme.Role.FRONTMAN, "center": Scheme.Role.CENTER, "flex": Scheme.Role.FLEX}
 
@@ -50,7 +52,7 @@ static func role_of(id: StringName) -> Scheme.Role:
 	return ROLE_KEYS[find(id).get("role", "flex")]
 
 
-## stat -> highest combine rating for this archetype. Injury is not drilled, so it has no ceiling here.
+## stat -> highest combine rating for this archetype. Toughness and injury are fixed (FIXED_STATS), so they have none.
 static func ceilings(id: StringName) -> Dictionary:
 	var a := find(id)
 	var out := {}
@@ -58,7 +60,7 @@ static func ceilings(id: StringName) -> Dictionary:
 		return out
 	var offsets: Dictionary = PlayerGenerator.ARCHETYPES[ROLE_KEYS[a["role"]]]
 	for stat in Stats.ALL:
-		if stat == Stats.INJURY:
+		if FIXED_STATS.has(stat):
 			continue
 		var v := float(BASE_CEILING) + OFFSET_SCALE * float(offsets.get(stat, 0))
 		v += float(a.get("up", {}).get(String(stat), 0)) + float(a.get("down", {}).get(String(stat), 0))
@@ -84,5 +86,6 @@ static func max_ovr(id: StringName) -> int:
 	var stats := {}
 	for s in Stats.ALL:
 		stats[s] = FLOOR
+	stats.merge(FIXED_STATS, true)
 	stats.merge(ceilings(id), true)
 	return Scheme.ovr_for_role(stats, role_of(id))

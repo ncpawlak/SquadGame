@@ -37,7 +37,7 @@ static func taken_callsigns(league: League) -> Dictionary:
 	return taken
 
 
-## Builds the soldier. Every drilled stat starts at Archetypes.FLOOR; injury resistance is a plain average roll.
+## Builds the soldier. Every drilled stat starts at Archetypes.FLOOR; toughness and injury start at Archetypes.FIXED_STATS.
 static func create_soldier(id: int, first: String, last: String, callsign: String, head_id: String,
 		morph_seed: int, archetype: StringName) -> Soldier:
 	var s := Soldier.new()
@@ -48,7 +48,7 @@ static func create_soldier(id: int, first: String, last: String, callsign: Strin
 	s.age = START_AGE
 	for stat in Stats.ALL:
 		s.stats[stat] = Archetypes.FLOOR
-	s.stats[Stats.INJURY] = 80
+	s.stats.merge(Archetypes.FIXED_STATS, true)
 	s.dev = 2
 	s.face_override = FaceSpec.make_override(head_id, morph_seed)
 	s.look = Look.generate(id, s.age, Archetypes.role_of(archetype))
