@@ -272,7 +272,7 @@ func _fill_placement(box: VBoxContainer, group: StringName, st: Dictionary, fns:
 	for stat in members:
 		var add := int(alloc.get(stat, 0))
 		var cap := mini(Stats.MAX_RATING, p.stat_cap(stat))
-		var cur := int(p.stats[stat])
+		var cur := p.base_stat(stat)
 		var row := _hbox(14)
 		var name := _label(String(Stats.LABELS[stat]), 18, UiKit.TEXT)
 		name.custom_minimum_size.x = 210

@@ -135,6 +135,14 @@ var wear_rehab := 0
 var cap_raise_year := 0
 var camp_focus: StringName = &""
 var cap_story_bonus := 0
+## Gear (see Gear): the bonus the equipped items have added to `stats` (stat -> points actually applied). `stats` is always the
+## effective rating the sim reads; the base rating is stats minus this.
+var gear_delta: Dictionary = {}
+## Equipped items by slot: slot -> item dict (see Gear.item).
+var gear_slots: Dictionary = {}
+## Sponsor deals he holds (see Sponsors) and the money they have paid him.
+var deals: Array = []
+var cash := 0
 
 # Green Team (development roster; see Team.green_team and GreenTeam)
 ## Reps (0..REP_MAX): practice time with the club. They reveal his potential (see potential_text).
@@ -381,9 +389,48 @@ func stat_cap(stat: StringName) -> int:
 	return int(stat_caps.get(stat, Stats.MAX_RATING))
 
 
-## Group upgrades left before the cap (0 = capped).
+## Group upgrades left before the cap (0 = capped). Gear does not eat into the room: it counts the base rating.
 func group_headroom(group: StringName) -> int:
-	return maxi(0, group_cap(group) - group_rating(group))
+	return maxi(0, group_cap(group) - Stats.group_rating(base_stats(), group))
+
+
+## One stat without the gear bonus.
+func base_stat(stat: StringName) -> int:
+	return int(stats[stat]) - int(gear_delta.get(stat, 0))
+
+
+## All stats without the gear bonus.
+func base_stats() -> Dictionary:
+	if gear_delta.is_empty():
+		return stats
+	var out := stats.duplicate()
+	for st in gear_delta:
+		out[st] = int(out[st]) - int(gear_delta[st])
+	return out
+
+
+## Best-role OVR without the gear bonus (what milestones and the Hall of Fame should read).
+func base_ovr() -> int:
+	var b := base_stats()
+	return Scheme.ovr_for_role(b, Scheme.best_role(b))
+
+
+## Sets the gear bonus to `bonus` (stat -> points), replacing the previous one. Ratings clamp at 99; what was actually
+## added is remembered so removing the gear restores the base exactly.
+func set_gear_bonus(bonus: Dictionary) -> void:
+	var keys := {}
+	for st in gear_delta:
+		keys[st] = true
+	for st in bonus:
+		keys[st] = true
+	var fresh := {}
+	for st in keys:
+		var base := int(stats[st]) - int(gear_delta.get(st, 0))
+		var now := Stats.clamp_rating(base + int(bonus.get(st, 0)))
+		stats[st] = now
+		if now != base:
+			fresh[st] = now - base
+	gear_delta = fresh
 
 
 func is_injured() -> bool:

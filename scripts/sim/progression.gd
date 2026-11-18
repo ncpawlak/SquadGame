@@ -97,7 +97,7 @@ static func is_capped(soldier: Soldier, group: StringName) -> bool:
 	if soldier.group_headroom(group) <= 0:
 		return true
 	for s in Stats.group_stats(group):
-		if soldier.stats[s] < soldier.stat_cap(s):
+		if soldier.base_stat(s) < soldier.stat_cap(s):
 			return false
 	return true
 
@@ -129,7 +129,7 @@ static func upgrade_group(soldier: Soldier, group: StringName, rng: RandomNumber
 	for i in members.size():
 		var open: Array = []
 		for s in members:
-			if gains[s] < MAX_STAT_GAIN_PER_UPGRADE and soldier.stats[s] + gains[s] < soldier.stat_cap(s):
+			if gains[s] < MAX_STAT_GAIN_PER_UPGRADE and soldier.base_stat(s) + gains[s] < soldier.stat_cap(s):
 				open.append(s)
 		if open.is_empty():
 			break
@@ -152,7 +152,7 @@ static func placement_total(group: StringName) -> int:
 static func placement_room(soldier: Soldier, group: StringName) -> int:
 	var room := 0
 	for s in Stats.group_stats(group):
-		room += maxi(0, mini(Stats.MAX_RATING, soldier.stat_cap(s)) - int(soldier.stats[s]))
+		room += maxi(0, mini(Stats.MAX_RATING, soldier.stat_cap(s)) - soldier.base_stat(s))
 	return room
 
 
@@ -172,7 +172,7 @@ static func placement_error(soldier: Soldier, group: StringName, alloc: Dictiona
 			return "%s is not in that group." % st
 		if int(alloc[st]) < 0:
 			return "Points cannot be negative."
-		if int(soldier.stats[st]) + int(alloc[st]) > mini(Stats.MAX_RATING, soldier.stat_cap(st)):
+		if soldier.base_stat(st) + int(alloc[st]) > mini(Stats.MAX_RATING, soldier.stat_cap(st)):
 			return "%s is at its cap (%d)." % [Stats.LABELS[st], mini(Stats.MAX_RATING, soldier.stat_cap(st))]
 		sum += int(alloc[st])
 	if sum != members.size():

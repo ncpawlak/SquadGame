@@ -114,3 +114,71 @@ func test_cap_raise_never_passes_99_or_6() -> void:
 	check(CapRaise.size(season, Stats.ACCURACY) <= CapRaise.MAX_RAISE, "never more than +6")
 	CapRaise.apply(season, Stats.ACCURACY)
 	check(p.group_cap(Stats.ACCURACY) == 99 and p.stat_cap(Stats.LONG_ACC) == 99, "caps stop at 99")
+
+
+func test_gear_bonus_is_additive_and_removable() -> void:
+	var season := _career(910)
+	var p := season.player
+	var base := p.stats.duplicate()
+	var ovr0 := p.best_ovr()
+	p.set_gear_bonus({Stats.SPEED: 4, Stats.LONG_ACC: 3})
+	check(p.stats[Stats.SPEED] == base[Stats.SPEED] + 4 and p.stats[Stats.LONG_ACC] == base[Stats.LONG_ACC] + 3, "gear adds to the effective ratings")
+	check(p.base_stat(Stats.SPEED) == base[Stats.SPEED] and p.base_ovr() == ovr0, "base ratings and base OVR ignore gear")
+	check(p.best_ovr() >= ovr0, "effective OVR does not drop")
+	p.set_gear_bonus({Stats.SPEED: 1})
+	check(p.stats[Stats.SPEED] == base[Stats.SPEED] + 1 and p.stats[Stats.LONG_ACC] == base[Stats.LONG_ACC], "swapping gear replaces the old bonus")
+	p.set_gear_bonus({})
+	check(p.stats == base and p.gear_delta.is_empty(), "removing gear restores the base exactly")
+
+
+func test_gear_clamps_at_99_and_keeps_the_base() -> void:
+	var season := _career(911)
+	var p := season.player
+	p.stats[Stats.SPEED] = 97
+	p.set_gear_bonus({Stats.SPEED: 5})
+	check(p.stats[Stats.SPEED] == 99 and p.base_stat(Stats.SPEED) == 97, "clamped at 99, base kept")
+	p.set_gear_bonus({})
+	check(p.stats[Stats.SPEED] == 97, "and the base comes back")
+
+
+func test_gear_does_not_eat_skill_point_room() -> void:
+	var season := _career(912)
+	var p := season.player
+	var room := Progression.placement_room(p, Stats.PHYSICALITY)
+	p.set_gear_bonus({Stats.SPEED: 4, Stats.AGILITY: 4})
+	check(Progression.placement_room(p, Stats.PHYSICALITY) == room, "room counts the base rating, not the gear")
+
+
+func test_gear_items_follow_the_tier_ladders() -> void:
+	var icon := Gear.item(&"cryo", Gear.HELMET)
+	check(icon["bonus"].values() == [5, 4, 3, 2] and icon["bonus"].size() == 4, "an Icon helmet is +5 +4 +3 +2 on four stats")
+	var rifle := Gear.item(&"sigsawyer", Gear.RIFLE)
+	check(rifle["bonus"].values() == [5, 4, 3], "an Icon rifle is specialized: three stats, top values")
+	check(Gear.item(&"haynes", Gear.BOOTS)["bonus"].size() == 1, "an Unknown item boosts one stat")
+	check(Gear.item(&"overarmour", Gear.VEST)["bonus"].values() == [3, 2, 1], "a Known vest is +3 +2 +1")
+	for b in Gear.BRANDS:
+		for slot in Gear.SLOTS:
+			var it := Gear.item(b["id"], slot)
+			check(it["bonus"].size() >= 1 and it["bonus"].size() <= 4, "1-4 stats: %s %s" % [b["id"], slot])
+			for st in it["bonus"]:
+				check(Gear.SLOT_POOLS[slot].has(st), "%s is in the %s pool" % [st, slot])
+	check(Gear.brands_in_tier(0).size() == 3 and Gear.brands_in_tier(4).size() == 3, "three sponsors a tier")
+	check(Gear.tier_for_brand(0.0) == 0 and Gear.tier_for_brand(45.0) == 2 and Gear.tier_for_brand(95.0) == 4, "brand unlocks tiers")
+
+
+func test_gear_equip_set_bonus_and_cap() -> void:
+	var season := _career(913)
+	var p := season.player
+	var base := p.base_ovr()
+	check(Gear.equip(p, Gear.item(&"cryo", Gear.HELMET)) != "", "no deal, no gear")
+	p.deals.append({"brand": &"cryo", "slots": [Gear.HELMET, Gear.VEST, Gear.BOOTS], "years_left": 2})
+	for slot in [Gear.HELMET, Gear.VEST, Gear.BOOTS]:
+		check(Gear.equip(p, Gear.item(&"cryo", slot)) == "", "equips with a deal")
+	check(p.best_ovr() > base and p.base_ovr() == base, "effective OVR rose, base did not")
+	check(Gear.set_text(p.gear_slots).begins_with("Cryo Precision set"), "three items wake the set bonus")
+	for stat in p.gear_delta:
+		check(int(p.gear_delta[stat]) <= Gear.STAT_CAP, "per-stat gear cap")
+	# Ending the deal removes the items and the bonus.
+	p.deals.clear()
+	Gear.prune(p)
+	check(p.gear_slots.is_empty() and p.gear_delta.is_empty() and p.best_ovr() == base, "an ended deal takes its gear back")

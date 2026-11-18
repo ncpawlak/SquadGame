@@ -199,6 +199,7 @@ func _todos() -> Array:
 		out.append(_todo("Set your weekly plan", "Your points are wasted until you do", UiKit.GOLD, func(): open_plan(false), true))
 	else:
 		out.append(_todo("Weekly plan", _plan_summary(p.plan, true), UiKit.TRIM, func(): open_plan(false)))
+	out.append(_todo("Loadout", "Base %d, gear %+d, effective %d" % [p.base_ovr(), p.best_ovr() - p.base_ovr(), p.best_ovr()], UiKit.TRIM, func(): open_loadout()))
 	var notes := s.player_notes
 	if not notes.is_empty():
 		out.append(_todo("Coach", String(notes[-1]["text"]), UiKit.GOLD, func(): open_game_log()))
@@ -267,6 +268,20 @@ func _plan() -> PlayerPlanPages:
 
 func open_plan(camp: bool) -> void:
 	hub.open("Camp Plan" if camp else "Weekly Plan", func(): return _plan().plan_page(camp))
+
+
+var gear_ui: PlayerGearPages
+
+
+func _gear() -> PlayerGearPages:
+	if gear_ui == null:
+		gear_ui = PlayerGearPages.new()
+		gear_ui.hub = hub
+	return gear_ui
+
+
+func open_loadout() -> void:
+	hub.open("Loadout", func(): return _gear().loadout_page())
 
 
 func open_cap_raise() -> void:
