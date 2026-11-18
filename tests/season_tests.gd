@@ -5215,3 +5215,39 @@ func test_storylines_season_summary() -> void:
 	page.free()
 	# An empty season says so.
 	check(StoryPages.summary_page(s, null, s.year - 5).get_child_count() == 1, "an empty season shows a note")
+
+
+func _fake_last_year(s: Season, wins: int, losses: int, seed_value: int) -> void:
+	var snap := SeasonSnapshot.new()
+	snap.year = s.year - 1
+	snap.standings = [{"team": s.user_team(), "wins": wins, "losses": losses, "game_diff": 0, "point_diff": 0, "seed": seed_value}]
+	s.history.append(snap)
+
+
+func test_storylines_hot_seat() -> void:
+	var idx := _mid_team(180)
+	var s := _fixed(180, idx)
+	var sl := s.storylines
+	check(_story(s, Storylines.HOT_SEAT).is_empty(), "no hot seat without a finished season on file")
+	_fake_last_year(s, 5, 3, 3)
+	_reseed(s)
+	check(_story(s, Storylines.HOT_SEAT).is_empty(), "no hot seat after a playoff season")
+	s.history.clear()
+	_fake_last_year(s, 5, 3, 0)
+	_reseed(s)
+	check(_story(s, Storylines.HOT_SEAT).is_empty(), "no hot seat after a winning season, even without playoffs")
+	s.history.clear()
+	_fake_last_year(s, 2, 6, 0)
+	_reseed(s)
+	var st := _story(s, Storylines.HOT_SEAT)
+	check(not st.is_empty() and st["last_wins"] == 2 and st["last_losses"] == 6, "a missed, losing season puts the club on the hot seat")
+	check(sl.active.size() <= Storylines.MAX_ACTIVE and sl._arc_count() <= Storylines.MAX_ARCS, "stays under the caps")
+	check(sl.choose(s, st["id"], StoryDefs.VOW) == "", "a public vow is accepted")
+	st["played"] = st["total"] - 1
+	var guard := 0
+	while st["status"] == Storylines.STATUS_ACTIVE and guard < 14:
+		s.sim_week()
+		guard += 1
+	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "it resolves at season end (%s)" % st["status"])
+	check(st.has("rank") and st["rank"] > 0, "the final table position is recorded")
+	check(st["applied"].size() == 2, "the choice and the result are on file")
