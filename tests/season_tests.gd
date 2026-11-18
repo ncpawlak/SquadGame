@@ -5056,3 +5056,67 @@ func test_storylines_comeback_trail() -> void:
 		guard += 1
 	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "it resolves within the window (%s)" % st["status"])
 	check(sl.fired.has("%s:%d" % [Storylines.COMEBACK_TRAIL, s.year]), "once a season")
+
+
+func test_storylines_bromance() -> void:
+	var s := _fixed(150, 0)
+	var sl := s.storylines
+	var user := s.user_team()
+	s.sim_week()
+	sl.active.clear()
+	var a: Soldier = user.starters()[0]
+	var b: Soldier = user.starters()[1]
+	s.relationships.pairs[Relationships.key(a.id, b.id)] = {"pts": 99.0, "m": 20, "d": 0.0}
+	s.prepare_week()
+	var st := _story(s, Storylines.BROMANCE)
+	check(not st.is_empty() and [a.id, b.id].has(st["soldier"]) and [a.id, b.id].has(st["partner"]), "a close pair starts a bromance")
+	check(sl.fired.has("%s:%d" % [Storylines.BROMANCE, s.year]), "once a season")
+	check(sl.choose(s, st["id"], StoryDefs.TOGETHER) == "", "keeping them together is accepted")
+	var guard := 0
+	while st["status"] == Storylines.STATUS_ACTIVE and guard < 6:
+		s.sim_week()
+		guard += 1
+	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "it resolves within the window (%s)" % st["status"])
+	check(st["applied"].size() >= 1, "the choice is on file")
+
+
+func test_storylines_locker_rift() -> void:
+	var s := _fixed(151, 0)
+	var sl := s.storylines
+	var user := s.user_team()
+	s.sim_week()
+	sl.active.clear()
+	var starter: Soldier = user.starters()[0]
+	var bench: Soldier = user.bench()[0]
+	starter.morale = 92.0
+	bench.morale = 40.0
+	s.relationships.pairs.erase(Relationships.key(starter.id, bench.id))
+	s.prepare_week()
+	var st := _story(s, Storylines.LOCKER_RIFT)
+	check(not st.is_empty() and st["partner"] != st["soldier"], "an unhappy bench player and a happy starter start a rift")
+	var target := Storylines.find_soldier(s, st)
+	var before := target.morale
+	check(sl.choose(s, st["id"], StoryDefs.MEDIATE) == "", "sitting them down is accepted")
+	check(target.morale > before, "mediating lifts the unhappy player")
+	var guard := 0
+	while st["status"] == Storylines.STATUS_ACTIVE and guard < 6:
+		s.sim_week()
+		guard += 1
+	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "it resolves within the window (%s)" % st["status"])
+
+
+func test_storylines_milestone_chase() -> void:
+	var s := _fixed(152, 0)
+	var sl := s.storylines
+	var user := s.user_team()
+	sl.active.clear()
+	check(sl._try_milestone(s, user).is_empty(), "no milestone without a player one match short")
+	var so: Soldier = user.starters()[0]
+	so.career["matches"] = Storylines.MILESTONE_STEP - 1
+	var st := sl._try_milestone(s, user)
+	check(not st.is_empty() and st["soldier"] == so.id and st["milestone"] == Storylines.MILESTONE_STEP, "a starter one match short makes a milestone chase")
+	check(Storylines.decision_open(st), "the decision is open")
+	check(sl.choose(s, st["id"], StoryDefs.FEATURE) == "", "making it his night is accepted")
+	s.sim_week()
+	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "it resolves with the match (%s)" % st["status"])
+	check(sl.fired.has("%s:%d" % [Storylines.MILESTONE_CHASE, s.year]), "once a season")
