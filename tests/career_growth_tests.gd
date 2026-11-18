@@ -68,16 +68,15 @@ func _capped(season: Season, group: StringName) -> void:
 	p.group_caps[group] = maxi(p.group_cap(group), p.group_rating(group))
 
 
-func test_cap_raise_needs_a_capped_group_and_the_offseason() -> void:
+func test_cap_raise_needs_the_offseason_and_an_open_group() -> void:
 	var season := _career(901)
 	var p := season.player
 	check(CapRaise.window_error(season) != "", "no raise in season")
 	season.phase = Season.PHASE_OFFSEASON
 	check(CapRaise.window_error(season) == "", "the offseason opens the window")
-	check(CapRaise.eligible_groups(season).is_empty(), "nothing is capped on day one")
+	check(CapRaise.eligible_groups(season).has(Stats.PHYSICALITY), "a group does not need to be maxed")
 	_capped(season, Stats.PHYSICALITY)
-	check(CapRaise.eligible_groups(season) == [Stats.PHYSICALITY] or CapRaise.eligible_groups(season).has(Stats.PHYSICALITY), "a filled group is eligible")
-	check(CapRaise.group_error(season, Stats.MENTALITY) != "", "an unfilled group is not")
+	check(CapRaise.eligible_groups(season).has(Stats.PHYSICALITY), "and a maxed one is fine too")
 
 
 func test_cap_raise_size_and_effect() -> void:

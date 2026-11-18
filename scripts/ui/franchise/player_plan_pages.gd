@@ -212,7 +212,7 @@ func cap_raise_page() -> Control:
 func _fill_cap_raise(box: VBoxContainer, fns: Dictionary) -> void:
 	var s := _season()
 	var p := s.player
-	var intro := _label("Once an offseason you can raise one group's ceiling. Fill a group to its cap first; the raise is +2 (+1 as a group nears its peak age, none at it), plus a point each for a strong season, a Performance Institute, a camp special and a story (max +%d). It closes once a group is past its peak age. A raise lifts the cap only: you still earn the rating with skill points." % CapRaise.MAX_RAISE, 15, UiKit.MUTED)
+	var intro := _label("Once an offseason you can raise one group's ceiling, maxed or not. The raise is +2 (+1 as a group nears its peak age, none at it), plus a point each for a strong season, a Performance Institute, a camp special and a story (max +%d). It closes once a group is past its peak age. A raise lifts the cap only: you still earn the rating with skill points." % CapRaise.MAX_RAISE, 15, UiKit.MUTED)
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	intro.custom_minimum_size.x = 960
 	box.add_child(intro)

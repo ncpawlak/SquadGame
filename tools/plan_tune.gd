@@ -59,11 +59,14 @@ func _init() -> void:
 	var seasons := int(args["seasons"])
 	var fatigue_sum := 0.0
 	var fatigue_n := 0
+	var raises := 0
+	var stories := 0
 	for n in seasons:
 		var fat_sum := 0.0
 		var fat_n := 0
 		var started := 0
 		while season.phase != Season.PHASE_OFFSEASON:
+			_take_deals(season)
 			_set_plan(season, false)
 			if p.skill_points > 0:
 				Progression.auto_spend(p, Scheme.best_role(p.stats))
@@ -73,9 +76,13 @@ func _init() -> void:
 				fat_n += 1
 		var sm := PlayerGrade.summary(PlayerGrade.log_for(season, season.year))
 		rows.append({"year": season.year, "age": p.age, "ovr": p.best_ovr(), "dev": p.dev, "study": snappedf(p.study_progress, 0.1),
-			"brand": snappedf(p.brand, 0.1), "wear": snappedf(p.wear, 0.1), "games": sm["games"], "avg": snappedf(sm["avg"], 0.1), "fatigue": snappedf(fat_sum / maxf(1.0, float(fat_n)), 0.1),
+			"brand": snappedf(p.brand, 0.1), "wear": snappedf(p.wear, 0.1), "base": p.base_ovr(), "caps": _cap_avg(p), "cash": p.cash, "deals": p.deals.size(), "raises": raises, "stories": stories, "games": sm["games"], "avg": snappedf(sm["avg"], 0.1), "fatigue": snappedf(fat_sum / maxf(1.0, float(fat_n)), 0.1),
 			"on": "green" if season.user_team().green_team.has(p) else "roster", "hof": snappedf(PlayerLegacy.trajectory(season)["score"], 0.1)})
 		print("season %d done t=%d" % [n, Time.get_ticks_msec() / 1000])
+		_take_deals(season)
+		stories += _answer_stories(season)
+		if _raise_cap(season):
+			raises += 1
 		fatigue_sum += fat_sum
 		fatigue_n += fat_n
 		if n == seasons - 1:
@@ -113,6 +120,56 @@ func _wait_vote(season: Season, result: Dictionary) -> void:
 	var v := PlayerLegacy.simulate_to_vote(season)
 	result["verdict"] = String(v)
 	result["final_hof"] = snappedf(float(PlayerLegacy.final_score(season)["score"]), 0.1)
+
+
+## Signs every offer that fits (best tier first), like a player who takes what he is given.
+func _take_deals(season: Season) -> void:
+	var p := season.player
+	if p.offers.is_empty():
+		return
+	var offers: Array = p.offers.duplicate()
+	offers.sort_custom(func(a, b): return int(Gear.brand(a["brand"])["tier"]) > int(Gear.brand(b["brand"])["tier"]))
+	for o in offers:
+		Sponsors.accept(season, o)
+
+
+## Takes the first choice of every waiting story (a mentor teaches the group with the most room). Returns how many.
+func _answer_stories(season: Season) -> int:
+	var p := season.player
+	var n := 0
+	for st in p.stories.duplicate():
+		var key := String(st["choices"][0]["key"])
+		if st["kind"] == "mentor":
+			var best := Stats.ACCURACY
+			for g in Stats.UPGRADABLE_GROUPS:
+				if p.group_cap(g) - p.group_rating(g) > p.group_cap(best) - p.group_rating(best):
+					best = g
+			key = String(best)
+		Stories.choose(season, st, key)
+		n += 1
+	return n
+
+
+## Sets a camp special on the first capped group, then raises the biggest available cap. Returns true if one was raised.
+func _raise_cap(season: Season) -> bool:
+	var p := season.player
+	var ready := CapRaise.eligible_groups(season)
+	if ready.is_empty():
+		return false
+	if p.camp_focus == &"":
+		Stories.set_camp_special(season, ready[0])
+	var best: StringName = ready[0]
+	for g in ready:
+		if CapRaise.size(season, g) > CapRaise.size(season, best):
+			best = g
+	return not CapRaise.apply(season, best).is_empty()
+
+
+func _cap_avg(p: Soldier) -> float:
+	var total := 0.0
+	for g in Stats.UPGRADABLE_GROUPS:
+		total += p.group_cap(g)
+	return snappedf(total / float(Stats.UPGRADABLE_GROUPS.size()), 0.1)
 
 
 ## The automatic plan for the chosen style (camp: the offseason plan).

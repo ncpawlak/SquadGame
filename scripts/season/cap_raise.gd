@@ -1,7 +1,7 @@
 class_name CapRaise
 extends RefCounted
-## Career-mode offseason cap raise (#141): once an offseason the player picks one stat group that is capped (every
-## stat at its ceiling) and raises its ceiling. Base +2, plus a point each for a strong season, a Performance Institute
+## Career-mode offseason cap raise (#141): once an offseason the player picks one stat group and raises its ceiling (the
+## group does not have to be maxed: a higher cap is room to grow into). Base +2, plus a point each for a strong season, a Performance Institute
 ## tier, a camp special on that group and a story that year: +6 at most. Caps never pass 99.
 
 const BASE := 2
@@ -42,7 +42,7 @@ static func window_error(season: Season) -> String:
 	return ""
 
 
-## The groups that could take a raise now (capped, and below 99 somewhere).
+## The groups that could take a raise now (window open, and below 99 somewhere).
 static func eligible_groups(season: Season) -> Array[StringName]:
 	var out: Array[StringName] = []
 	if window_error(season) != "":
@@ -62,8 +62,6 @@ static func group_error(season: Season, group: StringName) -> String:
 		return "That group has no cap to raise."
 	if window(p, group).is_empty():
 		return "Closed: past the %s peak age (%d)." % [String(Stats.GROUP_LABELS[group]).to_lower(), int(Aging.PEAK_AGE[group])]
-	if not Progression.is_capped(p, group):
-		return "Fill the %s cap first (%d points of room left)." % [String(Stats.GROUP_LABELS[group]).to_lower(), Progression.placement_room(p, group)]
 	if size(season, group) <= 0:
 		return "At your age only a strong season, a camp special or a story can raise this cap."
 	var open := false

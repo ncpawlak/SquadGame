@@ -17,7 +17,7 @@ run_job() {
   [ "$agecap" != "-" ] && [ -n "$agecap" ] && extra="$extra agecap=$agecap"
   [ "$wgain" != "-" ] && [ -n "$wgain" ] && extra="$extra wgain=$wgain"
   [ "$wspa" != "-" ] && [ -n "$wspa" ] && extra="$extra wspa=$wspa"
-  timeout 3600 "$G" --headless --path . --script res://tools/plan_tune.gd -- age=$age style=$style seed=$seed seasons=$seasons vote=$vote out="$out" $extra > "$out.log" 2>&1
+  timeout 7200 "$G" --headless --path . --script res://tools/plan_tune.gd -- age=$age style=$style seed=$seed seasons=$seasons vote=$vote out="$out" $extra > "$out.log" 2>&1
 }
 export -f run_job
 export G OUT

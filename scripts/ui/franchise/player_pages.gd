@@ -190,7 +190,7 @@ func _todos() -> Array:
 		elif p.cap_raise_year == s.year:
 			out.append(_todo("Cap raised", "Done for this offseason", UiKit.TRIM, func(): open_cap_raise()))
 		else:
-			out.append(_todo("Raise a cap", "Fill a group to its ceiling first", UiKit.TRIM, func(): open_cap_raise()))
+			out.append(_todo("Raise a cap", "No group can take a raise at your age", UiKit.TRIM, func(): open_cap_raise()))
 		if not p.camp_plan_confirmed:
 			out.append(_todo("Set your camp plan", "8 points: practice, study, outing, brand", UiKit.GOLD, func(): open_plan(true), true))
 		else:

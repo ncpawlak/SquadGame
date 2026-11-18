@@ -53,6 +53,16 @@ for (style, age) in sorted(groups):
     print("\n%-8s age %d  (%d runs)" % (style, age, len(g)))
     print("  ovr by season :", ovr)
     print("  games / season:", games)
+    def first(r, lvl):
+        for i, s in enumerate(r["seasons"]):
+            if s["ovr"] >= lvl:
+                return str(i + 1)
+        return "-"
+    print("  first season at 90 / 95 / 99 OVR:", "  ".join("%s/%s/%s" % (first(r, 90), first(r, 95), first(r, 99)) for r in g))
+    print("  base ovr      :", " ".join("%.0f" % mean([r["seasons"][i].get("base", 0) for r in g if len(r["seasons"]) > i]) for i in range(n)))
+    print("  avg group cap :", " ".join("%.0f" % mean([r["seasons"][i].get("caps", 0) for r in g if len(r["seasons"]) > i]) for i in range(n)))
+    print("  cash / deals  :", " ".join("%.0f/%.0f" % (mean([r["seasons"][i].get("cash", 0) for r in g if len(r["seasons"]) > i]), mean([r["seasons"][i].get("deals", 0) for r in g if len(r["seasons"]) > i])) for i in range(n)))
+    print("  raises / stories (end):", "%.0f / %.0f" % (mean([r["seasons"][-1].get("raises", 0) for r in g]), mean([r["seasons"][-1].get("stories", 0) for r in g])))
     print("  wear by season:", " ".join("%.0f" % mean([r["seasons"][i].get("wear", 0) for r in g if len(r["seasons"]) > i]) for i in range(n)))
     print("  star 2/3/4 in season:", stars, "  brand end: %.0f  mean fatigue: %.0f  hof score end: %.0f" % (brand, fat, hof))
     if verdicts:
