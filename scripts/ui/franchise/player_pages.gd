@@ -199,6 +199,8 @@ func _todos() -> Array:
 		out.append(_todo("Set your weekly plan", "Your points are wasted until you do", UiKit.GOLD, func(): open_plan(false), true))
 	else:
 		out.append(_todo("Weekly plan", _plan_summary(p.plan, true), UiKit.TRIM, func(): open_plan(false)))
+	if not p.stories.is_empty():
+		out.append(_todo("Stories", "%d decision%s waiting" % [p.stories.size(), "" if p.stories.size() == 1 else "s"], UiKit.GOLD, func(): open_stories(), true))
 	if not p.offers.is_empty():
 		out.append(_todo("Sponsors", "%d offer%s waiting" % [p.offers.size(), "" if p.offers.size() == 1 else "s"], UiKit.GOLD, func(): open_sponsors(), true))
 	else:
@@ -290,6 +292,10 @@ func open_loadout() -> void:
 
 func open_sponsors() -> void:
 	hub.open("Sponsors", func(): return _gear().sponsors_page())
+
+
+func open_stories() -> void:
+	hub.open("Stories", func(): return _gear().stories_page())
 
 
 func open_cap_raise() -> void:

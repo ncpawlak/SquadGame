@@ -196,3 +196,38 @@ func _fill_sponsors(box: VBoxContainer, fns: Dictionary) -> void:
 	foot.add_child(UiKit.button("Loadout", func(): hub.open("Loadout", func(): return loadout_page()), 16))
 	foot.add_child(UiKit.button("Back", func(): hub.go_back(), 16))
 	box.add_child(foot)
+
+
+# --- stories ---------------------------------------------------------------------------------------
+
+func stories_page() -> Control:
+	var root := _vbox(10)
+	root.custom_minimum_size.x = 1000
+	var holder := _vbox(10)
+	root.add_child(holder)
+	var fns := {}
+	fns["render"] = func():
+		_clear(holder)
+		_fill_stories(holder, fns)
+	fns["render"].call()
+	return root
+
+
+func _fill_stories(box: VBoxContainer, fns: Dictionary) -> void:
+	var s := _season()
+	var p := s.player
+	box.add_child(_wrap("Things that happen on the way: a decision here can change your morale, brand and skill points. Automatic stories (group training, a breakthrough game, a comeback) show up as coach notes.", 15))
+	if p.stories.is_empty():
+		box.add_child(_label("Nothing waiting.", 16, UiKit.MUTED))
+	for st in p.stories.duplicate():
+		box.add_child(_label(String(st["title"]), 19, Color.WHITE))
+		box.add_child(_wrap(String(st["text"]), 15, UiKit.TEXT))
+		for c in st["choices"]:
+			box.add_child(UiKit.button(String(c["label"]), func():
+				var msg := Stories.choose(s, st, String(c["key"]))
+				if msg != "":
+					hub.app.toast(msg)
+				fns["render"].call(), 15))
+	var foot := _hbox(12)
+	foot.add_child(UiKit.button("Back", func(): hub.go_back(), 16))
+	box.add_child(foot)

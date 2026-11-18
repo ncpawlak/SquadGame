@@ -96,6 +96,8 @@ func _fill_plan(box: VBoxContainer, camp: bool, st: Dictionary, fns: Dictionary)
 			t.custom_minimum_size.x = 170
 			row.add_child(t)
 		box.add_child(row)
+	if camp:
+		_camp_special_row(box, fns)
 	var left := WeeklyPlan.unspent(plan, camp)
 	box.add_child(_label("Points left: %d" % left, 20, UiKit.GOLD if left > 0 else UiKit.GOOD))
 	if left > 0:
@@ -239,6 +241,24 @@ func _fill_cap_raise(box: VBoxContainer, fns: Dictionary) -> void:
 		else:
 			row.add_child(_label(err, 14, UiKit.MUTED))
 		box.add_child(row)
+
+
+## Camp special (optional, free): which group the camp focuses on. It adds a point to that group's next cap raise.
+func _camp_special_row(box: VBoxContainer, fns: Dictionary) -> void:
+	var s := _season()
+	var p := s.player
+	var row := _hbox(8)
+	row.add_child(_label("Camp special:", 16, UiKit.GOLD))
+	var none := UiKit.button("None" + ("  ✓" if p.camp_focus == &"" else ""), func():
+		Stories.set_camp_special(s, &"")
+		fns["render"].call(), 14)
+	row.add_child(none)
+	for g in Stats.UPGRADABLE_GROUPS:
+		row.add_child(UiKit.button("%s%s" % [Stats.GROUP_LABELS[g], "  ✓" if p.camp_focus == g else ""], func():
+			Stories.set_camp_special(s, g)
+			fns["render"].call(), 14))
+	box.add_child(row)
+	box.add_child(_label("A masterclass on one group: it adds a point to that group's cap raise this offseason (free, and a mentor story can set it too).", 13, UiKit.MUTED))
 
 
 ## Place a group upgrade by hand: one stat point per stat in the group, up to each stat's cap, then confirm.

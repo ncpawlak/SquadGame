@@ -242,3 +242,62 @@ func test_sponsor_season_end_pays_and_drops() -> void:
 	check(p.cash == 60 and rep["paid"] == 60, "both deals pay")
 	check(p.deals.is_empty(), "one ran out, one broke its brand floor")
 	check(p.gear_slots.is_empty() and p.gear_delta.is_empty(), "their gear went with them")
+
+
+func _entry(score: float) -> Dictionary:
+	return {"played": true, "score": score}
+
+
+func test_group_training_needs_morale_and_a_streak() -> void:
+	var season := _career(930)
+	var p := season.player
+	p.morale = 90.0
+	var sp := p.skill_points
+	Stories.after_match(season, _entry(70.0), true)
+	Stories.after_match(season, _entry(70.0), true)
+	check(p.skill_points == sp, "two wins is not a streak")
+	Stories.after_match(season, _entry(70.0), true)
+	check(p.skill_points >= sp + 2 and p.skill_points <= sp + 4, "a streak with high morale earns 2-4 skill points")
+	var after := p.skill_points
+	Stories.after_match(season, _entry(70.0), true)
+	check(p.skill_points == after, "once a season")
+	Stories.after_match(season, _entry(70.0), false)
+	check(p.streak == 0, "a loss resets the streak")
+	var low := _career(931).player
+	low.morale = 50.0
+
+
+func test_breakthrough_and_media_storm() -> void:
+	var season := _career(932)
+	var p := season.player
+	var m0 := p.morale
+	Stories.after_match(season, _entry(96.0), true)
+	check(p.cap_story_bonus == 1 and p.morale > m0, "a 95+ grade is a breakthrough: morale and a cap-raise point")
+	p.brand = 60.0
+	Stories.after_match(season, _entry(50.0), false)
+	check(p.stories.size() == 1 and p.stories[0]["kind"] == "storm", "a bad night with a name makes a media storm")
+	var b := p.brand
+	var msg := Stories.choose(season, p.stories[0], "face")
+	check(msg != "" and p.brand == b + 3.0 and p.stories.is_empty(), "facing the press builds brand")
+
+
+func test_captain_mentor_and_camp_special() -> void:
+	var season := _career(933)
+	var p := season.player
+	season.phase = Season.PHASE_OFFSEASON
+	Stories.set_camp_special(season, &"")
+	_capped(season, Stats.OBJECTIVE)
+	var plain := CapRaise.size(season, Stats.OBJECTIVE)
+	check(Stories.set_camp_special(season, Stats.OBJECTIVE) == "" and p.camp_focus == Stats.OBJECTIVE, "a camp special picks a group")
+	check(Stories.set_camp_special(season, &"nonsense") != "", "and refuses a bad one")
+	check(CapRaise.size(season, Stats.OBJECTIVE) == plain + 1, "the camp special adds one to that group's raise")
+	Stories.set_camp_special(season, &"")
+	check(CapRaise.size(season, Stats.OBJECTIVE) == plain, "and clearing it takes it away")
+	# A mentor story: 2 skill points and a camp special on the chosen group.
+	p.stories.append({"kind": "mentor", "title": "Veteran mentor", "text": "", "choices": [], "year": season.year})
+	var sp := p.skill_points
+	Stories.choose(season, p.stories[0], String(Stats.ACCURACY))
+	check(p.skill_points == sp + 2 and p.camp_focus == Stats.ACCURACY, "the mentor teaches one group")
+	p.stories.append({"kind": "captain", "title": "Captaincy", "text": "", "choices": [], "year": season.year})
+	Stories.choose(season, p.stories[0], "accept")
+	check(p.captain, "accepting makes him captain")

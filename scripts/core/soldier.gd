@@ -143,6 +143,11 @@ var gear_slots: Dictionary = {}
 ## Sponsor deals he holds (see Sponsors) and the money they have paid him.
 var deals: Array = []
 var offers: Array = []
+## Stories waiting on an answer, the year each kind last fired, his club's current win streak and whether he is captain.
+var stories: Array = []
+var story_years: Dictionary = {}
+var streak := 0
+var captain := false
 var cash := 0
 
 # Green Team (development roster; see Team.green_team and GreenTeam)

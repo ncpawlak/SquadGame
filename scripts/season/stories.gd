@@ -1,0 +1,127 @@
+class_name Stories
+extends RefCounted
+## Career-mode stories and camp specials (#141). Small events that fire from how the career is going and feed growth:
+## skill points, morale, brand and the offseason cap raise (CapRaise adds a point for a story and for a camp special).
+## Some are automatic (a note on Home); some ask a question and wait in the player's story list until answered.
+##
+## Automatic: group training (high morale on a win streak: skill points), breakthrough game, injury comeback.
+## Asks: media storm after a bad game, captaincy, veteran mentor.
+
+const GROUP_TRAINING_MORALE := 85.0
+const GROUP_TRAINING_STREAK := 3
+const BREAKTHROUGH_SCORE := 95.0
+const STORM_SCORE := 55.0
+const STORM_BRAND := 40.0
+const COMEBACK_GAMES := 8
+const CAPTAIN_GAMES := 10
+const CAPTAIN_AVG := 75.0
+const CAPTAIN_MORALE := 75.0
+const MENTOR_AGE := 29
+
+
+static func _once(p: Soldier, kind: String, year: int) -> bool:
+	if int(p.story_years.get(kind, 0)) == year:
+		return false
+	p.story_years[kind] = year
+	return true
+
+
+static func _note(season: Season, text: String) -> void:
+	season.player_notes.append({"year": season.year, "week": season.week, "text": text})
+
+
+static func _ask(season: Season, kind: String, title: String, text: String, choices: Array) -> void:
+	var p := season.player
+	for s in p.stories:
+		if s["kind"] == kind:
+			return
+	p.stories.append({"kind": kind, "title": title, "text": text, "choices": choices, "year": season.year})
+	_note(season, "%s: a decision is waiting in your stories." % title)
+
+
+## After a player-log entry is recorded: `won` is whether his club won the match.
+static func after_match(season: Season, entry: Dictionary, won: bool) -> void:
+	var p := season.player
+	p.streak = p.streak + 1 if won else 0
+	if bool(entry.get("played", false)):
+		var score := float(entry["score"])
+		if score >= BREAKTHROUGH_SCORE and _once(p, "breakthrough", season.year):
+			p.add_morale(10.0)
+			p.cap_story_bonus = 1
+			_note(season, "Breakthrough game: a %d grade. Morale up, and it will count toward your next cap raise." % roundi(score))
+		elif score <= STORM_SCORE and p.brand >= STORM_BRAND and _once(p, "storm", season.year):
+			_ask(season, "storm", "Media storm", "A rough night in front of a big audience. The press wants to hear from you.",
+				[{"key": "face", "label": "Face the press (brand +3, morale -6)"}, {"key": "lowkey", "label": "Lie low (morale +4, brand -1)"}])
+	if p.streak >= GROUP_TRAINING_STREAK and p.morale >= GROUP_TRAINING_MORALE and _once(p, "group", season.year):
+		var sp := 2 + (1 if p.streak >= 5 else 0) + (1 if p.morale >= 95.0 else 0)
+		p.skill_points += sp
+		_note(season, "The squad is flying: a group training session on your own time earned %d skill points." % sp)
+
+
+## End of a season, before the offseason: comeback, captaincy and mentor stories.
+static func season_end(season: Season) -> void:
+	var p := season.player
+	if p == null or not season.player_mode:
+		return
+	p.stories = p.stories.filter(func(s): return int(s["year"]) >= season.year)
+	var sm := PlayerGrade.summary(PlayerGrade.log_for(season, season.year))
+	var games := int(sm["games"])
+	if p.wear_injuries >= 1 and games >= COMEBACK_GAMES and _once(p, "comeback", season.year):
+		p.cap_story_bonus = 1
+		p.brand = minf(WeeklyPlan.BRAND_MAX, p.brand + 3.0)
+		_note(season, "Comeback season: back from a long injury and playing every week. Fans noticed, and it counts toward your next cap raise.")
+	if games >= CAPTAIN_GAMES and float(sm["avg"]) >= CAPTAIN_AVG and p.morale >= CAPTAIN_MORALE and not p.captain and _once(p, "captain", season.year):
+		_ask(season, "captain", "Captaincy", "The squad wants you to wear the armband next season.",
+			[{"key": "accept", "label": "Take it (brand +5, morale +8)"}, {"key": "decline", "label": "Pass (morale +2)"}])
+	var team := season.user_team()
+	if team != null and _once(p, "mentor", season.year):
+		for v in team.roster:
+			if v != p and v.age >= MENTOR_AGE and v.best_ovr() >= p.base_ovr():
+				var choices: Array = []
+				for g in Stats.UPGRADABLE_GROUPS:
+					choices.append({"key": String(g), "label": "%s (+2 skill points, a camp special on it)" % Stats.GROUP_LABELS[g]})
+				_ask(season, "mentor", "Veteran mentor", "A veteran on the squad offers to teach you. Pick what to learn.", choices)
+				break
+
+
+## Answers a pending story. Returns the toast text ("" if it was not found).
+static func choose(season: Season, story: Dictionary, key: String) -> String:
+	var p := season.player
+	if not p.stories.has(story):
+		return ""
+	p.stories.erase(story)
+	match String(story["kind"]):
+		"storm":
+			if key == "face":
+				p.brand = minf(WeeklyPlan.BRAND_MAX, p.brand + 3.0)
+				p.add_morale(-6.0)
+				return "You faced the press. Brand up."
+			p.add_morale(4.0)
+			p.brand = maxf(0.0, p.brand - 1.0)
+			return "You kept your head down."
+		"captain":
+			if key == "accept":
+				p.captain = true
+				p.brand = minf(WeeklyPlan.BRAND_MAX, p.brand + 5.0)
+				p.add_morale(8.0)
+				return "You are the captain."
+			p.add_morale(2.0)
+			return "You passed on the armband."
+		"mentor":
+			var g := StringName(key)
+			if Stats.UPGRADABLE_GROUPS.has(g):
+				p.skill_points += 2
+				p.camp_focus = g
+				return "You learned from the veteran: +2 skill points and a camp special on %s." % String(Stats.GROUP_LABELS[g]).to_lower()
+	return "Done."
+
+
+## Camp special: pick the group (or &"" for none) your camp focuses on. It adds a point to that group's next cap raise.
+static func set_camp_special(season: Season, group: StringName) -> String:
+	var p := season.player
+	if group != &"" and not Stats.UPGRADABLE_GROUPS.has(group):
+		return "That group cannot be a camp special."
+	if season.phase != Season.PHASE_OFFSEASON:
+		return "Camp specials are picked in the offseason."
+	p.camp_focus = group
+	return ""
