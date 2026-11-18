@@ -27,6 +27,7 @@ const FA_POOL_LIMIT := 36
 
 const REASON_AGE := "Age"
 const REASON_UNSIGNED := "Unsigned"
+const REASON_PLAYER := "Retired"
 
 
 ## Chance `s` retires for age after the season. `starter`: he's in his club's lineup;
@@ -77,6 +78,9 @@ static func run(season: Season, rng: RandomNumberGenerator) -> Array:
 	for t in season.league.teams:
 		var starters := t.starters()
 		for s in t.roster.duplicate():
+			# The user's soldier retires when he chooses (see PlayerLegacy.retire), or at the age everyone does.
+			if s.player_controlled and s.age < ALWAYS_AGE:
+				continue
 			if rng.randf() < chance(s, starters.has(s)):
 				out.append(_retire(season, s, t, REASON_AGE))
 	for s in season.league.free_agents.duplicate():

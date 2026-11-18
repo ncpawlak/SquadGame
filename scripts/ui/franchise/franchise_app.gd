@@ -134,10 +134,10 @@ func show_mode_select() -> void:
 		["Pick your team and take over", "Training camp, drills and development", "Contracts, cap and free agency", "Draft, scouting and the full league season"],
 		false, show_team_select))
 	cards.add_child(_mode_card("PLAYER", "LIVE THE CAREER",
-		"Control a single soldier from the draft to retirement while the rest of the league runs on its own. "
-		+ "Build your ratings, talk contracts with your agent, pick your team in free agency and chase a legacy.",
-		["Create a soldier and enter the draft", "Ratings, training and playing time", "Agent talks and free-agency choices", "Retirement and your career legacy"],
-		true, func(): toast("Player mode is coming soon. Start as Manager / GM for now.")))
+		"Control a single soldier from the combine to retirement while the rest of the league runs on its own. "
+		+ "Build your ratings, earn your starting spot and chase a place in the Hall of Fame.",
+		["Create a soldier and pick an archetype", "Combine, draft and rookie season", "Ratings, training and playing time", "Retirement and the Hall of Fame"],
+		false, show_player_create))
 	var i := 0
 	for c in cards.get_children():
 		UiKit.fade_in(c, 0.08 * i, 0.3)
@@ -205,6 +205,70 @@ func _mode_card(title: String, tagline: String, desc: String, points: Array, soo
 		col.add_child(line)
 	b.add_child(col)
 	return b
+
+
+## Player mode step 1: create the soldier (face, name, callsign, archetype). The combine and the draft follow.
+func show_player_create() -> void:
+	if preview_seed == 0:
+		preview_seed = randi_range(1, 999999)
+	var taken := PlayerCareer.taken_callsigns(League.load_fixed(preview_seed))
+	_set_screen(PlayerCreate.make(taken, show_mode_select, _on_player_created))
+
+
+func _on_player_created(choice: Dictionary) -> void:
+	var seed_value := preview_seed
+	season = Season.new_franchise(seed_value, 0, 2026, false)
+	season.player_mode = true
+	season.player_archetype = choice["archetype"]
+	season.player = PlayerCareer.create_soldier(season.league.next_soldier_id, choice["first"], choice["last"],
+		choice["callsign"], choice["head"], int(choice["morph"]), choice["archetype"])
+	season.league.next_soldier_id += 1
+	season.player_combine = Combine.make(choice["archetype"])
+	preview_seed = 0
+	show_combine()
+
+
+## Player mode step 2: the combine drills. Locking in rolls the hidden talent and writes the ratings.
+func show_combine() -> void:
+	_set_screen(CombineScreen.make(season, _lock_combine, show_title))
+
+
+func _lock_combine() -> void:
+	if season.player_combine_done:
+		show_combine_results()
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash("%d:%s:%s" % [season.player.id, season.player.callsign, season.player_archetype])
+	season.player_combine.finalize(season.player, rng)
+	season.player_combine_done = true
+	show_combine_results()
+
+
+func show_combine_results() -> void:
+	_set_screen(CombineScreen.results(season, show_draft_report))
+
+
+## Player mode step 3: the scouting report, draft night and (if undrafted) the Green Team offers.
+func show_draft_report() -> void:
+	PlayerDraft.begin(season)
+	_set_screen(PlayerDraftPages.report(season, show_draft_night))
+
+
+func show_draft_night() -> void:
+	var res := PlayerDraft.run(season)
+	_set_screen(PlayerDraftPages.night(season, res, _after_draft_night))
+
+
+func _after_draft_night() -> void:
+	if season.player_draft_state == PlayerDraft.STATE_OFFERS:
+		_set_screen(PlayerDraftPages.offers(season, show_player_landing))
+	else:
+		show_player_landing()
+
+
+## Where the career begins; the button opens the hub on Week 1.
+func show_player_landing() -> void:
+	_set_screen(PlayerDraftPages.landing(season, show_hub))
 
 
 func show_team_select() -> void:

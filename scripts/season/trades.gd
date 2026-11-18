@@ -263,7 +263,7 @@ func picks_of(season: Season, team: Team) -> Array:
 ## Players `team` can trade: everyone under contract past this season, except a no-trade clause
 ## (waived if he has asked out).
 static func tradeable(s: Soldier) -> bool:
-	return s.contract != null and s.contract.years > 0 and s.retired_year == 0 and (not s.contract.no_trade or s.trade_request)
+	return s.contract != null and s.contract.years > 0 and s.retired_year == 0 and not s.player_controlled and (not s.contract.no_trade or s.trade_request)
 
 
 func assets_of(season: Season, team: Team) -> Array:
