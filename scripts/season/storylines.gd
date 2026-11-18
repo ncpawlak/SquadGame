@@ -420,6 +420,48 @@ func finished_in(year: int) -> Array:
 	return finished.filter(func(st): return int(st["year"]) == year)
 
 
+## Every story of a season, finished or still running, in the order they began.
+func all_in(year: int) -> Array:
+	var out: Array = finished_in(year)
+	out.append_array(active.filter(func(st): return int(st["year"]) == year))
+	out.sort_custom(func(a: Dictionary, b: Dictionary): return int(a["id"]) < int(b["id"]))
+	return out
+
+
+## The season in numbers: how many stories ended each way, and what they earned in total.
+## {count, won, lost, split, fizzled, open, buzz, sp}
+func season_totals(year: int) -> Dictionary:
+	var t := {"count": 0, "won": 0, "lost": 0, "split": 0, "fizzled": 0, "open": 0, "buzz": 0.0, "sp": 0}
+	for st: Dictionary in all_in(year):
+		t["count"] += 1
+		match st["status"]:
+			STATUS_WON:
+				t["won"] += 1
+			STATUS_LOST:
+				t["lost"] += 1
+			STATUS_SPLIT:
+				t["split"] += 1
+			STATUS_FIZZLED:
+				t["fizzled"] += 1
+			_:
+				t["open"] += 1
+		var e: Dictionary = st.get("earned", {})
+		t["buzz"] += float(e.get("buzz", 0.0))
+		t["sp"] += int(e.get("sp", 0))
+	return t
+
+
+## Seasons that have any story on file, newest first.
+func years_on_file() -> Array:
+	var seen := {}
+	for st in finished + active:
+		seen[int(st["year"])] = true
+	var out: Array = seen.keys()
+	out.sort()
+	out.reverse()
+	return out
+
+
 ## A decision is open while the story is active, nothing has been picked and its window has not
 ## closed. Past that point the story plays out on its own (StoryDefs.STAY).
 static func decision_open(st: Dictionary) -> bool:
@@ -488,6 +530,11 @@ func _apply(season: Season, st: Dictionary, e: Dictionary, label: String) -> voi
 		if label.begins_with("You chose"):
 			st["applied"].append(label)
 		return
+	var earned: Dictionary = st.get("earned", {})
+	earned["buzz"] = float(earned.get("buzz", 0.0)) + float(e.get("buzz", 0.0))
+	if find_soldier(season, st) != null:
+		earned["sp"] = int(earned.get("sp", 0)) + roundi(float(e.get("t_sp", 0.0)))
+	st["earned"] = earned
 	if e.has("heat") and st.has("rival"):
 		var rival := season.league.team_by_abbrev(st["rival"])
 		if rival != null:
@@ -555,7 +602,7 @@ func _end(st: Dictionary, status: StringName, wk: int) -> void:
 func _base(season: Season, kind: StringName, user: Team, title: String) -> Dictionary:
 	var st := {"id": next_id, "kind": kind, "year": season.year, "team": user.abbrev, "title": title,
 		"stage": STAGE_SETUP, "status": STATUS_ACTIVE, "ended_week": 0, "choice": &"", "open": true, "applied": [],
-		"results": [], "start_week": season.week}
+		"results": [], "start_week": season.week, "earned": {}}
 	next_id += 1
 	return st
 
