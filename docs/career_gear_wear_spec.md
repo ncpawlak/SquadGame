@@ -74,16 +74,23 @@ handling 0.6, objective 0.6, mentality 0.4.
 - Per-stat total gear bonus is capped at +10.
 
 ### Bonus sizes (per item)
-| Tier | Brand needed | Bonuses on the item (3 stats from the slot's list) |
-|---|---|---|
-| Unknown | 0 | +1, +1 |
-| Rising | 20 | +2, +1 |
-| Known | 40 | +3, +2, +1 |
-| Star | 60 | +4, +3, +2 |
-| Icon | 80 | +5, +4, +3 |
+An item boosts **1 to 4 stats**, set by the sponsor tier and the gear type. Each tier has a bonus ladder (highest first)
+and the item uses the first N values from the stats in the slot's pool.
 
-A full Icon set is about 60 stat points across the slots, about +4 OVR in sims to be confirmed. Target: base 94-95
-plus top gear reaches 99.
+| Tier | Brand needed | Bonus ladder | Stats on a full-breadth item |
+|---|---|---|---|
+| Unknown | 0 | +1 | 1 |
+| Rising | 20 | +2, +1 | 2 |
+| Known | 40 | +3, +2, +1 | 3 |
+| Star | 60 | +4, +3, +2, +1 | 4 |
+| Icon | 80 | +5, +4, +3, +2 | 4 |
+
+**Gear type changes the breadth.** Helmet, vest and boots are full breadth. The rifle and attachments are specialized,
+so they carry one fewer stat (minimum 1) but keep the top values, e.g. an Icon rifle is +5, +4, +3 on three stats.
+
+Points per item: Unknown 1, Rising 3, Known 6, Star 10, Icon 14 (12 on the rifle and attachments). A full Icon set is
+about 66 stat points across the slots, about +4 to +5 OVR in sims to be confirmed. Target: base 94-95 plus top gear
+reaches 99.
 
 ### Slot stat pools
 | Slot | Stats it can boost |
