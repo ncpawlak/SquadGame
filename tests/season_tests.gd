@@ -5251,3 +5251,40 @@ func test_storylines_hot_seat() -> void:
 	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "it resolves at season end (%s)" % st["status"])
 	check(st.has("rank") and st["rank"] > 0, "the final table position is recorded")
 	check(st["applied"].size() == 2, "the choice and the result are on file")
+
+
+func test_storylines_promise_due() -> void:
+	var s := _fixed(190, 0)
+	var sl := s.storylines
+	var user := s.user_team()
+	sl.active.clear()
+	var so: Soldier = user.bench()[0]
+	check(sl._try_promise(s, user).is_empty(), "no story without a promise")
+	so.promise = {"year": s.year, "team": user.abbrev, "games": 2, "started": 0}
+	check(sl._try_promise(s, user).is_empty(), "too early to be due")
+	so.promise = {"year": s.year, "team": user.abbrev, "games": 4, "started": 3}
+	check(sl._try_promise(s, user).is_empty(), "no story while the promise is on pace")
+	so.promise = {"year": s.year, "team": user.abbrev, "games": 4, "started": 1}
+	var st := sl._try_promise(s, user)
+	check(not st.is_empty() and st["soldier"] == so.id, "a promised starter behind the pace makes a story")
+	check(sl.fired.has("%s:%d" % [Storylines.PROMISE_DUE, s.year]), "once a season")
+	check(Storylines.decision_open(st), "the decision is open")
+	var trust := so.trust
+	check(sl.choose(s, st["id"], StoryDefs.BREAK) == "", "breaking the promise is accepted")
+	check(so.trust < trust, "breaking it costs trust right away")
+	# Honouring it: put the player in the lineup and he starts.
+	var s2 := _fixed(191, 0)
+	var u2 := s2.user_team()
+	s2.storylines.active.clear()
+	var p2: Soldier = u2.bench()[0]
+	p2.promise = {"year": s2.year, "team": u2.abbrev, "games": 4, "started": 0}
+	var st2 := s2.storylines._try_promise(s2, u2)
+	check(s2.storylines.choose(s2, st2["id"], StoryDefs.HONOR) == "", "honouring it is accepted")
+	u2.assign(u2.slot_of(u2.starters()[0]), p2)
+	var guard := 0
+	while st2["status"] == Storylines.STATUS_ACTIVE and guard < 6:
+		u2.assign(u2.slot_of(u2.starters()[0]), p2)
+		s2.sim_week()
+		guard += 1
+	check(st2["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "it resolves within the window (%s)" % st2["status"])
+	check(st2["applied"].size() >= 1, "the choice is on file")
