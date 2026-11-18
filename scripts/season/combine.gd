@@ -13,6 +13,9 @@ extends RefCounted
 ## leaking where inside the bands he landed.
 
 const TRIES := 3
+## Career-mode tuning knob: extra cap room per year of age above AGE_MIN, so an older starter (rawer ceilings
+## matter less, but less growth room) is not stuck. The tuning tool overrides it.
+static var age_cap_bonus := 1.0
 const BAND_HALF := 5
 ## Score-to-rating curve exponent: above 1 makes the top of the range harder to reach.
 const CURVE := 1.3
@@ -192,7 +195,7 @@ func finalize(s: Soldier, rng: RandomNumberGenerator) -> Dictionary:
 		var u := clampf(rng.randfn(0.5 + lean, 0.25), 0.0, 1.0)
 		s.stats[stat] = roundi(lerpf(float(b[stat].x), float(b[stat].y), u))
 	s.stats.merge(Archetypes.FIXED_STATS, true)
-	PlayerGenerator.roll_caps(s, rng)
+	PlayerGenerator.roll_caps(s, rng, roundi(float(s.age - Archetypes.AGE_MIN) * age_cap_bonus))
 	s.talent = talent
 	s.dev = Soldier.DEV_MIN
 	return b

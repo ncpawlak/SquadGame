@@ -183,6 +183,15 @@ func _init() -> void:
 	await process_frame
 	_check(hub._advance_text().begins_with("START"), "advance offers the next season")
 	var year := season.year
+	# No camp plan yet: the first advance opens the camp plan screen and stays in the offseason.
+	_check(not season.player.camp_plan_confirmed, "the camp plan starts blank")
+	hub.advance()
+	await process_frame
+	_check(season.year == year and season.phase == Season.PHASE_OFFSEASON, "a blank camp plan pauses the advance")
+	_check(hub.page_stack[-1]["title"] == "Camp Plan", "the camp plan page opened")
+	# Set one (4 practice + 4 study) and advance again.
+	season.player.camp_plan = {WeeklyPlan.PRACTICE: 4, WeeklyPlan.STUDY: 4}
+	season.player.camp_plan_confirmed = true
 	hub.advance()
 	while hub.simming:
 		await process_frame

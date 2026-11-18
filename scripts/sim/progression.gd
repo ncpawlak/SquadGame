@@ -37,7 +37,10 @@ static func xp_to_next(level: int) -> int:
 
 
 static func xp_multiplier(soldier: Soldier) -> float:
-	return dev_xp_multiplier(soldier.age, soldier.dev)
+	var m := dev_xp_multiplier(soldier.age, soldier.dev)
+	if soldier.player_controlled:
+		m *= WeeklyPlan.xp_boost  # career mode only: the league table is untouched
+	return m
 
 
 static func dev_xp_multiplier(age: int, dev: int) -> float:

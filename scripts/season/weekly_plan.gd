@@ -44,7 +44,11 @@ const CAMP_BRAND_BASE := [0.0, 3.0, 6.5, 11.0, 16.0]
 const OUTING_CLUB_SHARE := 0.5
 
 ## Dev star costs in study points: the cost to leave star `dev`. Visible to the player.
-const STAR_COST := {1: 30.0, 2: 55.0, 3: 100.0}
+const STAR_COST := {1: 30.0, 2: 40.0, 3: 70.0}
+## Career-mode tuning knobs (the league never reads them): the live star costs, and how much faster the player earns
+## XP than the shared age-and-star table says. The tuning tool overrides both.
+static var star_costs: Dictionary = STAR_COST.duplicate()
+static var xp_boost := 1.8
 
 const BRAND_MAX := 100.0
 const BRAND_DECAY := 0.98
@@ -133,7 +137,7 @@ static func week_xp(plan: Dictionary) -> float:
 
 ## Study points needed to leave star `dev` (0 at the top).
 static func star_cost(dev: int) -> float:
-	return float(STAR_COST.get(dev, 0.0))
+	return float(star_costs.get(dev, 0.0))
 
 
 ## Adds study points. Returns true if a star was earned. One star a season: a full bar waits for the next one.

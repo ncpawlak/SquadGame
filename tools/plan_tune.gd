@@ -15,6 +15,14 @@ func _init() -> void:
 		var kv := String(a).split("=", true, 1)
 		if kv.size() == 2:
 			args[kv[0]] = kv[1]
+	if args.has("boost"):
+		WeeklyPlan.xp_boost = float(args["boost"])
+	if args.has("agecap"):
+		Combine.age_cap_bonus = float(args["agecap"])
+	if args.has("costs"):
+		var c := String(args["costs"]).split(",")
+		for i in c.size():
+			WeeklyPlan.star_costs[i + 1] = float(c[i])
 	var age := int(args["age"])
 	var seed_value := int(args["seed"])
 	var skill := float(args["skill"])
@@ -63,6 +71,7 @@ func _init() -> void:
 		rows.append({"year": season.year, "age": p.age, "ovr": p.best_ovr(), "dev": p.dev, "study": snappedf(p.study_progress, 0.1),
 			"brand": snappedf(p.brand, 0.1), "games": sm["games"], "avg": snappedf(sm["avg"], 0.1), "fatigue": snappedf(fat_sum / maxf(1.0, float(fat_n)), 0.1),
 			"on": "green" if season.user_team().green_team.has(p) else "roster", "hof": snappedf(PlayerLegacy.trajectory(season)["score"], 0.1)})
+		print("season %d done t=%d" % [n, Time.get_ticks_msec() / 1000])
 		fatigue_sum += fat_sum
 		fatigue_n += fat_n
 		if n == seasons - 1:
@@ -77,7 +86,7 @@ func _init() -> void:
 	for note in season.player_notes:
 		if String(note["text"]).begins_with("Your study paid off"):
 			stars.append("%d.w%d" % [note["year"], note["week"]])
-	var result := {"age": age, "style": args["style"], "seed": seed_value, "skill": skill, "arch": String(arch), "entry_ovr": entry_ovr,
+	var result := {"age": age, "style": args["style"], "seed": seed_value, "skill": skill, "boost": WeeklyPlan.xp_boost, "agecap": Combine.age_cap_bonus, "costs": WeeklyPlan.star_costs.values(), "arch": String(arch), "entry_ovr": entry_ovr,
 		"proj": proj, "pick": season.player_pick, "talent": p.talent, "stars": stars, "seasons": rows, "milestones": season.player_milestones.size()}
 	if int(args["vote"]) == 1:
 		_wait_vote(season, result)
