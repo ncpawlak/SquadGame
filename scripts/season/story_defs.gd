@@ -47,6 +47,10 @@ const BACK_STARTER := &"back_starter"
 const BACK_BENCH := &"back_bench"
 const FEATURE := &"feature"
 const TEAM_GAME := &"team_game"
+const CEREMONY := &"ceremony"
+const TRIBUTE := &"tribute"
+const REAFFIRM := &"reaffirm"
+const BRUSH_OFF := &"brush_off"
 ## Not a choice the player picks: what a story falls back to when its window closes undecided.
 const STAY := &"stay"
 
@@ -56,6 +60,7 @@ const KIND_LABEL := {
 	&"last_ride": "ARC", &"statement_game": "SPOTLIGHT", &"press_storm": "CONDITIONAL",
 	&"title_chase": "ARC", &"must_win": "SPOTLIGHT", &"comeback_trail": "CONDITIONAL",
 	&"bromance": "CONDITIONAL", &"locker_rift": "CONDITIONAL", &"milestone_chase": "SPOTLIGHT",
+	&"banner_night": "SPOTLIGHT", &"poaching_rumor": "CONDITIONAL",
 }
 
 # --- Rivalry Run -------------------------------------------------------------------------------
@@ -350,6 +355,42 @@ const MIL_OPTIONS := [
 		"cost": "Small payoff even in a win"},
 ]
 
+# --- Banner Night ------------------------------------------------------------------------------
+const BAN_NOW := {
+	&"ceremony": {"buzz": 3.0, "morale": 2.0},
+	&"tribute": {"morale": 1.0},
+}
+const BAN_END := {
+	&"ceremony": {&"won": {"buzz": 3.0, "morale": 2.0}, &"lost": {}, &"split": {}},
+	&"tribute": {&"won": {"buzz": 1.0}, &"lost": {}, &"split": {}},
+	&"stay": {&"won": {"buzz": 1.0}, &"lost": {}, &"split": {}},
+}
+const BAN_OPTIONS := [
+	{"id": &"ceremony", "label": "Hold a full ceremony",
+		"blurb": "Banner, video tribute, the whole building on its feet. Give the night the weight it deserves."},
+	{"id": &"tribute", "label": "Keep it low-key",
+		"blurb": "A short tribute before the match and then straight to business.",
+		"cost": "Smaller buzz and morale boost"},
+]
+
+# --- Poaching Rumor ----------------------------------------------------------------------------
+const POA_NOW := {
+	&"reaffirm": {"t_trust": 6.0, "t_morale": 2.0},
+	&"brush_off": {},
+}
+const POA_END := {
+	&"reaffirm": {&"won": {"t_trust": 3.0}, &"lost": {}, &"split": {}},
+	&"brush_off": {&"won": {}, &"lost": {"t_request": 1.0}, &"split": {}},
+	&"stay": {&"won": {}, &"lost": {"t_request": 1.0}, &"split": {}},
+}
+const POA_OPTIONS := [
+	{"id": &"reaffirm", "label": "Reaffirm the commitment",
+		"blurb": "Tell {name} publicly and privately that the club wants {name} here for the long run."},
+	{"id": &"brush_off", "label": "Ignore the noise",
+		"blurb": "Rumours are rumours. Do not give them the oxygen.",
+		"cost": "May end in a trade request if trust slips"},
+]
+
 ## Per kind: effects when a choice is made, effects when the story ends (by choice then verdict),
 ## the options, the prompt, and how a verdict reads on an option card.
 const DEFS := {
@@ -385,6 +426,10 @@ const DEFS := {
 		"verdict": {&"won": "The air clears", &"split": "", &"lost": "The rift widens"}},
 	&"milestone_chase": {"now": MIL_NOW, "end": MIL_END, "options": MIL_OPTIONS, "prompt": "How do you mark the milestone?", "window": "before the match is played",
 		"verdict": {&"won": "You win", &"split": "", &"lost": "You lose"}},
+	&"banner_night": {"now": BAN_NOW, "end": BAN_END, "options": BAN_OPTIONS, "prompt": "How do you honour the night?", "window": "before the match is played",
+		"verdict": {&"won": "You win", &"split": "", &"lost": "You lose"}},
+	&"poaching_rumor": {"now": POA_NOW, "end": POA_END, "options": POA_OPTIONS, "prompt": "How do you answer the rumours?", "window": "within two weeks",
+		"verdict": {&"won": "The talk dies down", &"split": "", &"lost": "Trust slips"}},
 }
 
 ## Who morale and XP effects reach.
@@ -554,6 +599,12 @@ static func scenario(st: Dictionary, season: Season) -> String:
 		Storylines.MILESTONE_CHASE:
 			var mopp := season.league.team_by_abbrev(st["rival"])
 			return "This week's match against the %s will be %s's %dth career match. The club can make a moment of it or keep the focus on the game." % [mopp.nickname if mopp != null else String(st["rival"]), name, int(st.get("milestone", 0))]
+		Storylines.BANNER_NIGHT:
+			var bopp := season.league.team_by_abbrev(st["rival"])
+			return "The club honours %s (%s) at home this week against the %s. It is a big night for the fans, and for everyone who played with the honouree." % [name, String(st.get("honour", "legend")).to_lower(), bopp.nickname if bopp != null else String(st["rival"])]
+		Storylines.POACHING_RUMOR:
+			var popp := season.league.team_by_abbrev(st["rival"])
+			return "The %s are reported to be interested in %s, and %s has been unsettled for a while. The wrong response could turn rumour into a request." % [popp.nickname if popp != null else String(st["rival"]), name, name]
 	return ""
 
 
@@ -685,6 +736,21 @@ static func objectives(st: Dictionary, season: Season) -> Array:
 				return out
 			out.append("Beat the %s with %s in the lineup: %s" % [mon, name, season.week_label(st["start_week"])])
 			out.append("%s has to play. Check your lineup before you play the week." % name)
+		Storylines.BANNER_NIGHT:
+			var bopp := season.league.team_by_abbrev(st["rival"])
+			var bon := bopp.nickname if bopp != null else String(st["rival"])
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("Result against the %s: %s" % [bon, String(st["status"]).capitalize()])
+				return out
+			out.append("Give the night a win against the %s: %s" % [bon, season.week_label(st["start_week"])])
+		Storylines.POACHING_RUMOR:
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("Where it ended: %s" % String(st["status"]).capitalize())
+				return out
+			out.append("Keep %s's trust at %d or better for two weeks" % [name, roundi(Storylines.POACH_KEEP)])
+			var ps: Soldier = Storylines.find_soldier(season, st)
+			if ps != null:
+				out.append("%s trust now: %d (%s)" % [name, roundi(ps.trust), Soldier.trust_label(ps.trust)])
 	return out
 
 
