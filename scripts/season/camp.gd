@@ -168,7 +168,7 @@ func ai_run(team: Team, rng: RandomNumberGenerator) -> void:
 		var best: Soldier = null
 		var best_v := -INF
 		for s in team.org():
-			if check(team, g, s) != "":
+			if s.player_controlled or check(team, g, s) != "":
 				continue
 			var slot := team.slot_of(s)
 			var role := team.scheme.role_for_slot(slot) if slot != &"" else Scheme.best_role(s.stats)

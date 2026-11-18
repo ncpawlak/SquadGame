@@ -39,13 +39,13 @@ static func taken_callsigns(league: League) -> Dictionary:
 
 ## Builds the soldier. Every drilled stat starts at Archetypes.FLOOR; toughness and injury start at Archetypes.FIXED_STATS.
 static func create_soldier(id: int, first: String, last: String, callsign: String, head_id: String,
-		morph_seed: int, archetype: StringName) -> Soldier:
+		morph_seed: int, archetype: StringName, age := START_AGE) -> Soldier:
 	var s := Soldier.new()
 	s.id = id
 	s.first_name = clean(first, MAX_NAME)
 	s.last_name = clean(last, MAX_NAME)
 	s.callsign = clean(callsign, MAX_CALLSIGN)
-	s.age = START_AGE
+	s.age = clampi(age, Archetypes.AGE_MIN, Archetypes.AGE_MAX)
 	for stat in Stats.ALL:
 		s.stats[stat] = Archetypes.FLOOR
 	s.stats.merge(Archetypes.FIXED_STATS, true)

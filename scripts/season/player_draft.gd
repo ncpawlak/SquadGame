@@ -14,6 +14,9 @@ extends RefCounted
 const OFFERS := 3
 ## Spread on a pick projection: two teams' noise and the need bonus (see Draft.AI_NOISE / NEED_BONUS).
 const RANGE_SPREAD := 4.2
+## Draft stock per year the player is under (or over) AGE_STOCK_PIVOT: scouts like a younger body with upside.
+const AGE_STOCK_BONUS := 0.5
+const AGE_STOCK_PIVOT := 22
 
 const STATE_NONE := &""
 const STATE_READY := &"ready"
@@ -39,7 +42,7 @@ static func begin(season: Season) -> void:
 	p.listed_role = Archetypes.role_of(season.player_archetype)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = Season._mix([league.league_seed, s.id, 0xC0A5E])
-	p.consensus = Draft.true_value(p) + rng.randfn(0.0, Draft.CONSENSUS_NOISE)
+	p.consensus = Draft.true_value(p) + rng.randfn(0.0, Draft.CONSENSUS_NOISE) + float(AGE_STOCK_PIVOT - s.age) * AGE_STOCK_BONUS
 	d.prospects.append(p)
 	d.rerank()
 	d._grade_area(rng)

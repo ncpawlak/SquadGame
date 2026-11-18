@@ -72,7 +72,10 @@ static func contract_text(c: Contract) -> String:
 ## Fair yearly salary for a soldier: MARKET_CURVE by OVR, a premium for young players with room
 ## to grow (ceiling over his OVR) and more dev stars, and a discount for players past 30.
 static func market_value(s: Soldier) -> int:
-	return _round_salary(_market_raw(s, MARKET_CURVE))
+	var v := _market_raw(s, MARKET_CURVE)
+	if s.player_controlled:
+		v *= WeeklyPlan.market_mult(s.brand)  # the user soldier: brand is leverage (see WeeklyPlan)
+	return _round_salary(v)
 
 
 static func _market_raw(s: Soldier, curve: Array) -> float:

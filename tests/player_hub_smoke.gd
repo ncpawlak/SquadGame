@@ -99,19 +99,62 @@ func _init() -> void:
 	hub.open("My Player", hub.player_ui.my_player)
 	await process_frame
 	var before := p.skill_points
+	var stats_before := p.stats.duplicate()
 	for b in hub._content.find_children("*", "Button", true, false):
 		if not b.disabled and b.custom_minimum_size.y == 78:
 			b.pressed.emit()
 			break
 	await process_frame
-	_check(p.skill_points < before, "clicking a group spends skill points")
-	for b in hub._content.find_children("*", "Button", true, false):
-		if String(b.text).begins_with("Heavy"):
-			b.pressed.emit()
+	_check(hub.page_stack[-1]["title"] == "Place Skill Points", "clicking a group opens the placement page")
+	_check(p.skill_points == before, "opening placement spends nothing")
+	# Place the points one at a time on the first stat that still has room, then confirm.
+	var guard := 0
+	while guard < 10:
+		guard += 1
+		var plus: Button = null
+		for b in hub._content.find_children("*", "Button", true, false):
+			if b.text == "+" and not b.disabled:
+				plus = b
+				break
+		if plus == null:
 			break
+		plus.pressed.emit()
+		await process_frame
+	var confirm: Button = null
+	for b in hub._content.find_children("*", "Button", true, false):
+		if b.text == "Confirm":
+			confirm = b
+	_check(confirm != null and not confirm.disabled, "confirm unlocks once every point is placed")
+	confirm.pressed.emit()
 	await process_frame
-	_check(p.intensity == Soldier.INTENSITY_HEAVY, "training intensity can be changed")
-	hub.go_back()
+	_check(p.skill_points < before, "confirming spends the skill points")
+	var changed := 0
+	for st in p.stats:
+		changed += int(p.stats[st]) - int(stats_before[st])
+	_check(changed > 0, "the placed points landed on the ratings")
+	_check(hub.page_stack[-1]["title"] == "My Player", "confirming returns to My Player")
+
+	# The weekly plan: nothing is set at first; raise practice and study, then confirm.
+	_check(not p.plan_confirmed and p.plan.is_empty(), "the plan starts blank")
+	hub.player_ui.open_plan(false)
+	await process_frame
+	for lbl in ["PRACTICE", "STUDY SESSION"]:
+		for n in 2:
+			for row in hub._content.find_children("*", "HBoxContainer", true, false):
+				var name_label := row.get_child(0) as Label
+				if name_label != null and name_label.text == lbl:
+					var up: Button = row.get_child(3) as Button
+					if up != null and not up.disabled:
+						up.pressed.emit()
+			await process_frame
+	var confirm_plan: Button = null
+	for b in hub._content.find_children("*", "Button", true, false):
+		if b.text == "Confirm plan":
+			confirm_plan = b
+	_check(confirm_plan != null, "the plan page has a confirm button")
+	confirm_plan.pressed.emit()
+	await process_frame
+	_check(p.plan_confirmed and WeeklyPlan.level(p.plan, WeeklyPlan.PRACTICE) == 2 and WeeklyPlan.level(p.plan, WeeklyPlan.STUDY) == 2, "the confirmed plan is practice 2 + study 2: %s" % [p.plan])
 	hub.page_stack.clear()
 	hub._show_current()
 

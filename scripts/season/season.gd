@@ -84,6 +84,10 @@ var player_notes: Array = []
 var player_start_ovr := 0
 ## Milestones reached: {id, name, year, week, seen} (see PlayerLegacy).
 var player_milestones: Array = []
+## Camp outing level waiting to give its morale after the season rollover (see WeeklyPlan.apply_camp_outing).
+var camp_outing_level := 0
+## What the player camp plan did this offseason (WeeklyPlan.apply_camp).
+var camp_report: Dictionary = {}
 ## Regular-season length and playoff field (set from the league's shape when the franchise starts).
 var regular_weeks := DIVISION_WEEKS
 var playoff_teams := DIVISION_PLAYOFF_TEAMS
@@ -514,6 +518,8 @@ func prepare_week() -> void:
 	Abilities.refresh_league(league, year)
 	GreenTeam.auto_covers(self)
 	_prepare_lineups()
+	if player_mode and player != null:
+		WeeklyPlan.apply_week(self)
 	for t in league.teams:
 		if t.user_controlled:
 			train_user_team()
@@ -851,6 +857,8 @@ func start_next_season() -> void:
 			t.fill_injured()
 		elif not t.pick_scheme():
 			t.auto_lineup()
+	if player_mode and player != null:
+		WeeklyPlan.apply_camp_outing(self)
 	_begin_season()
 
 
@@ -1081,6 +1089,8 @@ func _advance_offseason_step() -> Array:
 					camp.ai_run(t, _rng)
 			_camp_star_news()
 			offseason_xp(CAMP_WEEK_XP, Camp.DRILL_XP)
+			if player_mode and player != null:
+				camp_report = WeeklyPlan.apply_camp(self)
 			offseason_stage = OFF_DONE
 			relationships.offseason_week(league)
 			_trade_tick()
