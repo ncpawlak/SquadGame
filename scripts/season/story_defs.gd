@@ -34,6 +34,12 @@ const FULL := &"full"
 const REST := &"rest"
 const ANSWER := &"answer"
 const SILENCE := &"silence"
+const ALL_IN := &"all_in"
+const PROTECT := &"protect"
+const RALLY := &"rally"
+const STEADY := &"steady"
+const EASE := &"ease"
+const RUSH := &"rush"
 ## Not a choice the player picks: what a story falls back to when its window closes undecided.
 const STAY := &"stay"
 
@@ -41,6 +47,7 @@ const KIND_LABEL := {
 	&"rivalry_run": "ARC", &"rookie_rise": "ARC", &"revenge_game": "SPOTLIGHT", &"contract_standoff": "CONDITIONAL",
 	&"cinderella": "ARC", &"derby_week": "SPOTLIGHT", &"bench_grumble": "CONDITIONAL",
 	&"last_ride": "ARC", &"statement_game": "SPOTLIGHT", &"press_storm": "CONDITIONAL",
+	&"title_chase": "ARC", &"must_win": "SPOTLIGHT", &"comeback_trail": "CONDITIONAL",
 }
 
 # --- Rivalry Run -------------------------------------------------------------------------------
@@ -222,6 +229,60 @@ const STO_OPTIONS := [
 		"cost": "Buzz drops right away"},
 ]
 
+# --- Title Chase -------------------------------------------------------------------------------
+const TIT_NOW := {
+	&"all_in": {"buzz": 2.0, "morale": 2.0},
+	&"protect": {},
+}
+const TIT_END := {
+	&"all_in": {&"won": {"buzz": 6.0, "morale": 3.0, "xp": 200.0}, &"lost": {"buzz": -4.0, "morale": -3.0}, &"split": {}},
+	&"protect": {&"won": {"morale": 1.0, "xp": 100.0}, &"lost": {}, &"split": {}},
+	&"stay": {&"won": {"morale": 1.0}, &"lost": {}, &"split": {}},
+}
+const TIT_OPTIONS := [
+	{"id": &"all_in", "label": "Go all in",
+		"blurb": "Tell the city this is the year. Every match is a title match."},
+	{"id": &"protect", "label": "Protect the long game",
+		"blurb": "Stay level, rotate where needed and look after the roster.",
+		"cost": "Smaller payoff even if the run works"},
+]
+
+# --- Must-Win ----------------------------------------------------------------------------------
+const MUS_NOW := {
+	&"rally": {"morale": 2.0},
+	&"steady": {},
+}
+const MUS_END := {
+	&"rally": {&"won": {"buzz": 3.0, "morale": 2.0}, &"lost": {"morale": -4.0}, &"split": {}},
+	&"steady": {&"won": {"buzz": 1.0}, &"lost": {}, &"split": {}},
+	&"stay": {&"won": {"buzz": 1.0}, &"lost": {}, &"split": {}},
+}
+const MUS_OPTIONS := [
+	{"id": &"rally", "label": "Rally the room",
+		"blurb": "Give the speech of the season and make sure everyone knows what is at stake."},
+	{"id": &"steady", "label": "Business as usual",
+		"blurb": "Same preparation, same routine. Do not let the pressure in.",
+		"cost": "Smaller payoff even in a win"},
+]
+
+# --- Comeback Trail ----------------------------------------------------------------------------
+const COM_NOW := {
+	&"ease": {"t_trust": 3.0},
+	&"rush": {"t_morale": 3.0},
+}
+const COM_END := {
+	&"ease": {&"won": {"t_xp": 100.0, "t_trust": 2.0}, &"lost": {}, &"split": {}},
+	&"rush": {&"won": {"t_morale": 2.0}, &"lost": {"t_morale": -4.0, "t_trust": -5.0}, &"split": {}},
+	&"stay": {&"won": {}, &"lost": {}, &"split": {}},
+}
+const COM_OPTIONS := [
+	{"id": &"ease", "label": "Ease {name} back",
+		"blurb": "Manage the minutes and let {name} find the rhythm again.",
+		"cost": "No immediate boost"},
+	{"id": &"rush", "label": "Throw {name} straight back in",
+		"blurb": "The team needs {name} and {name} wants to play. Full minutes from day one."},
+]
+
 ## Per kind: effects when a choice is made, effects when the story ends (by choice then verdict),
 ## the options, the prompt, and how a verdict reads on an option card.
 const DEFS := {
@@ -245,6 +306,12 @@ const DEFS := {
 		"verdict": {&"won": "You win", &"split": "", &"lost": "You lose"}},
 	&"press_storm": {"now": STO_NOW, "end": STO_END, "options": STO_OPTIONS, "prompt": "How do you respond to the press?", "window": "within two matches",
 		"verdict": {&"won": "The club wins again", &"split": "", &"lost": "The slide goes on"}},
+	&"title_chase": {"now": TIT_NOW, "end": TIT_END, "options": TIT_OPTIONS, "prompt": "How do you approach the title chase?", "window": "before the first match",
+		"verdict": {&"won": "A top-4 finish", &"split": "", &"lost": "Outside the top 4"}},
+	&"must_win": {"now": MUS_NOW, "end": MUS_END, "options": MUS_OPTIONS, "prompt": "How do you handle the pressure?", "window": "before the match is played",
+		"verdict": {&"won": "You win", &"split": "", &"lost": "You lose"}},
+	&"comeback_trail": {"now": COM_NOW, "end": COM_END, "options": COM_OPTIONS, "prompt": "How do you bring the player back?", "window": "within two matches",
+		"verdict": {&"won": "A clean comeback", &"split": "", &"lost": "Hurt again"}},
 }
 
 ## Who morale and XP effects reach.
@@ -393,6 +460,13 @@ static func scenario(st: Dictionary, season: Season) -> String:
 			return "This week's opponent, the %s, is clearly stronger than your club on paper. Nobody outside the building expects a win, which is what makes one worth something." % (sopp.nickname if sopp != null else String(st["rival"]))
 		Storylines.PRESS_STORM:
 			return "The club has lost %d straight and the press is circling. What you say, or do not say, sets the mood for the next couple of weeks." % int(st.get("streak", 0))
+		Storylines.TITLE_CHASE:
+			return "The %s are among the strongest clubs in the league, and the city is starting to talk about a title. Favourites carry more pressure, and the table will show whether the run is real." % (user.nickname if user != null else "club")
+		Storylines.MUST_WIN:
+			var mopp := season.league.team_by_abbrev(st["rival"])
+			return "The regular season is nearly over and the club is right on the playoff line. This match, against the %s, could decide whether there is a postseason at all." % (mopp.nickname if mopp != null else String(st["rival"]))
+		Storylines.COMEBACK_TRAIL:
+			return "%s is back from a long injury and cleared to play. Everyone wants %s on the court, but a rushed return can undo the recovery." % [name, name]
 	return ""
 
 
@@ -486,6 +560,23 @@ static func objectives(st: Dictionary, season: Season) -> Array:
 				out.append("Where it ended: %s" % String(st["status"]).capitalize())
 				return out
 			out.append("Win either of your next two matches to stop the slide  -  %d played so far" % int(st["played"]))
+		Storylines.TITLE_CHASE:
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("Finished %d-%d, table position %d (needed top %d)" % [st["wins"], st["played"] - st["wins"], int(st.get("rank", 0)), Storylines.TITLE_FINISH])
+				return out
+			out.append("Finish in the top %d of the table  -  %d-%d so far" % [Storylines.TITLE_FINISH, st["wins"], st["played"] - st["wins"]])
+		Storylines.MUST_WIN:
+			var mopp := season.league.team_by_abbrev(st["rival"])
+			var mon := mopp.nickname if mopp != null else String(st["rival"])
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("Result against the %s: %s" % [mon, String(st["status"]).capitalize()])
+				return out
+			out.append("Beat the %s: %s" % [mon, season.week_label(st["start_week"])])
+		Storylines.COMEBACK_TRAIL:
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("Where it ended: %s" % String(st["status"]).capitalize())
+				return out
+			out.append("Get %s through the next two matches without another injury" % name)
 	return out
 
 
