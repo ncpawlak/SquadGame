@@ -761,7 +761,7 @@ func _tag(s: Soldier, kind: String, yr: int) -> bool:
 
 ## A storyline beat (see Storylines) on the league wire.
 func add_story_item(season: Season, when: String, teams: Array, headline: String, body: String) -> void:
-	_add(season, when, "storyline", teams, 0, headline, body)
+	_add(season, when, "storyline", teams, -1, headline, body)
 
 
 func _add(season: Season, when: String, kind: String, teams: Array, soldier_id: int, headline: String, body: String) -> void:
