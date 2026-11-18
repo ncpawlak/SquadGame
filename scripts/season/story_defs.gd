@@ -4,39 +4,133 @@ extends RefCounted
 ## objectives, option rewards and costs) is generated from the same tables Storylines applies, so
 ## the page can never promise something the engine does not do.
 ##
-## Effects are Dictionaries with any of: heat (rivalry heat, both clubs), buzz (club buzz heat),
-## morale and xp (every player on the roster and the Green Team; xp is base XP before the
-## age/dev multiplier, and a match is worth about 250).
+## Effects are Dictionaries with any of:
+##   heat    rivalry heat between the two clubs
+##   buzz    club buzz heat
+##   morale  every player on the roster and Green Team
+##   xp      base XP for every player on the roster and Green Team (before the age/dev multiplier;
+##           a match is worth about 250)
+##   t_morale, t_xp, t_sp, t_trust   the same for the story's one featured player (st["soldier"]);
+##           t_sp is skill points
+##   t_request   1.0 = the featured player asks for a trade
 
 const FUEL := &"fuel"
 const COOL := &"cool"
-## Not a choice the player picks: what the story falls back to when the window closes undecided.
+const START := &"start"
+const SLOW := &"slow"
+const HYPE := &"hype"
+const DOWN := &"down"
+const PROMISE := &"promise"
+const HOLD := &"hold"
+## Not a choice the player picks: what a story falls back to when its window closes undecided.
 const STAY := &"stay"
 
-## Rivalry Run: effects the moment a choice is made.
+const KIND_LABEL := {
+	&"rivalry_run": "ARC", &"rookie_rise": "ARC", &"revenge_game": "SPOTLIGHT", &"contract_standoff": "CONDITIONAL",
+}
+
+# --- Rivalry Run -------------------------------------------------------------------------------
 const RR_NOW := {
 	&"fuel": {"heat": 15.0, "buzz": 2.0},
 	&"cool": {"heat": -10.0},
 }
-## Rivalry Run: effects when the series ends, by choice then verdict.
 const RR_END := {
 	&"fuel": {&"won": {"buzz": 6.0, "morale": 3.0, "xp": 200.0}, &"lost": {"buzz": -4.0, "morale": -3.0}, &"split": {"buzz": 2.0}},
 	&"cool": {&"won": {"buzz": 2.0, "morale": 1.0, "xp": 100.0}, &"lost": {}, &"split": {}},
 	&"stay": {&"won": {"morale": 1.0}, &"lost": {}, &"split": {}},
 }
-
 const RR_OPTIONS := [
 	{"id": &"fuel", "label": "Fuel the feud",
 		"blurb": "Talk it up. Make every meeting a grudge match and let the city feel it."},
 	{"id": &"cool", "label": "Keep it professional",
-		"blurb": "Lower the temperature. Treat these as ordinary games on the calendar."},
+		"blurb": "Lower the temperature. Treat these as ordinary games on the calendar.",
+		"cost": "Less buzz and no big payoff if you win"},
 ]
 
+# --- Rookie's Rise -----------------------------------------------------------------------------
+const RISE_NOW := {
+	&"start": {"t_morale": 4.0},
+	&"slow": {},
+}
+const RISE_END := {
+	&"start": {&"won": {"buzz": 4.0, "t_xp": 400.0, "t_sp": 1.0, "t_trust": 8.0}, &"lost": {"t_morale": -8.0, "t_trust": -10.0}, &"split": {}},
+	&"slow": {&"won": {"t_xp": 150.0, "t_trust": 3.0}, &"lost": {}, &"split": {}},
+	&"stay": {&"won": {}, &"lost": {}, &"split": {}},
+}
+const RISE_OPTIONS := [
+	{"id": &"start", "label": "Give the starts",
+		"blurb": "Put {name} in the lineup and let the learning happen on the job. {name} has to actually play."},
+	{"id": &"slow", "label": "Bring along slowly",
+		"blurb": "Let {name} develop in training and take the minutes as they come.",
+		"cost": "No buzz, and a much smaller payoff"},
+]
 
-# --- text ------------------------------------------------------------------------------------
+# --- Revenge Game ------------------------------------------------------------------------------
+const REV_NOW := {
+	&"hype": {},
+	&"down": {},
+}
+const REV_END := {
+	&"hype": {&"won": {"buzz": 4.0, "t_morale": 6.0, "t_xp": 150.0}, &"lost": {"t_morale": -6.0}, &"split": {}},
+	&"down": {&"won": {"t_morale": 2.0, "t_xp": 75.0}, &"lost": {}, &"split": {}},
+	&"stay": {&"won": {"t_morale": 2.0}, &"lost": {}, &"split": {}},
+}
+const REV_OPTIONS := [
+	{"id": &"hype", "label": "Hype it up",
+		"blurb": "Let {name} and the press have their moment against the old club."},
+	{"id": &"down", "label": "Play it down",
+		"blurb": "It's just another game. Keep the focus on the team.",
+		"cost": "Small payoff even in a win"},
+]
 
-## "Buzz +3, morale +3, +200 XP each" for one effect dictionary ("" if it is empty).
-static func effect_text(e: Dictionary) -> String:
+# --- Contract Standoff -------------------------------------------------------------------------
+const CON_NOW := {
+	&"promise": {"t_trust": 10.0, "t_morale": 3.0},
+	&"hold": {"t_trust": -5.0, "t_morale": -3.0},
+}
+const CON_END := {
+	&"promise": {&"won": {"buzz": 4.0, "morale": 2.0}, &"lost": {"t_trust": -10.0, "t_morale": -5.0}, &"split": {}},
+	&"hold": {&"won": {"buzz": 4.0}, &"lost": {"morale": -2.0, "t_request": 1.0}, &"split": {}},
+	&"stay": {&"won": {}, &"lost": {}, &"split": {}},
+}
+const CON_OPTIONS := [
+	{"id": &"promise", "label": "Promise to prioritise an extension",
+		"blurb": "Tell {name} that a new deal is the front office's next priority. Then deliver."},
+	{"id": &"hold", "label": "Hold the line",
+		"blurb": "{name} plays out the deal on current terms. No promises, no pressure from you."},
+]
+
+## Per kind: effects when a choice is made, effects when the story ends (by choice then verdict),
+## the options, the prompt, and how a verdict reads on an option card.
+const DEFS := {
+	&"rivalry_run": {"now": RR_NOW, "end": RR_END, "options": RR_OPTIONS, "prompt": "How do you play this rivalry?", "window": "before the first meeting",
+		"verdict": {&"won": "Win the series", &"split": "Split the series", &"lost": "Lose the series"}},
+	&"rookie_rise": {"now": RISE_NOW, "end": RISE_END, "options": RISE_OPTIONS, "prompt": "How do you handle the rise?", "window": "before the first match",
+		"verdict": {&"won": "It works out", &"split": "", &"lost": "The starts don't happen"}},
+	&"revenge_game": {"now": REV_NOW, "end": REV_END, "options": REV_OPTIONS, "prompt": "How do you play the build-up?", "window": "before the match is played",
+		"verdict": {&"won": "You win", &"split": "", &"lost": "You lose"}},
+	&"contract_standoff": {"now": CON_NOW, "end": CON_END, "options": CON_OPTIONS, "prompt": "What do you tell the player?", "window": "within two weeks",
+		"verdict": {&"won": "Trust recovers", &"split": "", &"lost": "It turns sour"}},
+}
+
+## Who morale and XP effects reach.
+const WHO := "Morale and XP go to every player on your roster and Green Team."
+
+
+# --- effects ---------------------------------------------------------------------------------
+
+static func now_effects(st: Dictionary, option: StringName) -> Dictionary:
+	return DEFS[st["kind"]]["now"].get(option, {})
+
+
+static func end_effects(st: Dictionary, choice: StringName, verdict: StringName) -> Dictionary:
+	var by_choice: Dictionary = DEFS[st["kind"]]["end"]
+	return by_choice.get(choice, by_choice[STAY]).get(verdict, {})
+
+
+## "Buzz +3, morale +3, +200 XP" for one effect dictionary ("" if it is empty). The featured
+## player's parts are named: "Reyes: +400 XP, +1 skill point".
+static func effect_text(e: Dictionary, st := {}) -> String:
 	var parts: Array[String] = []
 	if e.has("heat"):
 		parts.append("rivalry heat %+d" % roundi(float(e["heat"])))
@@ -46,17 +140,37 @@ static func effect_text(e: Dictionary) -> String:
 		parts.append("morale %+d" % roundi(float(e["morale"])))
 	if e.has("xp"):
 		parts.append("%+d XP" % roundi(float(e["xp"])))
+	var who := String(st.get("name", "Player"))
+	var tp: Array[String] = []
+	if e.has("t_xp"):
+		tp.append("%+d XP" % roundi(float(e["t_xp"])))
+	if e.has("t_sp"):
+		tp.append("%+d skill point%s" % [roundi(float(e["t_sp"])), "" if roundi(float(e["t_sp"])) == 1 else "s"])
+	if e.has("t_morale"):
+		tp.append("morale %+d" % roundi(float(e["t_morale"])))
+	if e.has("t_trust"):
+		tp.append("trust %+d" % roundi(float(e["t_trust"])))
+	if e.has("t_request"):
+		tp.append("asks for a trade")
+	if not tp.is_empty():
+		parts.append("%s: %s" % [who, ", ".join(PackedStringArray(tp))])
 	if parts.is_empty():
 		return ""
 	var s := ", ".join(PackedStringArray(parts))
 	return s.substr(0, 1).to_upper() + s.substr(1)
 
 
-## Who morale and XP effects reach.
-const WHO := "Morale and XP go to every player on your roster and Green Team."
+## True if an effect helps the club (used to sort lines into rewards and costs).
+static func is_good(e: Dictionary) -> bool:
+	var net := 0.0
+	for k in ["buzz", "morale", "xp", "t_xp", "t_sp", "t_morale", "t_trust"]:
+		net += float(e.get(k, 0.0))
+	if e.has("t_request"):
+		net -= 100.0
+	return net > 0.0
 
 
-## True if any effect in the list gives morale or XP (so the card should say who gets it).
+## True if any effect in the list gives team-wide morale or XP (so the card should say who gets it).
 static func reaches_players(effects: Array) -> bool:
 	for e: Dictionary in effects:
 		if e.has("morale") or e.has("xp"):
@@ -64,89 +178,127 @@ static func reaches_players(effects: Array) -> bool:
 	return false
 
 
-## True if an effect helps the club (used to sort lines into rewards and costs).
-static func is_good(e: Dictionary) -> bool:
-	return float(e.get("buzz", 0.0)) + float(e.get("morale", 0.0)) + float(e.get("xp", 0.0)) > 0.0
+# --- the decision a story is waiting on ------------------------------------------------------
 
-
-## The decision a story is waiting on: {open, prompt, options:[{id,label,blurb,now:[],good:[],bad:[]}]}.
+## {open, prompt, options:[{id,label,blurb,now:[],good:[],bad:[],note}]}.
 static func decision(st: Dictionary) -> Dictionary:
-	if st["kind"] != Storylines.RIVALRY_RUN:
-		return {"open": false, "prompt": "", "options": []}
+	if not DEFS.has(st["kind"]):
+		return {"open": false, "prompt": "", "window": "", "options": []}
+	var def: Dictionary = DEFS[st["kind"]]
+	var name := String(st.get("name", "him"))
 	var opts: Array = []
-	for o: Dictionary in RR_OPTIONS:
+	for o: Dictionary in def["options"]:
 		var id: StringName = o["id"]
 		var now: Array = []
 		var good: Array = []
 		var bad: Array = []
-		var n := effect_text(RR_NOW.get(id, {}))
+		var n := effect_text(def["now"].get(id, {}), st)
 		if n != "":
 			now.append(n)
 		for verdict: StringName in [&"won", &"split", &"lost"]:
-			var e: Dictionary = RR_END[id][verdict]
-			var t := effect_text(e)
-			if t == "":
+			var e: Dictionary = def["end"][id][verdict]
+			var t := effect_text(e, st)
+			var label: String = def["verdict"][verdict]
+			if t == "" or label == "":
 				continue
-			var line := "%s the series: %s" % [{&"won": "Win", &"lost": "Lose", &"split": "Split"}[verdict], t]
+			var line := "%s: %s" % [label, t]
 			(good if is_good(e) else bad).append(line)
-		if bad.is_empty() and id == COOL:
-			bad.append("Less buzz and no big payoff if you win")
-		var all: Array = RR_END[id].values()
-		all.append(RR_NOW.get(id, {}))
-		opts.append({"id": id, "label": o["label"], "blurb": o["blurb"], "now": now, "good": good, "bad": bad,
-			"note": WHO if reaches_players(all) else ""})
-	return {"open": Storylines.decision_open(st), "prompt": "How do you play this rivalry?", "options": opts}
+		if o.has("cost"):
+			bad.append(String(o["cost"]))
+		var all: Array = def["end"][id].values()
+		all.append(def["now"].get(id, {}))
+		opts.append({"id": id, "label": o["label"], "blurb": String(o["blurb"]).replace("{name}", name),
+			"now": now, "good": good, "bad": bad, "note": WHO if reaches_players(all) else ""})
+	return {"open": Storylines.decision_open(st), "prompt": def["prompt"], "window": def["window"], "options": opts}
 
+
+# --- the words -------------------------------------------------------------------------------
 
 static func scenario(st: Dictionary, season: Season) -> String:
 	var user := season.league.team_by_abbrev(st["team"])
-	var rival := season.league.team_by_abbrev(st["rival"])
-	if user == null or rival == null:
-		return ""
-	var rv := season.rivalries
-	var kind := ""
-	var f := rv.flags(user, rival)
-	if f & Rivalries.TEAM and Rivalries.anchor_name(user.abbrev, rival.abbrev) != "":
-		kind = "one of the league's permanent rivalries"
-	elif f & Rivalries.TEAM:
-		kind = "a rivalry that boiled over on its own"
-	else:
-		kind = "a rivalry between division mates"
-	var text := "The %s and the %s are %s. They meet %d time%s in the regular season." % [
-		user.nickname, rival.nickname, kind, st["total"], "" if int(st["total"]) == 1 else "s"]
-	var h2h := season.ledger.series_text(user, rival)
-	if h2h != "No meetings yet":
-		text += " Head to head: %s." % h2h
-	text += " Everything you do around these games gets noticed, by the room and by the city."
-	return text
+	var name := String(st.get("name", ""))
+	match st["kind"]:
+		Storylines.RIVALRY_RUN:
+			var rival := season.league.team_by_abbrev(st["rival"])
+			if user == null or rival == null:
+				return ""
+			var kind := ""
+			var f := season.rivalries.flags(user, rival)
+			if f & Rivalries.TEAM and Rivalries.anchor_name(user.abbrev, rival.abbrev) != "":
+				kind = "one of the league's permanent rivalries"
+			elif f & Rivalries.TEAM:
+				kind = "a rivalry that boiled over on its own"
+			else:
+				kind = "a rivalry between division mates"
+			var text := "The %s and the %s are %s. They meet %d time%s in the regular season." % [
+				user.nickname, rival.nickname, kind, st["total"], "" if int(st["total"]) == 1 else "s"]
+			var h2h := season.ledger.series_text(user, rival)
+			if h2h != "No meetings yet":
+				text += " Head to head: %s." % h2h
+			return text + " Everything you do around these games gets noticed, by the room and by the city."
+		Storylines.ROOKIE_RISE:
+			return "%s (age %d, %d-star development) is the best young talent in your system. The league is watching to see whether you trust %s with real minutes this season, and %s is watching too." % [
+				name, int(st.get("age", 0)), int(st.get("dev", 0)), name, name]
+		Storylines.REVENGE_GAME:
+			var opp := season.league.team_by_abbrev(st["rival"])
+			return "%s used to play for the %s, and this week you face them. %s has been looking forward to this since the schedule came out." % [
+				name, opp.nickname if opp != null else String(st["rival"]), name]
+		Storylines.CONTRACT_STANDOFF:
+			return "%s is in the final year of a contract and is not happy about where things stand. Trust in the front office is low, and the clock is running: if nothing changes, %s will walk in free agency, or ask out before then." % [name, name]
+	return ""
 
 
 ## What has to happen, with progress.
 static func objectives(st: Dictionary, season: Season) -> Array:
-	var rival := season.league.team_by_abbrev(st["rival"])
-	var rn := rival.nickname if rival != null else String(st["rival"])
-	var total: int = st["total"]
-	var wins := 0
-	for r in st["results"]:
-		if r["won"]:
-			wins += 1
-	var played: int = st["results"].size()
-	var need := total / 2 + 1
 	var out: Array = []
-	if st["status"] != Storylines.STATUS_ACTIVE:
-		out.append("Series with the %s: %s (%d of %d meetings won)" % [rn, String(st["status"]).capitalize(), wins, total])
-		return out
-	var left := total - played
-	out.append("Win the series: take %d of %d meetings from the %s  -  %d won so far, %d to play" % [need, total, rn, wins, left])
 	var user := season.league.team_by_abbrev(st["team"])
-	for m: ScheduledMatch in season.matches_for(user):
-		if not m.is_played() and m.stage == Season.STAGE_REGULAR and m.opponent_of(user) == rival:
-			out.append("Next meeting: %s, %s" % [season.week_label(m.week), "at home" if m.home == user else "away"])
-			break
+	var name := String(st.get("name", "The player"))
+	match st["kind"]:
+		Storylines.RIVALRY_RUN:
+			var rival := season.league.team_by_abbrev(st["rival"])
+			var rn := rival.nickname if rival != null else String(st["rival"])
+			var total: int = st["total"]
+			var wins := 0
+			for r in st["results"]:
+				if r["won"]:
+					wins += 1
+			var played: int = st["results"].size()
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("Series with the %s: %s (%d of %d meetings won)" % [rn, String(st["status"]).capitalize(), wins, total])
+				return out
+			out.append("Win the series: take %d of %d meetings from the %s  -  %d won so far, %d to play" % [total / 2 + 1, total, rn, wins, total - played])
+			for m: ScheduledMatch in season.matches_for(user):
+				if not m.is_played() and m.stage == Season.STAGE_REGULAR and m.opponent_of(user) == rival:
+					out.append("Next meeting: %s, %s" % [season.week_label(m.week), "at home" if m.home == user else "away"])
+					break
+		Storylines.ROOKIE_RISE:
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("%s started %d of %d matches (needed %d)" % [name, st["started"], st["played"], st["need"]])
+				return out
+			if st["choice"] == SLOW:
+				out.append("Keep %s with the club and let the development happen through the season" % name)
+			else:
+				out.append("Start %s in at least %d of your %d matches  -  %d of %d so far" % [name, st["need"], st["total"], st["started"], st["played"]])
+		Storylines.REVENGE_GAME:
+			var opp := season.league.team_by_abbrev(st["rival"])
+			var on := opp.nickname if opp != null else String(st["rival"])
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("Result against the %s: %s" % [on, String(st["status"]).capitalize()])
+				return out
+			out.append("Beat the %s with %s in the game: %s" % [on, name, season.week_label(st["start_week"])])
+			out.append("%s has to be in the lineup. Check your lineup before you play the week." % name)
+		Storylines.CONTRACT_STANDOFF:
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("Where it ended: %s" % String(st["status"]).capitalize())
+				return out
+			out.append("Win back trust: get %s to Trusting (62) or better before the regular season ends" % name)
+			var s: Soldier = Storylines.find_soldier(season, st)
+			if s != null:
+				out.append("%s trust now: %d (%s)  -  extension talks and kept promises move it" % [name, roundi(s.trust), Soldier.trust_label(s.trust)])
 	return out
 
 
-## The outcome of a finished story, as lines for the page ("" choice = nothing happened).
+## The outcome of a finished story, as lines for the page.
 static func outcome_lines(st: Dictionary) -> Array:
 	var out: Array = []
 	for l in st.get("applied", []):

@@ -4542,12 +4542,23 @@ func test_fantasy_draft_ai_values_rating() -> void:
 
 # --- storylines (issue #104) -------------------------------------------------------------------
 
+## The active (or finished) story of a kind.
+func _story(s: Season, kind: StringName) -> Dictionary:
+	for st in s.storylines.active:
+		if st["kind"] == kind:
+			return st
+	for st in s.storylines.finished:
+		if st["kind"] == kind:
+			return st
+	return {}
+
+
 func test_storylines_seed_rivalry_run() -> void:
 	var s := _fixed(104, 0)
 	var sl := s.storylines
-	check(sl.active.size() == 1, "one story is seeded at season start (%d)" % sl.active.size())
-	var st: Dictionary = sl.active[0]
-	check(st["kind"] == Storylines.RIVALRY_RUN, "it is a rivalry run")
+	var st := _story(s, Storylines.RIVALRY_RUN)
+	check(not st.is_empty(), "a rivalry run is seeded at season start")
+	check(sl.active.size() <= Storylines.MAX_ACTIVE, "stays under the cap")
 	var user := s.user_team()
 	var rival := s.league.team_by_abbrev(st["rival"])
 	check(rival != null and rival != user and s.rivalries.is_rivalry(user, rival), "the opponent is a rival")
@@ -4557,28 +4568,24 @@ func test_storylines_seed_rivalry_run() -> void:
 			meetings += 1
 	check(int(st["total"]) == meetings and meetings >= 1, "total matches the schedule (%d vs %d)" % [st["total"], meetings])
 	check(st["stage"] == Storylines.STAGE_SETUP and st["status"] == Storylines.STATUS_ACTIVE, "starts in setup")
-	check(sl.last_beats.size() == 1, "seeding makes one beat")
+	check(sl.last_beats.any(func(b): return b["story"] == st["id"]), "seeding makes a beat")
 	check(s.newsroom.latest()["body"].any(func(p): return String(p).contains(String(st["title"]))), "the preseason issue mentions it")
-	# Same seed -> same pick.
 	check(_fixed(104, 0).storylines.active[0]["rival"] == st["rival"], "seeding is deterministic")
 
 
 func test_storylines_rivalry_run_plays_out() -> void:
 	var s := _fixed(105, 0)
 	var sl := s.storylines
-	var id: int = sl.active[0]["id"]
-	var total: int = sl.active[0]["total"]
+	var st := _story(s, Storylines.RIVALRY_RUN)
+	var id: int = st["id"]
+	var total: int = st["total"]
 	check(sl.choose(s, id, StoryDefs.FUEL) == "", "a choice can be made before the first meeting")
-	var seen_stages := {}
 	var guard := 0
-	while not sl.active.is_empty() and s.phase == Season.PHASE_REGULAR and guard < 30:
+	while st["status"] == Storylines.STATUS_ACTIVE and s.phase == Season.PHASE_REGULAR and guard < 30:
 		s.sim_week()
 		guard += 1
-		if not sl.active.is_empty():
-			seen_stages[sl.active[0]["stage"]] = true
-	check(sl.active.is_empty(), "the story ends once every meeting is played")
-	check(sl.finished.size() == 1 and int(sl.finished[0]["id"]) == id, "it moves to finished")
-	var st: Dictionary = sl.finished[0]
+	check(st["status"] != Storylines.STATUS_ACTIVE, "the story ends once every meeting is played")
+	check(sl.finished.any(func(x): return int(x["id"]) == id), "it moves to finished")
 	check(st["results"].size() == total, "one result per meeting (%d of %d)" % [st["results"].size(), total])
 	check([Storylines.STATUS_WON, Storylines.STATUS_LOST, Storylines.STATUS_SPLIT].has(st["status"]), "it has a verdict")
 	check(st["stage"] == Storylines.STAGE_RESOLVED and int(st["ended_week"]) > 0, "resolved, with the week it ended")
@@ -4591,46 +4598,50 @@ func test_storylines_rivalry_run_plays_out() -> void:
 	check(s.news.items.any(func(it): return it["kind"] == "storyline"), "beats reach the league wire")
 	check(sl.status_line(st, s) != "", "status line reads")
 	check(st["choice"] == StoryDefs.FUEL and st["applied"].size() >= 1, "the choice and its effects are on file (%s)" % [st["applied"]])
-	var end_e: Dictionary = StoryDefs.RR_END[StoryDefs.FUEL][st["status"]]
+	var end_e: Dictionary = StoryDefs.end_effects(st, StoryDefs.FUEL, st["status"])
 	check(st["applied"].size() == (2 if not end_e.is_empty() else 1), "the outcome effect was applied when the series ended")
 
 
 func test_storylines_next_season_reseeds() -> void:
 	var s := _fixed(106, 0)
 	s.sim_week()
-	var first_id: int = s.storylines.active[0]["id"]
+	var first := _story(s, Storylines.RIVALRY_RUN)
+	var first_id: int = first["id"]
 	# What start_next_season does for the story layer: close last season's, seed this one.
 	s.storylines.begin_season(s)
-	check(s.storylines.active.size() == 1 and s.storylines.active[0]["id"] != first_id, "a fresh story replaces the old one")
-	check(s.storylines.finished.size() == 1 and s.storylines.finished[0]["id"] == first_id, "the old one is filed away")
+	var again := _story(s, Storylines.RIVALRY_RUN)
+	check(again["id"] != first_id and again["status"] == Storylines.STATUS_ACTIVE, "a fresh rivalry run replaces the old one")
+	check(s.storylines.finished.any(func(x): return x["id"] == first_id), "the old one is filed away")
 	check(s.storylines.active.size() <= Storylines.MAX_ACTIVE, "stays under the cap")
 
 
 func test_storylines_save_round_trip() -> void:
 	var s := _fixed(107, 0)
 	s.sim_week()
-	var text := SaveSystem.to_text(s)
-	var back = SaveSystem.from_text(text)
+	var back = SaveSystem.from_text(SaveSystem.to_text(s))
 	check(back != null, "the save loads")
 	if back != null:
 		check(back.storylines.active.size() == s.storylines.active.size(), "active stories survive a save")
 		check(back.storylines.next_id == s.storylines.next_id, "id counter survives")
+		check(back.storylines.fired == s.storylines.fired, "the fired list survives")
 		if not s.storylines.active.is_empty():
-			check(back.storylines.active[0]["rival"] == s.storylines.active[0]["rival"], "story contents survive")
+			check(back.storylines.active[0]["kind"] == s.storylines.active[0]["kind"], "story contents survive")
 
 
 func test_storylines_choice_effects() -> void:
 	var s := _fixed(108, 0)
 	var sl := s.storylines
-	var st: Dictionary = sl.active[0]
+	var st := _story(s, Storylines.RIVALRY_RUN)
 	var user := s.user_team()
 	var rival := s.league.team_by_abbrev(st["rival"])
-	check(Storylines.decision_open(st) and sl.pending_decisions().size() == 1, "a decision is waiting from the start")
+	check(Storylines.decision_open(st) and sl.pending_decisions().size() >= 1, "a decision is waiting from the start")
 	var dec := StoryDefs.decision(st)
 	check(dec["open"] and dec["options"].size() == 2, "two options are offered")
-	for o: Dictionary in dec["options"]:
-		check(not o["now"].is_empty() or not o["good"].is_empty(), "option %s lists what it does" % o["id"])
-		check(not o["good"].is_empty() or not o["bad"].is_empty(), "option %s lists rewards or costs" % o["id"])
+	for kind in StoryDefs.DEFS:
+		var probe := {"kind": kind, "name": "Test", "status": Storylines.STATUS_ACTIVE, "choice": &"", "results": [], "open": true}
+		for o: Dictionary in StoryDefs.decision(probe)["options"]:
+			check(not o["now"].is_empty() or not o["good"].is_empty() or not o["bad"].is_empty(), "%s option %s lists what it does" % [kind, o["id"]])
+			check(not String(o["blurb"]).contains("{name}"), "%s option %s fills in the name" % [kind, o["id"]])
 	check(not StoryDefs.scenario(st, s).is_empty() and not StoryDefs.objectives(st, s).is_empty(), "scenario and objectives read")
 	check(sl.choose(s, st["id"], &"nonsense") != "", "an unknown option is refused")
 	var heat_before := s.rivalries.heat_of(user, rival)
@@ -4640,10 +4651,8 @@ func test_storylines_choice_effects() -> void:
 	check(user.heat > buzz_heat_before, "fueling adds buzz")
 	check(st["choice"] == StoryDefs.FUEL and st["applied"].size() == 1, "the choice is recorded")
 	check(sl.choose(s, st["id"], StoryDefs.COOL) != "", "a choice cannot be changed")
-	check(not Storylines.decision_open(st) and sl.pending_decisions().is_empty(), "nothing is waiting any more")
-	# Cooling goes the other way.
 	var s2 := _fixed(108, 0)
-	var st2: Dictionary = s2.storylines.active[0]
+	var st2 := _story(s2, Storylines.RIVALRY_RUN)
 	var rival2 := s2.league.team_by_abbrev(st2["rival"])
 	s2.rivalries.stoke(s2.user_team(), rival2, 30.0)
 	var before := s2.rivalries.heat_of(s2.user_team(), rival2)
@@ -4654,11 +4663,151 @@ func test_storylines_choice_effects() -> void:
 func test_storylines_undecided_defaults() -> void:
 	var s := _fixed(109, 0)
 	var sl := s.storylines
-	var id: int = sl.active[0]["id"]
+	var st := _story(s, Storylines.RIVALRY_RUN)
 	var guard := 0
-	while sl.active.size() > 0 and sl.active[0]["results"].is_empty() and guard < 8:
+	while st["results"].is_empty() and guard < 8:
 		s.sim_week()
 		guard += 1
-	var st: Dictionary = sl.active[0] if not sl.active.is_empty() else sl.finished[0]
 	check(st["choice"] == StoryDefs.STAY, "an undecided story falls back to stay (%s)" % st["choice"])
-	check(sl.choose(s, id, StoryDefs.FUEL) != "", "the window closes at the first meeting")
+	check(sl.choose(s, st["id"], StoryDefs.FUEL) != "", "the window closes at the first meeting")
+
+
+## The user's top starter, made into a young high-potential prospect.
+func _make_rookie(s: Season) -> Soldier:
+	var so: Soldier = s.user_team().starters()[0]
+	so.age = 21
+	so.dev = 4
+	return so
+
+
+## Clears the seeded stories and seeds again (so a crafted prospect becomes the story).
+func _reseed(s: Season) -> void:
+	for st in s.storylines.active.duplicate():
+		s.storylines.active.erase(st)
+	s.storylines.begin_season(s)
+
+
+func test_storylines_rookie_rise() -> void:
+	var s := _fixed(110, 0)
+	var sl := s.storylines
+	var so := _make_rookie(s)
+	_reseed(s)
+	var st := _story(s, Storylines.ROOKIE_RISE)
+	check(not st.is_empty() and st["soldier"] == so.id, "the best young talent is picked")
+	check(st["need"] == ceili(Storylines.ROOKIE_START_SHARE * st["total"]) and st["total"] > 0, "the starts needed follow the schedule")
+	check(sl.active.size() <= Storylines.MAX_ACTIVE, "stays under the cap")
+	var progress_before := so.xp + so.level * 100000
+	var morale_before := so.morale
+	check(sl.choose(s, st["id"], StoryDefs.START) == "", "give the starts is accepted")
+	check(so.morale > morale_before, "the player is pleased to be backed")
+	# Fast-forward to the last match: one start short of what is needed.
+	st["played"] = st["total"] - 1
+	st["started"] = st["need"] - 1
+	var sp_before := so.skill_points
+	var guard := 0
+	while st["status"] == Storylines.STATUS_ACTIVE and guard < 14:
+		s.sim_week()
+		guard += 1
+	check(st["status"] == Storylines.STATUS_WON, "the story is won once the starts are reached (%s, %d of %d)" % [st["status"], st["started"], st["played"]])
+	check(so.skill_points >= sp_before + 1 or so.xp + so.level * 100000 > progress_before, "the player is rewarded with XP and a skill point")
+	check(st["applied"].size() == 2, "the choice and the result are on file")
+	check(sl.finished.any(func(x): return x["id"] == st["id"]), "it moves to finished")
+
+
+func test_storylines_rookie_rise_slow_and_fizzle() -> void:
+	var s := _fixed(111, 0)
+	var sl := s.storylines
+	_make_rookie(s)
+	_reseed(s)
+	var st := _story(s, Storylines.ROOKIE_RISE)
+	check(sl.choose(s, st["id"], StoryDefs.SLOW) == "", "bring along slowly is accepted")
+	st["played"] = st["total"] - 1
+	var guard := 0
+	while st["status"] == Storylines.STATUS_ACTIVE and guard < 14:
+		s.sim_week()
+		guard += 1
+	check(st["status"] == Storylines.STATUS_WON, "the patient path pays off while the player is still with the club")
+	# If the prospect leaves, the story fizzles with no effects.
+	var s2 := _fixed(112, 0)
+	var so2 := _make_rookie(s2)
+	_reseed(s2)
+	var st2 := _story(s2, Storylines.ROOKIE_RISE)
+	s2.user_team().roster.erase(so2)
+	s2.sim_week()
+	check(st2["status"] == Storylines.STATUS_FIZZLED and st2["applied"].is_empty(), "a prospect who leaves fizzles the story")
+
+
+func test_storylines_revenge_game() -> void:
+	var s := _fixed(113, 0)
+	var sl := s.storylines
+	var user := s.user_team()
+	check(_story(s, Storylines.REVENGE_GAME).is_empty(), "no revenge game without a former player")
+	var opp := s.next_match_for(user).opponent_of(user)
+	var so: Soldier = user.starters()[0]
+	so.former_team = opp.abbrev
+	s.prepare_week()
+	var st := _story(s, Storylines.REVENGE_GAME)
+	check(not st.is_empty() and st["soldier"] == so.id and st["rival"] == opp.abbrev, "a starter facing the old club makes a spotlight")
+	check(sl.fired.has("%s:%d" % [Storylines.REVENGE_GAME, s.year]), "it only happens once a season")
+	check(Storylines.decision_open(st), "the decision is open before the match")
+	check(sl.choose(s, st["id"], StoryDefs.HYPE) == "", "hype it up is accepted")
+	s.sim_week()
+	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST, Storylines.STATUS_FIZZLED], "the spotlight resolves with the match (%s)" % st["status"])
+	if st["status"] != Storylines.STATUS_FIZZLED:
+		check(st["applied"].size() == 2, "the choice and the result are on file (%s)" % [st["applied"]])
+	check(not sl.active.any(func(x): return x["id"] == st["id"]), "a spotlight is over after its match")
+	# A former club that is not this week's opponent makes nothing.
+	var again := _fixed(113, 0)
+	again.user_team().starters()[0].former_team = "ZZZ"
+	again.prepare_week()
+	check(_story(again, Storylines.REVENGE_GAME).is_empty(), "a former club that is not the opponent makes nothing")
+
+
+## The user's best player, set up as an unhappy star on an expiring deal.
+func _make_unhappy_star(s: Season) -> Soldier:
+	var ranked: Array = s.user_team().roster.duplicate()
+	ranked.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
+	var star: Soldier = ranked[0]
+	star.contract.years = 1
+	star.contract.rookie = false
+	star.trust = 40.0
+	return star
+
+
+func test_storylines_contract_standoff() -> void:
+	var s := _fixed(114, 0)
+	var sl := s.storylines
+	s.sim_week()
+	s.sim_week()
+	check(_story(s, Storylines.CONTRACT_STANDOFF).is_empty(), "no standoff while nobody is unhappy")
+	var star := _make_unhappy_star(s)
+	s.prepare_week()
+	var st := _story(s, Storylines.CONTRACT_STANDOFF)
+	check(not st.is_empty() and st["soldier"] == star.id, "an unhappy star on an expiring deal starts a standoff")
+	check(Storylines.decision_open(st), "the decision is open")
+	var trust_before := star.trust
+	check(sl.choose(s, st["id"], StoryDefs.PROMISE) == "", "promising an extension is accepted")
+	check(star.trust > trust_before + 5.0, "the promise lifts trust")
+	# An agreed extension settles it.
+	star.ext_years = 2
+	star.ext_salary = 1000
+	s.sim_week()
+	check(st["status"] == Storylines.STATUS_WON, "an agreed extension settles it (%s)" % st["status"])
+	check(st["applied"].size() >= 2, "the promise and the result are on file")
+	# Holding the line and losing the player's trust ends badly.
+	var s2 := _fixed(115, 0)
+	s2.sim_week()
+	s2.sim_week()
+	var star2 := _make_unhappy_star(s2)
+	s2.prepare_week()
+	var st2 := _story(s2, Storylines.CONTRACT_STANDOFF)
+	check(s2.storylines.choose(s2, st2["id"], StoryDefs.HOLD) == "", "holding the line is accepted")
+	check(star2.trust < 40.0, "holding the line costs trust")
+	star2.trust = 10.0
+	s2.sim_week()
+	check(st2["status"] == Storylines.STATUS_LOST and star2.trade_request, "a collapsed relationship ends in a trade request (%s)" % st2["status"])
+	# Nothing starts in the first weeks.
+	var s3 := _fixed(116, 0)
+	_make_unhappy_star(s3)
+	s3.prepare_week()
+	check(_story(s3, Storylines.CONTRACT_STANDOFF).is_empty(), "no standoff in the first weeks")
