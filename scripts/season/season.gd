@@ -69,6 +69,13 @@ var player_archetype: StringName = &""
 ## The combine (phase 2): drill scores so far, and whether it is locked in (ratings written to `player`).
 var player_combine: Combine = null
 var player_combine_done := false
+## The player's draft (phase 3): the pre-season rookie class with him in it, his entry in it, the state (see
+## PlayerDraft.STATE_*), the pick he went at (0 = undrafted) and the club he landed with.
+var player_draft: Draft = null
+var player_prospect: Prospect = null
+var player_draft_state: StringName = &""
+var player_pick := 0
+var player_team: Team = null
 ## Regular-season length and playoff field (set from the league's shape when the franchise starts).
 var regular_weeks := DIVISION_WEEKS
 var playoff_teams := DIVISION_PLAYOFF_TEAMS

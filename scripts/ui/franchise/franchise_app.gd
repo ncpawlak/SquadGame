@@ -207,7 +207,7 @@ func _mode_card(title: String, tagline: String, desc: String, points: Array, soo
 	return b
 
 
-## Player mode step 1: create the soldier (face, name, callsign, archetype). Phase 1 ends at show_player_ready.
+## Player mode step 1: create the soldier (face, name, callsign, archetype). The combine and the draft follow.
 func show_player_create() -> void:
 	if preview_seed == 0:
 		preview_seed = randi_range(1, 999999)
@@ -245,28 +245,30 @@ func _lock_combine() -> void:
 
 
 func show_combine_results() -> void:
-	_set_screen(CombineScreen.results(season, show_player_ready))
+	_set_screen(CombineScreen.results(season, show_draft_report))
 
 
-## Placeholder end of phase 1: the created soldier and his combine ceilings. The combine itself is phase 2.
-func show_player_ready() -> void:
-	var s := season.player
-	var root := VBoxContainer.new()
-	root.name = "PlayerReady"
-	root.add_theme_constant_override("separation", 12)
-	var margin := _margin(root, 40)
-	root.add_child(UiKit.display("%s \"%s\" %s" % [s.first_name, s.callsign, s.last_name], 44, Color.WHITE, true))
-	var a := Archetypes.find(season.player_archetype)
-	root.add_child(UiKit.label("%s %s  -  age %d" % [a["name"], String(Scheme.ROLE_NAMES[Archetypes.role_of(season.player_archetype)]), s.age], 20, UiKit.ACCENT))
-	root.add_child(UiKit.label(String(a["blurb"]), 16, UiKit.MUTED))
-	root.add_child(_spacer(10))
-	root.add_child(UiKit.label("Your combine is done and your ratings are set.", 18, UiKit.TEXT))
-	root.add_child(UiKit.label("The draft and the rookie season are not built yet.", 15, UiKit.MUTED))
-	root.add_child(_spacer(10))
-	var row := HBoxContainer.new()
-	root.add_child(row)
-	row.add_child(UiKit.button("< Back to title", show_title, 18))
-	_set_screen(margin)
+## Player mode step 3: the scouting report, draft night and (if undrafted) the Green Team offers.
+func show_draft_report() -> void:
+	PlayerDraft.begin(season)
+	_set_screen(PlayerDraftPages.report(season, show_draft_night))
+
+
+func show_draft_night() -> void:
+	var res := PlayerDraft.run(season)
+	_set_screen(PlayerDraftPages.night(season, res, _after_draft_night))
+
+
+func _after_draft_night() -> void:
+	if season.player_draft_state == PlayerDraft.STATE_OFFERS:
+		_set_screen(PlayerDraftPages.offers(season, show_player_landing))
+	else:
+		show_player_landing()
+
+
+## Placeholder end of phase 3: where the career begins. The rookie season is phase 4.
+func show_player_landing() -> void:
+	_set_screen(PlayerDraftPages.landing(season, show_title))
 
 
 func show_team_select() -> void:
