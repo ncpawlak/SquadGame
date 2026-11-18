@@ -51,6 +51,8 @@ const CEREMONY := &"ceremony"
 const TRIBUTE := &"tribute"
 const REAFFIRM := &"reaffirm"
 const BRUSH_OFF := &"brush_off"
+const VOW := &"vow"
+const QUIET := &"quiet"
 ## Not a choice the player picks: what a story falls back to when its window closes undecided.
 const STAY := &"stay"
 
@@ -60,7 +62,7 @@ const KIND_LABEL := {
 	&"last_ride": "ARC", &"statement_game": "SPOTLIGHT", &"press_storm": "CONDITIONAL",
 	&"title_chase": "ARC", &"must_win": "SPOTLIGHT", &"comeback_trail": "CONDITIONAL",
 	&"bromance": "CONDITIONAL", &"locker_rift": "CONDITIONAL", &"milestone_chase": "SPOTLIGHT",
-	&"banner_night": "SPOTLIGHT", &"poaching_rumor": "CONDITIONAL",
+	&"banner_night": "SPOTLIGHT", &"poaching_rumor": "CONDITIONAL", &"hot_seat": "ARC",
 }
 
 # --- Rivalry Run -------------------------------------------------------------------------------
@@ -391,6 +393,24 @@ const POA_OPTIONS := [
 		"cost": "May end in a trade request if trust slips"},
 ]
 
+# --- Hot Seat ----------------------------------------------------------------------------------
+const SEAT_NOW := {
+	&"vow": {"buzz": 3.0},
+	&"quiet": {},
+}
+const SEAT_END := {
+	&"vow": {&"won": {"buzz": 6.0, "morale": 3.0}, &"lost": {"buzz": -6.0, "morale": -4.0}, &"split": {}},
+	&"quiet": {&"won": {"buzz": 2.0, "morale": 2.0}, &"lost": {"buzz": -1.0}, &"split": {}},
+	&"stay": {&"won": {"buzz": 1.0, "morale": 1.0}, &"lost": {"buzz": -1.0}, &"split": {}},
+}
+const SEAT_OPTIONS := [
+	{"id": &"vow", "label": "Vow to make the playoffs",
+		"blurb": "Say it in public: this club is going to the postseason, and everyone can hold you to it."},
+	{"id": &"quiet", "label": "Stay quietly confident",
+		"blurb": "No promises. Do the work and let the results speak.",
+		"cost": "Smaller payoff even if the season works out"},
+]
+
 ## Per kind: effects when a choice is made, effects when the story ends (by choice then verdict),
 ## the options, the prompt, and how a verdict reads on an option card.
 const DEFS := {
@@ -430,6 +450,8 @@ const DEFS := {
 		"verdict": {&"won": "You win", &"split": "", &"lost": "You lose"}},
 	&"poaching_rumor": {"now": POA_NOW, "end": POA_END, "options": POA_OPTIONS, "prompt": "How do you answer the rumours?", "window": "within two weeks",
 		"verdict": {&"won": "The talk dies down", &"split": "", &"lost": "Trust slips"}},
+	&"hot_seat": {"now": SEAT_NOW, "end": SEAT_END, "options": SEAT_OPTIONS, "prompt": "How do you face the pressure?", "window": "before the first match",
+		"verdict": {&"won": "You make the playoffs", &"split": "", &"lost": "You miss the playoffs"}},
 }
 
 ## Who morale and XP effects reach.
@@ -605,6 +627,8 @@ static func scenario(st: Dictionary, season: Season) -> String:
 		Storylines.POACHING_RUMOR:
 			var popp := season.league.team_by_abbrev(st["rival"])
 			return "The %s are reported to be interested in %s, and %s has been unsettled for a while. The wrong response could turn rumour into a request." % [popp.nickname if popp != null else String(st["rival"]), name, name]
+		Storylines.HOT_SEAT:
+			return "The club went %d-%d last season and missed the playoffs. The mood around the front office is tense, and another season without a berth will bring hard questions." % [int(st.get("last_wins", 0)), int(st.get("last_losses", 0))]
 	return ""
 
 
@@ -751,6 +775,11 @@ static func objectives(st: Dictionary, season: Season) -> Array:
 			var ps: Soldier = Storylines.find_soldier(season, st)
 			if ps != null:
 				out.append("%s trust now: %d (%s)" % [name, roundi(ps.trust), Soldier.trust_label(ps.trust)])
+		Storylines.HOT_SEAT:
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("Finished %d-%d, table position %d (the playoff field is the top %d)" % [st["wins"], st["played"] - st["wins"], int(st.get("rank", 0)), season.playoff_teams])
+				return out
+			out.append("Finish in the top %d of the table to make the playoffs  -  %d-%d so far" % [season.playoff_teams, st["wins"], st["played"] - st["wins"]])
 	return out
 
 

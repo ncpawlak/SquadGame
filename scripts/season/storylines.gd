@@ -36,11 +36,12 @@ const LOCKER_RIFT := &"locker_rift"
 const MILESTONE_CHASE := &"milestone_chase"
 const BANNER_NIGHT := &"banner_night"
 const POACHING_RUMOR := &"poaching_rumor"
+const HOT_SEAT := &"hot_seat"
 
 ## How many stories may run at once, and how many of them may be arcs.
 const MAX_ACTIVE := 3
 const MAX_ARCS := 2
-const ARCS: Array[StringName] = [RIVALRY_RUN, ROOKIE_RISE, CINDERELLA, LAST_RIDE, TITLE_CHASE]
+const ARCS: Array[StringName] = [RIVALRY_RUN, ROOKIE_RISE, CINDERELLA, LAST_RIDE, TITLE_CHASE, HOT_SEAT]
 const SPOTLIGHTS: Array[StringName] = [REVENGE_GAME, DERBY_WEEK, STATEMENT_GAME, MUST_WIN, MILESTONE_CHASE, BANNER_NIGHT]
 
 const STAGE_SETUP := 0
@@ -119,6 +120,9 @@ const POACH_TRUST := 58.0
 const POACH_KEEP := 55.0
 const POACH_FROM_WEEK := 3
 const POACH_WINDOW := 2
+## Hot Seat: the club missed the playoffs with a win share below this last season; it is won by making
+## the playoff field this season.
+const SEAT_MAX_WIN_SHARE := 0.5
 
 var active: Array = []
 var finished: Array = []
@@ -153,6 +157,10 @@ func begin_season(season: Season) -> void:
 			last_beats.append(_beat(st, "seed", season))
 	if active.size() < MAX_ACTIVE and _arc_count() < MAX_ARCS and _is_contender(season, user):
 		var st := _new_title_chase(season, user)
+		active.append(st)
+		last_beats.append(_beat(st, "seed", season))
+	if active.size() < MAX_ACTIVE and _arc_count() < MAX_ARCS and _bad_last_year(season, user):
+		var st := _new_hot_seat(season, user)
 		active.append(st)
 		last_beats.append(_beat(st, "seed", season))
 	# An underdog club's story takes a slot before the prospect does.
@@ -282,6 +290,8 @@ func week(season: Season, played: Array, wk: int) -> void:
 				_week_derby(season, st, played, wk)
 			POACHING_RUMOR:
 				_week_poaching(season, st, wk)
+			HOT_SEAT:
+				_week_hot_seat(season, st, played, wk)
 	_note_injuries(season)
 	_publish(season, season.week_label(wk), last_beats.filter(func(b): return not b.get("published", false)))
 
@@ -407,6 +417,10 @@ func status_line(st: Dictionary, season: Season) -> String:
 				return "%s: %s" % [name, verdict.capitalize()]
 			var ps := find_soldier(season, st)
 			return "%s  -  trust %s" % [name, Soldier.trust_label(ps.trust) if ps != null else "?"]
+		HOT_SEAT:
+			if st["status"] != STATUS_ACTIVE:
+				return "Hot seat: %s  -  %d-%d" % [verdict.capitalize(), st["wins"], st["played"] - st["wins"]]
+			return "Hot seat: %d-%d  -  needs a playoff berth" % [st["wins"], st["played"] - st["wins"]]
 		BENCH_GRUMBLE:
 			if st["status"] != STATUS_ACTIVE:
 				return "%s: %s" % [name, verdict.capitalize()]
@@ -1493,6 +1507,73 @@ func _week_poaching(season: Season, st: Dictionary, wk: int) -> void:
 		_finish(season, st, STATUS_WON, wk)
 
 
+# --- Hot Seat --------------------------------------------------------------------------------
+
+## Last season's table row for the user's club, or {} if there is no finished season on file.
+func _last_year_row(season: Season, user: Team) -> Dictionary:
+	var snap: SeasonSnapshot = null
+	for h: SeasonSnapshot in season.history:
+		if h.year < season.year and (snap == null or h.year > snap.year):
+			snap = h
+	if snap == null:
+		return {}
+	for row: Dictionary in snap.standings:
+		if row["team"] == user:
+			return row
+	return {}
+
+
+## True after a season with no playoffs and a losing record.
+func _bad_last_year(season: Season, user: Team) -> bool:
+	var row := _last_year_row(season, user)
+	if row.is_empty() or int(row["seed"]) > 0:
+		return false
+	var games := int(row["wins"]) + int(row["losses"])
+	return games > 0 and float(row["wins"]) / games < SEAT_MAX_WIN_SHARE
+
+
+func _new_hot_seat(season: Season, user: Team) -> Dictionary:
+	var total := 0
+	for m: ScheduledMatch in season.matches_for(user):
+		if m.stage == Season.STAGE_REGULAR:
+			total += 1
+	var row := _last_year_row(season, user)
+	var st := _base(season, HOT_SEAT, user, "The %s on the Hot Seat" % user.nickname)
+	st["total"] = total
+	st["wins"] = 0
+	st["played"] = 0
+	st["last_wins"] = int(row.get("wins", 0))
+	st["last_losses"] = int(row.get("losses", 0))
+	return st
+
+
+func _week_hot_seat(season: Season, st: Dictionary, played: Array, wk: int) -> void:
+	var user := season.league.team_by_abbrev(st["team"])
+	var played_now := false
+	for m: ScheduledMatch in played:
+		if not m.is_played() or m.stage != Season.STAGE_REGULAR or not m.involves(user):
+			continue
+		played_now = true
+		st["played"] += 1
+		if m.winner() == user:
+			st["wins"] += 1
+	if not played_now:
+		return
+	_close_window(st)
+	var n: int = st["played"]
+	var total: int = st["total"]
+	if n >= total:
+		var rank := table_rank(season, user)
+		st["rank"] = rank
+		_finish(season, st, STATUS_WON if rank > 0 and rank <= season.playoff_teams else STATUS_LOST, wk)
+	elif n * 3 >= total * 2 and st["stage"] < STAGE_SHOWDOWN:
+		st["stage"] = STAGE_SHOWDOWN
+		last_beats.append(_beat(st, "showdown", season))
+	elif n * 3 >= total and st["stage"] < STAGE_ESCALATION:
+		st["stage"] = STAGE_ESCALATION
+		last_beats.append(_beat(st, "meeting", season))
+
+
 # --- beats (the words) -----------------------------------------------------------------------
 
 func _beat(st: Dictionary, what: String, season: Season) -> Dictionary:
@@ -1707,6 +1788,24 @@ func _beat(st: Dictionary, what: String, season: Season) -> Dictionary:
 						_:
 							head = "%s: it will have to wait" % title
 							body = "%s did not play against the %s, so the milestone moves down the calendar." % [name, mon]
+		HOT_SEAT:
+			match what:
+				"seed":
+					head = "%s: pressure is on after a missed season" % title
+					body = "The %s went %d-%d last year and missed the playoffs. Anything less than a berth this season and the questions get louder." % [un, st["last_wins"], st["last_losses"]]
+				"meeting":
+					head = "%s: %d-%d so far" % [title, st["wins"], st["played"] - st["wins"]]
+					body = "The %s are %d-%d after %d matches, with the playoff line still the target." % [un, st["wins"], st["played"] - st["wins"], st["played"]]
+				"showdown":
+					head = "%s: the final stretch" % title
+					body = "The %s sit at %d-%d with a third of the season to play. A playoff berth would settle the debate." % [un, st["wins"], st["played"] - st["wins"]]
+				"resolve":
+					if st["status"] == STATUS_WON:
+						head = "%s: the pressure lifts" % title
+						body = "The %s finished %d-%d and made the playoffs. The talk about the future goes quiet." % [un, st["wins"], st["played"] - st["wins"]]
+					else:
+						head = "%s: another year without a berth" % title
+						body = "The %s finished %d-%d and missed the playoffs again. The questions will not stop." % [un, st["wins"], st["played"] - st["wins"]]
 		BANNER_NIGHT:
 			var bopp := season.league.team_by_abbrev(st["rival"])
 			var bon := bopp.nickname if bopp != null else String(st["rival"])
