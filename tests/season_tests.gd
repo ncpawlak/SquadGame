@@ -4791,6 +4791,7 @@ func test_storylines_contract_standoff() -> void:
 	s.sim_week()
 	check(_story(s, Storylines.CONTRACT_STANDOFF).is_empty(), "no standoff while nobody is unhappy")
 	var star := _make_unhappy_star(s)
+	sl.active.clear()
 	s.prepare_week()
 	var st := _story(s, Storylines.CONTRACT_STANDOFF)
 	check(not st.is_empty() and st["soldier"] == star.id, "an unhappy star on an expiring deal starts a standoff")
@@ -4809,6 +4810,7 @@ func test_storylines_contract_standoff() -> void:
 	s2.sim_week()
 	s2.sim_week()
 	var star2 := _make_unhappy_star(s2)
+	s2.storylines.active.clear()
 	s2.prepare_week()
 	var st2 := _story(s2, Storylines.CONTRACT_STANDOFF)
 	check(s2.storylines.choose(s2, st2["id"], StoryDefs.HOLD) == "", "holding the line is accepted")
@@ -5120,3 +5122,69 @@ func test_storylines_milestone_chase() -> void:
 	s.sim_week()
 	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "it resolves with the match (%s)" % st["status"])
 	check(sl.fired.has("%s:%d" % [Storylines.MILESTONE_CHASE, s.year]), "once a season")
+
+
+func test_storylines_banner_night() -> void:
+	var s := _fixed(160, 0)
+	var sl := s.storylines
+	var user := s.user_team()
+	sl.active.clear()
+	check(sl._try_banner(s, user).is_empty(), "no banner night with nobody to honour")
+	s.league.retired_callsigns.append({"callsign": "Ghost", "team": user, "year": s.year - 1, "seasons": 8, "honors": []})
+	var st := {}
+	var guard := 0
+	while st.is_empty() and guard < 8:
+		st = sl._try_banner(s, user)
+		if st.is_empty():
+			s.sim_week()
+			sl.active.clear()
+			guard += 1
+	check(not st.is_empty() and st["name"] == "GHOST", "a retired callsign gets a banner night at the next home match")
+	check(sl.choose(s, st["id"], StoryDefs.CEREMONY) == "", "a full ceremony is accepted")
+	s.sim_week()
+	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "it resolves with the match (%s)" % st["status"])
+	check(sl.fired.has("%s:%d" % [Storylines.BANNER_NIGHT, s.year]), "once a season")
+
+
+func test_storylines_poaching_rumor() -> void:
+	var s := _fixed(161, 0)
+	var sl := s.storylines
+	var user := s.user_team()
+	s.sim_week()
+	s.sim_week()
+	sl.active.clear()
+	sl.active.clear()
+	sl.fired.clear()
+	var ranked: Array = user.roster.duplicate()
+	ranked.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
+	var star: Soldier = ranked[0]
+	for so: Soldier in user.roster:
+		so.trust = 80.0
+	star.trust = 40.0
+	var st := sl._try_poaching(s, user)
+	check(not st.is_empty() and st["soldier"] == star.id and st["rival"] != user.abbrev, "an unhappy star draws a rumour")
+	check(sl.choose(s, st["id"], StoryDefs.REAFFIRM) == "", "reaffirming is accepted")
+	check(star.trust > 40.0, "it lifts trust")
+	var guard := 0
+	while st["status"] == Storylines.STATUS_ACTIVE and guard < 6:
+		s.sim_week()
+		guard += 1
+	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "it resolves (%s)" % st["status"])
+	# Brushing it off while trust stays low ends in a trade request.
+	var s2 := _fixed(162, 0)
+	s2.sim_week()
+	s2.sim_week()
+	s2.storylines.active.clear()
+	var star2: Soldier = s2.user_team().roster[0]
+	for so: Soldier in s2.user_team().roster:
+		so.trust = 80.0
+	star2.trust = 20.0
+	var st2 := s2.storylines._try_poaching(s2, s2.user_team())
+	check(not st2.is_empty(), "a second rumour starts")
+	check(s2.storylines.choose(s2, st2["id"], StoryDefs.BRUSH_OFF) == "", "ignoring it is accepted")
+	guard = 0
+	while st2["status"] == Storylines.STATUS_ACTIVE and guard < 6:
+		star2.trust = 20.0
+		s2.sim_week()
+		guard += 1
+	check(st2["status"] == Storylines.STATUS_LOST and star2.trade_request, "ignored low trust ends in a trade request (%s)" % st2["status"])

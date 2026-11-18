@@ -34,12 +34,14 @@ const COMEBACK_TRAIL := &"comeback_trail"
 const BROMANCE := &"bromance"
 const LOCKER_RIFT := &"locker_rift"
 const MILESTONE_CHASE := &"milestone_chase"
+const BANNER_NIGHT := &"banner_night"
+const POACHING_RUMOR := &"poaching_rumor"
 
 ## How many stories may run at once, and how many of them may be arcs.
 const MAX_ACTIVE := 3
 const MAX_ARCS := 2
 const ARCS: Array[StringName] = [RIVALRY_RUN, ROOKIE_RISE, CINDERELLA, LAST_RIDE, TITLE_CHASE]
-const SPOTLIGHTS: Array[StringName] = [REVENGE_GAME, DERBY_WEEK, STATEMENT_GAME, MUST_WIN, MILESTONE_CHASE]
+const SPOTLIGHTS: Array[StringName] = [REVENGE_GAME, DERBY_WEEK, STATEMENT_GAME, MUST_WIN, MILESTONE_CHASE, BANNER_NIGHT]
 
 const STAGE_SETUP := 0
 const STAGE_ESCALATION := 1
@@ -110,6 +112,13 @@ const RIFT_MAX_POINTS := 20.0
 const RIFT_WINDOW := 2
 ## Milestone Chase: a starter one match short of a career total that is a multiple of this.
 const MILESTONE_STEP := 50
+## Poaching Rumor: one of the user's top players this unhappy (but not yet in a contract standoff) is
+## linked with a rival; it is won if trust is still at least POACH_KEEP two weeks later.
+const POACH_TOP := 3
+const POACH_TRUST := 58.0
+const POACH_KEEP := 55.0
+const POACH_FROM_WEEK := 3
+const POACH_WINDOW := 2
 
 var active: Array = []
 var finished: Array = []
@@ -214,6 +223,14 @@ func prepare_week(season: Season) -> void:
 		var st := _try_rift(season, user)
 		if not st.is_empty():
 			made.append(_beat(st, "seed", season))
+	if active.size() < MAX_ACTIVE and not _has_spotlight() and not fired.has("%s:%d" % [BANNER_NIGHT, season.year]):
+		var st := _try_banner(season, user)
+		if not st.is_empty():
+			made.append(_beat(st, "seed", season))
+	if active.size() < MAX_ACTIVE and not fired.has("%s:%d" % [POACHING_RUMOR, season.year]):
+		var st := _try_poaching(season, user)
+		if not st.is_empty():
+			made.append(_beat(st, "seed", season))
 	if active.size() < MAX_ACTIVE and not fired.has("%s:%d" % [BENCH_GRUMBLE, season.year]):
 		var st := _try_grumble(season, user)
 		if not st.is_empty():
@@ -261,6 +278,10 @@ func week(season: Season, played: Array, wk: int) -> void:
 				_week_rift(season, st, played, wk)
 			MILESTONE_CHASE:
 				_week_milestone(season, st, played, wk)
+			BANNER_NIGHT:
+				_week_derby(season, st, played, wk)
+			POACHING_RUMOR:
+				_week_poaching(season, st, wk)
 	_note_injuries(season)
 	_publish(season, season.week_label(wk), last_beats.filter(func(b): return not b.get("published", false)))
 
@@ -377,6 +398,15 @@ func status_line(st: Dictionary, season: Season) -> String:
 			if st["status"] != STATUS_ACTIVE:
 				return "%s's %dth match: %s" % [name, st["milestone"], verdict.capitalize()]
 			return "%s plays match number %d: %s" % [name, st["milestone"], season.week_label(st["start_week"])]
+		BANNER_NIGHT:
+			if st["status"] != STATUS_ACTIVE:
+				return "Banner night for %s: %s" % [name, verdict.capitalize()]
+			return "Banner night for %s: %s" % [name, season.week_label(st["start_week"])]
+		POACHING_RUMOR:
+			if st["status"] != STATUS_ACTIVE:
+				return "%s: %s" % [name, verdict.capitalize()]
+			var ps := find_soldier(season, st)
+			return "%s  -  trust %s" % [name, Soldier.trust_label(ps.trust) if ps != null else "?"]
 		BENCH_GRUMBLE:
 			if st["status"] != STATUS_ACTIVE:
 				return "%s: %s" % [name, verdict.capitalize()]
@@ -1326,6 +1356,96 @@ func _week_milestone(season: Season, st: Dictionary, played: Array, wk: int) -> 
 	_finish(season, st, STATUS_WON if m.winner() == user else STATUS_LOST, wk)
 
 
+# --- Banner Night ----------------------------------------------------------------------------
+
+## Who the club honours: callsigns retired by its fans, then Hall of Fame inductees from its own ranks.
+## Returns the most recent honouree as {name, kind}, or {} if there is none.
+func _honouree(season: Season, user: Team) -> Dictionary:
+	var best: Dictionary = {}
+	var best_year := -1
+	for e: Dictionary in RetiredCallsigns.of_team(season.league, user):
+		if int(e.get("year", 0)) > best_year:
+			best_year = int(e.get("year", 0))
+			best = {"name": String(e["callsign"]).to_upper(), "kind": "retired callsign"}
+	for e: Dictionary in season.hall_of_fame:
+		if e.get("club") == user and int(e.get("year", 0)) > best_year and e.get("soldier") != null:
+			best_year = int(e["year"])
+			best = {"name": String(e["soldier"].callsign).to_upper() if e["soldier"].callsign != "" else e["soldier"].short_name(), "kind": "Hall of Fame"}
+	return best
+
+
+## A home match this week, with someone to honour.
+func _try_banner(season: Season, user: Team) -> Dictionary:
+	var m: ScheduledMatch = null
+	for x: ScheduledMatch in season.matches_for_week(season.week):
+		if x.involves(user) and not x.is_played():
+			m = x
+	if m == null or m.stage != Season.STAGE_REGULAR or m.home != user:
+		return {}
+	var who := _honouree(season, user)
+	if who.is_empty():
+		return {}
+	var st := _base(season, BANNER_NIGHT, user, "Banner Night: %s" % who["name"])
+	st["name"] = who["name"]
+	st["honour"] = who["kind"]
+	st["rival"] = m.opponent_of(user).abbrev
+	active.append(st)
+	fired["%s:%d" % [BANNER_NIGHT, season.year]] = true
+	return st
+
+
+# --- Poaching Rumor --------------------------------------------------------------------------
+
+func _try_poaching(season: Season, user: Team) -> Dictionary:
+	if season.week < POACH_FROM_WEEK:
+		return {}
+	var busy := {}
+	for st in active:
+		if st.has("soldier"):
+			busy[int(st["soldier"])] = true
+	var ranked: Array = user.roster.duplicate()
+	ranked.sort_custom(func(a: Soldier, b: Soldier): return a.best_ovr() > b.best_ovr())
+	var pick: Soldier = null
+	for s: Soldier in ranked.slice(0, POACH_TOP):
+		if s.trust <= POACH_TRUST and not s.trade_request and not busy.has(s.id):
+			pick = s
+			break
+	if pick == null:
+		return {}
+	# The suitor: the strongest club in the user's division (or the league, with no division mates).
+	var suitor: Team = null
+	for t: Team in season.league.teams:
+		if t == user:
+			continue
+		var mate := season.division_of(t) == season.division_of(user)
+		var best_mate := suitor != null and season.division_of(suitor) == season.division_of(user)
+		if suitor == null or (mate and not best_mate) or (mate == best_mate and t.team_ovr() > suitor.team_ovr()):
+			suitor = t
+	if suitor == null:
+		return {}
+	var st := _base(season, POACHING_RUMOR, user, "%s and the %s" % [pick.short_name(), suitor.nickname])
+	st["soldier"] = pick.id
+	st["name"] = pick.short_name()
+	st["rival"] = suitor.abbrev
+	active.append(st)
+	fired["%s:%d" % [POACHING_RUMOR, season.year]] = true
+	return st
+
+
+## Two weeks on: won if the player's trust has held, lost (and a possible trade request) if not.
+func _week_poaching(season: Season, st: Dictionary, wk: int) -> void:
+	if wk >= int(st["start_week"]) + POACH_WINDOW - 1:
+		_close_window(st)
+	var s := find_soldier(season, st)
+	if s == null:
+		_finish(season, st, STATUS_FIZZLED, wk)
+		return
+	if s.trade_request or s.trust < POACH_KEEP:
+		_finish(season, st, STATUS_LOST, wk)
+	elif wk >= int(st["start_week"]) + POACH_WINDOW - 1:
+		_finish(season, st, STATUS_WON, wk)
+
+
 # --- beats (the words) -----------------------------------------------------------------------
 
 func _beat(st: Dictionary, what: String, season: Season) -> Dictionary:
@@ -1540,6 +1660,38 @@ func _beat(st: Dictionary, what: String, season: Season) -> Dictionary:
 						_:
 							head = "%s: it will have to wait" % title
 							body = "%s did not play against the %s, so the milestone moves down the calendar." % [name, mon]
+		BANNER_NIGHT:
+			var bopp := season.league.team_by_abbrev(st["rival"])
+			var bon := bopp.nickname if bopp != null else String(st["rival"])
+			match what:
+				"seed":
+					head = "%s: a night to remember" % title
+					body = "The %s honour %s at home this week against the %s, a %s moment for the fans." % [un, name, bon, String(st["honour"]).to_lower()]
+				"resolve":
+					if st["status"] == STATUS_WON:
+						head = "%s: the %s give the night a win" % [title, un]
+						body = "The %s beat the %s on the night they honoured %s." % [un, bon, name]
+					else:
+						head = "%s: a night that ends flat" % title
+						body = "The %s honoured %s, but lost to the %s." % [un, name, bon]
+		POACHING_RUMOR:
+			var popp := season.league.team_by_abbrev(st["rival"])
+			var pon := popp.nickname if popp != null else String(st["rival"])
+			match what:
+				"seed":
+					head = "%s: the rumours start" % title
+					body = "The %s are said to be interested in %s, who has not been happy in %s lately. The %s have to decide how to respond." % [pon, name, un, un]
+				"resolve":
+					match st["status"]:
+						STATUS_WON:
+							head = "%s: the talk dies down" % title
+							body = "%s is staying put and the %s rumours have gone quiet." % [name, pon]
+						STATUS_LOST:
+							head = "%s: the rumours stick" % title
+							body = "%s is no longer settled with the %s, and the %s are still circling." % [name, un, pon]
+						_:
+							head = "%s: the story ends" % title
+							body = "%s is no longer with the %s, and so the rumours are over." % [name, un]
 		TITLE_CHASE:
 			match what:
 				"seed":
