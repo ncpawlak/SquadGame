@@ -22,11 +22,18 @@ const HYPE := &"hype"
 const DOWN := &"down"
 const PROMISE := &"promise"
 const HOLD := &"hold"
+const EMBRACE := &"embrace"
+const DEFLECT := &"deflect"
+const FIRE_UP := &"fire_up"
+const CALM := &"calm"
+const MINUTES := &"minutes"
+const IGNORE := &"ignore"
 ## Not a choice the player picks: what a story falls back to when its window closes undecided.
 const STAY := &"stay"
 
 const KIND_LABEL := {
 	&"rivalry_run": "ARC", &"rookie_rise": "ARC", &"revenge_game": "SPOTLIGHT", &"contract_standoff": "CONDITIONAL",
+	&"cinderella": "ARC", &"derby_week": "SPOTLIGHT", &"bench_grumble": "CONDITIONAL",
 }
 
 # --- Rivalry Run -------------------------------------------------------------------------------
@@ -100,6 +107,60 @@ const CON_OPTIONS := [
 		"blurb": "{name} plays out the deal on current terms. No promises, no pressure from you."},
 ]
 
+# --- Cinderella --------------------------------------------------------------------------------
+const CIN_NOW := {
+	&"embrace": {"buzz": 2.0},
+	&"deflect": {},
+}
+const CIN_END := {
+	&"embrace": {&"won": {"buzz": 6.0, "morale": 3.0, "xp": 150.0}, &"lost": {"buzz": -2.0}, &"split": {}},
+	&"deflect": {&"won": {"morale": 1.0, "xp": 75.0}, &"lost": {}, &"split": {}},
+	&"stay": {&"won": {"morale": 1.0}, &"lost": {}, &"split": {}},
+}
+const CIN_OPTIONS := [
+	{"id": &"embrace", "label": "Embrace the underdog role",
+		"blurb": "Lean into it. Nobody expects anything, so let the city fall in love with a long shot."},
+	{"id": &"deflect", "label": "Deflect the talk",
+		"blurb": "Ignore the labels and keep the focus on the next match.",
+		"cost": "Less buzz and a smaller payoff"},
+]
+
+# --- Derby Week --------------------------------------------------------------------------------
+const DER_NOW := {
+	&"fire_up": {"heat": 8.0, "morale": 2.0},
+	&"calm": {"morale": 1.0},
+}
+const DER_END := {
+	&"fire_up": {&"won": {"buzz": 4.0, "morale": 2.0}, &"lost": {"morale": -3.0}, &"split": {}},
+	&"calm": {&"won": {"xp": 100.0}, &"lost": {}, &"split": {}},
+	&"stay": {&"won": {"morale": 1.0}, &"lost": {}, &"split": {}},
+}
+const DER_OPTIONS := [
+	{"id": &"fire_up", "label": "Fire them up",
+		"blurb": "Make it personal. The room goes in angry and the city gets loud."},
+	{"id": &"calm", "label": "Stay calm",
+		"blurb": "A derby is a game like any other. Keep heads level and trust the preparation.",
+		"cost": "No buzz, small morale effect"},
+]
+
+# --- Bench Grumble -----------------------------------------------------------------------------
+const GRU_NOW := {
+	&"minutes": {"t_trust": 6.0, "t_morale": 4.0},
+	&"ignore": {},
+}
+const GRU_END := {
+	&"minutes": {&"won": {"t_trust": 3.0, "t_xp": 100.0}, &"lost": {"t_trust": -10.0, "t_morale": -5.0}, &"split": {}},
+	&"ignore": {&"won": {}, &"lost": {"t_request": 1.0}, &"split": {}},
+	&"stay": {&"won": {}, &"lost": {"t_request": 1.0}, &"split": {}},
+}
+const GRU_OPTIONS := [
+	{"id": &"minutes", "label": "Promise minutes",
+		"blurb": "Tell {name} a real shot is coming, and then put {name} in the lineup."},
+	{"id": &"ignore", "label": "Let it ride",
+		"blurb": "Depth players don't always play. {name} can wait for a chance.",
+		"cost": "May ask for a trade if the mood does not recover"},
+]
+
 ## Per kind: effects when a choice is made, effects when the story ends (by choice then verdict),
 ## the options, the prompt, and how a verdict reads on an option card.
 const DEFS := {
@@ -111,6 +172,12 @@ const DEFS := {
 		"verdict": {&"won": "You win", &"split": "", &"lost": "You lose"}},
 	&"contract_standoff": {"now": CON_NOW, "end": CON_END, "options": CON_OPTIONS, "prompt": "What do you tell the player?", "window": "within two weeks",
 		"verdict": {&"won": "Trust recovers", &"split": "", &"lost": "It turns sour"}},
+	&"cinderella": {"now": CIN_NOW, "end": CIN_END, "options": CIN_OPTIONS, "prompt": "How do you handle the underdog tag?", "window": "before the first match",
+		"verdict": {&"won": "The run holds up", &"split": "", &"lost": "The run falls short"}},
+	&"derby_week": {"now": DER_NOW, "end": DER_END, "options": DER_OPTIONS, "prompt": "What is your message for derby week?", "window": "before the match is played",
+		"verdict": {&"won": "You win", &"split": "", &"lost": "You lose"}},
+	&"bench_grumble": {"now": GRU_NOW, "end": GRU_END, "options": GRU_OPTIONS, "prompt": "What do you tell the player?", "window": "within two matches",
+		"verdict": {&"won": "It settles down", &"split": "", &"lost": "It stays sour"}},
 }
 
 ## Who morale and XP effects reach.
@@ -245,6 +312,13 @@ static func scenario(st: Dictionary, season: Season) -> String:
 				name, opp.nickname if opp != null else String(st["rival"]), name]
 		Storylines.CONTRACT_STANDOFF:
 			return "%s is in the final year of a contract and is not happy about where things stand. Trust in the front office is low, and the clock is running: if nothing changes, %s will walk in free agency, or ask out before then." % [name, name]
+		Storylines.CINDERELLA:
+			return "The %s are projected near the bottom of the league this season. Nobody is expecting much, which means a winning record would be a real story." % (user.nickname if user != null else "club")
+		Storylines.DERBY_WEEK:
+			var dopp := season.league.team_by_abbrev(st["rival"])
+			return "This week's match is against the %s, a division mate or a heated rival. These games carry extra weight with fans and the room." % (dopp.nickname if dopp != null else String(st["rival"]))
+		Storylines.BENCH_GRUMBLE:
+			return "%s is not playing as much as %s would like, and morale has dipped below the line. A word from the front office could settle it, or it could fester." % [name, name]
 	return ""
 
 
@@ -295,6 +369,29 @@ static func objectives(st: Dictionary, season: Season) -> Array:
 			var s: Soldier = Storylines.find_soldier(season, st)
 			if s != null:
 				out.append("%s trust now: %d (%s)  -  extension talks and kept promises move it" % [name, roundi(s.trust), Soldier.trust_label(s.trust)])
+		Storylines.CINDERELLA:
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("Finished %d-%d (needed %d wins)" % [st["wins"], st["played"] - st["wins"], st["need"]])
+				return out
+			out.append("Finish with a winning record: %d wins from %d matches  -  %d-%d so far" % [st["need"], st["total"], st["wins"], st["played"] - st["wins"]])
+		Storylines.DERBY_WEEK:
+			var dopp := season.league.team_by_abbrev(st["rival"])
+			var don := dopp.nickname if dopp != null else String(st["rival"])
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("Result against the %s: %s" % [don, String(st["status"]).capitalize()])
+				return out
+			out.append("Beat the %s: %s" % [don, season.week_label(st["start_week"])])
+		Storylines.BENCH_GRUMBLE:
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("Where it ended: %s" % String(st["status"]).capitalize())
+				return out
+			if st["choice"] == MINUTES:
+				out.append("Start %s in one of the next two matches  -  breaking the promise costs trust" % name)
+			else:
+				out.append("Get %s's morale back to %d or better, or start %s, within two matches" % [name, roundi(Storylines.GRUMBLE_MORALE), name])
+			var s: Soldier = Storylines.find_soldier(season, st)
+			if s != null:
+				out.append("%s morale now: %d (%s)" % [name, roundi(s.morale), Soldier.morale_label(s.morale)])
 	return out
 
 
