@@ -31,12 +31,15 @@ const PRESS_STORM := &"press_storm"
 const TITLE_CHASE := &"title_chase"
 const MUST_WIN := &"must_win"
 const COMEBACK_TRAIL := &"comeback_trail"
+const BROMANCE := &"bromance"
+const LOCKER_RIFT := &"locker_rift"
+const MILESTONE_CHASE := &"milestone_chase"
 
 ## How many stories may run at once, and how many of them may be arcs.
 const MAX_ACTIVE := 3
 const MAX_ARCS := 2
 const ARCS: Array[StringName] = [RIVALRY_RUN, ROOKIE_RISE, CINDERELLA, LAST_RIDE, TITLE_CHASE]
-const SPOTLIGHTS: Array[StringName] = [REVENGE_GAME, DERBY_WEEK, STATEMENT_GAME, MUST_WIN]
+const SPOTLIGHTS: Array[StringName] = [REVENGE_GAME, DERBY_WEEK, STATEMENT_GAME, MUST_WIN, MILESTONE_CHASE]
 
 const STAGE_SETUP := 0
 const STAGE_ESCALATION := 1
@@ -95,6 +98,18 @@ const MUST_BUBBLE := 2
 const COMEBACK_MIN_WEEKS := 3
 const COMEBACK_STAR_RANK := 5
 const COMEBACK_WINDOW := 2
+## Bromance: a pair of teammates this close (Relationships "Trusted"); it runs for three matches and is
+## won when both start together in at least two of them.
+const BROMANCE_POINTS := 50.0
+const BROMANCE_WINDOW := 3
+const BROMANCE_NEED := 2
+## Locker Room Rift: a content starter and a bench player this unhappy who barely know each other.
+const RIFT_STARTER_MORALE := 80.0
+const RIFT_BENCH_MORALE := 55.0
+const RIFT_MAX_POINTS := 20.0
+const RIFT_WINDOW := 2
+## Milestone Chase: a starter one match short of a career total that is a multiple of this.
+const MILESTONE_STEP := 50
 
 var active: Array = []
 var finished: Array = []
@@ -187,6 +202,18 @@ func prepare_week(season: Season) -> void:
 		var st := _try_comeback(season, user)
 		if not st.is_empty():
 			made.append(_beat(st, "seed", season))
+	if active.size() < MAX_ACTIVE and not _has_spotlight() and not fired.has("%s:%d" % [MILESTONE_CHASE, season.year]):
+		var st := _try_milestone(season, user)
+		if not st.is_empty():
+			made.append(_beat(st, "seed", season))
+	if active.size() < MAX_ACTIVE and not fired.has("%s:%d" % [BROMANCE, season.year]):
+		var st := _try_bromance(season, user)
+		if not st.is_empty():
+			made.append(_beat(st, "seed", season))
+	if active.size() < MAX_ACTIVE and not fired.has("%s:%d" % [LOCKER_RIFT, season.year]):
+		var st := _try_rift(season, user)
+		if not st.is_empty():
+			made.append(_beat(st, "seed", season))
 	if active.size() < MAX_ACTIVE and not fired.has("%s:%d" % [BENCH_GRUMBLE, season.year]):
 		var st := _try_grumble(season, user)
 		if not st.is_empty():
@@ -228,6 +255,12 @@ func week(season: Season, played: Array, wk: int) -> void:
 				_week_derby(season, st, played, wk)
 			COMEBACK_TRAIL:
 				_week_comeback(season, st, played, wk)
+			BROMANCE:
+				_week_bromance(season, st, played, wk)
+			LOCKER_RIFT:
+				_week_rift(season, st, played, wk)
+			MILESTONE_CHASE:
+				_week_milestone(season, st, played, wk)
 	_note_injuries(season)
 	_publish(season, season.week_label(wk), last_beats.filter(func(b): return not b.get("published", false)))
 
@@ -331,6 +364,19 @@ func status_line(st: Dictionary, season: Season) -> String:
 			if st["status"] != STATUS_ACTIVE:
 				return "%s: %s" % [name, verdict.capitalize()]
 			return "%s is back from injury" % name
+		BROMANCE:
+			if st["status"] != STATUS_ACTIVE:
+				return "%s and %s: %s" % [name, st["partner_name"], verdict.capitalize()]
+			return "%s and %s  -  together %d of %d" % [name, st["partner_name"], st["together"], st["played"]]
+		LOCKER_RIFT:
+			if st["status"] != STATUS_ACTIVE:
+				return "%s and %s: %s" % [name, st["partner_name"], verdict.capitalize()]
+			var rs := find_soldier(season, st)
+			return "%s  -  morale %s" % [name, Soldier.morale_label(rs.morale) if rs != null else "?"]
+		MILESTONE_CHASE:
+			if st["status"] != STATUS_ACTIVE:
+				return "%s's %dth match: %s" % [name, st["milestone"], verdict.capitalize()]
+			return "%s plays match number %d: %s" % [name, st["milestone"], season.week_label(st["start_week"])]
 		BENCH_GRUMBLE:
 			if st["status"] != STATUS_ACTIVE:
 				return "%s: %s" % [name, verdict.capitalize()]
@@ -373,6 +419,18 @@ static func find_soldier(season: Season, st: Dictionary) -> Soldier:
 
 
 # --- choices and effects ---------------------------------------------------------------------
+
+## The featured player's partner (a teammate, in stories that involve two players), if still with the club.
+static func find_partner(season: Season, st: Dictionary) -> Soldier:
+	var id := int(st.get("partner", 0))
+	var user := season.league.team_by_abbrev(st["team"])
+	if id == 0 or user == null:
+		return null
+	for s in user.roster:
+		if s.id == id:
+			return s
+	return null
+
 
 ## Locks in an option for a story. Returns "" on success, else why it cannot be done.
 func choose(season: Season, id: int, option: StringName) -> String:
@@ -426,6 +484,12 @@ func _apply(season: Season, st: Dictionary, e: Dictionary, label: String) -> voi
 			t.add_trust(float(e["t_trust"]))
 		if e.has("t_request"):
 			t.trade_request = true
+	var pt := find_partner(season, st)
+	if pt != null:
+		if e.has("p_morale"):
+			pt.add_morale(float(e["p_morale"]))
+		if e.has("p_xp"):
+			Progression.gain_xp(pt, float(e["p_xp"]))
 	var who := " (roster and Green Team)" if StoryDefs.reaches_players([e]) else ""
 	st["applied"].append("%s  -  %s%s" % [label, StoryDefs.effect_text(e, st), who])
 
@@ -1101,6 +1165,167 @@ func _week_comeback(season: Season, st: Dictionary, played: Array, wk: int) -> v
 		_finish(season, st, STATUS_WON, wk)
 
 
+# --- Bromance --------------------------------------------------------------------------------
+
+func _try_bromance(season: Season, user: Team) -> Dictionary:
+	if season.week < 2:
+		return {}
+	var best: Dictionary = {}
+	var best_pts := BROMANCE_POINTS
+	var ids := {}
+	for s: Soldier in user.roster:
+		ids[s.id] = s
+	for k: Vector2i in season.relationships.pairs:
+		var pts := float(season.relationships.pairs[k].get("pts", 0.0))
+		if pts >= best_pts and ids.has(k.x) and ids.has(k.y):
+			best = {"a": ids[k.x], "b": ids[k.y]}
+			best_pts = pts
+	if best.is_empty():
+		return {}
+	var a: Soldier = best["a"]
+	var b: Soldier = best["b"]
+	if b.best_ovr() > a.best_ovr():
+		var t := a
+		a = b
+		b = t
+	var st := _base(season, BROMANCE, user, "%s and %s" % [a.short_name(), b.short_name()])
+	st["soldier"] = a.id
+	st["name"] = a.short_name()
+	st["partner"] = b.id
+	st["partner_name"] = b.short_name()
+	st["played"] = 0
+	st["together"] = 0
+	active.append(st)
+	fired["%s:%d" % [BROMANCE, season.year]] = true
+	return st
+
+
+func _week_bromance(season: Season, st: Dictionary, played: Array, wk: int) -> void:
+	var user := season.league.team_by_abbrev(st["team"])
+	var a := find_soldier(season, st)
+	var b := find_partner(season, st)
+	if a == null or b == null:
+		_close_window(st)
+		_finish(season, st, STATUS_FIZZLED, wk)
+		return
+	var played_now := false
+	for m: ScheduledMatch in played:
+		if not m.is_played() or m.stage != Season.STAGE_REGULAR or not m.involves(user):
+			continue
+		played_now = true
+		st["played"] += 1
+		if m.result.box.has(a.id) and m.result.box.has(b.id):
+			st["together"] += 1
+	if not played_now:
+		return
+	_close_window(st)
+	if st["together"] >= BROMANCE_NEED:
+		_finish(season, st, STATUS_WON, wk)
+	elif st["played"] >= BROMANCE_WINDOW:
+		_finish(season, st, STATUS_LOST, wk)
+
+
+# --- Locker Room Rift ------------------------------------------------------------------------
+
+func _try_rift(season: Season, user: Team) -> Dictionary:
+	if season.week < 2:
+		return {}
+	var grumbling := {}
+	for st in active:
+		if st["kind"] == BENCH_GRUMBLE:
+			grumbling[int(st["soldier"])] = true
+	var best: Dictionary = {}
+	for b: Soldier in user.bench():
+		if b.is_injured() or b.morale > RIFT_BENCH_MORALE or grumbling.has(b.id):
+			continue
+		for s: Soldier in user.starters():
+			if s.morale < RIFT_STARTER_MORALE or season.relationships.points(s, b) >= RIFT_MAX_POINTS:
+				continue
+			if best.is_empty() or b.morale < best["b"].morale:
+				best = {"s": s, "b": b}
+	if best.is_empty():
+		return {}
+	var s: Soldier = best["s"]
+	var b: Soldier = best["b"]
+	var st := _base(season, LOCKER_RIFT, user, "%s and %s" % [b.short_name(), s.short_name()])
+	st["soldier"] = b.id
+	st["name"] = b.short_name()
+	st["partner"] = s.id
+	st["partner_name"] = s.short_name()
+	st["played"] = 0
+	active.append(st)
+	fired["%s:%d" % [LOCKER_RIFT, season.year]] = true
+	return st
+
+
+## After two matches: won if the unhappy player's morale is back above the line.
+func _week_rift(season: Season, st: Dictionary, played: Array, wk: int) -> void:
+	var user := season.league.team_by_abbrev(st["team"])
+	var b := find_soldier(season, st)
+	if b == null or find_partner(season, st) == null:
+		_close_window(st)
+		_finish(season, st, STATUS_FIZZLED, wk)
+		return
+	var played_now := false
+	for m: ScheduledMatch in played:
+		if m.is_played() and m.stage == Season.STAGE_REGULAR and m.involves(user):
+			played_now = true
+			st["played"] += 1
+	if not played_now:
+		return
+	_close_window(st)
+	if st["played"] >= RIFT_WINDOW:
+		_finish(season, st, STATUS_WON if b.morale > RIFT_BENCH_MORALE else STATUS_LOST, wk)
+
+
+# --- Milestone Chase -------------------------------------------------------------------------
+
+## A starter playing this week's match as his 50th (100th, ...) career match.
+func _try_milestone(season: Season, user: Team) -> Dictionary:
+	var m: ScheduledMatch = null
+	for x: ScheduledMatch in season.matches_for_week(season.week):
+		if x.involves(user) and not x.is_played():
+			m = x
+	if m == null or m.stage != Season.STAGE_REGULAR:
+		return {}
+	var best: Soldier = null
+	for s: Soldier in user.starters():
+		var n := int(s.career.get("matches", 0))
+		if s.is_injured() or n == 0 or n % MILESTONE_STEP != MILESTONE_STEP - 1:
+			continue
+		if best == null or n > int(best.career["matches"]):
+			best = s
+	if best == null:
+		return {}
+	var st := _base(season, MILESTONE_CHASE, user, "%s's Milestone" % best.short_name())
+	st["soldier"] = best.id
+	st["name"] = best.short_name()
+	st["rival"] = m.opponent_of(user).abbrev
+	st["milestone"] = int(best.career["matches"]) + 1
+	active.append(st)
+	fired["%s:%d" % [MILESTONE_CHASE, season.year]] = true
+	return st
+
+
+func _week_milestone(season: Season, st: Dictionary, played: Array, wk: int) -> void:
+	var user := season.league.team_by_abbrev(st["team"])
+	var m: ScheduledMatch = null
+	for x: ScheduledMatch in played:
+		if x.is_played() and x.involves(user) and x.opponent_of(user).abbrev == st["rival"]:
+			m = x
+	if m == null:
+		if wk > int(st["start_week"]):
+			_close_window(st)
+			_end(st, STATUS_FIZZLED, wk)
+		return
+	_close_window(st)
+	var s := find_soldier(season, st)
+	if s == null or not m.result.box.has(s.id):
+		_finish(season, st, STATUS_FIZZLED, wk)
+		return
+	_finish(season, st, STATUS_WON if m.winner() == user else STATUS_LOST, wk)
+
+
 # --- beats (the words) -----------------------------------------------------------------------
 
 func _beat(st: Dictionary, what: String, season: Season) -> Dictionary:
@@ -1265,6 +1490,56 @@ func _beat(st: Dictionary, what: String, season: Season) -> Dictionary:
 					else:
 						head = "%s: the %s hold the line" % [title, son]
 						body = "The %s were beaten by the %s as expected. The statement will have to wait." % [un, son]
+		BROMANCE:
+			match what:
+				"seed":
+					head = "%s: an inseparable pair" % title
+					body = "%s and %s have become close, and it shows on the court. Keep them together or mix things up: that is the story." % [name, st["partner_name"]]
+				"resolve":
+					match st["status"]:
+						STATUS_WON:
+							head = "%s: a partnership that works" % title
+							body = "%s and %s started side by side and the %s are better for it." % [name, st["partner_name"], un]
+						STATUS_LOST:
+							head = "%s: drifting apart" % title
+							body = "%s and %s did not share the lineup much, and the bond is not what it was." % [name, st["partner_name"]]
+						_:
+							head = "%s: the story ends" % title
+							body = "One of them is no longer with the %s, and the pairing is over." % un
+		LOCKER_RIFT:
+			match what:
+				"seed":
+					head = "%s: a rift in the locker room" % title
+					body = "%s and %s are not on the same page, and the mood around %s is dropping." % [name, st["partner_name"], name]
+				"resolve":
+					match st["status"]:
+						STATUS_WON:
+							head = "%s: the air is clear" % title
+							body = "%s is back in good spirits and the tension in the %s locker room has passed." % [name, un]
+						STATUS_LOST:
+							head = "%s: the rift widens" % title
+							body = "%s is still unhappy and the %s locker room knows it." % [name, un]
+						_:
+							head = "%s: the story ends" % title
+							body = "One of them is no longer with the %s, and so the rift is over." % un
+		MILESTONE_CHASE:
+			var mopp := season.league.team_by_abbrev(st["rival"])
+			var mon := mopp.nickname if mopp != null else String(st["rival"])
+			match what:
+				"seed":
+					head = "%s: match number %d" % [title, st["milestone"]]
+					body = "%s plays the %dth match of a career this week against the %s." % [name, st["milestone"], mon]
+				"resolve":
+					match st["status"]:
+						STATUS_WON:
+							head = "%s: a milestone and a win" % title
+							body = "%s reached %d matches and the %s beat the %s to mark it." % [name, st["milestone"], un, mon]
+						STATUS_LOST:
+							head = "%s: a milestone, but not the night" % title
+							body = "%s reached %d matches, but the %s lost to the %s." % [name, st["milestone"], un, mon]
+						_:
+							head = "%s: it will have to wait" % title
+							body = "%s did not play against the %s, so the milestone moves down the calendar." % [name, mon]
 		TITLE_CHASE:
 			match what:
 				"seed":

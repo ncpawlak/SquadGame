@@ -40,6 +40,13 @@ const RALLY := &"rally"
 const STEADY := &"steady"
 const EASE := &"ease"
 const RUSH := &"rush"
+const TOGETHER := &"together"
+const MIX := &"mix"
+const MEDIATE := &"mediate"
+const BACK_STARTER := &"back_starter"
+const BACK_BENCH := &"back_bench"
+const FEATURE := &"feature"
+const TEAM_GAME := &"team_game"
 ## Not a choice the player picks: what a story falls back to when its window closes undecided.
 const STAY := &"stay"
 
@@ -48,6 +55,7 @@ const KIND_LABEL := {
 	&"cinderella": "ARC", &"derby_week": "SPOTLIGHT", &"bench_grumble": "CONDITIONAL",
 	&"last_ride": "ARC", &"statement_game": "SPOTLIGHT", &"press_storm": "CONDITIONAL",
 	&"title_chase": "ARC", &"must_win": "SPOTLIGHT", &"comeback_trail": "CONDITIONAL",
+	&"bromance": "CONDITIONAL", &"locker_rift": "CONDITIONAL", &"milestone_chase": "SPOTLIGHT",
 }
 
 # --- Rivalry Run -------------------------------------------------------------------------------
@@ -283,6 +291,65 @@ const COM_OPTIONS := [
 		"blurb": "The team needs {name} and {name} wants to play. Full minutes from day one."},
 ]
 
+# --- Bromance ----------------------------------------------------------------------------------
+const BRO_NOW := {
+	&"together": {},
+	&"mix": {"t_morale": -3.0, "p_morale": -3.0},
+}
+const BRO_END := {
+	&"together": {&"won": {"buzz": 2.0, "t_xp": 100.0, "p_xp": 100.0}, &"lost": {"t_morale": -3.0, "p_morale": -3.0}, &"split": {}},
+	&"mix": {&"won": {}, &"lost": {}, &"split": {}},
+	&"stay": {&"won": {}, &"lost": {}, &"split": {}},
+}
+const BRO_OPTIONS := [
+	{"id": &"together", "label": "Keep them together",
+		"blurb": "Start {name} and the partner side by side and let the chemistry do its work. They have to start together in two of the next three matches."},
+	{"id": &"mix", "label": "Mix up the lineup",
+		"blurb": "Spread them around so nobody gets too comfortable.",
+		"cost": "Both take a morale hit and no reward"},
+]
+
+# --- Locker Room Rift --------------------------------------------------------------------------
+const RIF_NOW := {
+	&"mediate": {"t_trust": 4.0, "t_morale": 4.0, "p_morale": 2.0},
+	&"back_starter": {"t_trust": -4.0, "t_morale": -3.0, "p_morale": 4.0},
+	&"back_bench": {"t_trust": 5.0, "t_morale": 4.0, "p_morale": -4.0},
+}
+const RIF_END := {
+	&"mediate": {&"won": {"t_xp": 100.0, "t_trust": 3.0}, &"lost": {}, &"split": {}},
+	&"back_starter": {&"won": {}, &"lost": {}, &"split": {}},
+	&"back_bench": {&"won": {}, &"lost": {}, &"split": {}},
+	&"stay": {&"won": {}, &"lost": {}, &"split": {}},
+}
+const RIF_OPTIONS := [
+	{"id": &"mediate", "label": "Sit them down together",
+		"blurb": "Get both in a room, clear the air and make them work it out."},
+	{"id": &"back_starter", "label": "Back the starter",
+		"blurb": "The starter has earned the room's respect. The rest can adapt.",
+		"cost": "The bench player's morale and trust drop"},
+	{"id": &"back_bench", "label": "Back the bench player",
+		"blurb": "Make clear the bench player is valued, whatever the starter thinks.",
+		"cost": "The starter's morale drops"},
+]
+
+# --- Milestone Chase ---------------------------------------------------------------------------
+const MIL_NOW := {
+	&"feature": {"t_morale": 3.0},
+	&"team_game": {},
+}
+const MIL_END := {
+	&"feature": {&"won": {"buzz": 4.0, "t_trust": 4.0, "t_xp": 150.0}, &"lost": {"t_morale": -4.0, "morale": -1.0}, &"split": {}},
+	&"team_game": {&"won": {"t_xp": 50.0}, &"lost": {}, &"split": {}},
+	&"stay": {&"won": {"t_xp": 50.0}, &"lost": {}, &"split": {}},
+}
+const MIL_OPTIONS := [
+	{"id": &"feature", "label": "Make it {name}'s night",
+		"blurb": "Celebrate the milestone in the build-up and let the crowd feel it."},
+	{"id": &"team_game", "label": "Play the team game",
+		"blurb": "The milestone will take care of itself. Keep the focus on the match.",
+		"cost": "Small payoff even in a win"},
+]
+
 ## Per kind: effects when a choice is made, effects when the story ends (by choice then verdict),
 ## the options, the prompt, and how a verdict reads on an option card.
 const DEFS := {
@@ -312,6 +379,12 @@ const DEFS := {
 		"verdict": {&"won": "You win", &"split": "", &"lost": "You lose"}},
 	&"comeback_trail": {"now": COM_NOW, "end": COM_END, "options": COM_OPTIONS, "prompt": "How do you bring the player back?", "window": "within two matches",
 		"verdict": {&"won": "A clean comeback", &"split": "", &"lost": "Hurt again"}},
+	&"bromance": {"now": BRO_NOW, "end": BRO_END, "options": BRO_OPTIONS, "prompt": "What do you do with the pair?", "window": "within three matches",
+		"verdict": {&"won": "They play together", &"split": "", &"lost": "They drift apart"}},
+	&"locker_rift": {"now": RIF_NOW, "end": RIF_END, "options": RIF_OPTIONS, "prompt": "How do you handle the rift?", "window": "within two matches",
+		"verdict": {&"won": "The air clears", &"split": "", &"lost": "The rift widens"}},
+	&"milestone_chase": {"now": MIL_NOW, "end": MIL_END, "options": MIL_OPTIONS, "prompt": "How do you mark the milestone?", "window": "before the match is played",
+		"verdict": {&"won": "You win", &"split": "", &"lost": "You lose"}},
 }
 
 ## Who morale and XP effects reach.
@@ -355,6 +428,13 @@ static func effect_text(e: Dictionary, st := {}) -> String:
 		tp.append("asks for a trade")
 	if not tp.is_empty():
 		parts.append("%s: %s" % [who, ", ".join(PackedStringArray(tp))])
+	var pp: Array[String] = []
+	if e.has("p_xp"):
+		pp.append("%+d XP" % roundi(float(e["p_xp"])))
+	if e.has("p_morale"):
+		pp.append("morale %+d" % roundi(float(e["p_morale"])))
+	if not pp.is_empty():
+		parts.append("%s: %s" % [String(st.get("partner_name", "Partner")), ", ".join(PackedStringArray(pp))])
 	if parts.is_empty():
 		return ""
 	var s := ", ".join(PackedStringArray(parts))
@@ -364,7 +444,7 @@ static func effect_text(e: Dictionary, st := {}) -> String:
 ## True if an effect helps the club (used to sort lines into rewards and costs).
 static func is_good(e: Dictionary) -> bool:
 	var net := 0.0
-	for k in ["buzz", "morale", "xp", "t_xp", "t_sp", "t_morale", "t_trust"]:
+	for k in ["buzz", "morale", "xp", "t_xp", "t_sp", "t_morale", "t_trust", "p_xp", "p_morale"]:
 		net += float(e.get(k, 0.0))
 	if e.has("t_request"):
 		net -= 100.0
@@ -467,6 +547,13 @@ static func scenario(st: Dictionary, season: Season) -> String:
 			return "The regular season is nearly over and the club is right on the playoff line. This match, against the %s, could decide whether there is a postseason at all." % (mopp.nickname if mopp != null else String(st["rival"]))
 		Storylines.COMEBACK_TRAIL:
 			return "%s is back from a long injury and cleared to play. Everyone wants %s on the court, but a rushed return can undo the recovery." % [name, name]
+		Storylines.BROMANCE:
+			return "%s and %s have become close, and they are better when they play together. The club can build around the pairing or keep the lineup moving." % [name, String(st.get("partner_name", "a teammate"))]
+		Storylines.LOCKER_RIFT:
+			return "%s is unhappy and not getting on with %s, who is flying. The mood is spreading, and the front office has to pick how to handle it." % [name, String(st.get("partner_name", "a starter"))]
+		Storylines.MILESTONE_CHASE:
+			var mopp := season.league.team_by_abbrev(st["rival"])
+			return "This week's match against the %s will be %s's %dth career match. The club can make a moment of it or keep the focus on the game." % [mopp.nickname if mopp != null else String(st["rival"]), name, int(st.get("milestone", 0))]
 	return ""
 
 
@@ -577,6 +664,27 @@ static func objectives(st: Dictionary, season: Season) -> Array:
 				out.append("Where it ended: %s" % String(st["status"]).capitalize())
 				return out
 			out.append("Get %s through the next two matches without another injury" % name)
+		Storylines.BROMANCE:
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("%s and %s started together in %d of %d matches (needed %d)" % [name, st["partner_name"], st["together"], st["played"], Storylines.BROMANCE_NEED])
+				return out
+			out.append("Start %s and %s together in %d of the next %d matches  -  %d so far" % [name, st["partner_name"], Storylines.BROMANCE_NEED, Storylines.BROMANCE_WINDOW, st["together"]])
+		Storylines.LOCKER_RIFT:
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("Where it ended: %s" % String(st["status"]).capitalize())
+				return out
+			out.append("Get %s's morale above %d within two matches" % [name, roundi(Storylines.RIFT_BENCH_MORALE)])
+			var rs: Soldier = Storylines.find_soldier(season, st)
+			if rs != null:
+				out.append("%s morale now: %d (%s)" % [name, roundi(rs.morale), Soldier.morale_label(rs.morale)])
+		Storylines.MILESTONE_CHASE:
+			var mopp := season.league.team_by_abbrev(st["rival"])
+			var mon := mopp.nickname if mopp != null else String(st["rival"])
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("Result against the %s: %s" % [mon, String(st["status"]).capitalize()])
+				return out
+			out.append("Beat the %s with %s in the lineup: %s" % [mon, name, season.week_label(st["start_week"])])
+			out.append("%s has to play. Check your lineup before you play the week." % name)
 	return out
 
 
