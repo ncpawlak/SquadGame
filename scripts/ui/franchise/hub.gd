@@ -1002,6 +1002,10 @@ Move players for free this week." % [team.roster.size(), Team.ROSTER_SIZE, team.
 				var mvp: Dictionary = season.review.awards[0]
 				out.append(_todo("Season Awards", "%d MVP: [color=white]%s[/color] (%s)" % [season.review.year, UiKit.esc(mvp["soldier"].short_name()), mvp["team"].abbrev],
 					Color("#f59e0b"), func(): open("Awards & Development", pages.awards)))
+			if not season.storylines.finished_in(season.year).is_empty():
+				var tot := season.storylines.season_totals(season.year)
+				out.append(_todo("Season in Stories", "[color=white]%d[/color] storyline%s: %d won, %d lost." % [tot["count"], "" if tot["count"] == 1 else "s", tot["won"], tot["lost"]],
+					Color("#a855f7"), func(): open("%d in stories" % season.year, func(): return StoryPages.summary_page(season, self, season.year))))
 			var rets := season.retirements_in(season.year)
 			out.append(_todo("Retirements", ("[color=white]%d[/color] soldier%s hung it up this year." % [rets.size(), "" if rets.size() == 1 else "s"]) if not rets.is_empty() else "Nobody retired this year.",
 				Color("#94a3b8"), open_retirements))

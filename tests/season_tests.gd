@@ -5188,3 +5188,30 @@ func test_storylines_poaching_rumor() -> void:
 		s2.sim_week()
 		guard += 1
 	check(st2["status"] == Storylines.STATUS_LOST and star2.trade_request, "ignored low trust ends in a trade request (%s)" % st2["status"])
+
+
+func test_storylines_season_summary() -> void:
+	var s := _fixed(170, 0)
+	var sl := s.storylines
+	var st := _story(s, Storylines.RIVALRY_RUN)
+	check(sl.season_totals(s.year)["count"] == sl.all_in(s.year).size() and sl.all_in(s.year).size() >= 1, "the season has its stories counted")
+	check(sl.years_on_file().has(s.year), "the season is on file")
+	check(sl.choose(s, st["id"], StoryDefs.FUEL) == "", "a call is made")
+	check(is_equal_approx(float(st["earned"]["buzz"]), StoryDefs.RR_NOW[&"fuel"]["buzz"]), "the buzz it earned is tracked")
+	var open_before: int = sl.season_totals(s.year)["open"]
+	check(open_before >= 1, "running stories count as open")
+	# Finish the story: the totals move from open to won or lost.
+	st["status"] = Storylines.STATUS_WON
+	sl.active.erase(st)
+	sl.finished.push_front(st)
+	var t := sl.season_totals(s.year)
+	check(t["won"] == 1 and t["open"] == open_before - 1, "a finished story moves out of open (%s)" % [t])
+	check(sl.finished_in(s.year).size() == 1, "and into the finished list")
+	# The page builds a card for every story, with the choice named.
+	var page := StoryPages.summary_page(s, null, s.year)
+	var cards := page.find_children("*", "PanelContainer", true, false).filter(func(c): return c.has_meta("story_id"))
+	check(cards.size() == sl.all_in(s.year).size(), "one card per story on the summary page (%d)" % cards.size())
+	check(StoryPages._choice_text(st) == "Fuel the feud", "the call is named")
+	page.free()
+	# An empty season says so.
+	check(StoryPages.summary_page(s, null, s.year - 5).get_child_count() == 1, "an empty season shows a note")
