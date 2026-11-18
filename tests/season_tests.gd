@@ -4811,3 +4811,96 @@ func test_storylines_contract_standoff() -> void:
 	_make_unhappy_star(s3)
 	s3.prepare_week()
 	check(_story(s3, Storylines.CONTRACT_STANDOFF).is_empty(), "no standoff in the first weeks")
+
+
+func test_storylines_cinderella() -> void:
+	# The weakest club in the fixed league is the underdog; a top club is not.
+	var probe := _fixed(120, 0)
+	var weakest := 0
+	var strongest := 0
+	for i in probe.league.teams.size():
+		if probe.league.teams[i].team_ovr() < probe.league.teams[weakest].team_ovr():
+			weakest = i
+		if probe.league.teams[i].team_ovr() > probe.league.teams[strongest].team_ovr():
+			strongest = i
+	check(_story(_fixed(120, strongest), Storylines.CINDERELLA).is_empty(), "a top club is no underdog")
+	var s := _fixed(120, weakest)
+	var st := _story(s, Storylines.CINDERELLA)
+	check(not st.is_empty(), "the weakest club gets an underdog run")
+	check(s.storylines.active.size() <= Storylines.MAX_ACTIVE and s.storylines._arc_count() <= Storylines.MAX_ARCS, "stays under the caps")
+	check(st["need"] == ceili(st["total"] / 2.0), "a winning record is the bar")
+	check(s.storylines.choose(s, st["id"], StoryDefs.EMBRACE) == "", "embrace is accepted")
+	# Fast-forward to the last match with the winning record already in hand.
+	st["played"] = st["total"] - 1
+	st["wins"] = st["need"]
+	var guard := 0
+	while st["status"] == Storylines.STATUS_ACTIVE and guard < 14:
+		s.sim_week()
+		guard += 1
+	check(st["status"] == Storylines.STATUS_WON, "a winning record wins the story (%s)" % st["status"])
+	check(st["applied"].size() == 2, "the choice and the result are on file")
+
+
+func test_storylines_derby_week() -> void:
+	var s := _fixed(121, 0)
+	var sl := s.storylines
+	var user := s.user_team()
+	var opp := s.next_match_for(user).opponent_of(user)
+	opp.division = user.division if user.division != "" else "East"
+	user.division = opp.division
+	s.prepare_week()
+	var st := _story(s, Storylines.DERBY_WEEK)
+	check(not st.is_empty() and st["rival"] == opp.abbrev, "a match against a division mate is a derby")
+	check(sl.fired.has("%s:%d" % [Storylines.DERBY_WEEK, s.year]), "once a season")
+	check(Storylines.decision_open(st), "the decision is open")
+	var heat := s.rivalries.intensity(user, opp)
+	check(sl.choose(s, st["id"], StoryDefs.FIRE_UP) == "", "fire them up is accepted")
+	check(s.rivalries.intensity(user, opp) >= heat, "it adds to the heat")
+	s.sim_week()
+	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "the derby resolves with the match (%s)" % st["status"])
+	check(st["applied"].size() == 2 or st["applied"].size() == 1, "the choice is on file")
+	# One spotlight at a time: a revenge game already running blocks a derby.
+	var s2 := _fixed(121, 0)
+	var u2 := s2.user_team()
+	var o2 := s2.next_match_for(u2).opponent_of(u2)
+	o2.division = u2.division
+	u2.starters()[0].former_team = o2.abbrev
+	s2.prepare_week()
+	check(_story(s2, Storylines.REVENGE_GAME).is_empty() == false and _story(s2, Storylines.DERBY_WEEK).is_empty(), "only one spotlight per week")
+
+
+func test_storylines_bench_grumble() -> void:
+	var s := _fixed(122, 0)
+	var sl := s.storylines
+	var user := s.user_team()
+	s.sim_week()
+	check(_story(s, Storylines.BENCH_GRUMBLE).is_empty(), "no grumble while the bench is content")
+	sl.active.clear()
+	var bencher: Soldier = user.bench()[0]
+	bencher.morale = 30.0
+	s.prepare_week()
+	var st := _story(s, Storylines.BENCH_GRUMBLE)
+	check(not st.is_empty() and st["soldier"] == bencher.id, "an unhappy bench player starts a grumble")
+	var trust_before := bencher.trust
+	check(sl.choose(s, st["id"], StoryDefs.MINUTES) == "", "promising minutes is accepted")
+	check(bencher.trust > trust_before, "the promise lifts trust")
+	# Break the promise: he never starts, so two matches later it turns sour.
+	user.lineup = user.lineup.duplicate()
+	s.sim_week()
+	s.sim_week()
+	check(st["status"] in [Storylines.STATUS_WON, Storylines.STATUS_LOST], "the story resolves within the window (%s)" % st["status"])
+	if st["status"] == Storylines.STATUS_LOST:
+		check(bencher.trust < trust_before, "a broken promise costs more than it gained")
+	# Letting it ride with a mood that recovers is fine; one that does not asks for a trade.
+	var s2 := _fixed(123, 0)
+	s2.sim_week()
+	var b2: Soldier = s2.user_team().bench()[0]
+	b2.morale = 30.0
+	s2.storylines.active.clear()
+	s2.prepare_week()
+	var st2 := _story(s2, Storylines.BENCH_GRUMBLE)
+	check(s2.storylines.choose(s2, st2["id"], StoryDefs.IGNORE) == "", "letting it ride is accepted")
+	b2.morale = 10.0
+	s2.sim_week()
+	s2.sim_week()
+	check(st2["status"] == Storylines.STATUS_LOST and b2.trade_request, "an unhappy player left alone asks out (%s)" % st2["status"])
