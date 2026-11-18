@@ -13,6 +13,9 @@ extends RefCounted
 ## leaking where inside the bands he landed.
 
 const TRIES := 3
+## Career-mode tuning knob: extra cap room per year of age above AGE_MIN, so an older starter (rawer ceilings
+## matter less, but less growth room) is not stuck. The tuning tool overrides it.
+static var age_cap_bonus := 1.0
 const BAND_HALF := 5
 ## Score-to-rating curve exponent: above 1 makes the top of the range harder to reach.
 const CURVE := 1.3
@@ -51,15 +54,18 @@ const TASKS := {
 }
 
 var archetype: StringName = &""
+## His age when he took the combine: younger means lower ceilings (Archetypes.age_offset).
+var age := Archetypes.AGE_MAX
 ## stat -> best score so far (0..1).
 var best := {}
 ## drill group -> tries used.
 var tries := {}
 
 
-static func make(archetype_id: StringName) -> Combine:
+static func make(archetype_id: StringName, start_age := Archetypes.AGE_MAX) -> Combine:
 	var c := Combine.new()
 	c.archetype = archetype_id
+	c.age = start_age
 	return c
 
 
@@ -117,7 +123,7 @@ static func raw_band(score: float, ceiling: int) -> Vector2i:
 
 ## stat -> Vector2i(low, high) for every drilled stat, with the start cap applied. A drill never run scores 0.
 func bands() -> Dictionary:
-	var ceil := Archetypes.ceilings(archetype)
+	var ceil := Archetypes.ceilings(archetype, age)
 	var raw := {}
 	for stat in ceil:
 		raw[stat] = raw_band(float(best.get(stat, 0.0)), int(ceil[stat]))
@@ -180,12 +186,16 @@ func ovr_range() -> Vector2i:
 ## and writes it all to the soldier. Returns the bands (what the player is shown). `rng` makes it reproducible.
 func finalize(s: Soldier, rng: RandomNumberGenerator) -> Dictionary:
 	var b := bands()
-	s.dev = PlayerGenerator.roll_dev(rng, s.age)
-	# Talent leans where inside a band he lands: a 4-star prospect usually lands high, a 1-star low.
-	var lean := (float(s.dev) - 2.5) * 0.08
+	# The hidden talent roll (1-4): it leans where inside a band he lands and sets his growth caps. His dev stars
+	# are separate and earned: everyone starts at 1 star (see WeeklyPlan).
+	var talent := PlayerGenerator.roll_dev(rng, s.age)
+	s.dev = talent
+	var lean := (float(talent) - 2.5) * 0.08
 	for stat in b:
 		var u := clampf(rng.randfn(0.5 + lean, 0.25), 0.0, 1.0)
 		s.stats[stat] = roundi(lerpf(float(b[stat].x), float(b[stat].y), u))
 	s.stats.merge(Archetypes.FIXED_STATS, true)
-	PlayerGenerator.roll_caps(s, rng)
+	PlayerGenerator.roll_caps(s, rng, roundi(float(s.age - Archetypes.AGE_MIN) * age_cap_bonus))
+	s.talent = talent
+	s.dev = Soldier.DEV_MIN
 	return b

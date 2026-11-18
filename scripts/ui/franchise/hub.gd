@@ -364,6 +364,8 @@ func advance() -> void:
 	if season.preseason_camp:
 		_close_preseason_camp()
 		return
+	if season.player_mode and _plan_warning():
+		return
 	if _roster_blocked():
 		return
 	var m := user_match_this_week()
@@ -373,6 +375,23 @@ func advance() -> void:
 		page_stack[-1]["kind"] = "matchup"
 		return
 	sim_week()
+
+
+var _plan_warned_key := ""
+
+
+## Player mode: a plan never confirmed wastes the week's points. Warn once a week and open the plan screen.
+func _plan_warning() -> bool:
+	var p := season.player
+	if p == null or PlayerLegacy.retired(season) or p.plan_confirmed:
+		return false
+	var key := "%d:%d" % [season.year, season.week]
+	if _plan_warned_key == key:
+		return false
+	_plan_warned_key = key
+	player_ui.open_plan(false)
+	app.toast("You have not set a weekly plan: this week's points are wasted. Set one, or advance again to skip.")
+	return true
 
 
 ## The user's unplayed-or-played fixture in the current week (null on a bye / when eliminated).
@@ -536,7 +555,16 @@ var _camp_skip_warned := false
 
 ## Player mode: the club runs every offseason step (re-signing, free agency, the draft, camp), so they all go
 ## by behind one loading screen and the next season opens with a line about how he grew.
+var _camp_warned_year := 0
+
+
 func _advance_offseason_player() -> void:
+	var p := season.player
+	if not PlayerLegacy.retired(season) and not p.camp_plan_confirmed and _camp_warned_year != season.year:
+		_camp_warned_year = season.year
+		player_ui.open_plan(true)
+		app.toast("You have not set a camp plan: its 8 points are wasted. Set one, or advance again to skip.")
+		return
 	var before := season.player.best_ovr()
 	var ls := _begin_loading("%d Season" % (season.year + 1))
 	await ls.step("The offseason: re-signing, free agency, the draft and training camp", 0.0, 0.8)
@@ -556,6 +584,9 @@ func _advance_offseason_player() -> void:
 	var extra := ""
 	if not fresh.is_empty():
 		extra = "  Milestone: " + ", ".join(fresh.map(func(e): return String(e["name"])))
+	var cr := season.camp_report
+	if not cr.is_empty() and int(cr.get("xp", 0)) + float(cr.get("study", 0.0)) > 0.0:
+		extra += "  Camp: +%d XP, +%.1f study%s" % [int(cr.get("xp", 0)), float(cr.get("study", 0.0)), ", a new star" if cr.get("star", false) else ""]
 	app.toast("Welcome to the %d season. You are %d: OVR %d (%+d).%s" % [season.year, season.player.age, season.player.best_ovr(), season.player.best_ovr() - before, extra])
 
 

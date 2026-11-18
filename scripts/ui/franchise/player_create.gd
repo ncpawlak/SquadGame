@@ -12,7 +12,7 @@ const ROLE_ORDER := [Scheme.Role.FRONTMAN, Scheme.Role.CENTER, Scheme.Role.FLEX]
 ## taken: lower-cased callsigns already in use. on_back: Callable().
 ## on_done: Callable(choice: Dictionary) with keys first, last, callsign, head, morph, archetype.
 static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Control:
-	var st := {"role": Scheme.Role.FRONTMAN, "arch": &"", "group": "", "head": "", "morph": 1}
+	var st := {"role": Scheme.Role.FRONTMAN, "arch": &"", "group": "", "head": "", "morph": 1, "age": PlayerCareer.START_AGE}
 	st["arch"] = StringName(Archetypes.for_role(st["role"])[0]["id"])
 	var heads: Array = FaceSpec.db().get("heads", {}).keys()
 	heads.sort()
@@ -67,6 +67,14 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 	var first := _field(lv, "First name", PlayerCareer.MAX_NAME)
 	var last := _field(lv, "Last name", PlayerCareer.MAX_NAME)
 	var call := _field(lv, "Callsign", PlayerCareer.MAX_CALLSIGN)
+	lv.add_child(UiKit.label("Age", 14, UiKit.MUTED))
+	var age_row := HBoxContainer.new()
+	age_row.add_theme_constant_override("separation", 10)
+	lv.add_child(age_row)
+	var age_label := UiKit.display(str(PlayerCareer.START_AGE), 28, Color.WHITE, true)
+	age_label.custom_minimum_size.x = 50
+	var age_hint := UiKit.label("", 13, UiKit.MUTED)
+	age_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var err := UiKit.label("", 14, UiKit.BAD)
 	err.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
@@ -124,12 +132,25 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 	foot.add_child(go)
 
 	var fns := {}
+	fns["age"] = func():
+		age_label.text = str(st["age"])
+		var off := Archetypes.age_offset(st["age"])
+		age_hint.text = "Every rating ceiling %s. Younger means rawer now, with more room and more seasons to grow." % ("is full" if off == 0 else "is %d lower" % -off)
+		fns["ceilings"].call()
+	age_row.add_child(UiKit.button("-", func():
+		st["age"] = maxi(Archetypes.AGE_MIN, st["age"] - 1)
+		fns["age"].call(), 16))
+	age_row.add_child(age_label)
+	age_row.add_child(UiKit.button("+", func():
+		st["age"] = mini(Archetypes.AGE_MAX, st["age"] + 1)
+		fns["age"].call(), 16))
+	lv.add_child(age_hint)
 	fns["preview"] = func():
 		for c in pic.get_children():
 			c.queue_free()
 		if st["head"] == "":
 			return
-		var temp := PlayerCareer.create_soldier(PREVIEW_ID, "Preview", "Soldier", "Preview", st["head"], st["morph"], st["arch"])
+		var temp := PlayerCareer.create_soldier(PREVIEW_ID, "Preview", "Soldier", "Preview", st["head"], st["morph"], st["arch"], st["age"])
 		Portrait.drop_cached_mesh(PREVIEW_ID)
 		pic.add_child(Portrait.new(temp, 240, UiKit.ACCENT))
 	fns["heads"] = func():
@@ -159,7 +180,7 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 			c.queue_free()
 		var a := Archetypes.find(st["arch"])
 		blurb.text = String(a.get("blurb", ""))
-		var cc := Archetypes.ceilings(st["arch"])
+		var cc := Archetypes.ceilings(st["arch"], st["age"])
 		var ups: Dictionary = a.get("up", {})
 		var downs: Dictionary = a.get("down", {})
 		for g in STAT_GROUPS:
@@ -225,12 +246,13 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 			on_done.call({"first": PlayerCareer.clean(first.text, PlayerCareer.MAX_NAME),
 				"last": PlayerCareer.clean(last.text, PlayerCareer.MAX_NAME),
 				"callsign": PlayerCareer.clean(call.text, PlayerCareer.MAX_CALLSIGN),
-				"head": st["head"], "morph": st["morph"], "archetype": st["arch"]}))
+				"head": st["head"], "morph": st["morph"], "archetype": st["arch"], "age": st["age"]}))
 
 	fns["roles"].call()
 	fns["archs"].call()
 	fns["ceilings"].call()
 	fns["heads"].call()
+	fns["age"].call()
 	fns["preview"].call()
 	return wrap
 

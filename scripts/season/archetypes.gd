@@ -20,6 +20,12 @@ const MIN_CEILING := 45
 ## Not drilled and not scored: every created soldier starts with these (the Medical Center lifts them later).
 const FIXED_STATS := {&"toughness": 90, &"injury": 90}
 
+## Created soldiers start between AGE_MIN and AGE_MAX. Every year under AGE_MAX takes CEILING_PER_YEAR off every
+## combine ceiling: a younger soldier is rawer now (but has more growth room and more seasons ahead).
+const AGE_MIN := 18
+const AGE_MAX := 23
+const CEILING_PER_YEAR := 2
+
 const ROLE_KEYS := {"frontman": Scheme.Role.FRONTMAN, "center": Scheme.Role.CENTER, "flex": Scheme.Role.FLEX}
 
 static var _all: Array = []
@@ -53,7 +59,11 @@ static func role_of(id: StringName) -> Scheme.Role:
 
 
 ## stat -> highest combine rating for this archetype. Toughness and injury are fixed (FIXED_STATS), so they have none.
-static func ceilings(id: StringName) -> Dictionary:
+static func age_offset(age: int) -> int:
+	return -CEILING_PER_YEAR * (AGE_MAX - clampi(age, AGE_MIN, AGE_MAX))
+
+
+static func ceilings(id: StringName, age := AGE_MAX) -> Dictionary:
 	var a := find(id)
 	var out := {}
 	if a.is_empty():
@@ -63,7 +73,7 @@ static func ceilings(id: StringName) -> Dictionary:
 		if FIXED_STATS.has(stat):
 			continue
 		var v := float(BASE_CEILING) + OFFSET_SCALE * float(offsets.get(stat, 0))
-		v += float(a.get("up", {}).get(String(stat), 0)) + float(a.get("down", {}).get(String(stat), 0))
+		v += float(a.get("up", {}).get(String(stat), 0)) + float(a.get("down", {}).get(String(stat), 0)) + float(age_offset(age))
 		out[stat] = clampi(roundi(v), MIN_CEILING, Stats.MAX_RATING)
 	return out
 
@@ -95,10 +105,10 @@ static func group_ceiling(id: StringName, group: StringName) -> int:
 
 
 ## OVR at the archetype's role if every drilled stat hit its ceiling (before START_OVR_CAP).
-static func max_ovr(id: StringName) -> int:
+static func max_ovr(id: StringName, age := AGE_MAX) -> int:
 	var stats := {}
 	for s in Stats.ALL:
 		stats[s] = FLOOR
 	stats.merge(FIXED_STATS, true)
-	stats.merge(ceilings(id), true)
+	stats.merge(ceilings(id, age), true)
 	return Scheme.ovr_for_role(stats, role_of(id))

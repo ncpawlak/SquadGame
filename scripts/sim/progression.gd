@@ -37,7 +37,10 @@ static func xp_to_next(level: int) -> int:
 
 
 static func xp_multiplier(soldier: Soldier) -> float:
-	return dev_xp_multiplier(soldier.age, soldier.dev)
+	var m := dev_xp_multiplier(soldier.age, soldier.dev)
+	if soldier.player_controlled:
+		m *= WeeklyPlan.xp_boost  # career mode only: the league table is untouched
+	return m
 
 
 static func dev_xp_multiplier(age: int, dev: int) -> float:
@@ -136,6 +139,63 @@ static func upgrade_group(soldier: Soldier, group: StringName, rng: RandomNumber
 	for s in members:
 		soldier.stats[s] += gains[s]
 	soldier.log_progress("Level up (skill points)", gains, ovr_before)
+	return gains
+
+
+## Hand placement (player mode): +1 to a group means the group average rises by 1, i.e. one stat point for every stat
+## in it. The player places those points himself, up to each stat's cap (Soldier.stat_cap).
+static func placement_total(group: StringName) -> int:
+	return Stats.group_stats(group).size()
+
+
+## Points the group can still take before every stat is at its cap.
+static func placement_room(soldier: Soldier, group: StringName) -> int:
+	var room := 0
+	for s in Stats.group_stats(group):
+		room += maxi(0, mini(Stats.MAX_RATING, soldier.stat_cap(s)) - int(soldier.stats[s]))
+	return room
+
+
+## True when he could place a group upgrade now: not capped, enough skill points, room for all the points.
+static func can_place(soldier: Soldier, group: StringName) -> bool:
+	return can_upgrade(soldier, group) and placement_room(soldier, group) >= placement_total(group)
+
+
+## "" if `alloc` (stat -> points) is a legal placement for `group`, else why not.
+static func placement_error(soldier: Soldier, group: StringName, alloc: Dictionary) -> String:
+	if not Stats.UPGRADABLE_GROUPS.has(group):
+		return "That group cannot be upgraded."
+	var members: Array = Stats.group_stats(group)
+	var sum := 0
+	for st in alloc:
+		if not members.has(st):
+			return "%s is not in that group." % st
+		if int(alloc[st]) < 0:
+			return "Points cannot be negative."
+		if int(soldier.stats[st]) + int(alloc[st]) > mini(Stats.MAX_RATING, soldier.stat_cap(st)):
+			return "%s is at its cap (%d)." % [Stats.LABELS[st], mini(Stats.MAX_RATING, soldier.stat_cap(st))]
+		sum += int(alloc[st])
+	if sum != members.size():
+		return "Place all %d points." % members.size()
+	if is_capped(soldier, group):
+		return "That group is capped."
+	if soldier.skill_points < upgrade_cost(soldier, group):
+		return "Need %d skill points." % upgrade_cost(soldier, group)
+	return ""
+
+
+## Spends the skill points and applies `alloc`. Returns the gains (empty if the placement was refused).
+static func place_group(soldier: Soldier, group: StringName, alloc: Dictionary) -> Dictionary:
+	if placement_error(soldier, group, alloc) != "":
+		return {}
+	soldier.skill_points -= upgrade_cost(soldier, group)
+	var gains := {}
+	for s in Stats.group_stats(group):
+		gains[s] = int(alloc.get(s, 0))
+	var ovr_before := soldier.best_ovr()
+	for s in gains:
+		soldier.stats[s] += gains[s]
+	soldier.log_progress("Level up (placed skill points)", gains, ovr_before)
 	return gains
 
 

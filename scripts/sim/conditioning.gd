@@ -63,6 +63,8 @@ static func age_years(soldier: Soldier) -> int:
 static func weekly_load(soldier: Soldier, played_match: bool, intensity: StringName = &"") -> float:
 	var it := soldier.intensity if intensity == &"" else intensity
 	var load := float(Training.INTENSITY_INFO[it]["load"])
+	if soldier.player_controlled and intensity == &"":
+		load = WeeklyPlan.fatigue_load(soldier.plan)  # the user soldier trains by his weekly plan
 	if played_match:
 		load += MATCH_LOAD
 	return load * endurance_mult(soldier) * (1.0 + age_years(soldier) * AGE_LOAD_PER_YEAR)
@@ -71,7 +73,10 @@ static func weekly_load(soldier: Soldier, played_match: bool, intensity: StringN
 ## bonus: extra share of fatigue shed.
 static func weekly_recovery(soldier: Soldier, bye: bool, bonus := 0.0, intensity: StringName = &"") -> float:
 	var it := soldier.intensity if intensity == &"" else intensity
-	var r := RECOVERY_RATE + float(Training.INTENSITY_INFO[it]["recovery_bonus"]) + bonus + Abilities.RECOVERY[Abilities.live_tier(soldier, &"quick_healer")]
+	var rest_bonus := float(Training.INTENSITY_INFO[it]["recovery_bonus"])
+	if soldier.player_controlled and intensity == &"":
+		rest_bonus = WeeklyPlan.recovery_bonus(soldier.plan)  # spa, not Rest
+	var r := RECOVERY_RATE + rest_bonus + bonus + Abilities.RECOVERY[Abilities.live_tier(soldier, &"quick_healer")]
 	if bye:
 		r += BYE_RECOVERY_BONUS
 	return clampf(r * (1.0 - age_years(soldier) * AGE_RECOVERY_PER_YEAR), 0.05, 0.95)

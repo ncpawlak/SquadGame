@@ -126,6 +126,7 @@ func _status_card() -> Control:
 	msg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	msg.custom_minimum_size.x = COL_W - 30
 	v.add_child(msg)
+	v.add_child(_label("%s   ·   brand %d (%s)" % [_stars_line(p), roundi(p.brand), WeeklyPlan.tier_name(p.brand)], 13, UiKit.INFO))
 	if s.player_start_ovr > 0:
 		var d := p.best_ovr() - s.player_start_ovr
 		v.add_child(_label("%+d OVR since you were drafted (%d)" % [d, s.player_start_ovr], 13, UiKit.GOOD if d > 0 else UiKit.MUTED))
@@ -182,7 +183,15 @@ func _todos() -> Array:
 	var cost := _cheapest_upgrade(p)
 	if cost > 0 and p.skill_points >= cost:
 		out.append(_todo("Spend Skill Points", "%d SP ready" % p.skill_points, UiKit.INFO, func(): open_my_player(), true))
-	out.append(_todo("Training: %s" % Training.label(p.intensity), "Change this week's intensity", UiKit.TRIM, func(): open_my_player()))
+	if s.phase == Season.PHASE_OFFSEASON:
+		if not p.camp_plan_confirmed:
+			out.append(_todo("Set your camp plan", "8 points: practice, study, outing, brand", UiKit.GOLD, func(): open_plan(true), true))
+		else:
+			out.append(_todo("Camp plan", _plan_summary(p.camp_plan, true), UiKit.TRIM, func(): open_plan(true)))
+	elif not p.plan_confirmed:
+		out.append(_todo("Set your weekly plan", "Your points are wasted until you do", UiKit.GOLD, func(): open_plan(false), true))
+	else:
+		out.append(_todo("Weekly plan", _plan_summary(p.plan, true), UiKit.TRIM, func(): open_plan(false)))
 	var notes := s.player_notes
 	if not notes.is_empty():
 		out.append(_todo("Coach", String(notes[-1]["text"]), UiKit.GOLD, func(): open_game_log()))
@@ -239,6 +248,41 @@ func career_tab(v: VBoxContainer) -> void:
 
 # --- pages ----------------------------------------------------------------------------------------
 
+var plan_ui: PlayerPlanPages
+
+
+func _plan() -> PlayerPlanPages:
+	if plan_ui == null:
+		plan_ui = PlayerPlanPages.new()
+		plan_ui.hub = hub
+	return plan_ui
+
+
+func open_plan(camp: bool) -> void:
+	hub.open("Camp Plan" if camp else "Weekly Plan", func(): return _plan().plan_page(camp))
+
+
+func open_placement(group: StringName) -> void:
+	hub.open("Place Skill Points", func(): return _plan().placement_page(group))
+
+
+## One line for a plan: "Practice 2, Study 2" (or why it is blank).
+func _plan_summary(plan: Dictionary, confirmed: bool) -> String:
+	var parts: PackedStringArray = []
+	for a in WeeklyPlan.WEEK_ACTIVITIES:
+		if WeeklyPlan.level(plan, a) > 0:
+			parts.append("%s %d" % [WeeklyPlan.LABELS[a].split(" ")[0], WeeklyPlan.level(plan, a)])
+	if parts.is_empty() or not confirmed:
+		return "Not set yet"
+	return ", ".join(parts) + "  (repeats each week)"
+
+
+func _stars_line(p: Soldier) -> String:
+	if p.dev >= Soldier.DEV_MAX:
+		return "%s  ·  top star reached" % p.dev_text()
+	return "%s  ·  next star: %d / %d study points" % [p.dev_text(), roundi(p.study_progress), roundi(WeeklyPlan.star_cost(p.dev))]
+
+
 func open_my_player() -> void:
 	hub.open("My Player", func(): return my_player())
 
@@ -277,18 +321,13 @@ func my_player() -> Control:
 	var xp: Array = Progression.xp_progress(p)
 	root.add_child(_label("XP: %d / %d to the next +%d skill points" % [xp[0], xp[1], Progression.SKILL_POINTS_PER_LEVEL], 15, UiKit.INFO))
 
-	root.add_child(UiKit.heading("Training this week", 20))
-	var row := _hbox(10)
-	for it in Training.INTENSITIES:
-		var info: Dictionary = Training.INTENSITY_INFO[it]
-		var b := UiKit.button("%s  ·  %d%% XP" % [info["label"], roundi(float(info["xp"]) * 100.0)], func():
-			p.intensity = it
-			hub.replace("My Player", func(): return my_player()), 16)
-		if p.intensity == it:
-			UiKit.style_primary(b)
-		row.add_child(b)
-	root.add_child(row)
-	root.add_child(_label("Harder training earns more XP but tires you out, which costs you in matches.", 13, UiKit.MUTED))
+	root.add_child(UiKit.heading("Stars and brand", 20))
+	root.add_child(_label(_stars_line(p), 16, UiKit.TEXT))
+	root.add_child(_label("Brand %d  ·  %s" % [roundi(p.brand), WeeklyPlan.tier_name(p.brand)], 16, UiKit.TEXT))
+	var plan_row := _hbox(12)
+	plan_row.add_child(UiKit.primary_button("Weekly plan", func(): open_plan(false), 18))
+	root.add_child(plan_row)
+	root.add_child(_label(_plan_summary(p.plan, p.plan_confirmed), 14, UiKit.MUTED))
 
 	root.add_child(UiKit.heading("Ratings  (click a group to spend skill points)", 20))
 	for g in Stats.GROUP_ORDER:
@@ -310,7 +349,7 @@ func _group_row(p: Soldier, g: StringName) -> Control:
 	UiKit.style_button(b, UiKit.PANEL_HI, UiKit.ACCENT, 8, false)
 	b.custom_minimum_size.y = 78
 	var cost := Progression.upgrade_cost(p, g)
-	b.disabled = not Progression.can_upgrade(p, g)
+	b.disabled = not Progression.can_place(p, g)
 	var box := _vbox(2)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -353,15 +392,7 @@ func _group_row(p: Soldier, g: StringName) -> Control:
 		stats.add_child(t)
 	box.add_child(stats)
 	if not b.disabled:
-		b.pressed.connect(func():
-			var gains := Progression.upgrade_group(p, g)
-			if not gains.is_empty():
-				var parts: PackedStringArray = []
-				for st in gains:
-					if gains[st] > 0:
-						parts.append("%s +%d" % [Stats.ABBREV[st], gains[st]])
-				hub.app.toast("%s %d  (%s)" % [Stats.GROUP_LABELS[g], p.group_rating(g), ", ".join(parts)])
-			hub.replace("My Player", func(): return my_player()))
+		b.pressed.connect(func(): open_placement(g))
 	return b
 
 
@@ -404,6 +435,9 @@ func contract() -> Control:
 	root.add_child(UiKit.display(Contracts.money(p.contract.salary), 56, Color.WHITE, true))
 	root.add_child(_label("%s  ·  %d year%s left" % ["Green Team deal" if p.contract.green else "Main roster deal", p.contract.years, "" if p.contract.years == 1 else "s"], 18, UiKit.TEXT))
 	root.add_child(_label("Club: %s" % s.user_team().name, 16, UiKit.MUTED))
+	var bonus := roundi((WeeklyPlan.market_mult(p.brand) - 1.0) * 100.0)
+	root.add_child(_label("Brand %d (%s): worth +%d%% on your market value and re-sign price." % [roundi(p.brand), WeeklyPlan.tier_name(p.brand), bonus], 16, UiKit.INFO))
+	root.add_child(_label("Market value %s  ·  re-sign ask %s" % [Contracts.money(Contracts.market_value(p)), Contracts.money(Contracts.resign_asking(p, Contracts.preferred_years(p)))], 15, UiKit.MUTED))
 	root.add_child(_label("Contract talks and your agent come in a later update. Until then your club re-signs you when your deal ends.", 15, UiKit.MUTED))
 	return root
 

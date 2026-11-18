@@ -42,11 +42,13 @@ static func run_week(team: Team) -> Dictionary:
 			film["intensity"] = &"film"
 			reports[soldier.id] = film
 			continue
-		var report := Progression.gain_xp(soldier, xp_for(soldier.intensity) * mult)
+		var base := WeeklyPlan.week_xp(soldier.plan) if soldier.player_controlled else xp_for(soldier.intensity)
+		var report := Progression.gain_xp(soldier, base * mult)
 		report["intensity"] = soldier.intensity
 		reports[soldier.id] = report
 	for soldier in team.green_team:
-		var gx := (BASE_XP * FILM_STUDY_XP if soldier.is_injured() else xp_for(soldier.intensity)) * mult * GreenTeam.XP_MULT
+		var pxp := WeeklyPlan.week_xp(soldier.plan) if soldier.player_controlled else xp_for(soldier.intensity)
+		var gx := (BASE_XP * FILM_STUDY_XP if soldier.is_injured() else pxp) * mult * GreenTeam.XP_MULT
 		var g := Progression.gain_xp(soldier, gx)
 		g["intensity"] = &"film" if soldier.is_injured() else soldier.intensity
 		g["green"] = true
