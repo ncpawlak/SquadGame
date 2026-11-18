@@ -61,6 +61,11 @@ const AI_TAX_OVR := 85
 var league: League
 ## Per-franchise options (trade difficulty, animations, fantasy draft).
 var settings := FranchiseSettings.new()
+## Player mode (#100): true when the user plays one created soldier instead of running a club.
+var player_mode := false
+## The created soldier and his archetype id (see Archetypes). Null / &"" in manager mode.
+var player: Soldier = null
+var player_archetype: StringName = &""
 ## Regular-season length and playoff field (set from the league's shape when the franchise starts).
 var regular_weeks := DIVISION_WEEKS
 var playoff_teams := DIVISION_PLAYOFF_TEAMS

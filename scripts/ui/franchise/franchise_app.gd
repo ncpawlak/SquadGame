@@ -134,10 +134,10 @@ func show_mode_select() -> void:
 		["Pick your team and take over", "Training camp, drills and development", "Contracts, cap and free agency", "Draft, scouting and the full league season"],
 		false, show_team_select))
 	cards.add_child(_mode_card("PLAYER", "LIVE THE CAREER",
-		"Control a single soldier from the draft to retirement while the rest of the league runs on its own. "
-		+ "Build your ratings, talk contracts with your agent, pick your team in free agency and chase a legacy.",
-		["Create a soldier and enter the draft", "Ratings, training and playing time", "Agent talks and free-agency choices", "Retirement and your career legacy"],
-		true, func(): toast("Player mode is coming soon. Start as Manager / GM for now.")))
+		"Control a single soldier from the combine to retirement while the rest of the league runs on its own. "
+		+ "Build your ratings, earn your starting spot and chase a place in the Hall of Fame.",
+		["Create a soldier and pick an archetype", "Combine, draft and rookie season", "Ratings, training and playing time", "Retirement and the Hall of Fame"],
+		false, show_player_create))
 	var i := 0
 	for c in cards.get_children():
 		UiKit.fade_in(c, 0.08 * i, 0.3)
@@ -205,6 +205,47 @@ func _mode_card(title: String, tagline: String, desc: String, points: Array, soo
 		col.add_child(line)
 	b.add_child(col)
 	return b
+
+
+## Player mode step 1: create the soldier (face, name, callsign, archetype). Phase 1 ends at show_player_ready.
+func show_player_create() -> void:
+	if preview_seed == 0:
+		preview_seed = randi_range(1, 999999)
+	var taken := PlayerCareer.taken_callsigns(League.load_fixed(preview_seed))
+	_set_screen(PlayerCreate.make(taken, show_mode_select, _on_player_created))
+
+
+func _on_player_created(choice: Dictionary) -> void:
+	var seed_value := preview_seed
+	season = Season.new_franchise(seed_value, 0, 2026, false)
+	season.player_mode = true
+	season.player_archetype = choice["archetype"]
+	season.player = PlayerCareer.create_soldier(season.league.next_soldier_id, choice["first"], choice["last"],
+		choice["callsign"], choice["head"], int(choice["morph"]), choice["archetype"])
+	season.league.next_soldier_id += 1
+	preview_seed = 0
+	show_player_ready()
+
+
+## Placeholder end of phase 1: the created soldier and his combine ceilings. The combine itself is phase 2.
+func show_player_ready() -> void:
+	var s := season.player
+	var root := VBoxContainer.new()
+	root.name = "PlayerReady"
+	root.add_theme_constant_override("separation", 12)
+	var margin := _margin(root, 40)
+	root.add_child(UiKit.display("%s \"%s\" %s" % [s.first_name, s.callsign, s.last_name], 44, Color.WHITE, true))
+	var a := Archetypes.find(season.player_archetype)
+	root.add_child(UiKit.label("%s %s  -  age %d" % [a["name"], String(Scheme.ROLE_NAMES[Archetypes.role_of(season.player_archetype)]), s.age], 20, UiKit.ACCENT))
+	root.add_child(UiKit.label(String(a["blurb"]), 16, UiKit.MUTED))
+	root.add_child(_spacer(10))
+	root.add_child(UiKit.label("Your soldier is created. The combine, where you earn your ratings, comes next.", 18, UiKit.TEXT))
+	root.add_child(UiKit.label("Combine, draft and the rookie season are not built yet.", 15, UiKit.MUTED))
+	root.add_child(_spacer(10))
+	var row := HBoxContainer.new()
+	root.add_child(row)
+	row.add_child(UiKit.button("< Back to title", show_title, 18))
+	_set_screen(margin)
 
 
 func show_team_select() -> void:
