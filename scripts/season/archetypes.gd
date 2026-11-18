@@ -68,6 +68,19 @@ static func ceilings(id: StringName) -> Dictionary:
 	return out
 
 
+## Lifetime cap per stat for a created soldier: the combine ceiling plus room to grow, never past the maximum.
+## Toughness and injury have no archetype cap.
+const GROWTH_BEYOND := 12
+
+
+static func growth_caps(id: StringName) -> Dictionary:
+	var out := {}
+	var c := ceilings(id)
+	for stat in c:
+		out[stat] = mini(Stats.MAX_RATING, int(c[stat]) + GROWTH_BEYOND)
+	return out
+
+
 ## Group-level ceiling (the average of its stat ceilings), for compact displays.
 static func group_ceiling(id: StringName, group: StringName) -> int:
 	var c := ceilings(id)

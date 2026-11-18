@@ -266,9 +266,9 @@ func _after_draft_night() -> void:
 		show_player_landing()
 
 
-## Placeholder end of phase 3: where the career begins. The rookie season is phase 4.
+## Where the career begins; the button opens the hub on Week 1.
 func show_player_landing() -> void:
-	_set_screen(PlayerDraftPages.landing(season, show_title))
+	_set_screen(PlayerDraftPages.landing(season, show_hub))
 
 
 func show_team_select() -> void:

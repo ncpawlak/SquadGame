@@ -397,7 +397,7 @@ static func season_end(season: Season, rng: RandomNumberGenerator) -> void:
 			s.green_seasons += 1
 			if s.callup_pending or s.contract == null or not s.contract.is_expiring():
 				continue
-			if s.trust < REFUSE_TRUST and rng.randf() < (REFUSE_TRUST - s.trust) / REFUSE_TRUST:
+			if not s.player_controlled and s.trust < REFUSE_TRUST and rng.randf() < (REFUSE_TRUST - s.trust) / REFUSE_TRUST:
 				season.departures.append({"soldier": s, "team": t, "year": season.year, "green_refused": true})
 				_log(season, t, s, &"refused")
 				t.release(s)
@@ -467,10 +467,14 @@ static func enforce(season: Season, team: Team) -> void:
 		var cut: Soldier = null
 		var cut_v := INF
 		for s in team.green_team:
+			if s.player_controlled:
+				continue
 			var v := team.keep_value(s)
 			if v < cut_v:
 				cut_v = v
 				cut = s
+		if cut == null:
+			break
 		season.release_player(team, cut)
 	if not team.user_controlled:
 		while team.roster_count() < Team.ROSTER_SIZE and not team.green_team.is_empty():

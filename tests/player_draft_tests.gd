@@ -112,7 +112,8 @@ func test_a_strong_player_is_drafted_and_lands() -> void:
 		if t.user_controlled:
 			users += 1
 		check(t.green_team.size() <= Team.GREEN_SIZE, "%s green team is over the limit" % t.abbrev)
-	check(users == 1, "exactly one user team, got %d" % users)
+	check(users == 0, "no club is user-controlled in player mode, got %d" % users)
+	check(s.player.player_controlled and not s.player.stat_caps.is_empty(), "the player should be flagged and have archetype caps")
 	check(s.past_drafts.has(s.player_draft), "draft not filed away")
 	check(s.player_draft.is_complete(), "draft not complete")
 	# No other soldier may share his callsign.

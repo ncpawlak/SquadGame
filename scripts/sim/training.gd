@@ -79,6 +79,8 @@ static func ai_intensity(soldier: Soldier, starter: bool) -> StringName:
 static func ai_set_intensities(team: Team) -> void:
 	var starters := team.starters()
 	for soldier in team.roster:
-		soldier.intensity = ai_intensity(soldier, starters.has(soldier))
+		if not soldier.player_controlled:
+			soldier.intensity = ai_intensity(soldier, starters.has(soldier))
 	for soldier in team.green_team:
-		soldier.intensity = ai_intensity(soldier, false)
+		if not soldier.player_controlled:
+			soldier.intensity = ai_intensity(soldier, false)

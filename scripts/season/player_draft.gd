@@ -195,24 +195,13 @@ static func _land(season: Season, team: Team) -> void:
 	undrafted.sort_custom(func(a: Prospect, b: Prospect): return Draft.true_value(a) > Draft.true_value(b))
 	for q in undrafted.slice(0, Season.UNDRAFTED_TO_FA):
 		season.league.add_free_agent(q.soldier, season.year)
+	# The user is one soldier: every club, his included, is run by the AI (Season.user_team still names his).
+	season.player.player_controlled = true
+	season.player_start_ovr = season.player.best_ovr()
+	season.player.stat_caps = Archetypes.growth_caps(season.player_archetype)
 	for t in season.league.teams:
-		if t != team:
-			t.user_controlled = false
-			GreenTeam.enforce(season, t)
-	team.user_controlled = true
-	while team.green_team.size() > Team.GREEN_SIZE:
-		var cut: Soldier = null
-		var cut_v := INF
-		for s in team.green_team:
-			if s == season.player:
-				continue
-			var v := team.keep_value(s)
-			if v < cut_v:
-				cut_v = v
-				cut = s
-		if cut == null:
-			break
-		season.release_player(team, cut)
+		t.user_controlled = false
+		GreenTeam.enforce(season, t)
 	# New rookies and free agents get their abilities now, as every week and every load does.
 	Abilities.refresh_league(season.league, season.year)
 	season.past_drafts.append(d)

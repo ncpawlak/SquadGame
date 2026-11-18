@@ -109,6 +109,10 @@ var trade_request := false
 var former_team := ""
 ## Two-letter home state ("" = unknown). Hometown DNA pulls him toward clubs near home.
 var home_state := ""
+## Player mode (#100): true for the user's created soldier. AI front offices never cut, trade or auto-train him.
+var player_controlled := false
+## Lifetime per-stat caps (stat -> rating) for a created soldier (see Archetypes.growth_caps); {} = none.
+var stat_caps: Dictionary = {}
 
 # Green Team (development roster; see Team.green_team and GreenTeam)
 ## Reps (0..REP_MAX): practice time with the club. They reveal his potential (see potential_text).
@@ -348,6 +352,11 @@ func group_rating(group: StringName) -> int:
 
 func group_cap(group: StringName) -> int:
 	return int(group_caps.get(group, group_rating(group)))
+
+
+## The highest rating `stat` can reach: his archetype's lifetime cap if he has one, else the maximum.
+func stat_cap(stat: StringName) -> int:
+	return int(stat_caps.get(stat, Stats.MAX_RATING))
 
 
 ## Group upgrades left before the cap (0 = capped).

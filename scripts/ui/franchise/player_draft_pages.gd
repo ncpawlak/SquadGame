@@ -2,7 +2,7 @@ class_name PlayerDraftPages
 extends RefCounted
 ## Player mode phase 3 (#101): the draft screens. `report` is the scouting report and projected pick, `night` is the
 ## live pick-by-pick reveal, `offers` is where an undrafted player picks a Green Team deal, `landing` is where the
-## career begins (placeholder until phase 4). The rules live in PlayerDraft.
+## career begins. The rules live in PlayerDraft.
 
 const REVEAL_SECS := 0.09
 const SUSPENSE_SECS := 0.55
@@ -210,7 +210,7 @@ static func offers(season: Season, on_signed: Callable) -> Control:
 	return f[0]
 
 
-# --- landing (placeholder for phase 4) --------------------------------------------------------
+# --- landing --------------------------------------------------------
 
 static func landing(season: Season, on_continue: Callable) -> Control:
 	var f := _frame("YOUR CAREER BEGINS", "")
@@ -224,6 +224,5 @@ static func landing(season: Season, on_continue: Callable) -> Control:
 	var how := "Drafted with pick %d" % season.player_pick if season.player_pick > 0 else "Signed as an undrafted free agent"
 	root.add_child(UiKit.label("%s. Green Team deal: %s." % [how, Contracts.money(s.contract.salary)], 18, UiKit.TEXT))
 	root.add_child(UiKit.label("You start on the Green Team and earn your way onto the roster.", 16, UiKit.MUTED))
-	root.add_child(UiKit.label("The rookie season is not built yet.", 15, UiKit.MUTED))
-	root.add_child(UiKit.button("< Back to title", on_continue, 18))
+	root.add_child(UiKit.primary_button("Begin your rookie season", on_continue, 24))
 	return f[0]

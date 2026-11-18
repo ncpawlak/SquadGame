@@ -17,6 +17,7 @@ var season: Season
 var pages: FranchisePages
 var club: ClubPages
 var legacy_pages: LegacyPages
+var player_ui: PlayerPages
 var stats_pages: StatsPages
 var fantasy: FantasyDraftPages
 
@@ -51,6 +52,8 @@ func _ready() -> void:
 	stats_pages.pages = pages
 	fantasy = FantasyDraftPages.new()
 	fantasy.hub = self
+	player_ui = PlayerPages.new()
+	player_ui.hub = self
 	_bg = Control.new()
 	_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -153,10 +156,26 @@ func _apply_team_theme() -> void:
 		_bg.add_child(wm)
 
 
+## Tab ids shown in the bar. Player mode hides the club-management tabs (Personnel, Club).
+func visible_tabs() -> Array:
+	if season != null and season.player_mode:
+		return [Tab.HOME, Tab.TEAM, Tab.LEAGUE, Tab.SETTINGS]
+	return range(TABS.size())
+
+
+## Player mode renames the Team tab Career.
+func tab_label(i: int) -> String:
+	if season != null and season.player_mode and i == Tab.TEAM:
+		return "Career"
+	return TABS[i]
+
+
 func cycle_tab(dir: int) -> void:
 	if viewer or simming:
 		return
-	select_tab(wrapi(tab_index + dir, 0, TABS.size()))
+	var tabs := visible_tabs()
+	var at := tabs.find(tab_index)
+	select_tab(tabs[wrapi(at + dir, 0, tabs.size())])
 
 
 func select_tab(i: int) -> void:
@@ -470,8 +489,31 @@ func _roster_blocked() -> bool:
 var _camp_skip_warned := false
 
 
+## Player mode: the club runs every offseason step (re-signing, free agency, the draft, camp), so they all go
+## by behind one loading screen and the next season opens with a line about how he grew.
+func _advance_offseason_player() -> void:
+	var before := season.player.best_ovr()
+	var ls := _begin_loading("%d Season" % (season.year + 1))
+	await ls.step("The offseason: re-signing, free agency, the draft and training camp", 0.0, 0.8)
+	var guard := 0
+	while season.offseason_stage != Season.OFF_DONE and guard < 30:
+		season.advance_offseason()
+		guard += 1
+	season.start_next_season()
+	await ls.step("Saving", 0.85, 1.0)
+	_autosave()
+	_end_loading(ls)
+	page_stack.clear()
+	tab_index = 0
+	refresh()
+	app.toast("Welcome to the %d season. You are %d: OVR %d (%+d)." % [season.year, season.player.age, season.player.best_ovr(), season.player.best_ovr() - before])
+
+
 ## Offseason steps: re-sign window -> free agency days -> draft -> roster review -> training camp -> next season.
 func _advance_offseason() -> void:
+	if season.player_mode:
+		_advance_offseason_player()
+		return
 	match season.offseason_stage:
 		Season.OFF_RESIGN:
 			season.advance_offseason()
@@ -697,7 +739,7 @@ func _page_frame(title: String, body: Control) -> Control:
 		back.custom_minimum_size.y = 42
 		back.set_meta(&"skip_autofocus", true)
 		head.add_child(back)
-	var crumbs := "%s  /  " % TABS[tab_index].to_upper()
+	var crumbs := "%s  /  " % tab_label(tab_index).to_upper()
 	for i in page_stack.size() - 1:
 		crumbs += "%s  /  " % page_stack[i]["title"]
 	var tv := VBoxContainer.new()
@@ -743,6 +785,9 @@ func _build_header() -> void:
 	mc.add_theme_constant_override("margin_top", 10)
 	mc.add_theme_constant_override("margin_bottom", 12)
 	_header.add_child(mc)
+	if season.player_mode:
+		mc.add_child(player_ui.header_row(_score_bug()))
+		return
 	var hb := HBoxContainer.new()
 	hb.add_theme_constant_override("separation", 20)
 	mc.add_child(hb)
@@ -806,9 +851,9 @@ func _build_tabs() -> void:
 	tsb.content_margin_bottom = 8
 	_tab_wrap.add_theme_stylebox_override("panel", tsb)
 	_tab_bar.add_child(UiKit.label("Q / LB", 13, UiKit.MUTED))
-	for i in TABS.size():
+	for i: int in visible_tabs():
 		var b := Button.new()
-		b.text = TABS[i].to_upper()
+		b.text = tab_label(i).to_upper()
 		b.add_theme_font_size_override("font_size", 20)
 		b.custom_minimum_size = Vector2(170, 42)
 		if i == tab_index:
@@ -852,6 +897,8 @@ func _phase_text() -> String:
 
 
 func _advance_text() -> String:
+	if season.phase == Season.PHASE_OFFSEASON and season.player_mode:
+		return "START %d SEASON  >>" % (season.year + 1)
 	if season.phase == Season.PHASE_OFFSEASON:
 		match season.offseason_stage:
 			Season.OFF_RESIGN:
@@ -894,10 +941,13 @@ func _tab_view(i: int) -> Control:
 			v.add_child(_home_top())
 			sections = _home_sections()
 		Tab.TEAM:
-			v.add_child(_team_top())
-			v.add_child(_team_cards())
-			v.add_child(_soon_strip())
-			sections = _team_sections()
+			if season.player_mode:
+				player_ui.career_tab(v)
+			else:
+				v.add_child(_team_top())
+				v.add_child(_team_cards())
+				v.add_child(_soon_strip())
+				sections = _team_sections()
 		Tab.PERSONNEL:
 			v.add_child(_personnel_top())
 			v.add_child(_personnel_cards())
@@ -1104,16 +1154,19 @@ func _home_top() -> Control:
 		home_week = 0
 	var top := HBoxContainer.new()
 	top.add_theme_constant_override("separation", 18)
-	var left := VBoxContainer.new()
-	left.name = "TodoColumn"
-	left.add_theme_constant_override("separation", 10)
-	left.add_child(UiKit.heading("This Week", 22))
-	var i := 0
-	for t in _todo_tiles(team):
-		left.add_child(t)
-		UiKit.fade_in(t, 0.05 * i, 0.25)
-		i += 1
-	top.add_child(left)
+	if season.player_mode:
+		top.add_child(player_ui.home_left())
+	else:
+		var left := VBoxContainer.new()
+		left.name = "TodoColumn"
+		left.add_theme_constant_override("separation", 10)
+		left.add_child(UiKit.heading("This Week", 22))
+		var i := 0
+		for t in _todo_tiles(team):
+			left.add_child(t)
+			UiKit.fade_in(t, 0.05 * i, 0.25)
+			i += 1
+		top.add_child(left)
 	var right := VBoxContainer.new()
 	right.name = "MatchColumn"
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL

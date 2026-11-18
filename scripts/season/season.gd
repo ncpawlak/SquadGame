@@ -76,6 +76,12 @@ var player_prospect: Prospect = null
 var player_draft_state: StringName = &""
 var player_pick := 0
 var player_team: Team = null
+## Player mode: one entry per match he was in the squad for (see PlayerGrade.record), and the coach's notes
+## ({year, week, text}).
+var player_log: Array = []
+var player_notes: Array = []
+## His OVR the day he was drafted, for "since you were drafted" lines.
+var player_start_ovr := 0
 ## Regular-season length and playoff field (set from the league's shape when the franchise starts).
 var regular_weeks := DIVISION_WEEKS
 var playoff_teams := DIVISION_PLAYOFF_TEAMS
@@ -306,6 +312,9 @@ func _apply_opening_pick_trades() -> void:
 
 
 func user_team() -> Team:
+	# Player mode: the user is one soldier, his club is run by the AI like every other, but it is still "his" team.
+	if player_mode and player_team != null:
+		return player_team
 	for t in league.teams:
 		if t.user_controlled:
 			return t
@@ -499,6 +508,7 @@ func prepare_week() -> void:
 	_stamp_log()
 	last_signings = fa.resolve(self, _rng, week_label(week))
 	_fix_rosters()
+	PlayerCoach.weekly(self)
 	Abilities.refresh_league(league, year)
 	GreenTeam.auto_covers(self)
 	_prepare_lineups()
@@ -588,9 +598,11 @@ func play_week_match(m: ScheduledMatch) -> void:
 		m.play()
 		Progression.award_match_xp(m.result, year, ctx)
 		ledger.record_match(self, m)
+		PlayerGrade.record(self, m)
 	elif m.needs_xp:
 		Progression.award_match_xp(m.result, year, ctx)
 		ledger.record_match(self, m)
+		PlayerGrade.record(self, m)
 	m.needs_xp = false
 
 
@@ -722,8 +734,8 @@ func _prepare_lineups() -> void:
 ## Why the user can't play this week yet ("" = he can): Week 1 needs exactly Team.ROSTER_SIZE
 ## players; later weeks need ROSTER_MIN..ROSTER_SIZE.
 func user_roster_error() -> String:
-	if phase == PHASE_OFFSEASON:
-		return ""
+	if phase == PHASE_OFFSEASON or player_mode:
+		return ""  # in player mode the AI keeps the roster legal
 	var n := user_team().roster_count()
 	var first := phase == PHASE_REGULAR and week == 1
 	if n > Team.ROSTER_SIZE:
@@ -1216,6 +1228,8 @@ func log_talk(s: Soldier, team: Team, kind: StringName, text: String) -> void:
 ## Releases a soldier into free agency, booking dead money for what's left on his deal.
 ## Returns the dead money.
 func release_player(team: Team, s: Soldier) -> int:
+	if s.player_controlled:
+		return 0  # no front office releases the user's player
 	news.release(self, team, s)
 	break_keep_promises(team, s)
 	var dead := Contracts.charge_release(team, s, cap_year())
@@ -1266,6 +1280,8 @@ func _ai_keep_bar(t: Team) -> int:
 
 ## Whether an AI team wants to keep `s`: a rotation player, or a young prospect, under 34.
 func _ai_wants(s: Soldier, bar: int) -> bool:
+	if s.player_controlled:
+		return true  # placeholder until player contract talks: his club always keeps him
 	return s.age <= 33 and (s.best_ovr() >= bar - 2 or (s.age <= 25 and s.potential_grade() >= 3))
 
 
@@ -1360,7 +1376,7 @@ func _cut_to_cap(team: Team) -> void:
 			kv[s] = team.keep_value(s)
 		var order: Array = team.roster.duplicate()
 		order.sort_custom(func(a: Soldier, b: Soldier): return kv[a] < kv[b])
-		var pool: Array = order.slice(0, maxi(1, order.size() / 2))
+		var pool: Array = order.slice(0, maxi(1, order.size() / 2)).filter(func(x: Soldier) -> bool: return not x.player_controlled)
 		var cut: Soldier = null
 		var best_save := 0
 		for s: Soldier in pool:

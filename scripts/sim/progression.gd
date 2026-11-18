@@ -94,7 +94,7 @@ static func is_capped(soldier: Soldier, group: StringName) -> bool:
 	if soldier.group_headroom(group) <= 0:
 		return true
 	for s in Stats.group_stats(group):
-		if soldier.stats[s] < Stats.MAX_RATING:
+		if soldier.stats[s] < soldier.stat_cap(s):
 			return false
 	return true
 
@@ -126,7 +126,7 @@ static func upgrade_group(soldier: Soldier, group: StringName, rng: RandomNumber
 	for i in members.size():
 		var open: Array = []
 		for s in members:
-			if gains[s] < MAX_STAT_GAIN_PER_UPGRADE and soldier.stats[s] + gains[s] < Stats.MAX_RATING:
+			if gains[s] < MAX_STAT_GAIN_PER_UPGRADE and soldier.stats[s] + gains[s] < soldier.stat_cap(s):
 				open.append(s)
 		if open.is_empty():
 			break
@@ -267,6 +267,8 @@ static func auto_spend_team(team: Team, rng: RandomNumberGenerator = null) -> vo
 	if team.user_controlled:
 		return
 	for soldier in team.org():
+		if soldier.player_controlled:
+			continue  # the user spends his own skill points
 		var slot := team.slot_of(soldier)
 		var role := team.scheme.role_for_slot(slot) if slot != &"" else Scheme.best_role(soldier.stats)
 		auto_spend(soldier, role, rng)
