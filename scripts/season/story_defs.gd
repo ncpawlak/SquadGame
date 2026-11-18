@@ -53,6 +53,8 @@ const REAFFIRM := &"reaffirm"
 const BRUSH_OFF := &"brush_off"
 const VOW := &"vow"
 const QUIET := &"quiet"
+const HONOR := &"honor"
+const BREAK := &"break"
 ## Not a choice the player picks: what a story falls back to when its window closes undecided.
 const STAY := &"stay"
 
@@ -62,7 +64,7 @@ const KIND_LABEL := {
 	&"last_ride": "ARC", &"statement_game": "SPOTLIGHT", &"press_storm": "CONDITIONAL",
 	&"title_chase": "ARC", &"must_win": "SPOTLIGHT", &"comeback_trail": "CONDITIONAL",
 	&"bromance": "CONDITIONAL", &"locker_rift": "CONDITIONAL", &"milestone_chase": "SPOTLIGHT",
-	&"banner_night": "SPOTLIGHT", &"poaching_rumor": "CONDITIONAL", &"hot_seat": "ARC",
+	&"banner_night": "SPOTLIGHT", &"poaching_rumor": "CONDITIONAL", &"hot_seat": "ARC", &"promise_due": "CONDITIONAL",
 }
 
 # --- Rivalry Run -------------------------------------------------------------------------------
@@ -411,6 +413,24 @@ const SEAT_OPTIONS := [
 		"cost": "Smaller payoff even if the season works out"},
 ]
 
+# --- Promise Kept or Broken ------------------------------------------------------------------
+const PRO_NOW := {
+	&"honor": {"t_trust": 4.0},
+	&"break": {"t_trust": -8.0, "t_morale": -4.0},
+}
+const PRO_END := {
+	&"honor": {&"won": {"t_trust": 4.0, "t_xp": 100.0}, &"lost": {"t_trust": -6.0, "t_morale": -3.0}, &"split": {}},
+	&"break": {&"won": {}, &"lost": {}, &"split": {}},
+	&"stay": {&"won": {"t_trust": 2.0}, &"lost": {"t_trust": -4.0}, &"split": {}},
+}
+const PRO_OPTIONS := [
+	{"id": &"honor", "label": "Honour the promise",
+		"blurb": "Tell {name} the starts are coming, then put {name} in the lineup. {name} has to start 2 of the next 3 matches."},
+	{"id": &"break", "label": "Break the promise",
+		"blurb": "Tell {name} plainly that the role is not coming back. Honesty now, with the consequences.",
+		"cost": "Trust and morale drop right away, with no reward"},
+]
+
 ## Per kind: effects when a choice is made, effects when the story ends (by choice then verdict),
 ## the options, the prompt, and how a verdict reads on an option card.
 const DEFS := {
@@ -452,6 +472,8 @@ const DEFS := {
 		"verdict": {&"won": "The talk dies down", &"split": "", &"lost": "Trust slips"}},
 	&"hot_seat": {"now": SEAT_NOW, "end": SEAT_END, "options": SEAT_OPTIONS, "prompt": "How do you face the pressure?", "window": "before the first match",
 		"verdict": {&"won": "You make the playoffs", &"split": "", &"lost": "You miss the playoffs"}},
+	&"promise_due": {"now": PRO_NOW, "end": PRO_END, "options": PRO_OPTIONS, "prompt": "What do you do about the promise?", "window": "within three matches",
+		"verdict": {&"won": "The promise is kept", &"split": "", &"lost": "The promise is broken"}},
 }
 
 ## Who morale and XP effects reach.
@@ -629,6 +651,8 @@ static func scenario(st: Dictionary, season: Season) -> String:
 			return "The %s are reported to be interested in %s, and %s has been unsettled for a while. The wrong response could turn rumour into a request." % [popp.nickname if popp != null else String(st["rival"]), name, name]
 		Storylines.HOT_SEAT:
 			return "The club went %d-%d last season and missed the playoffs. The mood around the front office is tense, and another season without a berth will bring hard questions." % [int(st.get("last_wins", 0)), int(st.get("last_losses", 0))]
+		Storylines.PROMISE_DUE:
+			return "%s was promised a starting role, and so far has started %d of %d matches. A promise that is not kept costs trust, and %s is counting." % [name, int(st.get("pstarted", 0)), int(st.get("pgames", 0)), name]
 	return ""
 
 
@@ -780,6 +804,15 @@ static func objectives(st: Dictionary, season: Season) -> Array:
 				out.append("Finished %d-%d, table position %d (the playoff field is the top %d)" % [st["wins"], st["played"] - st["wins"], int(st.get("rank", 0)), season.playoff_teams])
 				return out
 			out.append("Finish in the top %d of the table to make the playoffs  -  %d-%d so far" % [season.playoff_teams, st["wins"], st["played"] - st["wins"]])
+		Storylines.PROMISE_DUE:
+			if st["status"] != Storylines.STATUS_ACTIVE:
+				out.append("%s started %d of the last %d matches" % [name, st["window_started"], st["played"]])
+				return out
+			if st["choice"] == BREAK:
+				out.append("The promise is off: %s will not be starting more than the lineup gives" % name)
+			else:
+				out.append("Start %s in %d of the next %d matches  -  %d so far" % [name, Storylines.PROMISE_NEED, Storylines.PROMISE_WINDOW, int(st["window_started"])])
+				out.append("Check your lineup before you play the week.")
 	return out
 
 

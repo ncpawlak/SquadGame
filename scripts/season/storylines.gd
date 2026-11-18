@@ -37,6 +37,7 @@ const MILESTONE_CHASE := &"milestone_chase"
 const BANNER_NIGHT := &"banner_night"
 const POACHING_RUMOR := &"poaching_rumor"
 const HOT_SEAT := &"hot_seat"
+const PROMISE_DUE := &"promise_due"
 
 ## How many stories may run at once, and how many of them may be arcs.
 const MAX_ACTIVE := 3
@@ -123,6 +124,12 @@ const POACH_WINDOW := 2
 ## Hot Seat: the club missed the playoffs with a win share below this last season; it is won by making
 ## the playoff field this season.
 const SEAT_MAX_WIN_SHARE := 0.5
+## Promise Kept or Broken: a promised starter who has been in the club's matches at least this long and
+## is behind the pace the promise needs (Soldier.PROMISE_SHARE). Honouring it means starting them in
+## PROMISE_NEED of the next PROMISE_WINDOW matches.
+const PROMISE_MIN_GAMES := 3
+const PROMISE_WINDOW := 3
+const PROMISE_NEED := 2
 
 var active: Array = []
 var finished: Array = []
@@ -239,6 +246,10 @@ func prepare_week(season: Season) -> void:
 		var st := _try_poaching(season, user)
 		if not st.is_empty():
 			made.append(_beat(st, "seed", season))
+	if active.size() < MAX_ACTIVE and not fired.has("%s:%d" % [PROMISE_DUE, season.year]):
+		var st := _try_promise(season, user)
+		if not st.is_empty():
+			made.append(_beat(st, "seed", season))
 	if active.size() < MAX_ACTIVE and not fired.has("%s:%d" % [BENCH_GRUMBLE, season.year]):
 		var st := _try_grumble(season, user)
 		if not st.is_empty():
@@ -292,6 +303,8 @@ func week(season: Season, played: Array, wk: int) -> void:
 				_week_poaching(season, st, wk)
 			HOT_SEAT:
 				_week_hot_seat(season, st, played, wk)
+			PROMISE_DUE:
+				_week_promise(season, st, played, wk)
 	_note_injuries(season)
 	_publish(season, season.week_label(wk), last_beats.filter(func(b): return not b.get("published", false)))
 
@@ -421,6 +434,10 @@ func status_line(st: Dictionary, season: Season) -> String:
 			if st["status"] != STATUS_ACTIVE:
 				return "Hot seat: %s  -  %d-%d" % [verdict.capitalize(), st["wins"], st["played"] - st["wins"]]
 			return "Hot seat: %d-%d  -  needs a playoff berth" % [st["wins"], st["played"] - st["wins"]]
+		PROMISE_DUE:
+			if st["status"] != STATUS_ACTIVE:
+				return "%s's promise: %s" % [name, verdict.capitalize()]
+			return "%s's promise: started %d of %d  -  needs %d" % [name, st["pstarted"], st["pgames"], st["pneed"]]
 		BENCH_GRUMBLE:
 			if st["status"] != STATUS_ACTIVE:
 				return "%s: %s" % [name, verdict.capitalize()]
@@ -1574,6 +1591,65 @@ func _week_hot_seat(season: Season, st: Dictionary, played: Array, wk: int) -> v
 		last_beats.append(_beat(st, "meeting", season))
 
 
+# --- Promise Kept or Broken ------------------------------------------------------------------
+
+## A promised starter who is behind the pace the promise needs (see Soldier.promise).
+func _try_promise(season: Season, user: Team) -> Dictionary:
+	var pick: Soldier = null
+	var pick_share := 2.0
+	for s: Soldier in user.roster:
+		var p: Dictionary = s.promise
+		if p.is_empty() or p.get("team", "") != user.abbrev or int(p.get("year", 0)) != season.year or s.is_injured():
+			continue
+		var games := int(p.get("games", 0))
+		if games < PROMISE_MIN_GAMES:
+			continue
+		var share := float(p.get("started", 0)) / games
+		if share < Soldier.PROMISE_SHARE and share < pick_share:
+			pick = s
+			pick_share = share
+	if pick == null:
+		return {}
+	var st := _base(season, PROMISE_DUE, user, "%s's Promise" % pick.short_name())
+	st["soldier"] = pick.id
+	st["name"] = pick.short_name()
+	st["pgames"] = int(pick.promise["games"])
+	st["pstarted"] = int(pick.promise["started"])
+	st["pneed"] = PROMISE_NEED
+	st["played"] = 0
+	st["window_started"] = 0
+	active.append(st)
+	fired["%s:%d" % [PROMISE_DUE, season.year]] = true
+	return st
+
+
+## Won if the player starts PROMISE_NEED of the next PROMISE_WINDOW matches; lost if not.
+func _week_promise(season: Season, st: Dictionary, played: Array, wk: int) -> void:
+	var user := season.league.team_by_abbrev(st["team"])
+	var s := find_soldier(season, st)
+	if s == null:
+		_close_window(st)
+		_finish(season, st, STATUS_FIZZLED, wk)
+		return
+	var played_now := false
+	for m: ScheduledMatch in played:
+		if not m.is_played() or m.stage != Season.STAGE_REGULAR or not m.involves(user):
+			continue
+		played_now = true
+		st["played"] += 1
+		if m.result.box.has(s.id):
+			st["window_started"] += 1
+			st["pstarted"] += 1
+		st["pgames"] += 1
+	if not played_now:
+		return
+	_close_window(st)
+	if st["window_started"] >= PROMISE_NEED:
+		_finish(season, st, STATUS_WON, wk)
+	elif st["played"] >= PROMISE_WINDOW:
+		_finish(season, st, STATUS_LOST, wk)
+
+
 # --- beats (the words) -----------------------------------------------------------------------
 
 func _beat(st: Dictionary, what: String, season: Season) -> Dictionary:
@@ -1788,6 +1864,22 @@ func _beat(st: Dictionary, what: String, season: Season) -> Dictionary:
 						_:
 							head = "%s: it will have to wait" % title
 							body = "%s did not play against the %s, so the milestone moves down the calendar." % [name, mon]
+		PROMISE_DUE:
+			match what:
+				"seed":
+					head = "%s: a promise comes due" % title
+					body = "%s was promised a starting role and has started %d of %d. The season is moving on, and %s is keeping count." % [name, st["pstarted"], st["pgames"], name]
+				"resolve":
+					match st["status"]:
+						STATUS_WON:
+							head = "%s: the promise is kept" % title
+							body = "%s got the starts the %s promised, and trust in the front office is stronger for it." % [name, un]
+						STATUS_LOST:
+							head = "%s: the promise is broken" % title
+							body = "%s did not get the starts, and the %s locker room knows a promise was not kept." % [name, un]
+						_:
+							head = "%s: the story ends" % title
+							body = "%s is no longer with the %s, and the promise is moot." % [name, un]
 		HOT_SEAT:
 			match what:
 				"seed":
