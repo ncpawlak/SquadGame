@@ -82,6 +82,8 @@ var player_log: Array = []
 var player_notes: Array = []
 ## His OVR the day he was drafted, for "since you were drafted" lines.
 var player_start_ovr := 0
+## Milestones reached: {id, name, year, week, seen} (see PlayerLegacy).
+var player_milestones: Array = []
 ## Regular-season length and playoff field (set from the league's shape when the franchise starts).
 var regular_weeks := DIVISION_WEEKS
 var playoff_teams := DIVISION_PLAYOFF_TEAMS
@@ -1513,6 +1515,8 @@ func _advance() -> void:
 		retirements.append_array(retired)
 		RetiredCallsigns.process(self, retired)
 		HallOfFame.run(self)
+		if player_mode and player != null:
+			PlayerLegacy.update(self)
 		news.end_season(self)
 		news.luxury_tax(self, revenue.charge_tax(self))
 		news.board_review(self, revenue.board_review(self))

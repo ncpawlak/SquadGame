@@ -457,6 +457,51 @@ func sim_week() -> void:
 	_build_header()
 	_build_tabs()
 	open("%s Results" % label, func(): return pages.week_results(label, played))
+	_toast_milestones()
+
+
+## Player mode: tells the player about milestones he has just reached.
+func _toast_milestones() -> void:
+	if not season.player_mode or season.player == null:
+		return
+	var fresh := PlayerLegacy.take_unseen(season)
+	if fresh.is_empty():
+		return
+	var names: Array = fresh.map(func(e): return String(e["name"]))
+	app.toast("Milestone%s: %s" % ["" if names.size() == 1 else "s", ", ".join(names)])
+
+
+## Player mode: plays the league forward, a week at a time behind a loading screen, until the Hall of Fame has
+## voted on the retired player. Then opens his career recap.
+func wait_for_vote() -> void:
+	if simming or not PlayerLegacy.retired(season) or PlayerLegacy.verdict(season) != &"waiting":
+		return
+	var ls := _begin_loading("Hall of Fame vote")
+	var start := season.year
+	var span := float(maxi(1, PlayerLegacy.vote_year(season) - start + 1))
+	var guard := 0
+	while guard < 400 and PlayerLegacy.verdict(season) == &"waiting":
+		guard += 1
+		var frac := clampf((float(season.year - start) + float(season.week) / float(maxi(1, season.regular_weeks))) / span, 0.0, 0.9)
+		if season.phase != Season.PHASE_OFFSEASON:
+			await ls.step("%d: %s" % [season.year, season.week_label(season.week)], frac, 1.0)
+			season.sim_week()
+			continue
+		if season.year >= PlayerLegacy.vote_year(season):
+			break
+		await ls.step("%d offseason" % season.year, frac, 1.0)
+		var g2 := 0
+		while season.offseason_stage != Season.OFF_DONE and g2 < 30:
+			season.advance_offseason()
+			g2 += 1
+		season.start_next_season()
+	await ls.step("Saving", 0.9, 1.0)
+	_autosave()
+	_end_loading(ls)
+	page_stack.clear()
+	tab_index = 0
+	refresh()
+	open("Career Recap", func(): return player_ui.career_recap())
 
 
 ## The user's roster must be legal before he plays (exactly ROSTER_SIZE for Week 1, ROSTER_MIN..
@@ -506,7 +551,12 @@ func _advance_offseason_player() -> void:
 	page_stack.clear()
 	tab_index = 0
 	refresh()
-	app.toast("Welcome to the %d season. You are %d: OVR %d (%+d)." % [season.year, season.player.age, season.player.best_ovr(), season.player.best_ovr() - before])
+	PlayerLegacy.update(season)
+	var fresh := PlayerLegacy.take_unseen(season)
+	var extra := ""
+	if not fresh.is_empty():
+		extra = "  Milestone: " + ", ".join(fresh.map(func(e): return String(e["name"])))
+	app.toast("Welcome to the %d season. You are %d: OVR %d (%+d).%s" % [season.year, season.player.age, season.player.best_ovr(), season.player.best_ovr() - before, extra])
 
 
 ## Offseason steps: re-sign window -> free agency days -> draft -> roster review -> training camp -> next season.

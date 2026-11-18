@@ -60,10 +60,13 @@ func header_row(extra: Control) -> HBoxContainer:
 	hb.add_child(info)
 	info.add_child(UiKit.display(("\"%s\"  %s" % [p.callsign, p.last_name]).to_upper(), 44, Color.WHITE, true))
 	var role := Scheme.best_role(p.stats)
-	var st := PlayerCoach.status(s)
 	info.add_child(_label("%s %s   ·   OVR %d   ·   Age %d   ·   %s" % [
 		Archetypes.find(s.player_archetype)["name"], Scheme.ROLE_NAMES[role], p.best_ovr(), p.age, team.name], 16, Color(1, 1, 1, 0.72)))
-	info.add_child(_label("%s   ·   %s" % [s.record_text(team), STATUS_NAMES[st["where"]]], 15, STATUS_COLORS[st["where"]]))
+	if PlayerLegacy.retired(s):
+		info.add_child(_label("RETIRED  ·  %s" % _verdict_text(s), 15, UiKit.GOLD))
+	else:
+		var st := PlayerCoach.status(s)
+		info.add_child(_label("%s   ·   %s" % [s.record_text(team), STATUS_NAMES[st["where"]]], 15, STATUS_COLORS[st["where"]]))
 	hb.add_child(extra)
 	return hb
 
@@ -76,12 +79,16 @@ func home_left() -> Control:
 	var col := _vbox(10)
 	col.name = "TodoColumn"
 	col.custom_minimum_size.x = COL_W
+	if PlayerLegacy.retired(s):
+		return _retired_left(col)
 	col.add_child(UiKit.heading("You", 22))
 	col.add_child(_status_card())
 	col.add_child(UiKit.heading("Last Game", 22))
 	col.add_child(_last_game_card())
 	col.add_child(UiKit.heading("This Season", 22))
 	col.add_child(_season_card())
+	col.add_child(UiKit.heading("Hall of Fame", 22))
+	col.add_child(_hof_card())
 	col.add_child(UiKit.heading("This Week", 22))
 	for t in _todos():
 		col.add_child(t)
@@ -180,6 +187,9 @@ func _todos() -> Array:
 	if not notes.is_empty():
 		out.append(_todo("Coach", String(notes[-1]["text"]), UiKit.GOLD, func(): open_game_log()))
 	out.append(_todo("Game Log", "Every game and your grade", UiKit.TRIM, func(): open_game_log()))
+	out.append(_todo("Milestones", "%d reached" % s.player_milestones.size(), UiKit.TRIM, func(): open_milestones()))
+	if s.phase == Season.PHASE_OFFSEASON:
+		out.append(_todo("Retire?", "The season is over: you can hang it up", UiKit.GOLD, func(): open_retire()))
 	return out
 
 
@@ -215,6 +225,13 @@ func career_tab(v: VBoxContainer) -> void:
 	flow.add_child(UiKit.tile("Game Log", "Grade for every game\n%d played  ·  avg %s" % [sm["games"], sm["letter"]], hub.TILE, UiKit.ACCENT, func(): open_game_log()))
 	var cs := "No contract" if p.contract == null else "%s  ·  %d yr" % [Contracts.money(p.contract.salary), p.contract.years]
 	flow.add_child(UiKit.tile("Contract", "%s\nGreen Team deal" % cs if p.contract != null and p.contract.green else cs, hub.TILE, UiKit.ACCENT, func(): open_contract()))
+	var tr := PlayerLegacy.trajectory(s)
+	var pace_text := "on pace" if tr["on_pace"] and tr["has_pace"] else "below pace"
+	flow.add_child(UiKit.tile("Hall of Fame Path", "Your score and what drives it\n%d / %d  ·  %s" % [roundi(float(tr["score"])), roundi(float(tr["threshold"])), pace_text], hub.TILE, UiKit.GOLD, func(): open_hof_path()))
+	flow.add_child(UiKit.tile("Milestones", "Goals along the way\n%d of %d reached" % [s.player_milestones.size(), PlayerLegacy.MILESTONES.size()], hub.TILE, UiKit.ACCENT, func(): open_milestones()))
+	flow.add_child(UiKit.tile("Career Recap", "Every season so far\nand the Hall's verdict", hub.TILE, UiKit.ACCENT, func(): open_recap()))
+	if not PlayerLegacy.retired(s):
+		flow.add_child(UiKit.tile("Retire", "Hang it up and wait for the Hall's vote\nOffseason only", hub.TILE, UiKit.MUTED, func(): open_retire()))
 	v.add_child(flow)
 	var note := _label("The club picks the lineup. Play well, train hard and the coach will move you up.", 15, UiKit.MUTED)
 	v.add_child(note)
@@ -388,4 +405,250 @@ func contract() -> Control:
 	root.add_child(_label("%s  ·  %d year%s left" % ["Green Team deal" if p.contract.green else "Main roster deal", p.contract.years, "" if p.contract.years == 1 else "s"], 18, UiKit.TEXT))
 	root.add_child(_label("Club: %s" % s.user_team().name, 16, UiKit.MUTED))
 	root.add_child(_label("Contract talks and your agent come in a later update. Until then your club re-signs you when your deal ends.", 15, UiKit.MUTED))
+	return root
+
+
+# --- Hall of Fame, milestones, retirement ---------------------------------------------------
+
+func open_hof_path() -> void:
+	hub.open("Hall of Fame Path", func(): return hof_path())
+
+
+func open_milestones() -> void:
+	hub.open("Milestones", func(): return milestones())
+
+
+func open_recap() -> void:
+	hub.open("Career Recap", func(): return career_recap())
+
+
+func open_retire() -> void:
+	hub.open("Retire", func(): return retire_page())
+
+
+func _verdict_text(s: Season) -> String:
+	match PlayerLegacy.verdict(s):
+		&"inducted": return "Hall of Fame, class of %d" % int(HallOfFame.entry_of(s, s.player)["year"])
+		&"not_inducted": return "Not inducted"
+		&"waiting": return "Hall of Fame vote in %d" % PlayerLegacy.vote_year(s)
+	return "Career in progress"
+
+
+## A thin progress bar `w` wide: `frac` of it filled in `color`.
+func _bar(frac: float, color: Color, w := 260.0, h := 12.0) -> Control:
+	var back := ColorRect.new()
+	back.color = Color(1, 1, 1, 0.1)
+	back.custom_minimum_size = Vector2(w, h)
+	var fill := ColorRect.new()
+	fill.color = color
+	fill.size = Vector2(w * clampf(frac, 0.0, 1.0), h)
+	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	back.add_child(fill)
+	return back
+
+
+func _hof_card() -> Control:
+	var s := _season()
+	var t := PlayerLegacy.trajectory(s)
+	var card := _card(UiKit.GOLD)
+	var v := _vbox(6)
+	card.add_child(_wrap(v))
+	var top := _hbox(10)
+	top.add_child(UiKit.display("%d" % roundi(float(t["score"])), 40, Color.WHITE, true))
+	top.add_child(_label("/ %d to be inducted" % roundi(float(t["threshold"])), 14, UiKit.MUTED))
+	v.add_child(top)
+	v.add_child(_bar(float(t["score"]) / float(t["threshold"]), UiKit.GOLD, COL_W - 40.0))
+	if not t["has_pace"]:
+		v.add_child(_label("Play %d games to see your pace." % PlayerLegacy.MIN_GAMES_FOR_PACE, 14, UiKit.MUTED))
+	else:
+		var pace_text := "on a Hall of Fame pace" if t["on_pace"] else "below the bar"
+		v.add_child(_label("Pace for a %d-game career: %d  ·  %s" % [PlayerLegacy.PROJECT_MATCHES, roundi(float(t["pace"])), pace_text], 14, UiKit.GOOD if t["on_pace"] else UiKit.TEXT))
+	if not t["eligible"]:
+		v.add_child(_label("%d / %d games before your career can be voted on" % [t["matches"], HallOfFame.MIN_MATCHES], 13, UiKit.MUTED))
+	var recent := s.player_milestones.slice(maxi(0, s.player_milestones.size() - 2))
+	if not recent.is_empty():
+		v.add_child(_label("Latest: " + ", ".join(recent.map(func(e): return String(e["name"]))), 13, UiKit.INFO))
+	return card
+
+
+## Home's left column once he has retired: the verdict, and what to do next.
+func _retired_left(col: VBoxContainer) -> Control:
+	var s := _season()
+	col.add_child(UiKit.heading("Retired", 22))
+	var card := _card(UiKit.GOLD)
+	var v := _vbox(8)
+	card.add_child(_wrap(v))
+	v.add_child(UiKit.display(_verdict_text(s).to_upper(), 28, UiKit.GOLD, true))
+	var msg := _label(_retired_message(s), 15, UiKit.TEXT)
+	msg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	msg.custom_minimum_size.x = COL_W - 30
+	v.add_child(msg)
+	col.add_child(card)
+	col.add_child(UiKit.heading("Your Career", 22))
+	col.add_child(_todo("Career Recap", "Every season and the Hall's verdict", UiKit.TRIM, func(): open_recap()))
+	if PlayerLegacy.verdict(s) == &"waiting":
+		col.add_child(_todo("Wait for the Hall of Fame vote", "Play the league forward to %d" % PlayerLegacy.vote_year(s), UiKit.GOLD, func(): hub.wait_for_vote(), true))
+	col.add_child(_todo("Milestones", "%d reached" % s.player_milestones.size(), UiKit.TRIM, func(): open_milestones()))
+	col.add_child(_todo("Back to title", "Start another career from New Franchise", UiKit.MUTED, func(): hub.app.show_title()))
+	return col
+
+
+func _retired_message(s: Season) -> String:
+	match PlayerLegacy.verdict(s):
+		&"inducted":
+			var e := HallOfFame.entry_of(s, s.player)
+			return "You were voted into the Hall of Fame with a score of %d. Your career is complete." % roundi(float(e["score"]))
+		&"not_inducted":
+			var f := PlayerLegacy.final_score(s)
+			return "The Hall voted and your score of %d did not reach the bar of %d. Your career is complete." % [roundi(float(f["score"])), roundi(HallOfFame.THRESHOLD)]
+	var f2 := PlayerLegacy.final_score(s)
+	return "You retired. The Hall waits %d seasons, then votes. Your score today is %d against a bar of %d." % [HallOfFame.WAIT_SEASONS, roundi(float(f2["score"])), roundi(HallOfFame.THRESHOLD)]
+
+
+## The score's four parts, each with what it measures, and how far you are from the bar.
+func hof_path() -> Control:
+	var s := _season()
+	var t := PlayerLegacy.trajectory(s)
+	var root := _vbox(14)
+	root.custom_minimum_size.x = 1000
+	var top := _hbox(16)
+	top.add_child(UiKit.display("%d" % roundi(float(t["score"])), 72, Color.WHITE, true))
+	var tv := _vbox(2)
+	tv.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	tv.add_child(_label("Hall of Fame score  (bar: %d)" % roundi(float(t["threshold"])), 20, UiKit.TEXT))
+	if t["has_pace"]:
+		var pace_text := "on a Hall of Fame pace" if t["on_pace"] else "below the bar"
+		tv.add_child(_label("Pace for a %d-game career: %d  ·  %s" % [PlayerLegacy.PROJECT_MATCHES, roundi(float(t["pace"])), pace_text], 16, UiKit.GOOD if t["on_pace"] else UiKit.GOLD))
+	else:
+		tv.add_child(_label("Play %d games to see your pace." % PlayerLegacy.MIN_GAMES_FOR_PACE, 16, UiKit.MUTED))
+	var elig := "" if t["eligible"] else ": your career is voted on once you reach %d" % HallOfFame.MIN_MATCHES
+	tv.add_child(_label("%d / %d games%s" % [t["matches"], HallOfFame.MIN_MATCHES, elig], 14, UiKit.MUTED))
+	top.add_child(tv)
+	root.add_child(top)
+	root.add_child(_bar(float(t["score"]) / float(t["threshold"]), UiKit.GOLD, 600.0, 16.0))
+	var parts := [
+		["Production", "production", HallOfFame.PRODUCTION_POINTS, "Career kills, assists, damage, MVPs, clutches and kills per death, ranked against every career in the league."],
+		["Awards", "awards", HallOfFame.AWARDS_CAP, "Season MVPs (%d each), other awards (%d) and All-League picks (%d)." % [roundi(HallOfFame.MVP_POINTS), roundi(HallOfFame.AWARD_POINTS), roundi(HallOfFame.ALL_LEAGUE_POINTS)]],
+		["Titles", "titles", HallOfFame.TITLES_CAP, "%d points for each season you play for the champion (at least %d games)." % [roundi(HallOfFame.TITLE_POINTS), HallOfFame.MIN_TITLE_MATCHES]],
+		["Peak", "peak", HallOfFame.PEAK_POINTS, "Your best single season of kills, ranked against every season in the league."],
+	]
+	for part in parts:
+		var row := _hbox(16)
+		var name := _label(String(part[0]), 20, UiKit.GOLD)
+		name.custom_minimum_size.x = 130
+		row.add_child(name)
+		row.add_child(_bar(float(t[part[1]]) / float(part[2]), UiKit.ACCENT, 300.0, 14.0))
+		var val := _label("%d / %d" % [roundi(float(t[part[1]])), roundi(float(part[2]))], 18, Color.WHITE)
+		val.custom_minimum_size.x = 90
+		row.add_child(val)
+		var d := _label(String(part[3]), 14, UiKit.MUTED)
+		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		d.custom_minimum_size.x = 420
+		row.add_child(d)
+		root.add_child(row)
+	root.add_child(UiKit.heading("Honors", 20))
+	var honors: Array = t["honors"]
+	if honors.is_empty():
+		root.add_child(_label("None yet.", 15, UiKit.MUTED))
+	else:
+		root.add_child(_label(", ".join(honors), 15, UiKit.TEXT))
+	root.add_child(_label("When you retire the Hall waits %d seasons, then votes. At most %d are inducted a year, and you need %d." % [HallOfFame.WAIT_SEASONS, HallOfFame.CLASS_MAX, roundi(HallOfFame.THRESHOLD)], 14, UiKit.MUTED))
+	return root
+
+
+func milestones() -> Control:
+	var s := _season()
+	var root := _vbox(8)
+	root.custom_minimum_size.x = 900
+	root.add_child(_label("%d of %d reached" % [s.player_milestones.size(), PlayerLegacy.MILESTONES.size()], 18, UiKit.TEXT))
+	root.add_child(UiKit.heading("Reached", 20))
+	var any := false
+	for m in PlayerLegacy.MILESTONES:
+		var e := PlayerLegacy.achieved(s, m["id"])
+		if e.is_empty():
+			continue
+		any = true
+		var row := _hbox(14)
+		var nm := _label("[x]  " + String(m["name"]), 18, UiKit.GOOD)
+		nm.custom_minimum_size.x = 260
+		row.add_child(nm)
+		row.add_child(_label("%s   ·   %d, %s" % [m["desc"], e["year"], s.week_label(int(e["week"]))], 14, UiKit.MUTED))
+		root.add_child(row)
+	if not any:
+		root.add_child(_label("None yet. Your first game is the first one.", 15, UiKit.MUTED))
+	root.add_child(UiKit.heading("Still to come", 20))
+	for m in PlayerLegacy.MILESTONES:
+		if not PlayerLegacy.achieved(s, m["id"]).is_empty():
+			continue
+		var row2 := _hbox(14)
+		var nm2 := _label(String(m["name"]), 18, Color.WHITE)
+		nm2.custom_minimum_size.x = 260
+		row2.add_child(nm2)
+		var pr := _label(PlayerLegacy.progress_text(s, m), 14, UiKit.INFO)
+		pr.custom_minimum_size.x = 120
+		row2.add_child(pr)
+		row2.add_child(_label(String(m["desc"]), 14, UiKit.MUTED))
+		root.add_child(row2)
+	return root
+
+
+func career_recap() -> Control:
+	var s := _season()
+	var r := PlayerLegacy.recap(s)
+	var p := s.player
+	var root := _vbox(12)
+	root.custom_minimum_size.x = 1000
+	root.add_child(UiKit.display(("\"%s\"  %s" % [p.callsign, p.full_name()]).to_upper(), 40, Color.WHITE, true))
+	root.add_child(_label("%s %s   ·   %s" % [Archetypes.find(s.player_archetype)["name"], Scheme.ROLE_NAMES[Scheme.best_role(p.stats)], _verdict_text(s)], 18, UiKit.GOLD))
+	var rows: Array = []
+	var colors := {}
+	var n := 0
+	for row in r["seasons"]:
+		rows.append([str(row["year"]), String(row["team"]), str(row["age"]), str(row["games"]), String(row["letter"]), "%d / %d / %d" % [row["kills"], row["deaths"], row["assists"]], str(row["damage"])])
+		if row["letter"] != "-":
+			colors[n] = {4: PlayerGrade.letter_color(String(row["letter"]))}
+		n += 1
+	if rows.is_empty():
+		root.add_child(_label("No seasons played yet.", 16, UiKit.MUTED))
+	else:
+		root.add_child(UiKit.table(["Year", "Club", "Age", "Games", "Grade", "K / D / A", "Damage"], rows, [90, 90, 70, 90, 90, 160, 120], {}, colors))
+	var tot: Dictionary = r["totals"]
+	root.add_child(_label("Career: %d games   ·   %d kills   ·   %d deaths   ·   %d assists   ·   %d MVPs" % [tot["matches"], tot["kills"], tot["deaths"], tot["assists"], tot.get("mvps", 0)], 16, UiKit.TEXT))
+	root.add_child(_label("Honors: %s" % (", ".join(r["honors"]) if not r["honors"].is_empty() else "none"), 15, UiKit.MUTED))
+	var f: Dictionary = r["final"]
+	root.add_child(UiKit.heading("Hall of Fame", 20))
+	root.add_child(_label("Score %d of %d needed   (production %d · awards %d · titles %d · peak %d)" % [roundi(float(f["score"])), roundi(float(r["threshold"])), roundi(float(f["production"])), roundi(float(f["awards"])), roundi(float(f["titles"])), roundi(float(f["peak"]))], 16, UiKit.TEXT))
+	if PlayerLegacy.retired(s):
+		var m := _label(_retired_message(s), 16, UiKit.GOLD)
+		m.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		m.custom_minimum_size.x = 900
+		root.add_child(m)
+		if PlayerLegacy.verdict(s) == &"waiting":
+			root.add_child(UiKit.primary_button("Wait for the Hall of Fame vote", func(): hub.wait_for_vote(), 20))
+	return root
+
+
+func retire_page() -> Control:
+	var s := _season()
+	var root := _vbox(12)
+	root.custom_minimum_size.x = 800
+	var err := PlayerLegacy.retire_error(s)
+	var t := PlayerLegacy.trajectory(s)
+	root.add_child(_label("Your Hall of Fame score is %d against a bar of %d." % [roundi(float(t["score"])), roundi(float(t["threshold"]))], 20, UiKit.TEXT))
+	var body := _label("Retiring ends your career. You leave your club, and the Hall waits %d seasons before it votes. Your career can only be voted on if you have played %d games (you have played %d)." % [HallOfFame.WAIT_SEASONS, HallOfFame.MIN_MATCHES, t["matches"]], 16, UiKit.MUTED)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.custom_minimum_size.x = 760
+	root.add_child(body)
+	if err != "":
+		root.add_child(_label(err, 16, UiKit.BAD))
+		return root
+	root.add_child(UiKit.primary_button("Retire from the game", func():
+		var e := PlayerLegacy.retire(s)
+		if e != "":
+			hub.app.toast(e)
+			return
+		hub.page_stack.clear()
+		hub._build_header()
+		hub._build_tabs()
+		hub.open("Career Recap", func(): return career_recap()), 22))
 	return root

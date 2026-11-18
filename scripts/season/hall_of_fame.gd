@@ -67,10 +67,11 @@ static func _percentile(sorted: Array, v: float) -> float:
 
 
 ## The soldier's Hall score and where it came from: {score, production, awards, titles, peak,
-## titles_won, honors}. A career shorter than MIN_MATCHES scores 0.
-static func breakdown(season: Season, ctx: Dictionary, so: Soldier) -> Dictionary:
+## titles_won, honors}. A career shorter than `min_matches` (MIN_MATCHES for the real vote) scores 0; player
+## mode passes 0 to show a provisional score for a career still being played.
+static func breakdown(season: Season, ctx: Dictionary, so: Soldier, min_matches := MIN_MATCHES) -> Dictionary:
 	var out := {"score": 0.0, "production": 0.0, "awards": 0.0, "titles": 0.0, "peak": 0.0, "titles_won": 0, "honors": []}
-	if int(so.career["matches"]) < MIN_MATCHES:
+	if int(so.career["matches"]) < min_matches:
 		return out
 	var weight_sum := 0.0
 	var pct_sum := 0.0

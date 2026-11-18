@@ -95,7 +95,7 @@ static func _call_up_target(_season: Season, team: Team) -> Soldier:
 
 ## Weekly, before lineups: calls the player up when he has earned it. Returns the news line, or "".
 static func weekly(season: Season) -> String:
-	if not season.player_mode or season.player == null or season.phase == Season.PHASE_OFFSEASON:
+	if not season.player_mode or season.player == null or season.phase == Season.PHASE_OFFSEASON or PlayerLegacy.retired(season):
 		return ""
 	var s := season.player
 	var team := season.user_team()
@@ -111,4 +111,5 @@ static func weekly(season: Season) -> String:
 		return ""
 	var line := "The coach called you up: you are now better than %s (%d vs %d OVR)." % [worst.short_name(), s.best_ovr(), worst.best_ovr()]
 	season.player_notes.append({"year": season.year, "week": season.week, "text": line})
+	PlayerLegacy.update(season)
 	return line

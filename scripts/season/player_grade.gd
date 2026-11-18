@@ -96,7 +96,7 @@ static func bonus_xp(score: float) -> float:
 ## Adds this match to the season's player log (once) and pays the XP. Called when the match has been played.
 ## Entry: {year, week, stage, opp (Team), home (bool), played (bool), reason, score_line, won, + the grade's fields}.
 static func record(season: Season, m: ScheduledMatch) -> void:
-	if not season.player_mode or season.player == null or m.result == null:
+	if not season.player_mode or season.player == null or m.result == null or PlayerLegacy.retired(season):
 		return
 	var team := season.user_team()
 	if team == null or not m.involves(team):
@@ -115,6 +115,7 @@ static func record(season: Season, m: ScheduledMatch) -> void:
 		entry.merge(g, true)
 		Progression.gain_xp(season.player, bonus_xp(float(g["score"])))
 	season.player_log.append(entry)
+	PlayerLegacy.update(season)
 
 
 ## The log entries for one season (default the current), oldest first.

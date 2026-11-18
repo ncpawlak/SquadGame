@@ -149,5 +149,64 @@ func _init() -> void:
 	_check(season.user_team().org().has(season.player), "the player is still with his club")
 	_check(hub._content.get_child_count() > 0, "home builds in the new season")
 
+	# Hall of Fame path, milestones and recap pages, and the Home card.
+	hub.select_tab(hub.Tab.HOME)
+	await process_frame
+	var htexts: Array = []
+	for l in hub._content.find_children("*", "Label", true, false):
+		htexts.append(l.text)
+	_check(htexts.any(func(t): return t == "Hall of Fame"), "home has a Hall of Fame card: %s" % [htexts.slice(0, 16)])
+	for pg in [["Hall of Fame Path", hub.player_ui.hof_path], ["Milestones", hub.player_ui.milestones], ["Career Recap", hub.player_ui.career_recap], ["Retire", hub.player_ui.retire_page]]:
+		hub.open(pg[0], pg[1])
+		await process_frame
+		_check(hub._content.get_child_count() > 0, "%s page builds" % pg[0])
+		hub.go_back()
+	hub.select_tab(hub.Tab.TEAM)
+	await process_frame
+	var tile_titles: Array = []
+	for b in hub._content.find_children("*", "Button", true, false):
+		for l in b.find_children("*", "Label", true, false):
+			tile_titles.append(l.text)
+	for want in ["Hall of Fame Path", "Milestones", "Career Recap", "Retire"]:
+		_check(tile_titles.any(func(t): return String(t).to_lower() == want.to_lower()), "Career tab has a %s tile" % want)
+	_check(not season.player_milestones.is_empty(), "milestones were recorded over two seasons")
+
+	# Retire in the offseason (the page refuses mid-season) and wait for the vote.
+	_check(PlayerLegacy.retire_error(season) != "", "cannot retire mid-season")
+	season.sim_to_end_of_season()
+	hub.page_stack.clear()
+	hub._build_header()
+	hub._build_tabs()
+	hub.open("Retire", hub.player_ui.retire_page)
+	await process_frame
+	var retire_btn: Button = null
+	for b in hub._content.find_children("*", "Button", true, false):
+		if b.text == "Retire from the game":
+			retire_btn = b
+	_check(retire_btn != null, "the retire page offers a button in the offseason")
+	retire_btn.pressed.emit()
+	await process_frame
+	await process_frame
+	_check(PlayerLegacy.retired(season), "the player retired")
+	var head2: Array = []
+	for l in hub._header.find_children("*", "Label", true, false):
+		head2.append(l.text)
+	_check(head2.any(func(t): return "RETIRED" in t), "the header says retired: %s" % [head2])
+	hub.page_stack.clear()
+	hub.select_tab(hub.Tab.HOME)
+	await process_frame
+	var rtexts: Array = []
+	for l in hub._content.find_children("*", "Label", true, false):
+		rtexts.append(l.text)
+	_check(rtexts.any(func(t): return t == "Retired"), "home shows the retired panel")
+	hub.wait_for_vote()
+	while hub.simming:
+		await process_frame
+	await process_frame
+	var verdict := PlayerLegacy.verdict(season)
+	_check(verdict == &"inducted" or verdict == &"not_inducted", "the vote happened: %s" % verdict)
+	_check(season.year >= PlayerLegacy.vote_year(season), "the league reached the vote year")
+	_check(hub._content.get_child_count() > 0, "recap page open after the vote")
+
 	print("Player hub smoke: ", "PASS" if ok else "FAIL")
 	quit(0 if ok else 1)
