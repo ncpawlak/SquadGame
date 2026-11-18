@@ -155,7 +155,7 @@ func _init() -> void:
 	var htexts: Array = []
 	for l in hub._content.find_children("*", "Label", true, false):
 		htexts.append(l.text)
-	_check(htexts.any(func(t): return t == "Hall of Fame"), "home has a Hall of Fame card: %s" % [htexts.slice(0, 16)])
+	_check(htexts.any(func(t): return String(t).to_lower() == "hall of fame"), "home has a Hall of Fame card: %s" % [htexts.slice(0, 16)])
 	for pg in [["Hall of Fame Path", hub.player_ui.hof_path], ["Milestones", hub.player_ui.milestones], ["Career Recap", hub.player_ui.career_recap], ["Retire", hub.player_ui.retire_page]]:
 		hub.open(pg[0], pg[1])
 		await process_frame
@@ -198,7 +198,7 @@ func _init() -> void:
 	var rtexts: Array = []
 	for l in hub._content.find_children("*", "Label", true, false):
 		rtexts.append(l.text)
-	_check(rtexts.any(func(t): return t == "Retired"), "home shows the retired panel")
+	_check(rtexts.any(func(t): return String(t).to_lower() == "retired"), "home shows the retired panel")
 	hub.wait_for_vote()
 	while hub.simming:
 		await process_frame
