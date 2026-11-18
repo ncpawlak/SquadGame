@@ -301,3 +301,33 @@ func test_captain_mentor_and_camp_special() -> void:
 	p.stories.append({"kind": "captain", "title": "Captaincy", "text": "", "choices": [], "year": season.year})
 	Stories.choose(season, p.stories[0], "accept")
 	check(p.captain, "accepting makes him captain")
+
+
+func test_cap_raise_window_follows_the_group_peak_age() -> void:
+	var season := _career(940)
+	var p := season.player
+	season.phase = Season.PHASE_OFFSEASON
+	for g in [Stats.PHYSICALITY, Stats.MENTALITY, Stats.ACCURACY]:
+		for st in Stats.group_stats(g):
+			p.stat_caps[st] = 85
+			p.stats[st] = 85
+		p.group_caps[g] = 85
+	p.age = 24  # physicality peak 28: 4 years left = full
+	check(CapRaise.size(season, Stats.PHYSICALITY) == CapRaise.BASE, "full base well before the peak")
+	p.age = 26  # 2 years left = tapering
+	check(CapRaise.size(season, Stats.PHYSICALITY) == CapRaise.TAPER_BASE, "tapering base near the peak")
+	p.camp_focus = Stats.PHYSICALITY
+	p.cap_story_bonus = 1
+	check(CapRaise.size(season, Stats.PHYSICALITY) == 3, "bonuses still count while tapering")
+	p.age = 28  # at the peak: bonuses only, max 2
+	check(CapRaise.size(season, Stats.PHYSICALITY) == 2, "at the peak only bonuses, capped at +2")
+	p.camp_focus = &""
+	p.cap_story_bonus = 0
+	check(CapRaise.group_error(season, Stats.PHYSICALITY) != "", "at the peak with no bonus there is nothing to raise")
+	p.age = 29
+	check(CapRaise.group_error(season, Stats.PHYSICALITY).begins_with("Closed"), "past the peak it is closed")
+	check(CapRaise.group_error(season, Stats.MENTALITY) == "" and CapRaise.size(season, Stats.MENTALITY) >= CapRaise.TAPER_BASE, "mentality (peak 33) is still open at 29: %s" % CapRaise.group_error(season, Stats.MENTALITY))
+	p.age = 30
+	check(CapRaise.group_error(season, Stats.ACCURACY) != "" and not CapRaise.group_error(season, Stats.ACCURACY).begins_with("Closed"), "accuracy (peak 30) is bonuses-only at 30")
+	p.age = 31
+	check(CapRaise.group_error(season, Stats.ACCURACY).begins_with("Closed"), "and closed at 31")
