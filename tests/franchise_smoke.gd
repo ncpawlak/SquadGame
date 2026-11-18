@@ -424,7 +424,7 @@ func _init() -> void:
 
 
 ## Issue #82: sub-tab bars on Team / Personnel / League, per-tab memory, to-do jumps with Back to Home.
-## Home is three columns: to-dos | fixed week card with its actions under it | news pane.
+## Home is two columns: to-dos | a match column (fixed week card, its actions, then the news pane).
 func _home_layout(hub) -> void:
 	var col: Node = hub._content.find_child("MatchColumn", true, false)
 	var card: Node = hub._content.find_child("WeekCard", true, false)
@@ -435,12 +435,12 @@ func _home_layout(hub) -> void:
 	if col == null or card == null or acts == null or feed == null or todo == null:
 		return
 	var top: Node = col.get_parent()
-	_check(todo.get_parent() == top and feed.get_parent() == top and todo.get_index() < col.get_index() and col.get_index() < feed.get_index(),
-		"Home columns: to-dos | match | news")
+	_check(todo.get_parent() == top and todo.get_index() < col.get_index() and feed.get_parent() == col and card.get_index() < feed.get_index(),
+		"Home columns: to-dos | match column (week card, actions, news)")
 	_check(card.get_parent() == col and acts.get_parent() == col and card.get_index() < acts.get_index(), "actions sit under the week card")
 	_check(acts.find_child("PlayButton", true, false) != null and card.find_child("PlayButton", true, false) == null, "Play button moved under the card")
 	_check(card.find_child("WeekPrev", true, false) != null and card.find_child("WeekNext", true, false) != null, "week arrows stay in the card header")
-	_check(card.custom_minimum_size == hub.CARD_SIZE and feed.custom_minimum_size.y >= hub.CARD_SIZE.y, "card is fixed size; news pane matches its height")
+	_check(card.custom_minimum_size == hub.CARD_SIZE and feed.custom_minimum_size == hub.FEED_SIZE, "card and news pane are fixed size")
 	_check(feed.find_children("*", "GridContainer", true, false).is_empty(), "news lists one item per row")
 
 
