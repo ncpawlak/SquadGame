@@ -150,11 +150,11 @@ func test_gear_does_not_eat_skill_point_room() -> void:
 
 func test_gear_items_follow_the_tier_ladders() -> void:
 	var icon := Gear.item(&"cryo", Gear.HELMET)
-	check(icon["bonus"].values() == [5, 4, 3, 2] and icon["bonus"].size() == 4, "an Icon helmet is +5 +4 +3 +2 on four stats")
+	check(icon["bonus"].values() == [10, 8, 6, 4] and icon["bonus"].size() == 4, "an Icon helmet is +10 +8 +6 +4 on four stats")
 	var rifle := Gear.item(&"sigsawyer", Gear.RIFLE)
-	check(rifle["bonus"].values() == [5, 4, 3], "an Icon rifle is specialized: three stats, top values")
+	check(rifle["bonus"].values() == [10, 8, 6], "an Icon rifle is specialized: three stats, top values")
 	check(Gear.item(&"haynes", Gear.BOOTS)["bonus"].size() == 1, "an Unknown item boosts one stat")
-	check(Gear.item(&"overarmour", Gear.VEST)["bonus"].values() == [3, 2, 1], "a Known vest is +3 +2 +1")
+	check(Gear.item(&"overarmour", Gear.VEST)["bonus"].values() == [6, 4, 2], "a Known vest is +6 +4 +2")
 	for b in Gear.BRANDS:
 		for slot in Gear.SLOTS:
 			var it := Gear.item(b["id"], slot)

@@ -25,12 +25,12 @@ const SLOT_POOLS := {
 const SPECIALIZED: Array[StringName] = [RIFLE, ATTACHMENTS]
 
 ## Bonus ladders by sponsor tier (index = brand tier 0 Unknown .. 4 Icon), highest first.
-const LADDERS := [[1], [2, 1], [3, 2, 1], [4, 3, 2, 1], [5, 4, 3, 2]]
+const LADDERS := [[2], [4, 2], [6, 4, 2], [8, 6, 4, 2], [10, 8, 6, 4]]
 ## Brand needed for each sponsor tier (brand points, see WeeklyPlan.BRAND_TIER_SIZE).
 const TIER_BRAND := [0.0, 20.0, 40.0, 60.0, 80.0]
 ## Tuning: multiplies every ladder value (rounded). 1.0 = the spec ladders.
 static var scale := 1.0
-const STAT_CAP := 10  # total gear bonus on any one stat
+const STAT_CAP := 12  # total gear bonus on any one stat
 const SET_PIECES := 3  # items from one brand that wake its set bonus (+1 on its lead stat)
 
 const LEANS := {
