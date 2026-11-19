@@ -125,12 +125,29 @@ func _wait_vote(season: Season, result: Dictionary) -> void:
 ## Signs every offer that fits (best tier first), like a player who takes what he is given.
 func _take_deals(season: Season) -> void:
 	var p := season.player
-	if p.offers.is_empty():
-		return
 	var offers: Array = p.offers.duplicate()
 	offers.sort_custom(func(a, b): return int(Gear.brand(a["brand"])["tier"]) > int(Gear.brand(b["brand"])["tier"]))
 	for o in offers:
 		Sponsors.accept(season, o)
+	_equip_best(p)
+
+
+## Fills each slot with the item that gives the best effective OVR (a few passes, since slots interact through the set bonus).
+func _equip_best(p: Soldier) -> void:
+	Gear.prune(p)
+	for _pass in 2:
+		for slot in Gear.SLOTS:
+			var best: Dictionary = p.gear_slots.get(slot, {})
+			var trial := p.gear_slots.duplicate()
+			var best_ovr := Gear.preview(p, p.gear_slots)
+			for it in Gear.available(p, slot):
+				trial[slot] = it
+				var o := Gear.preview(p, trial)
+				if o > best_ovr:
+					best_ovr = o
+					best = it
+			if not best.is_empty():
+				Gear.equip(p, best)
 
 
 ## Takes the first choice of every waiting story (a mentor teaches the group with the most room). Returns how many.

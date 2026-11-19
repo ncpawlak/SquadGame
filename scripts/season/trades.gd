@@ -854,7 +854,11 @@ func restructure(season: Season, team: Team, limit := Team.ROSTER_SIZE) -> Dicti
 				dealt = true
 				break
 		if not dealt:
-			var s: Soldier = order[0]
+			# Never the player's own soldier: release_player refuses it and the loop would spin forever.
+			var cut: Array = order.filter(func(x: Soldier): return not x.player_controlled)
+			if cut.is_empty():
+				break
+			var s: Soldier = cut[0]
 			season.release_player(team, s)
 			out["cut"].append(s)
 			moves.append({"year": season.year, "when": _when(season), "team": team, "soldier": s, "kind": &"cut", "to": null})

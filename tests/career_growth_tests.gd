@@ -330,3 +330,23 @@ func test_cap_raise_window_follows_the_group_peak_age() -> void:
 	check(CapRaise.group_error(season, Stats.ACCURACY) != "" and not CapRaise.group_error(season, Stats.ACCURACY).begins_with("Closed"), "accuracy (peak 30) is bonuses-only at 30")
 	p.age = 31
 	check(CapRaise.group_error(season, Stats.ACCURACY).begins_with("Closed"), "and closed at 31")
+
+
+func test_roster_cut_never_loops_on_the_players_own_soldier() -> void:
+	# The player's club is AI-run in career mode; a cut-down with him as the lowest keep value used to spin forever.
+	var season := _career(940)
+	var team := season.user_team()
+	var p := season.player
+	if not team.roster.has(p):
+		team.green_team.erase(p)
+		team.roster.append(p)
+	check(p.player_controlled and team.roster.has(p), "the player is on the user team")
+	var limit := team.roster.size() - 1
+	for s in team.roster:
+		if s != p:
+			s.stats = s.stats.duplicate()
+			for st in s.stats:
+				s.stats[st] = 99
+	var out := season.trades.restructure(season, team, limit)
+	check(team.roster.has(p), "the player is never released")
+	check(team.roster.size() <= limit or out["cut"].is_empty(), "it finished (cut someone else, or gave up)")
