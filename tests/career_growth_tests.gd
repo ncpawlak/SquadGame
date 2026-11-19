@@ -457,3 +457,34 @@ func test_a_stellar_first_roster_season_earns_a_star() -> void:
 	var d2 := ok.player.dev
 	Stories.season_end(ok)
 	check(ok.player.dev == d2, "a good first season is not enough")
+
+
+func test_strong_seasons_and_honors_move_the_star_bar() -> void:
+	var season := _career(963)
+	var p := season.player
+	p.dev = 2
+	p.dev_year = 0
+	p.study_progress = 0.0
+	season.player_log.clear()
+	_log_games(season, season.year - 1, 4, 60.0)  # not a first roster season
+	_log_games(season, season.year, 10, 82.0)
+	Stories.season_end(season)
+	var cost := WeeklyPlan.star_cost(2, p)
+	check(is_equal_approx(p.study_progress, cost * Stories.STRONG_SHARE), "a strong season fills part of the star bar")
+	var great := _career(964)
+	great.player.dev = 2
+	great.player.dev_year = 0
+	great.player.study_progress = 0.0
+	great.player_log.clear()
+	_log_games(great, great.year - 1, 4, 60.0)
+	_log_games(great, great.year, 10, 86.0)
+	Stories.season_end(great)
+	check(great.player.study_progress > cost * Stories.STRONG_SHARE, "a great season fills more of it")
+	var h := _career(965)
+	h.player.dev = 2
+	h.player.dev_year = 0
+	h.review = SeasonReview.new()
+	check(not Stories.honors_star(h), "no honors, no star")
+	h.review.all_league.append({"soldier": h.player, "team": h.user_team(), "role": Scheme.Role.FRONTMAN, "line": {}})
+	check(Stories.honors_star(h) and h.player.dev == 3, "an All-League pick earns a star")
+	check(not Stories.honors_star(h), "but only one a season")

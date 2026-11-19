@@ -20,6 +20,13 @@ const MENTOR_AGE := 29
 ## A stellar first season on the normal roster is rare: it earns a dev star outright (once per career).
 const BREAKOUT_GAMES := 8
 const BREAKOUT_AVG := 88.0
+## Common star sources (on top of studying): a strong season, an honor, a title. Shares of the next star's study cost.
+const STRONG_GAMES := 8
+const STRONG_AVG := 80.0
+const STRONG_SHARE := 0.45
+const GREAT_AVG := 85.0
+const GREAT_SHARE := 0.7
+const TITLE_SHARE := 0.3
 
 
 static func _once(p: Soldier, kind: String, year: int) -> bool:
@@ -69,6 +76,14 @@ static func season_end(season: Season) -> void:
 	p.stories = p.stories.filter(func(s): return int(s["year"]) >= season.year)
 	var sm := PlayerGrade.summary(PlayerGrade.log_for(season, season.year))
 	var games := int(sm["games"])
+	if games >= STRONG_GAMES and p.dev < Soldier.DEV_MAX and float(sm["avg"]) >= STRONG_AVG:
+		var share := GREAT_SHARE if float(sm["avg"]) >= GREAT_AVG else STRONG_SHARE
+		_note(season, "A %s season: scouts noticed (%d average). That counts toward your next star." % ["great" if share == GREAT_SHARE else "strong", roundi(float(sm["avg"]))])
+		WeeklyPlan.add_study(p, WeeklyPlan.star_cost(p.dev, p) * share, season.year)
+	var team_now := season.user_team()
+	if team_now != null and season.champion == team_now and games >= STRONG_GAMES and p.dev < Soldier.DEV_MAX:
+		_note(season, "A title as a regular: it counts toward your next star.")
+		WeeklyPlan.add_study(p, WeeklyPlan.star_cost(p.dev, p) * TITLE_SHARE, season.year)
 	if games >= BREAKOUT_GAMES and float(sm["avg"]) >= BREAKOUT_AVG and p.dev < Soldier.DEV_MAX and _first_roster_season(season) and _once(p, "star_breakout", season.year):
 		p.change_dev(1, season.year)
 		p.study_progress = 0.0
@@ -89,6 +104,21 @@ static func season_end(season: Season) -> void:
 					choices.append({"key": String(g), "label": "%s (+2 skill points, a camp special on it)" % Stats.GROUP_LABELS[g]})
 				_ask(season, "mentor", "Veteran mentor", "A veteran on the squad offers to teach you. Pick what to learn.", choices)
 				break
+
+
+## After the season review: any award or All-League pick is a star (if his dev trait has not already moved this season).
+static func honors_star(season: Season) -> bool:
+	var p := season.player
+	var rev := season.review
+	if p == null or rev == null or not season.player_mode or p.dev >= Soldier.DEV_MAX or p.dev_changed_in(season.year):
+		return false
+	var honors := rev.award_for(p)
+	if honors.is_empty():
+		return false
+	p.change_dev(1, season.year)
+	p.study_progress = 0.0
+	_note(season, "Honors (%s) earned you a dev star: you are now a %s." % [", ".join(honors), p.dev_text()])
+	return true
 
 
 ## True when this is the first season he played any games (the first on the normal roster, not the Green Team).
