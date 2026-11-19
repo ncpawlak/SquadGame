@@ -229,13 +229,35 @@ age.
 - Fixed along the way: a base-game hang where the player-mode preseason roster cut could pick the player himself and loop
   forever (`Trades.restructure`).
 
-## 8. Build order (suggested)
+## 8. Match warm-up mini-games (proposal)
+Career play is a weekly plan plus watching a sim. The warm-up gives the player a skill-based way to change a match.
+- **Flow:** before each match the player picks one stat group and runs that group's combine drill (the drills and scoring
+  already exist: `CombineTasks`). The score (0 to 1) sets a **match-only bonus** to every stat in that group.
+- **Size:** up to **+15** per stat for a perfect run, on a curve (half score is about +4, 0.8 is about +10). Measured effect:
+  +12 on one whole group is about +2 to +4 OVR for that match (more for physicality and mentality, less for objective and
+  handling), so +15 is about +3 to +5 OVR. Stats still stop at 99.
+- **No penalty for a bad run, just no bonus.** A warm-up is available **every week**, and the bonus is **gone after the
+  match**: nothing carries over, and it is never counted in the ratings shown on the roster, in Hall of Fame scoring or in
+  the contract and draft reports.
+- **Layer:** a separate per-match bonus on top of base and gear (like the effective-stat layer), applied only when the
+  player's match is simulated and cleared right after.
+- **Limits:** one group per match; repeating the same drill week after week pays slightly less; the drill gets harder in
+  playoff and rivalry games. An auto-run option gives a fraction of the bonus without playing the drill.
+- **Feeds other systems:** film study (a recall or sequence drill on the next opponent for a grade bonus against them),
+  a mentor unlocking a harder drill with a higher ceiling, and a rivalry doubling the warm-up against that team.
+- **Trade and club requests (separate piece):** the player can ask for a trade, a bigger role or a move to a contender.
+  A request needs a reason (playing time, role, a contender), and the club accepts, refuses or counters; a refusal costs
+  morale. It ties into strong seasons, honors and the star meter.
+- A later playable match (see `docs/idea_playable_match.md`) would replace or extend the warm-up drills.
+
+## 9. Build order (suggested)
 1. Wear for career, plus sim checks and tuning.
 2. Offseason cap raise.
 3. Effective-stat layer, then gear data and the loadout page, then sponsor deals and the sponsors page.
 4. Franchise Recovery facility and league-wide aging calibration.
 5. Story events and camp specials.
-6. Brand from performance and honors (done), then starting stars and backstories (section 6).
+6. Brand from performance and honors (done), then starting stars and backstories (section 6, built).
+7. Match warm-up mini-games (section 8), then trade and club requests.
 
 ## Open questions
 - Recovery facility: new facility or extend the Sports Science Lab?
