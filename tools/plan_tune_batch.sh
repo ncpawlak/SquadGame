@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 OUT="$3"
 mkdir -p "$OUT"
 run_job() {
-  read -r age style seed seasons vote tag boost costs agecap wgain wspa story <<< "$1"
+  read -r age style seed seasons vote tag boost costs agecap wgain wspa story nostars <<< "$1"
   out="$OUT/${tag}_a${age}_${style}_s${seed}.jsonl"
   [ -s "$out" ] && return
   extra=""
@@ -18,6 +18,7 @@ run_job() {
   [ "$wgain" != "-" ] && [ -n "$wgain" ] && extra="$extra wgain=$wgain"
   [ "$wspa" != "-" ] && [ -n "$wspa" ] && extra="$extra wspa=$wspa"
   [ "$story" != "-" ] && [ -n "$story" ] && extra="$extra story=$story"
+  [ "$nostars" = "1" ] && extra="$extra nostars=1"
   timeout 7200 "$G" --headless --path . --script res://tools/plan_tune.gd -- age=$age style=$style seed=$seed seasons=$seasons vote=$vote out="$out" $extra > "$out.log" 2>&1
 }
 export -f run_job

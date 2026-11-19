@@ -21,6 +21,8 @@ const MENTOR_AGE := 29
 const BREAKOUT_GAMES := 8
 const BREAKOUT_AVG := 88.0
 ## Common star sources (on top of studying): a strong season, an honor, a title. Shares of the next star's study cost.
+## Tuning switch (the sims turn it off to measure what these sources add): strong seasons, titles, honors and the breakout star.
+static var star_sources := true
 const STRONG_GAMES := 8
 const STRONG_AVG := 80.0
 const STRONG_SHARE := 0.45
@@ -76,15 +78,15 @@ static func season_end(season: Season) -> void:
 	p.stories = p.stories.filter(func(s): return int(s["year"]) >= season.year)
 	var sm := PlayerGrade.summary(PlayerGrade.log_for(season, season.year))
 	var games := int(sm["games"])
-	if games >= STRONG_GAMES and p.dev < Soldier.DEV_MAX and float(sm["avg"]) >= STRONG_AVG:
+	if star_sources and games >= STRONG_GAMES and p.dev < Soldier.DEV_MAX and float(sm["avg"]) >= STRONG_AVG:
 		var share := GREAT_SHARE if float(sm["avg"]) >= GREAT_AVG else STRONG_SHARE
 		_note(season, "A %s season: scouts noticed (%d average). That counts toward your next star." % ["great" if share == GREAT_SHARE else "strong", roundi(float(sm["avg"]))])
 		WeeklyPlan.add_study(p, WeeklyPlan.star_cost(p.dev, p) * share, season.year)
 	var team_now := season.user_team()
-	if team_now != null and season.champion == team_now and games >= STRONG_GAMES and p.dev < Soldier.DEV_MAX:
+	if star_sources and team_now != null and season.champion == team_now and games >= STRONG_GAMES and p.dev < Soldier.DEV_MAX:
 		_note(season, "A title as a regular: it counts toward your next star.")
 		WeeklyPlan.add_study(p, WeeklyPlan.star_cost(p.dev, p) * TITLE_SHARE, season.year)
-	if games >= BREAKOUT_GAMES and float(sm["avg"]) >= BREAKOUT_AVG and p.dev < Soldier.DEV_MAX and _first_roster_season(season) and _once(p, "star_breakout", season.year):
+	if star_sources and games >= BREAKOUT_GAMES and float(sm["avg"]) >= BREAKOUT_AVG and p.dev < Soldier.DEV_MAX and _first_roster_season(season) and _once(p, "star_breakout", season.year):
 		p.change_dev(1, season.year)
 		p.study_progress = 0.0
 		_note(season, "Breakout season: a %d average in your first year on the roster. Scouts have re-graded you: you are now a %s." % [roundi(float(sm["avg"])), p.dev_text()])
@@ -115,7 +117,7 @@ const HONOR_SHARE := {"Season MVP": 1.0, "Rookie of the Year": 0.7, "Best role":
 static func honors_study(season: Season) -> float:
 	var p := season.player
 	var rev := season.review
-	if p == null or rev == null or not season.player_mode or p.dev >= Soldier.DEV_MAX:
+	if not star_sources or p == null or rev == null or not season.player_mode or p.dev >= Soldier.DEV_MAX:
 		return 0.0
 	var share := 0.0
 	var names: PackedStringArray = []

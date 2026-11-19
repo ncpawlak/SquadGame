@@ -21,6 +21,8 @@ func _init() -> void:
 		Wear.age_gain = float(args["wgain"])
 	if args.has("wspa"):
 		Wear.spa_per_level = float(args["wspa"])
+	if String(args.get("nostars", "0")) == "1":
+		Stories.star_sources = false
 	if args.has("agecap"):
 		Combine.age_cap_bonus = float(args["agecap"])
 	if args.has("costs"):
@@ -97,7 +99,7 @@ func _init() -> void:
 	for note in season.player_notes:
 		if String(note["text"]).begins_with("Your study paid off"):
 			stars.append("%d.w%d" % [note["year"], note["week"]])
-	var result := {"age": age, "style": args["style"], "seed": seed_value, "skill": skill, "boost": WeeklyPlan.xp_boost, "agecap": Combine.age_cap_bonus, "costs": WeeklyPlan.star_costs.values(), "arch": String(arch), "story": String(args.get("story", "balanced")), "entry_ovr": entry_ovr,
+	var result := {"age": age, "style": args["style"], "seed": seed_value, "skill": skill, "boost": WeeklyPlan.xp_boost, "agecap": Combine.age_cap_bonus, "costs": WeeklyPlan.star_costs.values(), "arch": String(arch), "story": String(args.get("story", "balanced")), "star_sources": Stories.star_sources, "entry_ovr": entry_ovr,
 		"proj": proj, "pick": season.player_pick, "talent": p.talent, "stars": stars, "seasons": rows, "milestones": season.player_milestones.size()}
 	if int(args["vote"]) == 1:
 		_wait_vote(season, result)
