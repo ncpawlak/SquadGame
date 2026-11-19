@@ -52,14 +52,17 @@ handling 0.6, objective 0.6, mentality 0.4.
   need to read the new expected curve.
 
 ## 2. Offseason cap raise
-- Once an offseason the player picks one stat group and raises its cap.
-- The group must be filled (rating at cap), so skill points gate it.
+- Once an offseason the player picks one stat group and raises its cap. **The group does not have to be maxed**: a higher
+  cap is room to grow into.
 - Size: base +2, plus up to +4 more, max +6.
-  - +1 for a strong season in the group (graded average above 80, or a relevant award)
-  - +1 for a facility tier of at least 2
-  - +1 for a camp special or coach focus on that group
-  - +1 for a milestone or story event that year
-- Caps never pass 99. Open: whether the base should be +1 if it proves too fast.
+  - +1 for a strong season (graded average 80+ over at least 3 games)
+  - +1 for a Performance Institute step
+  - +1 for a camp special on that group
+  - +1 for a story that year (breakthrough, comeback)
+- **Age window per group, from the group's peak age (`Aging.PEAK_AGE`):** 4+ years before it: full (base +2, max +6);
+  1-3 years before: base +1, max +4; at the peak age: bonuses only, max +2; after it: closed. So a 30-year-old does not
+  get cap raises on groups that already peaked.
+- Caps never pass 99.
 
 ## 3. Sponsors and gear
 
@@ -71,7 +74,7 @@ handling 0.6, objective 0.6, mentality 0.4.
   several deals from different brands. Any deal-provided item can be equipped in its slot.
 - Gear is additive: effective rating = base + gear. Remove or swap an item and the ratings change immediately.
   Gear can exceed the cap. Hard ceiling 99. Hall of Fame scoring reads base ratings only.
-- Per-stat total gear bonus is capped at +10.
+- Per-stat total gear bonus is capped at **+12** (was +10 in the first pass).
 
 ### Bonus sizes (per item)
 An item boosts **1 to 4 stats**, set by the sponsor tier and the gear type. Each tier has a bonus ladder (highest first)
@@ -79,17 +82,21 @@ and the item uses the first N values from the stats in the slot's pool.
 
 | Tier | Brand needed | Bonus ladder | Stats on a full-breadth item |
 |---|---|---|---|
-| Unknown | 0 | +1 | 1 |
-| Rising | 20 | +2, +1 | 2 |
-| Known | 40 | +3, +2, +1 | 3 |
-| Star | 60 | +4, +3, +2, +1 | 4 |
-| Icon | 80 | +5, +4, +3, +2 | 4 |
+| Unknown | 0 | +2 | 1 |
+| Rising | 20 | +4, +2 | 2 |
+| Known | 40 | +6, +4, +2 | 3 |
+| Star | 60 | +8, +6, +4, +2 | 4 |
+| Icon | 80 | +10, +8, +6, +4 | 4 |
+
+The first-pass ladders were half of these (Icon +5, +4, +3, +2). Sims showed a full Icon set added only +3 OVR because OVR
+averages over many stats and the slot pools overlap; doubling the ladders and raising the per-stat cap to 12 lifts a full
+Icon set to about +4 to +5 OVR (still short of +8; a bigger set bonus is the next lever, see "Tuning results").
 
 **Gear type changes the breadth.** Helmet, vest and boots are full breadth. The rifle and attachments are specialized,
 so they carry one fewer stat (minimum 1) but keep the top values, e.g. an Icon rifle is +5, +4, +3 on three stats.
 
-Points per item: Unknown 1, Rising 3, Known 6, Star 10, Icon 14 (12 on the rifle and attachments). A full Icon set is
-about 66 stat points across the slots, about +4 to +5 OVR in sims to be confirmed. Target: base 94-95 plus top gear
+Points per item (doubled): Unknown 2, Rising 6, Known 12, Star 20, Icon 28 (24 on the rifle and attachments). A full Icon set is
+about 130 stat points across the slots, about +4 to +5 OVR in sims. Target: base 94-95 plus top gear
 reaches 99.
 
 ### Slot stat pools
@@ -174,12 +181,61 @@ Built in the player hub (`player_pages.gd`) like the plan and placement pages, t
   coach conflict, contract-year spotlight, sponsor offers on a tier-up.
 - Camp specials: a masterclass or specialist coach picks a group and feeds the cap raise.
 
-## 5. Build order (suggested)
+## 5. Brand: performance and honors
+Brand is no longer only the weekly brand plan.
+- **Performance:** every played game earns a base +1.0 brand scaled by the grade (x0.5 at a 60 grade, x2 at 97+), even with
+  the brand plan at zero. The plan's own gain stacks on top.
+- **Honors:** after the season review, one-time brand: Season MVP +18, Rookie of the Year +10, Best at a role +10,
+  All-League +8, a championship +6, each Player of the Week +3. Honors are applied before sponsors look at the player.
+- All gains shrink near the top (x (1 - brand / 115)); brand decays 2% a week.
+- Honors also pay the existing honor XP (Progression, `HONOR_XP`).
+
+## 6. Starting stars and backstories (proposal)
+**Why:** the dev star count multiplies young XP up to 30x (age 22 and under: 0.25 / 0.75 / 2.6 / 7.5 for 1 to 4 stars). A
+career that starts at one star and reaches four only in year 7 gets its XP too late. Stars are the biggest growth lever, so
+the player must not simply pick a number.
+
+**How other games handle it:** Madden's development trait comes from the combine and draft slot and is earned up from
+there; NBA 2K and the EA/MLB career modes let the player choose an archetype or situation but set growth by hidden
+potential, draft position and results.
+
+**Rule 1: the combine and draft set the starting stars.** Stars come from combine performance and draft position (and the
+combine already sets the projected pick and brand): a strong combine or a top pick starts at 2-3 stars, an average one at
+1-2, a poor one at 1. Stars can still be earned in play (study, awards, mentor story) and lost to injuries, the bench and
+age.
+
+**Rule 2: a backstory, chosen at creation, trades one thing for another.** First-pass numbers, to be tuned in sims:
+
+| Backstory | Starting stars | Caps | Star costs | Other |
+|---|---|---|---|---|
+| Phenom | 3 | -3 on every group | normal | high starting brand and sponsor heat; peaks sooner and lower |
+| Balanced | 2 | normal | normal | none |
+| Late bloomer | 1 | +3 on every group | -25% | slow start; 99 only late in a career |
+| Walk-on | 1 | normal | normal | few sponsor offers early, extra starting skill points, hungrier morale |
+
+- The combine and draft can still move a backstory up or down by one star (a Phenom who tests badly starts at 2).
+- The backstory is shown on the career summary and the Legacy page.
+
+**Targets to hold in sims:** a Phenom reaches base 90 around season 6-8 and levels off; a Balanced career reaches base about
+94 by season 12-14; a Late bloomer reaches base 94+ only around seasons 12-15; none reaches 99 before about season 9-11.
+
+## 7. Tuning results (sims, `tools/plan_tune.gd`)
+- Defaults now: career XP boost **2.5x** (was 1.8x) and dev star costs **15 / 20 / 32** study points (were 30 / 40 / 70).
+- Smart-style age-18 career at those numbers: four stars by season 3, base 93 and effective 94 by season 14, Icon brand.
+  An age-21 or age-23 start tops out near base 88-89 (lower starting caps by design).
+- A full Icon set adds +4 to +5 OVR. The next lever is a bigger brand set bonus (for example +2 on the lead stat at 3 pieces
+  and +4 at 5 pieces) to bring a full set toward +7.
+- The sim never wins awards, so honor XP and honor brand are not in these numbers; a real star will be a little ahead.
+- Fixed along the way: a base-game hang where the player-mode preseason roster cut could pick the player himself and loop
+  forever (`Trades.restructure`).
+
+## 8. Build order (suggested)
 1. Wear for career, plus sim checks and tuning.
 2. Offseason cap raise.
 3. Effective-stat layer, then gear data and the loadout page, then sponsor deals and the sponsors page.
 4. Franchise Recovery facility and league-wide aging calibration.
 5. Story events and camp specials.
+6. Brand from performance and honors (done), then starting stars and backstories (section 6).
 
 ## Open questions
 - Recovery facility: new facility or extend the Sports Science Lab?
