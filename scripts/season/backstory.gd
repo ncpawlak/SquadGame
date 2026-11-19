@@ -1,7 +1,7 @@
 class_name Backstory
 extends RefCounted
 ## Career-mode starting stories (#141): chosen at creation, each trades one thing for another. A story sets the starting dev
-## stars (the combine's hidden talent moves it one star either way), a cap offset on every group, the cost of earning
+## stars (a weak combine can take one off), a cap offset on every group, the cost of earning
 ## stars, the starting brand and sponsor interest, and a few starting extras. Nobody picks "4 stars"; the story is the pick.
 
 const PHENOM := &"phenom"
@@ -39,7 +39,7 @@ static func story_name(id: StringName) -> String:
 static func effects(id: StringName) -> Array:
 	var d := find(id)
 	var out: Array = []
-	out.append(["Starts with %d dev star%s (the combine can move it one star)" % [int(d["stars"]), "" if int(d["stars"]) == 1 else "s"], 1 if int(d["stars"]) >= 2 else -1])
+	out.append(["Starts with %d dev star%s (a weak combine can take one off)" % [int(d["stars"]), "" if int(d["stars"]) == 1 else "s"], 1 if int(d["stars"]) >= 2 else -1])
 	var caps := int(d["caps"])
 	out.append(["Ratings ceilings %s" % ("normal" if caps == 0 else "%+d on every group" % caps), 0 if caps == 0 else (1 if caps > 0 else -1)])
 	var cost := float(d["cost"])
@@ -55,12 +55,11 @@ static func effects(id: StringName) -> Array:
 	return out
 
 
-## Starting dev stars: the story's, moved one star by the combine's hidden talent (4 up, 1 down), within 1..MAX_START.
+## Starting dev stars: the story's number. A weak hidden talent (1) can take one star off; a strong one never adds one
+## (talent shows up in where he lands inside his bands and in his ceilings instead). Within 1..MAX_START.
 static func start_stars(id: StringName, talent: int) -> int:
 	var stars := int(find(id)["stars"])
-	if talent >= 4:
-		stars += 1
-	elif talent <= 1:
+	if talent <= 1:
 		stars -= 1
 	return clampi(stars, Soldier.DEV_MIN, MAX_START)
 

@@ -410,9 +410,9 @@ func test_backstory_sets_stars_caps_and_extras() -> void:
 	check(walk.morale > plain.morale, "and a hungrier morale")
 
 
-func test_backstory_talent_moves_the_stars_one_either_way() -> void:
-	check(Backstory.start_stars(Backstory.BALANCED, 4) == 3 and Backstory.start_stars(Backstory.BALANCED, 1) == 1, "talent 4 adds a star, talent 1 takes one (not below 1)")
-	check(Backstory.start_stars(Backstory.PHENOM, 4) == Backstory.MAX_START, "nobody starts above the story maximum")
+func test_backstory_talent_only_ever_takes_a_star_off() -> void:
+	check(Backstory.start_stars(Backstory.BALANCED, 4) == 2 and Backstory.start_stars(Backstory.BALANCED, 1) == 1, "a strong talent never adds a star; talent 1 takes one (not below 1)")
+	check(Backstory.start_stars(Backstory.PHENOM, 4) == 3 and Backstory.start_stars(Backstory.PHENOM, 1) == 2, "a phenom starts at 3, or 2 after a weak combine")
 	check(Backstory.start_stars(Backstory.LATE, 1) == 1 and Backstory.start_stars(Backstory.LATE, 3) == 1, "a late bloomer stays at one star")
 
 
@@ -497,3 +497,19 @@ func test_strong_seasons_and_honors_move_the_star_bar() -> void:
 	m.review.awards.append({"award": "Season MVP", "soldier": m.player, "team": m.user_team(), "line": {}})
 	Stories.honors_study(m)
 	check(m.player.dev == 3, "an MVP season fills the whole bar and earns the star")
+
+
+func test_the_review_never_moves_the_career_players_stars() -> void:
+	var season := _career(970)
+	var p := season.player
+	p.dev = 3
+	p.dev_year = 0
+	season.phase = Season.PHASE_OFFSEASON
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1
+	for i in 20:
+		p.dev_year = 0
+		SeasonReview.run(season, rng)
+		check(p.dev == 3, "the re-grade leaves the career player's stars alone")
+		if p.dev != 3:
+			break
