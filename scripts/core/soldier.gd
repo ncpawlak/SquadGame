@@ -140,6 +140,11 @@ var cap_story_bonus := 0
 ## Gear (see Gear): the bonus the equipped items have added to `stats` (stat -> points actually applied). `stats` is always the
 ## effective rating the sim reads; the base rating is stats minus this.
 var gear_delta: Dictionary = {}
+## Career-mode match warm-up (WarmUp): the pending bonus, and what is on his stats right now (only during his match).
+var warmup: Dictionary = {}
+var match_delta: Dictionary = {}
+var warmup_last: StringName = &""
+var warmup_streak := 0
 ## Equipped items by slot: slot -> item dict (see Gear.item).
 var gear_slots: Dictionary = {}
 ## Sponsor deals he holds (see Sponsors) and the money they have paid him.
@@ -404,16 +409,18 @@ func group_headroom(group: StringName) -> int:
 
 ## One stat without the gear bonus.
 func base_stat(stat: StringName) -> int:
-	return int(stats[stat]) - int(gear_delta.get(stat, 0))
+	return int(stats[stat]) - int(gear_delta.get(stat, 0)) - int(match_delta.get(stat, 0))
 
 
 ## All stats without the gear bonus.
 func base_stats() -> Dictionary:
-	if gear_delta.is_empty():
+	if gear_delta.is_empty() and match_delta.is_empty():
 		return stats
 	var out := stats.duplicate()
 	for st in gear_delta:
 		out[st] = int(out[st]) - int(gear_delta[st])
+	for st in match_delta:
+		out[st] = int(out[st]) - int(match_delta[st])
 	return out
 
 
@@ -426,6 +433,9 @@ func base_ovr() -> int:
 ## Sets the gear bonus to `bonus` (stat -> points), replacing the previous one. Ratings clamp at 99; what was actually
 ## added is remembered so removing the gear restores the base exactly.
 func set_gear_bonus(bonus: Dictionary) -> void:
+	var on_match := match_delta.duplicate()
+	if not on_match.is_empty():
+		set_match_bonus({})
 	var keys := {}
 	for st in gear_delta:
 		keys[st] = true
@@ -439,6 +449,23 @@ func set_gear_bonus(bonus: Dictionary) -> void:
 		if now != base:
 			fresh[st] = now - base
 	gear_delta = fresh
+	if not on_match.is_empty():
+		set_match_bonus(on_match)
+
+
+## Sets the match-only warm-up bonus (stat -> points), replacing the previous one. Clamps at 99 and remembers what was
+## really added so clearing it restores the ratings exactly.
+func set_match_bonus(bonus: Dictionary) -> void:
+	for st in match_delta:
+		stats[st] = int(stats[st]) - int(match_delta[st])
+	var fresh := {}
+	for st in bonus:
+		var base := int(stats[st])
+		var now := Stats.clamp_rating(base + int(bonus[st]))
+		stats[st] = now
+		if now != base:
+			fresh[st] = now - base
+	match_delta = fresh
 
 
 func is_injured() -> bool:

@@ -653,6 +653,7 @@ func finish_week() -> Array:
 	var news_week := week
 	if phase == PHASE_REGULAR and week == midseason_week():
 		_ai_extend()
+	WarmUp.clear(self)
 	_advance()
 	market.week(self, played, news_week)
 	revenue.week(self, played, news_week)

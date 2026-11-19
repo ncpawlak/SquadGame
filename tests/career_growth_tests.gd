@@ -513,3 +513,60 @@ func test_the_review_never_moves_the_career_players_stars() -> void:
 		check(p.dev == 3, "the re-grade leaves the career player's stars alone")
 		if p.dev != 3:
 			break
+
+
+func test_warmup_bonus_curve_and_limits() -> void:
+	check(WarmUp.bonus_for(0.0, 0, false) == 0 and WarmUp.bonus_for(1.0, 0, false) == WarmUp.MAX_BONUS, "no score no bonus; a perfect run is the maximum")
+	check(WarmUp.bonus_for(0.5, 0, false) == 4 and WarmUp.bonus_for(0.8, 0, false) == 10, "half score is +4, 0.8 is +10")
+	check(WarmUp.bonus_for(1.0, 3, false) < WarmUp.bonus_for(1.0, 0, false), "repeating the same group pays less")
+	check(WarmUp.bonus_for(1.0, 20, false) >= roundi(WarmUp.MAX_BONUS * WarmUp.REPEAT_MIN), "but never below the floor")
+	check(WarmUp.bonus_for(1.0, 0, true) < WarmUp.bonus_for(1.0, 0, false), "playoff games are harder")
+
+
+func _in_match_week(season: Season) -> void:
+	# Move to a regular-season week where the user's team plays.
+	for i in 40:
+		if season.phase == Season.PHASE_REGULAR and WarmUp.opponent(season) != null:
+			return
+		season.sim_week()
+
+
+func test_warmup_applies_for_the_match_only_and_clears() -> void:
+	var season := _career(980)
+	var p := season.player
+	var team := season.user_team()
+	if not team.roster.has(p):
+		team.green_team.erase(p)
+		team.roster.append(p)
+	_in_match_week(season)
+	check(WarmUp.error(season) == "", "he can warm up in a match week (%s)" % WarmUp.error(season))
+	var before: Dictionary = p.stats.duplicate()
+	var res := WarmUp.submit(season, Stats.ACCURACY, 1.0)
+	check(int(res["bonus"]) > 0 and p.stats == before, "the bonus is pending, not on his ratings yet")
+	check(WarmUp.submit(season, Stats.HANDLING, 1.0).is_empty() and WarmUp.error(season) != "", "one warm-up a week")
+	var opp := WarmUp.opponent(season)
+	var m: ScheduledMatch
+	for x in season.matches_for_week(season.week):
+		if x.involves(team):
+			m = x
+	WarmUp.begin(m.home, m.away)
+	for st in Stats.GROUPS[Stats.ACCURACY]:
+		check(int(p.stats[st]) == mini(99, int(before[st]) + int(res["bonus"])) and p.base_stat(st) == int(before[st]), "during the match the group is boosted and base is untouched")
+	check(p.base_ovr() == Scheme.ovr_for_role(before, Scheme.best_role(before)), "base OVR ignores the warm-up")
+	WarmUp.end(m.home, m.away)
+	check(p.stats == before and p.match_delta.is_empty(), "after the match it is gone")
+	season.sim_week()
+	check(p.warmup.is_empty() and p.stats == before, "and nothing carries into next week")
+	check(opp != null, "there was an opponent")
+
+
+func test_warmup_stacks_on_gear_and_clamps_at_99() -> void:
+	var p := _story_soldier(Backstory.BALANCED)
+	p.stats[Stats.SPEED] = 95
+	p.set_gear_bonus({Stats.SPEED: 2})
+	p.set_match_bonus({Stats.SPEED: 10})
+	check(p.stats[Stats.SPEED] == 99 and p.base_stat(Stats.SPEED) == 95, "base 95 + gear 2 + warm-up clamps at 99, base stays 95")
+	p.set_gear_bonus({Stats.SPEED: 0})
+	check(p.base_stat(Stats.SPEED) == 95, "changing gear during a match keeps the base")
+	p.set_match_bonus({})
+	check(p.stats[Stats.SPEED] == 95, "clearing both restores the base")

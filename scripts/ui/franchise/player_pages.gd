@@ -201,6 +201,12 @@ func _todos() -> Array:
 		out.append(_todo("Set your weekly plan", "Your points are wasted until you do", UiKit.GOLD, func(): open_plan(false), true))
 	else:
 		out.append(_todo("Weekly plan", _plan_summary(p.plan, true), UiKit.TRIM, func(): open_plan(false)))
+	if s.phase != Season.PHASE_OFFSEASON and WarmUp.opponent(s) != null:
+		var w_err := WarmUp.error(s)
+		if w_err == "":
+			out.append(_todo("Warm up", "Run a drill for a match-only bonus (up to +%d)" % WarmUp.MAX_BONUS, UiKit.GOLD, func(): open_warmup(), true))
+		elif not p.warmup.is_empty() and int(p.warmup.get("key", 0)) == WarmUp.week_key(s):
+			out.append(_todo("Warm-up", "%s: %s" % [String(Stats.GROUP_LABELS[p.warmup["group"]]), ("+%d this match" % int(p.warmup["bonus"])) if int(p.warmup["bonus"]) > 0 else "no bonus"], UiKit.TRIM, func(): open_warmup()))
 	if not p.stories.is_empty():
 		out.append(_todo("Stories", "%d decision%s waiting" % [p.stories.size(), "" if p.stories.size() == 1 else "s"], UiKit.GOLD, func(): open_stories(), true))
 	if not p.offers.is_empty():
@@ -286,6 +292,20 @@ func _gear() -> PlayerGearPages:
 		gear_ui = PlayerGearPages.new()
 		gear_ui.hub = hub
 	return gear_ui
+
+
+var warmup_ui: PlayerWarmupPages
+
+
+func _warmup() -> PlayerWarmupPages:
+	if warmup_ui == null:
+		warmup_ui = PlayerWarmupPages.new()
+		warmup_ui.hub = hub
+	return warmup_ui
+
+
+func open_warmup() -> void:
+	hub.open("Warm-up", func(): return _warmup().warmup_page())
 
 
 func open_loadout() -> void:
