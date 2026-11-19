@@ -1525,7 +1525,7 @@ func _advance() -> void:
 		review_history.append(review)
 		if player_mode and player != null:
 			WeeklyPlan.apply_honors(self)
-			Stories.honors_star(self)
+			Stories.honors_study(self)
 			Sponsors.season_end(self)
 		var retire_rng := RandomNumberGenerator.new()
 		retire_rng.seed = _mix([league.league_seed, year, 0x2E71])

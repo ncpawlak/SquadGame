@@ -106,19 +106,34 @@ static func season_end(season: Season) -> void:
 				break
 
 
-## After the season review: any award or All-League pick is a star (if his dev trait has not already moved this season).
-static func honors_star(season: Season) -> bool:
+## Share of the next star's study cost each yearly honor adds to the star meter.
+const HONOR_SHARE := {"Season MVP": 1.0, "Rookie of the Year": 0.7, "Best role": 0.6, "All-League": 0.45, "Player of the Week": 0.1}
+
+
+## After the season review: every honor fills part of the star meter, by the honor (a star is earned only when the bar
+## fills, one a season). Returns the share of a star it added.
+static func honors_study(season: Season) -> float:
 	var p := season.player
 	var rev := season.review
-	if p == null or rev == null or not season.player_mode or p.dev >= Soldier.DEV_MAX or p.dev_changed_in(season.year):
-		return false
-	var honors := rev.award_for(p)
-	if honors.is_empty():
-		return false
-	p.change_dev(1, season.year)
-	p.study_progress = 0.0
-	_note(season, "Honors (%s) earned you a dev star: you are now a %s." % [", ".join(honors), p.dev_text()])
-	return true
+	if p == null or rev == null or not season.player_mode or p.dev >= Soldier.DEV_MAX:
+		return 0.0
+	var share := 0.0
+	var names: PackedStringArray = []
+	for a in rev.award_for(p):
+		var key: String = "Best role" if String(a).begins_with("Best ") else String(a)
+		if HONOR_SHARE.has(key):
+			share += float(HONOR_SHARE[key])
+			names.append(String(a))
+	var potw := SeasonReview.potw_count(season, p, season.regular_weeks)
+	if potw > 0:
+		share += float(HONOR_SHARE["Player of the Week"]) * potw
+		names.append("Player of the Week x%d" % potw)
+	if share <= 0.0:
+		return 0.0
+	var from := p.dev
+	WeeklyPlan.add_study(p, WeeklyPlan.star_cost(p.dev, p) * share, season.year)
+	_note(season, "Honors (%s) fill %d%% of your next star%s." % [", ".join(names), roundi(share * 100.0), " and earned it: you are now a %s" % p.dev_text() if p.dev > from else ""])
+	return share
 
 
 ## True when this is the first season he played any games (the first on the normal roster, not the Green Team).

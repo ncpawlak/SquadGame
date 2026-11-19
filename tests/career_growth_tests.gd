@@ -484,7 +484,16 @@ func test_strong_seasons_and_honors_move_the_star_bar() -> void:
 	h.player.dev = 2
 	h.player.dev_year = 0
 	h.review = SeasonReview.new()
-	check(not Stories.honors_star(h), "no honors, no star")
+	check(Stories.honors_study(h) == 0.0, "no honors, no change to the meter")
 	h.review.all_league.append({"soldier": h.player, "team": h.user_team(), "role": Scheme.Role.FRONTMAN, "line": {}})
-	check(Stories.honors_star(h) and h.player.dev == 3, "an All-League pick earns a star")
-	check(not Stories.honors_star(h), "but only one a season")
+	h.player.study_progress = 0.0
+	var share := Stories.honors_study(h)
+	check(is_equal_approx(share, 0.45) and is_equal_approx(h.player.study_progress, WeeklyPlan.star_cost(2, h.player) * 0.45), "an All-League pick fills 45% of the next star")
+	var m := _career(966)
+	m.player.dev = 2
+	m.player.dev_year = 0
+	m.player.study_progress = 0.0
+	m.review = SeasonReview.new()
+	m.review.awards.append({"award": "Season MVP", "soldier": m.player, "team": m.user_team(), "line": {}})
+	Stories.honors_study(m)
+	check(m.player.dev == 3, "an MVP season fills the whole bar and earns the star")
