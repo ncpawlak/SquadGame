@@ -207,6 +207,8 @@ func _todos() -> Array:
 			out.append(_todo("Warm up", "Run a drill for a match-only bonus (up to +%d)" % WarmUp.MAX_BONUS, UiKit.GOLD, func(): open_warmup(), true))
 		elif not p.warmup.is_empty() and int(p.warmup.get("key", 0)) == WarmUp.week_key(s):
 			out.append(_todo("Warm-up", "%s: %s" % [String(Stats.GROUP_LABELS[p.warmup["group"]]), ("+%d this match" % int(p.warmup["bonus"])) if int(p.warmup["bonus"]) > 0 else "no bonus"], UiKit.TRIM, func(): open_warmup()))
+	if PlayerRequest.error(s) == "" and not PlayerRequest.reasons(s).is_empty():
+		out.append(_todo("Trade request", "You have a case to ask for a move", UiKit.TRIM, func(): open_request()))
 	if not p.stories.is_empty():
 		out.append(_todo("Stories", "%d decision%s waiting" % [p.stories.size(), "" if p.stories.size() == 1 else "s"], UiKit.GOLD, func(): open_stories(), true))
 	if not p.offers.is_empty():
@@ -306,6 +308,16 @@ func _warmup() -> PlayerWarmupPages:
 
 func open_warmup() -> void:
 	hub.open("Warm-up", func(): return _warmup().warmup_page())
+
+
+var request_ui: PlayerRequestPages
+
+
+func open_request() -> void:
+	if request_ui == null:
+		request_ui = PlayerRequestPages.new()
+		request_ui.hub = hub
+	hub.open("Trade request", func(): return request_ui.request_page())
 
 
 func open_loadout() -> void:

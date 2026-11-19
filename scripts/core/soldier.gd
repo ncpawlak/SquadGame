@@ -145,6 +145,9 @@ var warmup: Dictionary = {}
 var match_delta: Dictionary = {}
 var warmup_last: StringName = &""
 var warmup_streak := 0
+## Career-mode trade requests (PlayerRequest): the season he last changed clubs, and when he may ask again.
+var moved_year := 0
+var request_block := 0
 ## Equipped items by slot: slot -> item dict (see Gear.item).
 var gear_slots: Dictionary = {}
 ## Sponsor deals he holds (see Sponsors) and the money they have paid him.
