@@ -97,7 +97,7 @@ func _init() -> void:
 	for note in season.player_notes:
 		if String(note["text"]).begins_with("Your study paid off"):
 			stars.append("%d.w%d" % [note["year"], note["week"]])
-	var result := {"age": age, "style": args["style"], "seed": seed_value, "skill": skill, "boost": WeeklyPlan.xp_boost, "agecap": Combine.age_cap_bonus, "costs": WeeklyPlan.star_costs.values(), "arch": String(arch), "entry_ovr": entry_ovr,
+	var result := {"age": age, "style": args["style"], "seed": seed_value, "skill": skill, "boost": WeeklyPlan.xp_boost, "agecap": Combine.age_cap_bonus, "costs": WeeklyPlan.star_costs.values(), "arch": String(arch), "story": String(args.get("story", "balanced")), "entry_ovr": entry_ovr,
 		"proj": proj, "pick": season.player_pick, "talent": p.talent, "stars": stars, "seasons": rows, "milestones": season.player_milestones.size()}
 	if int(args["vote"]) == 1:
 		_wait_vote(season, result)

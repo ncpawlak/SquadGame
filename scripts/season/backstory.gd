@@ -16,11 +16,11 @@ const MAX_START := 3
 const HEAT_FADE := 0.25
 
 const DEFS := {
-	PHENOM: {"name": "Phenom", "stars": 3, "caps": -3, "cost": 1.0, "brand": 15.0, "heat": 14.0, "points": 0, "morale": 0.0,
+	PHENOM: {"name": "Phenom", "stars": 3, "caps": -6, "cost": 1.0, "brand": 15.0, "heat": 14.0, "points": 0, "morale": 0.0,
 		"blurb": "A can't-miss name before you ever play a game. You grow fast and the sponsors call early, but your ceiling is lower, so you peak sooner and lower."},
 	BALANCED: {"name": "Balanced", "stars": 2, "caps": 0, "cost": 1.0, "brand": 0.0, "heat": 0.0, "points": 0, "morale": 0.0,
 		"blurb": "An ordinary route in: solid prospect, normal ceilings, normal costs. The baseline everything else is measured against."},
-	LATE: {"name": "Late bloomer", "stars": 1, "caps": 3, "cost": 0.75, "brand": 0.0, "heat": 0.0, "points": 0, "morale": 0.0,
+	LATE: {"name": "Late bloomer", "stars": 1, "caps": 5, "cost": 0.75, "brand": 0.0, "heat": 0.0, "points": 0, "morale": 0.0,
 		"blurb": "Slow out of the gate, with the highest ceilings and cheaper stars. A long road: you get there late, and only if you keep at it."},
 	WALKON: {"name": "Walk-on", "stars": 1, "caps": 0, "cost": 1.0, "brand": 0.0, "heat": -10.0, "points": 6, "morale": 8.0,
 		"blurb": "Nobody's idea of a prospect. Few sponsors early, but you arrive with extra skill points and a chip on your shoulder."},
