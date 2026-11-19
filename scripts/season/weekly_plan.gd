@@ -44,11 +44,11 @@ const CAMP_BRAND_BASE := [0.0, 3.0, 6.5, 11.0, 16.0]
 const OUTING_CLUB_SHARE := 0.5
 
 ## Dev star costs in study points: the cost to leave star `dev`. Visible to the player.
-const STAR_COST := {1: 30.0, 2: 40.0, 3: 70.0}
+const STAR_COST := {1: 15.0, 2: 20.0, 3: 32.0}
 ## Career-mode tuning knobs (the league never reads them): the live star costs, and how much faster the player earns
 ## XP than the shared age-and-star table says. The tuning tool overrides both.
 static var star_costs: Dictionary = STAR_COST.duplicate()
-static var xp_boost := 1.8
+static var xp_boost := 2.5
 
 ## Brand earned by playing well whatever the plan: a base per played game, scaled by the grade (x0.5 .. x2).
 const BRAND_PASSIVE := 1.0

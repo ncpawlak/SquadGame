@@ -76,7 +76,7 @@ func _init() -> void:
 				fat_n += 1
 		var sm := PlayerGrade.summary(PlayerGrade.log_for(season, season.year))
 		rows.append({"year": season.year, "age": p.age, "ovr": p.best_ovr(), "dev": p.dev, "study": snappedf(p.study_progress, 0.1),
-			"brand": snappedf(p.brand, 0.1), "wear": snappedf(p.wear, 0.1), "base": p.base_ovr(), "caps": _cap_avg(p), "cash": p.cash, "icon": _icon_gain(p), "icon_scales": _icon_scales(p), "slots": p.gear_slots.size(), "deals": p.deals.size(), "raises": raises, "stories": stories, "games": sm["games"], "avg": snappedf(sm["avg"], 0.1), "fatigue": snappedf(fat_sum / maxf(1.0, float(fat_n)), 0.1),
+			"brand": snappedf(p.brand, 0.1), "wear": snappedf(p.wear, 0.1), "base": p.base_ovr(), "caps": _cap_avg(p), "cash": p.cash, "honors": (season.review.award_for(p) if season.review != null else []), "icon": _icon_gain(p), "icon_scales": _icon_scales(p), "slots": p.gear_slots.size(), "deals": p.deals.size(), "raises": raises, "stories": stories, "games": sm["games"], "avg": snappedf(sm["avg"], 0.1), "fatigue": snappedf(fat_sum / maxf(1.0, float(fat_n)), 0.1),
 			"on": "green" if season.user_team().green_team.has(p) else "roster", "hof": snappedf(PlayerLegacy.trajectory(season)["score"], 0.1)})
 		print("season %d done t=%d" % [n, Time.get_ticks_msec() / 1000])
 		_take_deals(season)
