@@ -28,6 +28,8 @@ const SPECIALIZED: Array[StringName] = [RIFLE, ATTACHMENTS]
 const LADDERS := [[1], [2, 1], [3, 2, 1], [4, 3, 2, 1], [5, 4, 3, 2]]
 ## Brand needed for each sponsor tier (brand points, see WeeklyPlan.BRAND_TIER_SIZE).
 const TIER_BRAND := [0.0, 20.0, 40.0, 60.0, 80.0]
+## Tuning: multiplies every ladder value (rounded). 1.0 = the spec ladders.
+static var scale := 1.0
 const STAT_CAP := 10  # total gear bonus on any one stat
 const SET_PIECES := 3  # items from one brand that wake its set bonus (+1 on its lead stat)
 
@@ -112,7 +114,7 @@ static func item(brand_id: StringName, slot: StringName) -> Dictionary:
 	var bonus := {}
 	var stats := item_stats(brand_id, slot)
 	for i in stats.size():
-		bonus[stats[i]] = int(ladder[i])
+		bonus[stats[i]] = maxi(1, roundi(float(ladder[i]) * scale))
 	return {"brand": brand_id, "brand_name": b["name"], "slot": slot, "tier": int(b["tier"]),
 		"name": "%s %s" % [b["name"], SLOT_NOUN[slot]], "bonus": bonus}
 

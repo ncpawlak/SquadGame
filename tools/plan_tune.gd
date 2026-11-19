@@ -76,7 +76,7 @@ func _init() -> void:
 				fat_n += 1
 		var sm := PlayerGrade.summary(PlayerGrade.log_for(season, season.year))
 		rows.append({"year": season.year, "age": p.age, "ovr": p.best_ovr(), "dev": p.dev, "study": snappedf(p.study_progress, 0.1),
-			"brand": snappedf(p.brand, 0.1), "wear": snappedf(p.wear, 0.1), "base": p.base_ovr(), "caps": _cap_avg(p), "cash": p.cash, "deals": p.deals.size(), "raises": raises, "stories": stories, "games": sm["games"], "avg": snappedf(sm["avg"], 0.1), "fatigue": snappedf(fat_sum / maxf(1.0, float(fat_n)), 0.1),
+			"brand": snappedf(p.brand, 0.1), "wear": snappedf(p.wear, 0.1), "base": p.base_ovr(), "caps": _cap_avg(p), "cash": p.cash, "icon": _icon_gain(p), "icon_scales": _icon_scales(p), "slots": p.gear_slots.size(), "deals": p.deals.size(), "raises": raises, "stories": stories, "games": sm["games"], "avg": snappedf(sm["avg"], 0.1), "fatigue": snappedf(fat_sum / maxf(1.0, float(fat_n)), 0.1),
 			"on": "green" if season.user_team().green_team.has(p) else "roster", "hof": snappedf(PlayerLegacy.trajectory(season)["score"], 0.1)})
 		print("season %d done t=%d" % [n, Time.get_ticks_msec() / 1000])
 		_take_deals(season)
@@ -130,6 +130,32 @@ func _take_deals(season: Season) -> void:
 	for o in offers:
 		Sponsors.accept(season, o)
 	_equip_best(p)
+
+
+func _icon_scales(p: Soldier) -> Dictionary:
+	var out := {}
+	var keep := Gear.scale
+	for sc in [1.0, 1.5, 2.0, 2.5, 3.0]:
+		Gear.scale = sc
+		out[str(sc)] = _icon_gain(p)
+	Gear.scale = keep
+	return out
+
+
+## What a full loadout of the best Icon-tier items (chosen per slot for the best effective OVR) would add to base OVR.
+func _icon_gain(p: Soldier) -> int:
+	var slots := {}
+	for _pass in 2:
+		for slot in Gear.SLOTS:
+			var best_ovr := Gear.preview(p, slots)
+			for b in Gear.brands_in_tier(4):
+				var trial := slots.duplicate()
+				trial[slot] = Gear.item(b["id"], slot)
+				var o := Gear.preview(p, trial)
+				if o > best_ovr:
+					best_ovr = o
+					slots[slot] = trial[slot]
+	return Gear.preview(p, slots) - p.base_ovr()
 
 
 ## Fills each slot with the item that gives the best effective OVR (a few passes, since slots interact through the set bonus).

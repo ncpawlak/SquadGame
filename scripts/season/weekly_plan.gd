@@ -50,6 +50,10 @@ const STAR_COST := {1: 30.0, 2: 40.0, 3: 70.0}
 static var star_costs: Dictionary = STAR_COST.duplicate()
 static var xp_boost := 1.8
 
+## Brand earned by playing well whatever the plan: a base per played game, scaled by the grade (x0.5 .. x2).
+const BRAND_PASSIVE := 1.0
+## One-time brand for a season honor (also scaled down near the top, like every gain).
+const HONOR_BRAND := {"Season MVP": 18.0, "Rookie of the Year": 10.0, "Best role": 10.0, "All-League": 8.0, "Champion": 6.0, "Player of the Week": 3.0}
 const BRAND_MAX := 100.0
 const BRAND_DECAY := 0.98
 const BRAND_TIER_SIZE := 20.0
@@ -217,12 +221,48 @@ static func apply_week(season: Season) -> void:
 ## Brand for a played match (called when the grade is recorded). Returns the points gained.
 static func apply_brand(season: Season, score: float) -> float:
 	var s := season.player
-	var gain := brand_gain(level(s.plan, BRAND), score, s.brand)
+	var gain := brand_gain(level(s.plan, BRAND), score, s.brand) + _soft(s.brand, BRAND_PASSIVE * grade_factor(score))
 	var tier_before := Gear.tier_for_brand(s.brand)
 	s.brand = minf(BRAND_MAX, s.brand + gain)
 	if Gear.tier_for_brand(s.brand) > tier_before:
 		Sponsors.refresh(season)  # a brand tier-up gets the sponsors talking
 	return gain
+
+
+static func _soft(brand: float, amount: float) -> float:
+	return amount * maxf(0.0, 1.0 - brand / (BRAND_MAX * BRAND_SOFT))
+
+
+## Season honors turn into brand: the season's awards, All-League, a title and each Player of the Week.
+## Call once per season after the review. Returns the brand gained.
+static func apply_honors(season: Season) -> float:
+	var s := season.player
+	var rev := season.review
+	if s == null or rev == null or not season.player_mode:
+		return 0.0
+	var tier_before := Gear.tier_for_brand(s.brand)
+	var total := 0.0
+	var names: PackedStringArray = []
+	for a in rev.award_for(s):
+		var key: String = "Best role" if String(a).begins_with("Best ") else String(a)
+		if HONOR_BRAND.has(key):
+			var g := _soft(s.brand + total, float(HONOR_BRAND[key]))
+			total += g
+			names.append(String(a))
+	var team := season.user_team()
+	if team != null and season.champion == team:
+		total += _soft(s.brand + total, float(HONOR_BRAND["Champion"]))
+		names.append("Champion")
+	var potw := SeasonReview.potw_count(season, s, season.regular_weeks)
+	if potw > 0:
+		total += _soft(s.brand + total, float(HONOR_BRAND["Player of the Week"]) * potw)
+		names.append("Player of the Week x%d" % potw)
+	if total > 0.0:
+		s.brand = minf(BRAND_MAX, s.brand + total)
+		_note(season, "Your honors (%s) lifted your brand by %d." % [", ".join(names), roundi(total)])
+		if Gear.tier_for_brand(s.brand) > tier_before:
+			Sponsors.refresh(season)
+	return total
 
 
 ## The camp plan, applied once when camp runs. Outing morale waits for the season rollover (see apply_camp_outing).

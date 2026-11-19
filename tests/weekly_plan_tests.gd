@@ -183,7 +183,8 @@ func test_brand() -> void:
 	check(gain > 0.0 and p.brand == gain, "a played week with brand 3 earns brand")
 	var before := p.brand
 	p.plan = {}
-	check(WeeklyPlan.apply_brand(s, 95.0) == 0.0 and p.brand == before, "no brand points, no gain")
+	var passive := WeeklyPlan.apply_brand(s, 95.0)
+	check(passive > 0.0 and passive < gain, "no brand points still earns the smaller performance brand")
 	p.plan = {WeeklyPlan.BRAND: 2}
 	p.brand = 50.0
 	WeeklyPlan.apply_week(s)

@@ -350,3 +350,24 @@ func test_roster_cut_never_loops_on_the_players_own_soldier() -> void:
 	var out := season.trades.restructure(season, team, limit)
 	check(team.roster.has(p), "the player is never released")
 	check(team.roster.size() <= limit or out["cut"].is_empty(), "it finished (cut someone else, or gave up)")
+
+
+func test_brand_comes_from_performance_and_honors() -> void:
+	var season := _career(941)
+	var p := season.player
+	p.brand = 0.0
+	p.plan[WeeklyPlan.BRAND] = 0
+	var gain := WeeklyPlan.apply_brand(season, 85.0)
+	check(gain > 0.0 and p.brand > 0.0, "a good game earns brand even with the brand plan at zero")
+	var low := WeeklyPlan.brand_gain(0, 85.0, 0.0) + WeeklyPlan.BRAND_PASSIVE
+	check(WeeklyPlan.apply_brand(season, 95.0) > WeeklyPlan.apply_brand(season, 62.0), "a better grade earns more brand")
+	check(low > 0.0, "the passive base is positive")
+	p.brand = 10.0
+	season.review = SeasonReview.new()
+	season.review.awards.append({"award": "Season MVP", "soldier": p, "team": season.user_team(), "line": {}})
+	season.review.all_league.append({"soldier": p, "team": season.user_team(), "role": Scheme.Role.FRONTMAN, "line": {}})
+	var b := WeeklyPlan.apply_honors(season)
+	check(b > 20.0 and p.brand > 30.0, "an MVP and an All-League pick are a big brand jump (got %.1f)" % b)
+	p.brand = 99.0
+	var top := WeeklyPlan.apply_honors(season)
+	check(top < 5.0 and p.brand <= 100.0, "honors shrink near the top")

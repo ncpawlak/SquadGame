@@ -1516,7 +1516,6 @@ func _advance() -> void:
 		phase = PHASE_OFFSEASON
 		history.append(SeasonSnapshot.capture(self))
 		if player_mode and player != null:
-			Sponsors.season_end(self)
 			Stories.season_end(self)
 		var rrng := RandomNumberGenerator.new()
 		rrng.seed = _mix([league.league_seed, year, 0x4E71])
@@ -1524,6 +1523,9 @@ func _advance() -> void:
 		Soldier.log_when = "Season review"
 		review = SeasonReview.run(self, rrng)
 		review_history.append(review)
+		if player_mode and player != null:
+			WeeklyPlan.apply_honors(self)
+			Sponsors.season_end(self)
 		var retire_rng := RandomNumberGenerator.new()
 		retire_rng.seed = _mix([league.league_seed, year, 0x2E71])
 		var retired := Retirement.run(self, retire_rng)
