@@ -371,3 +371,57 @@ func test_brand_comes_from_performance_and_honors() -> void:
 	p.brand = 99.0
 	var top := WeeklyPlan.apply_honors(season)
 	check(top < 5.0 and p.brand <= 100.0, "honors shrink near the top")
+
+
+## A soldier who took the combine with `story` (same scores and rng for every story, so only the story differs).
+func _story_soldier(story: StringName, seed_value := 950) -> Soldier:
+	var heads: Array = FaceSpec.db()["heads"].keys()
+	heads.sort()
+	var s := PlayerCareer.create_soldier(-5, "Ada", "Stone", "Zzyzx", heads[0], 1, &"marksman", 21, story)
+	var c := Combine.make(&"marksman", 21)
+	for g in Combine.DRILL_ORDER:
+		var scores := {}
+		for t in Combine.drill_tasks(g):
+			scores[t["stat"]] = 0.8
+		c.record_try(g, scores)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value
+	c.finalize(s, rng)
+	return s
+
+
+func test_backstory_sets_stars_caps_and_extras() -> void:
+	var phenom := _story_soldier(Backstory.PHENOM)
+	var late := _story_soldier(Backstory.LATE)
+	var walk := _story_soldier(Backstory.WALKON)
+	var plain := _story_soldier(Backstory.BALANCED)
+	check(phenom.backstory == Backstory.PHENOM and plain.talent == phenom.talent, "the story is kept and the talent roll is the same")
+	check(phenom.dev == Backstory.start_stars(Backstory.PHENOM, phenom.talent) and phenom.dev >= 2, "a phenom starts high")
+	check(late.dev == Backstory.start_stars(Backstory.LATE, late.talent) and late.dev <= 2, "a late bloomer starts low")
+	check(phenom.dev >= plain.dev and plain.dev >= late.dev, "stars order: phenom, balanced, late bloomer")
+	var cap_p := 0
+	var cap_l := 0
+	for g in Stats.UPGRADABLE_GROUPS:
+		cap_p += phenom.group_cap(g)
+		cap_l += late.group_cap(g)
+	check(cap_l > cap_p, "a late bloomer has higher ceilings than a phenom")
+	check(phenom.brand >= 15.0 and plain.brand == 0.0, "a phenom starts with a name")
+	check(walk.skill_points >= 6 and plain.skill_points == 0, "a walk-on starts with extra skill points")
+	check(walk.morale > plain.morale, "and a hungrier morale")
+
+
+func test_backstory_talent_moves_the_stars_one_either_way() -> void:
+	check(Backstory.start_stars(Backstory.BALANCED, 4) == 3 and Backstory.start_stars(Backstory.BALANCED, 1) == 1, "talent 4 adds a star, talent 1 takes one (not below 1)")
+	check(Backstory.start_stars(Backstory.PHENOM, 4) == Backstory.MAX_START, "nobody starts above the story maximum")
+	check(Backstory.start_stars(Backstory.LATE, 1) == 1 and Backstory.start_stars(Backstory.LATE, 3) == 1, "a late bloomer stays at one star")
+
+
+func test_backstory_star_cost_and_sponsor_interest() -> void:
+	var late := _story_soldier(Backstory.LATE)
+	var plain := _story_soldier(Backstory.BALANCED)
+	check(is_equal_approx(WeeklyPlan.star_cost(1, late), WeeklyPlan.star_cost(1) * 0.75) and is_equal_approx(WeeklyPlan.star_cost(1, plain), WeeklyPlan.star_cost(1)), "a late bloomer's stars cost 25% fewer study points")
+	var phenom := _story_soldier(Backstory.PHENOM)
+	var walk := _story_soldier(Backstory.WALKON)
+	check(Backstory.heat_bonus(phenom, 0) > 0.0 and Backstory.heat_bonus(walk, 0) < 0.0, "a phenom draws sponsors, a walk-on does not")
+	check(Backstory.heat_bonus(phenom, 4) == 0.0, "the story's pull fades after four seasons")
+	check(Backstory.effects(Backstory.PHENOM).size() >= 3, "each story lists what it does")

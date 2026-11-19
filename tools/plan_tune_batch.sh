@@ -1,14 +1,14 @@
 #!/bin/bash
 # Runs plan_tune.gd careers in parallel.
 #   plan_tune_batch.sh <jobs file> <parallel> <out dir>
-# Each line of the jobs file: age style seed seasons vote tag boost costs agecap wgain wspa   (the last five may be "-")
+# Each line of the jobs file: age style seed seasons vote tag boost costs agecap wgain wspa story   (the last six may be "-")
 # Results go to <out dir>/<tag>_a<age>_<style>_s<seed>.jsonl; a finished job is skipped on a re-run.
 G="$LOCALAPPDATA/Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe"
 cd "$(dirname "$0")/.."
 OUT="$3"
 mkdir -p "$OUT"
 run_job() {
-  read -r age style seed seasons vote tag boost costs agecap wgain wspa <<< "$1"
+  read -r age style seed seasons vote tag boost costs agecap wgain wspa story <<< "$1"
   out="$OUT/${tag}_a${age}_${style}_s${seed}.jsonl"
   [ -s "$out" ] && return
   extra=""
@@ -17,6 +17,7 @@ run_job() {
   [ "$agecap" != "-" ] && [ -n "$agecap" ] && extra="$extra agecap=$agecap"
   [ "$wgain" != "-" ] && [ -n "$wgain" ] && extra="$extra wgain=$wgain"
   [ "$wspa" != "-" ] && [ -n "$wspa" ] && extra="$extra wspa=$wspa"
+  [ "$story" != "-" ] && [ -n "$story" ] && extra="$extra story=$story"
   timeout 7200 "$G" --headless --path . --script res://tools/plan_tune.gd -- age=$age style=$style seed=$seed seasons=$seasons vote=$vote out="$out" $extra > "$out.log" 2>&1
 }
 export -f run_job

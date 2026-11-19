@@ -140,8 +140,8 @@ static func week_xp(plan: Dictionary) -> float:
 # --- stars --------------------------------------------------------------------------------------
 
 ## Study points needed to leave star `dev` (0 at the top).
-static func star_cost(dev: int) -> float:
-	return float(star_costs.get(dev, 0.0))
+static func star_cost(dev: int, s: Soldier = null) -> float:
+	return float(star_costs.get(dev, 0.0)) * Backstory.cost_mult(s)
 
 
 ## Adds study points. Returns true if a star was earned. One star a season: a full bar waits for the next one.
@@ -149,7 +149,7 @@ static func add_study(s: Soldier, pts: float, year: int) -> bool:
 	if pts <= 0.0 or s.dev >= Soldier.DEV_MAX:
 		return false
 	s.study_progress += pts
-	var cost := star_cost(s.dev)
+	var cost := star_cost(s.dev, s)
 	if s.study_progress < cost:
 		return false
 	if s.dev_changed_in(year):

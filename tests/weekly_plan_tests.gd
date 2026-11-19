@@ -116,7 +116,8 @@ func test_spa_recovers_and_the_hooks_use_the_plan() -> void:
 func test_stars_start_at_one_and_cost_more_each_time() -> void:
 	var s := _career(802)
 	var p := s.player
-	check(p.dev == 1 and p.talent >= 1 and p.talent <= 4, "everyone starts at 1 star with a hidden talent (dev %d talent %d)" % [p.dev, p.talent])
+	check(p.dev == Backstory.start_stars(p.backstory, p.talent) and p.talent >= 1 and p.talent <= 4, "the story and the hidden talent set the starting stars (dev %d talent %d)" % [p.dev, p.talent])
+	p.dev = 1  # the rest of this test walks the bar from one star
 	check(WeeklyPlan.star_cost(1) < WeeklyPlan.star_cost(2) and WeeklyPlan.star_cost(2) < WeeklyPlan.star_cost(3) and WeeklyPlan.star_cost(4) == 0.0, "each star costs more; the top costs nothing")
 	check(not WeeklyPlan.add_study(p, WeeklyPlan.star_cost(1) - 1.0, 2026) and p.dev == 1, "below the cost: no star")
 	check(WeeklyPlan.add_study(p, 2.0, 2026) and p.dev == 2 and p.study_progress < 2.0, "crossing the cost earns a star and carries the excess")

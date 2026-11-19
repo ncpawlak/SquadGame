@@ -36,7 +36,7 @@ func _init() -> void:
 	heads.sort()
 	season.player_mode = true
 	season.player_archetype = arch
-	season.player = PlayerCareer.create_soldier(season.league.next_soldier_id, "Sim", "Player", "Simmer%d" % seed_value, heads[seed_value % heads.size()], seed_value, arch, age)
+	season.player = PlayerCareer.create_soldier(season.league.next_soldier_id, "Sim", "Player", "Simmer%d" % seed_value, heads[seed_value % heads.size()], seed_value, arch, age, StringName(args.get("story", "balanced")))
 	season.league.next_soldier_id += 1
 	season.player_combine = Combine.make(arch, age)
 	for g in Combine.DRILL_ORDER:

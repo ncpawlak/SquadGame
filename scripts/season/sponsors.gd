@@ -51,6 +51,9 @@ static func heat(season: Season) -> Dictionary:
 	parts.append(["Performance", performance_value(season)])
 	parts.append(["Prospect value", prospect_value(season)])
 	parts.append(["Dev stars", float(p.dev - 1) * 4.0 + (4.0 if p.age <= 21 else 0.0)])
+	var story := Backstory.heat_bonus(p, seasons_in(season))
+	if story != 0.0:
+		parts.append(["Your story", story])
 	var total := 0.0
 	for x in parts:
 		total += float(x[1])

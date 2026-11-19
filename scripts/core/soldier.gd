@@ -122,6 +122,8 @@ var camp_plan_confirmed := false
 var study_progress := 0.0
 var brand := 0.0
 var talent := 0
+## Career-mode starting story (Backstory id); empty for league soldiers.
+var backstory: StringName = &""
 ## Career-mode Wear (see Wear): the meter, and this season's running counters.
 var wear := 0.0
 var wear_fatigue_sum := 0.0

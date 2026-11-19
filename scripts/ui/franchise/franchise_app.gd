@@ -221,7 +221,7 @@ func _on_player_created(choice: Dictionary) -> void:
 	season.player_mode = true
 	season.player_archetype = choice["archetype"]
 	season.player = PlayerCareer.create_soldier(season.league.next_soldier_id, choice["first"], choice["last"],
-		choice["callsign"], choice["head"], int(choice["morph"]), choice["archetype"], int(choice["age"]))
+		choice["callsign"], choice["head"], int(choice["morph"]), choice["archetype"], int(choice["age"]), StringName(choice.get("backstory", Backstory.DEFAULT)))
 	season.league.next_soldier_id += 1
 	season.player_combine = Combine.make(choice["archetype"], int(choice["age"]))
 	preview_seed = 0

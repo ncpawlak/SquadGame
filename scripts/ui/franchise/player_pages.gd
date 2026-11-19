@@ -62,6 +62,8 @@ func header_row(extra: Control) -> HBoxContainer:
 	var role := Scheme.best_role(p.stats)
 	info.add_child(_label("%s %s   ·   OVR %d   ·   Age %d   ·   %s" % [
 		Archetypes.find(s.player_archetype)["name"], Scheme.ROLE_NAMES[role], p.best_ovr(), p.age, team.name], 16, Color(1, 1, 1, 0.72)))
+	if p.backstory != &"":
+		info.add_child(_label("Story: %s" % Backstory.story_name(p.backstory), 14, UiKit.MUTED))
 	if PlayerLegacy.retired(s):
 		info.add_child(_label("RETIRED  ·  %s" % _verdict_text(s), 15, UiKit.GOLD))
 	else:
@@ -320,7 +322,7 @@ func _plan_summary(plan: Dictionary, confirmed: bool) -> String:
 func _stars_line(p: Soldier) -> String:
 	if p.dev >= Soldier.DEV_MAX:
 		return "%s  ·  top star reached" % p.dev_text()
-	return "%s  ·  next star: %d / %d study points" % [p.dev_text(), roundi(p.study_progress), roundi(WeeklyPlan.star_cost(p.dev))]
+	return "%s  ·  next star: %d / %d study points" % [p.dev_text(), roundi(p.study_progress), roundi(WeeklyPlan.star_cost(p.dev, p))]
 
 
 func open_my_player() -> void:
