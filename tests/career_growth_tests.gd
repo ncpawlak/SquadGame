@@ -425,3 +425,35 @@ func test_backstory_star_cost_and_sponsor_interest() -> void:
 	check(Backstory.heat_bonus(phenom, 0) > 0.0 and Backstory.heat_bonus(walk, 0) < 0.0, "a phenom draws sponsors, a walk-on does not")
 	check(Backstory.heat_bonus(phenom, 4) == 0.0, "the story's pull fades after four seasons")
 	check(Backstory.effects(Backstory.PHENOM).size() >= 3, "each story lists what it does")
+
+
+func _log_games(season: Season, year: int, n: int, score: float) -> void:
+	for i in n:
+		season.player_log.append({"key": "%d:%d" % [year, i], "year": year, "week": i + 1, "stage": "regular", "played": true, "score": score, "reason": ""})
+
+
+func test_a_stellar_first_roster_season_earns_a_star() -> void:
+	var season := _career(960)
+	var p := season.player
+	p.dev = 2
+	p.dev_year = 0
+	season.player_log.clear()
+	_log_games(season, season.year, 10, 92.0)
+	Stories.season_end(season)
+	check(p.dev == 3, "a 92 average over 10 games in the first season is a free star")
+	Stories.season_end(season)
+	check(p.dev == 3, "once")
+	# Not on a later season, and not on a merely good one.
+	var late := _career(961)
+	late.player_log.clear()
+	_log_games(late, late.year - 1, 4, 70.0)
+	_log_games(late, late.year, 10, 95.0)
+	var d := late.player.dev
+	Stories.season_end(late)
+	check(late.player.dev == d, "no breakout if he already played the year before")
+	var ok := _career(962)
+	ok.player_log.clear()
+	_log_games(ok, ok.year, 10, 80.0)
+	var d2 := ok.player.dev
+	Stories.season_end(ok)
+	check(ok.player.dev == d2, "a good first season is not enough")

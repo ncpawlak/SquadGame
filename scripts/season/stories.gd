@@ -17,6 +17,9 @@ const CAPTAIN_GAMES := 10
 const CAPTAIN_AVG := 75.0
 const CAPTAIN_MORALE := 75.0
 const MENTOR_AGE := 29
+## A stellar first season on the normal roster is rare: it earns a dev star outright (once per career).
+const BREAKOUT_GAMES := 8
+const BREAKOUT_AVG := 88.0
 
 
 static func _once(p: Soldier, kind: String, year: int) -> bool:
@@ -58,7 +61,7 @@ static func after_match(season: Season, entry: Dictionary, won: bool) -> void:
 		_note(season, "The squad is flying: a group training session on your own time earned %d skill points." % sp)
 
 
-## End of a season, before the offseason: comeback, captaincy and mentor stories.
+## End of a season, before the offseason: breakout, comeback, captaincy and mentor stories.
 static func season_end(season: Season) -> void:
 	var p := season.player
 	if p == null or not season.player_mode:
@@ -66,6 +69,10 @@ static func season_end(season: Season) -> void:
 	p.stories = p.stories.filter(func(s): return int(s["year"]) >= season.year)
 	var sm := PlayerGrade.summary(PlayerGrade.log_for(season, season.year))
 	var games := int(sm["games"])
+	if games >= BREAKOUT_GAMES and float(sm["avg"]) >= BREAKOUT_AVG and p.dev < Soldier.DEV_MAX and _first_roster_season(season) and _once(p, "star_breakout", season.year):
+		p.change_dev(1, season.year)
+		p.study_progress = 0.0
+		_note(season, "Breakout season: a %d average in your first year on the roster. Scouts have re-graded you: you are now a %s." % [roundi(float(sm["avg"])), p.dev_text()])
 	if p.wear_injuries >= 1 and games >= COMEBACK_GAMES and _once(p, "comeback", season.year):
 		p.cap_story_bonus = 1
 		p.brand = minf(WeeklyPlan.BRAND_MAX, p.brand + 3.0)
@@ -82,6 +89,14 @@ static func season_end(season: Season) -> void:
 					choices.append({"key": String(g), "label": "%s (+2 skill points, a camp special on it)" % Stats.GROUP_LABELS[g]})
 				_ask(season, "mentor", "Veteran mentor", "A veteran on the squad offers to teach you. Pick what to learn.", choices)
 				break
+
+
+## True when this is the first season he played any games (the first on the normal roster, not the Green Team).
+static func _first_roster_season(season: Season) -> bool:
+	for e in season.player_log:
+		if bool(e.get("played", false)) and int(e["year"]) < season.year:
+			return false
+	return true
 
 
 ## Answers a pending story. Returns the toast text ("" if it was not found).
