@@ -9,14 +9,23 @@ extends RefCounted
 ##   playing_time  he is on the bench or the Green Team (from Week 3 on)
 ##   contender     his club is in the bottom half of the league and he is good enough to matter elsewhere
 ##   unhappy       morale is well below neutral
-## The club will not let a core player go (top 3 on its roster) unless he is unhappy.
+## The club will not let a core player go (top 3 on its roster) unless he is unhappy or has star power.
+##   star_power    brand 40+ or a season honor: leverage the club cannot ignore
+## Moving to a club 6+ places higher in the league adds brand and part of the next star.
 
 const CORE_RANK := 3
 const REFUSE_MORALE := -4.0
 const COOLDOWN_WEEKS := 4
 const MIN_WEEK := 3
 const UNHAPPY_GAP := 10.0
+## Star power: a big brand or last season's honors give him leverage the club cannot ignore.
+const STAR_BRAND := 40.0
+## Moving to a club at least this many places higher in the league puts him on a bigger stage: brand and star meter.
+const MOVE_RANKS := 6
+const MOVE_BRAND := 4.0
+const MOVE_STUDY_SHARE := 0.2
 const REASON_TEXT := {
+	&"star_power": "You are a name now and the club cannot hold you back.",
 	&"playing_time": "You are not playing and want a team where you will.",
 	&"contender": "Your club is going nowhere and you want to play for a winner.",
 	&"unhappy": "You are unhappy here and want a fresh start.",
@@ -42,7 +51,17 @@ static func reasons(season: Season) -> Array:
 		out.append(&"contender")
 	if p.morale <= Soldier.MORALE_NEUTRAL - UNHAPPY_GAP:
 		out.append(&"unhappy")
+	if has_leverage(season):
+		out.append(&"star_power")
 	return out
+
+
+## A big brand or a season honor: the club cannot refuse him as a core player.
+static func has_leverage(season: Season) -> bool:
+	var p := season.player
+	if p.brand >= STAR_BRAND:
+		return true
+	return season.review != null and not season.review.award_for(p).is_empty()
 
 
 ## 1 = the strongest team in the league.
@@ -93,7 +112,7 @@ static func shop(season: Season) -> Dictionary:
 		return _refuse(season, p, "%s: \"Give us a reason. You are playing, your club is fine and you are in good spirits.\"" % mine.name, why)
 	if mine.roster.has(p) and mine.roster_count() <= season.trades.min_roster(season):
 		return _refuse(season, p, "%s cannot spare a body right now." % mine.name, why)
-	if _core(mine, p) and not why.has(&"unhappy"):
+	if _core(mine, p) and not why.has(&"unhappy") and not why.has(&"star_power"):
 		return _refuse(season, p, "%s: \"You are one of our top players. We are not letting you go.\"" % mine.name, why)
 	p.shopped = true  # the league may deal for him only while he is being shopped
 	p.trade_request = true  # on the block, and he would leave relieved (Trades._move)
@@ -134,11 +153,18 @@ static func accept(season: Season, offer: Dictionary) -> Dictionary:
 	if err != "":
 		p.trade_offers.erase(offer)
 		return {"result": "error", "text": err}
+	var rank_before := rank_of(season, mine)
 	p.shopped = true
 	p.trade_request = true
 	season.trades.execute(season, mine, offer["get"], dest, offer["give"])
 	p.shopped = false
 	p.trade_request = false
+	var up := rank_before - rank_of(season, dest)
+	if up >= MOVE_RANKS:
+		p.brand = minf(100.0, p.brand + MOVE_BRAND)
+		if p.dev < Soldier.DEV_MAX:
+			WeeklyPlan.add_study(p, WeeklyPlan.star_cost(p.dev, p) * MOVE_STUDY_SHARE, season.year)
+		season.player_notes.append({"year": season.year, "week": season.week, "text": "A bigger stage: %s are %d places higher. Your brand grows and the move fills part of your next star." % [dest.name, up]})
 	season.player_team = dest
 	p.moved_year = season.year
 	p.request_block = 0

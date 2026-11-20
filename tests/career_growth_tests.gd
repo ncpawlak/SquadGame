@@ -602,6 +602,11 @@ func test_trade_request_shops_him_and_other_teams_pay() -> void:
 		return
 	var o: Dictionary = res["offers"][0]
 	check(o["team"] != old and not o["give"].is_empty(), "a rival team pays with its own assets")
+	p.shopped = true
+	for off in res["offers"]:
+		check(season.trades.validate(season, old, off["get"], off["team"], off["give"]) == "", "every offer passes cap, apron, matching and roster rules for both clubs")
+		check(float(off["fair"]) >= Trades.FAIR_LOW and float(off["fair"]) <= Trades.FAIR_HIGH, "and is a fair swap on the market (%.2f)" % float(off["fair"]))
+	p.shopped = false
 	var pays_players: Array = o["give"].filter(func(a): return not Trades.is_pick(a)).map(func(a): return a["soldier"])
 	var out := PlayerRequest.accept(season, o)
 	check(out["result"] == "granted", "he takes the deal (%s)" % out["text"])
@@ -624,3 +629,30 @@ func test_trade_request_refused_without_a_case_costs_morale() -> void:
 	var res := PlayerRequest.shop(season)
 	check(res["result"] == "refused" and p.morale < m, "no case: refused and morale drops")
 	check(PlayerRequest.error(season) != "", "he must wait before asking again")
+
+
+func test_star_power_overrides_a_core_refusal_and_a_bigger_stage_pays() -> void:
+	var season := _career(6)
+	_to_week(season, 4)
+	var p := season.player
+	for st in p.stats.keys():
+		p.stats[st] = 85
+	p.morale = Soldier.MORALE_NEUTRAL
+	p.brand = 10.0
+	check(not PlayerRequest.has_leverage(season) and not PlayerRequest.reasons(season).has(&"star_power"), "a small brand has no leverage")
+	p.brand = 60.0
+	check(PlayerRequest.has_leverage(season) and PlayerRequest.reasons(season).has(&"star_power"), "a big brand is leverage and a reason")
+	var res := PlayerRequest.shop(season)
+	check(res["result"] != "refused", "a star is not refused as a core player (%s)" % res["text"])
+	if res["result"] != "offers":
+		return
+	var best: Dictionary = res["offers"][0]
+	var before_rank := PlayerRequest.rank_of(season, season.user_team())
+	var brand := p.brand
+	var meter := p.study_progress
+	var stars := p.dev
+	PlayerRequest.accept(season, best)
+	var up := before_rank - PlayerRequest.rank_of(season, season.user_team())
+	if up >= PlayerRequest.MOVE_RANKS:
+		check(p.brand > brand or p.brand >= 99.9, "a move to a much better club adds brand")
+		check(p.study_progress > meter or p.dev > stars, "and fills part of the star meter")
