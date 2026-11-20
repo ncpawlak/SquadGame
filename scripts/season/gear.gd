@@ -120,7 +120,7 @@ static func item(brand_id: StringName, slot: StringName) -> Dictionary:
 
 
 ## Sum of equipped items' bonuses (plus brand set bonuses), per-stat capped at STAT_CAP.
-static func total_bonus(slots: Dictionary) -> Dictionary:
+static func total_bonus(slots: Dictionary, influence: Dictionary = {}) -> Dictionary:
 	var out := {}
 	var per_brand := {}
 	for slot in slots:
@@ -129,40 +129,64 @@ static func total_bonus(slots: Dictionary) -> Dictionary:
 			out[st] = int(out.get(st, 0)) + int(it["bonus"][st])
 		per_brand[it["brand"]] = int(per_brand.get(it["brand"], 0)) + 1
 	for id in per_brand:
-		if int(per_brand[id]) >= SET_PIECES:
-			var lean: Array = LEANS.get(brand(id).get("lean", &"mixed"), [])
-			if not lean.is_empty():
-				out[lean[0]] = int(out.get(lean[0], 0)) + 1
+		var lean: Array = LEANS.get(brand(id).get("lean", &"mixed"), [])
+		if lean.is_empty():
+			continue
+		for part in set_parts(id, int(per_brand[id]), float(influence.get(id, 0.0))):
+			out[lean[part[0]]] = int(out.get(lean[part[0]], 0)) + int(part[1])
 	for st in out:
 		out[st] = mini(int(out[st]), STAT_CAP)
 	return out
 
 
+## The set bonus of `pieces` items from one brand at this influence: [[lean index, points]]. 3 pieces +1 on the lead stat;
+## partner influence (50+) makes it +2; ambassador influence (75+) with 5 pieces is +4 and +2 on the second lean stat.
+static func set_parts(_brand_id: StringName, pieces: int, infl: float) -> Array:
+	if pieces < SET_PIECES:
+		return []
+	if pieces >= 5 and infl >= 75.0:
+		return [[0, 4], [1, 2]]
+	if infl >= 50.0:
+		return [[0, 2]]
+	return [[0, 1]]
+
+
 ## The set bonus line for the loadout page ("" if none): "Over Armour set: +1 toughness".
-static func set_text(slots: Dictionary) -> String:
+static func set_text(slots: Dictionary, influence: Dictionary = {}) -> String:
 	var per_brand := {}
 	for slot in slots:
 		per_brand[slots[slot]["brand"]] = int(per_brand.get(slots[slot]["brand"], 0)) + 1
 	var parts: PackedStringArray = []
 	for id in per_brand:
-		if int(per_brand[id]) >= SET_PIECES:
-			var lean: Array = LEANS.get(brand(id).get("lean", &"mixed"), [])
-			if not lean.is_empty():
-				parts.append("%s set: +1 %s" % [brand(id)["name"], Stats.LABELS[lean[0]]])
+		var lean: Array = LEANS.get(brand(id).get("lean", &"mixed"), [])
+		if lean.is_empty():
+			continue
+		var bits: PackedStringArray = []
+		for part in set_parts(id, int(per_brand[id]), float(influence.get(id, 0.0))):
+			bits.append("+%d %s" % [int(part[1]), Stats.LABELS[lean[part[0]]]])
+		if not bits.is_empty():
+			parts.append("%s set: %s" % [brand(id)["name"], ", ".join(bits)])
 	return ", ".join(parts)
 
 
 ## Re-rates the soldier from what is equipped.
 static func recalc(s: Soldier) -> void:
-	s.set_gear_bonus(total_bonus(s.gear_slots))
+	s.set_gear_bonus(total_bonus(s.gear_slots, s.influence))
 
 
-## Items the soldier can equip in `slot`: one per active deal that covers it.
+## Items the soldier can equip in `slot`: one per active deal that grants it, plus the ones he bought.
 static func available(s: Soldier, slot: StringName) -> Array:
 	var out: Array = []
+	var seen := {}
 	for d in s.deals:
-		if Array(d["slots"]).has(slot):
+		if Array(d["slots"]).has(slot) and not seen.has(d["brand"]):
+			seen[d["brand"]] = true
 			out.append(item(d["brand"], slot))
+	for key in s.owned_gear:
+		var parts := String(key).split(":")
+		if StringName(parts[1]) == slot and not seen.has(StringName(parts[0])):
+			seen[StringName(parts[0])] = true
+			out.append(item(StringName(parts[0]), slot))
 	return out
 
 
@@ -173,7 +197,7 @@ static func equip(s: Soldier, it: Dictionary) -> String:
 		if cand["brand"] == it.get("brand"):
 			ok = true
 	if not ok:
-		return "No sponsor deal covers that item."
+		return "No deal gives you that item and you do not own it."
 	s.gear_slots[slot] = it
 	recalc(s)
 	return ""
@@ -199,7 +223,7 @@ static func prune(s: Soldier) -> void:
 ## Effective OVR with these items, for the loadout preview: {ovr, bonus}.
 static func preview(s: Soldier, slots: Dictionary) -> int:
 	var eff := s.base_stats().duplicate()
-	var b := total_bonus(slots)
+	var b := total_bonus(slots, s.influence)
 	for st in b:
 		eff[st] = Stats.clamp_rating(int(eff[st]) + int(b[st]))
 	return Scheme.ovr_for_role(eff, Scheme.best_role(eff))

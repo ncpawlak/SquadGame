@@ -214,7 +214,7 @@ func _todos() -> Array:
 	if not p.offers.is_empty():
 		out.append(_todo("Sponsors", "%d offer%s waiting" % [p.offers.size(), "" if p.offers.size() == 1 else "s"], UiKit.GOLD, func(): open_sponsors(), true))
 	else:
-		out.append(_todo("Sponsors", "%d deal%s  ·  $%dk earned" % [p.deals.size(), "" if p.deals.size() == 1 else "s", p.cash], UiKit.TRIM, func(): open_sponsors()))
+		out.append(_todo("Sponsors", "%d deal%s  ·  %s" % [p.deals.size(), "" if p.deals.size() == 1 else "s", Sponsors.money_text(p.cash)], UiKit.TRIM, func(): open_sponsors()))
 	out.append(_todo("Loadout", "Base %d, gear %+d, effective %d" % [p.base_ovr(), p.best_ovr() - p.base_ovr(), p.best_ovr()], UiKit.TRIM, func(): open_loadout()))
 	var notes := s.player_notes
 	if not notes.is_empty():

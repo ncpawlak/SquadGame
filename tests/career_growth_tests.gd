@@ -202,7 +202,11 @@ func test_sponsors_follow_heat_and_tier() -> void:
 	check(Sponsors.prospect_value(season) < now, "a draft slot fades over the years")
 
 
-func test_sponsor_offers_accept_counter_and_overlap() -> void:
+func _deal(brand: StringName, slots: Array, pay: int, reduced: int, clauses: Array, years := 2) -> Dictionary:
+	return {"brand": brand, "slots": slots, "pay": pay, "reduced": reduced, "years_left": years, "clauses": clauses, "signed": 2000, "season_full": 0, "season_games": 0}
+
+
+func test_sponsor_offers_accept_counter_and_cap() -> void:
 	var season := _career(921)
 	var p := season.player
 	p.brand = 85.0
@@ -214,33 +218,145 @@ func test_sponsor_offers_accept_counter_and_overlap() -> void:
 		n += Sponsors.refresh(season)
 	check(n > 0 and not p.offers.is_empty() and p.offers.size() <= Sponsors.MAX_OFFERS, "a hot player draws offers (got %d)" % n)
 	var o: Dictionary = p.offers[0]
-	check(o["slots"].size() >= 1 and int(o["money"]) > 0 and int(o["years"]) >= 1, "an offer has slots, money and years")
+	check(o["slots"].size() >= 1 and int(o["pay"]) > 0 and int(o["reduced"]) < int(o["pay"]) and int(o["years"]) >= 1, "an offer has items, pay, a lower reduced pay and years")
+	check(not o["clauses"].is_empty() and o["clauses"][0]["kind"] == &"wear", "every offer has a wear clause")
+	check(o["slots"].size() <= Sponsors.GRANT_CAP[0], "a brand with no influence grants at most %d items" % Sponsors.GRANT_CAP[0])
 	var base := p.base_ovr()
 	check(Sponsors.accept(season, o) == "", "accepting works")
 	check(Sponsors.holds(p, o["brand"]) and p.base_ovr() == base and p.best_ovr() >= base, "a deal equips its gear, base unchanged")
-	var keep := {"brand": &"haynes", "slots": [Gear.RIFLE], "money": 4, "years": 1, "floor": 0.0, "style": Sponsors.STYLE_MONEY, "countered": false, "expires": season.year + 1, "reason": ""}
+	check(Sponsors.influence_of(p, o["brand"]) >= Sponsors.SIGN_START and not p.unlocked_gear.is_empty(), "signing starts influence and unlocks the items")
+	var keep := {"brand": &"haynes", "slots": [Gear.RIFLE], "pay": 250, "reduced": 100, "years": 1, "clauses": [{"kind": &"wear", "n": 1}], "style": Sponsors.STYLE_MONEY, "countered": false, "renewal": false, "expires": season.year + 1, "reason": ""}
 	p.offers = [keep]
 	var r := Sponsors.counter(season, keep)
 	check(r == "countered" or r == "withdrawn", "a counter resolves")
 	if r == "countered":
 		check(keep["style"] == Sponsors.STYLE_GEAR and Sponsors.counter(season, keep) == "", "only one counter, and it flips the style")
-	var clash := {"brand": &"nyke", "slots": Sponsors.covered(p).duplicate(), "money": 1, "years": 1, "floor": 0.0}
-	check(Sponsors.accept_error(p, clash) != "", "overlapping slots are refused")
+	p.deals = []
+	for b in [&"haynes", &"champ", &"boom"]:
+		p.deals.append(_deal(b, [Gear.HELMET], 100, 40, [{"kind": &"wear", "n": 1}]))
+	p.brand = 10.0
+	check(p.deals.size() > Sponsors.deal_cap(p) and Sponsors.accept_error(p, {"brand": &"fyla", "renewal": false}) != "", "the deal cap is enforced")
+	check(Sponsors.accept_error(p, {"brand": &"haynes", "renewal": false}) != "", "one deal per brand")
 
 
-func test_sponsor_season_end_pays_and_drops() -> void:
-	var season := _career(922)
+func test_deal_pays_in_full_or_reduced_and_moves_influence() -> void:
+	var season := _career(923)
 	var p := season.player
 	p.brand = 50.0
-	p.deals = [{"brand": &"overarmour", "slots": [Gear.HELMET], "money": 30, "years_left": 1, "floor": 30.0, "signed": season.year},
-		{"brand": &"pooma", "slots": [Gear.BOOTS], "money": 30, "years_left": 3, "floor": 60.0, "signed": season.year}]
+	var d := _deal(&"overarmour", [Gear.HELMET, Gear.VEST], 1000, 400, [{"kind": &"wear", "n": 2}, {"kind": &"kills", "n": 3}])
+	p.deals = [d]
+	p.influence[&"overarmour"] = 20.0
 	p.gear_slots[Gear.HELMET] = Gear.item(&"overarmour", Gear.HELMET)
-	p.gear_slots[Gear.BOOTS] = Gear.item(&"pooma", Gear.BOOTS)
-	Gear.recalc(p)
+	p.gear_slots[Gear.VEST] = Gear.item(&"overarmour", Gear.VEST)
+	var good := {"kills": 5, "score": 80.0}
+	check(Sponsors.after_match(season, good) == 1000 and p.cash == 1000, "all clauses met: the full contract pay, whatever the influence")
+	check(Sponsors.influence_of(p, &"overarmour") > 20.0, "meeting the clauses builds influence")
+	var infl := Sponsors.influence_of(p, &"overarmour")
+	check(Sponsors.after_match(season, {"kills": 1, "score": 80.0}) == 400, "a missed clause drops the match to the reduced pay, not a percentage of anything else")
+	check(Sponsors.influence_of(p, &"overarmour") < infl, "and wears influence down")
+	Gear.unequip(p, Gear.VEST)
+	check(not Sponsors.evaluate(p, d, good)["met"], "wearing fewer items than the wear clause asks breaks it")
+	# More items worn build influence faster.
+	var d2 := _deal(&"pooma", [Gear.HELMET, Gear.VEST, Gear.BOOTS], 500, 200, [{"kind": &"wear", "n": 1}])
+	var season2 := _career(924)
+	season2.player.deals = [d2]
+	season2.player.gear_slots[Gear.HELMET] = Gear.item(&"pooma", Gear.HELMET)
+	Sponsors.after_match(season2, {"kills": 0, "score": 70.0})
+	var one := Sponsors.influence_of(season2.player, &"pooma")
+	season2.player.gear_slots[Gear.VEST] = Gear.item(&"pooma", Gear.VEST)
+	season2.player.gear_slots[Gear.BOOTS] = Gear.item(&"pooma", Gear.BOOTS)
+	season2.player.influence[&"pooma"] = 0.0
+	Sponsors.after_match(season2, {"kills": 0, "score": 70.0})
+	check(Sponsors.influence_of(season2.player, &"pooma") > one, "wearing more of the brand builds influence faster")
+
+
+func test_influence_zero_cancels_and_no_deal_means_no_change() -> void:
+	var season := _career(925)
+	var p := season.player
+	p.deals = [_deal(&"nyke", [Gear.BOOTS], 800, 300, [{"kind": &"grade", "n": 99}, {"kind": &"kills", "n": 99}])]
+	p.influence[&"nyke"] = 2.0
+	Sponsors.after_match(season, {"kills": 0, "score": 50.0})
+	check(p.deals.is_empty(), "a deal whose influence runs out is cancelled")
+	p.influence[&"cryo"] = 60.0
+	for i in 5:
+		Sponsors.after_match(season, {"kills": 0, "score": 50.0})
+	check(Sponsors.influence_of(p, &"cryo") == 60.0, "with no deal nothing changes influence")
+
+
+func test_dropping_a_deal_costs_influence_but_items_can_be_bought_back() -> void:
+	var season := _career(926)
+	var p := season.player
+	p.brand = 85.0
+	var offer := {"brand": &"glok", "slots": [Gear.HELMET, Gear.RIFLE], "pay": 5000, "reduced": 2000, "years": 2, "clauses": [{"kind": &"wear", "n": 1}], "style": Sponsors.STYLE_MONEY, "countered": false, "renewal": false, "expires": season.year + 1, "reason": ""}
+	p.offers = [offer]
+	check(Sponsors.accept(season, offer) == "" and p.gear_slots.has(Gear.HELMET), "signed and equipped")
+	p.influence[&"glok"] = 60.0
+	Sponsors.drop(season, p.deals[0])
+	check(p.deals.is_empty() and p.gear_slots.is_empty(), "dropping the deal takes the items off")
+	check(Sponsors.influence_of(p, &"glok") <= 60.0 - Sponsors.DROP_LOSS + 0.01, "and costs a lot of influence")
+	check(p.unlocked_gear.size() == 2 and Sponsors.buyable(p).size() == 2, "the items stay unlocked and can be bought")
+	check(Sponsors.buy(season, &"glok", Gear.HELMET) != "", "no cash, no purchase")
+	var price := Sponsors.price(&"glok", Gear.HELMET)
+	p.cash = price + 5
+	check(Sponsors.buy(season, &"glok", Gear.HELMET) == "" and p.cash == 5 and Sponsors.owns(p, &"glok", Gear.HELMET), "buying takes the price and the item is his for good")
+	check(Gear.equip(p, Gear.item(&"glok", Gear.HELMET)) == "" and p.gear_slots.has(Gear.HELMET), "an owned item can be worn with no deal")
+	check(Sponsors.buy(season, &"cryo", Gear.VEST) != "", "he cannot buy what no sponsor ever granted")
+	var buyable := Sponsors.buyable(p)
+	check(buyable.size() == 1 and buyable[0]["slot"] == Gear.RIFLE, "only the unowned granted item is still on sale")
+
+
+func test_renewal_grows_with_influence_and_dies_when_cold() -> void:
+	var season := _career(927)
+	var p := season.player
+	p.brand = 85.0
+	p.deals = [_deal(&"oakly", [Gear.HELMET], 1000, 400, [{"kind": &"wear", "n": 1}], 1)]
+	p.influence[&"oakly"] = 80.0
 	var rep := Sponsors.season_end(season)
-	check(p.cash == 60 and rep["paid"] == 60, "both deals pay")
-	check(p.deals.is_empty(), "one ran out, one broke its brand floor")
-	check(p.gear_slots.is_empty() and p.gear_delta.is_empty(), "their gear went with them")
+	var ren: Array = p.offers.filter(func(o): return o["brand"] == &"oakly" and bool(o["renewal"]))
+	check(rep["renewals"] == 1 and ren.size() == 1 and p.deals.is_empty(), "an ending deal with strong influence gets a renewal offer")
+	check(ren[0]["slots"].size() > 1 and int(ren[0]["pay"]) >= Sponsors.contract_pay(3, 1, Sponsors.STYLE_MONEY, 0.0), "more items and more money at ambassador influence")
+	var p2 := _career(928)
+	p2.player.deals = [_deal(&"oakly", [Gear.HELMET], 1000, 400, [{"kind": &"wear", "n": 1}], 1)]
+	p2.player.influence[&"oakly"] = 5.0
+	Sponsors.season_end(p2)
+	check(p2.player.offers.filter(func(o): return o["brand"] == &"oakly").is_empty(), "a brand that lost faith does not renew")
+
+
+func test_season_clauses_claw_back_and_cost_influence() -> void:
+	var season := _career(929)
+	var p := season.player
+	var d := _deal(&"pooma", [Gear.BOOTS], 1000, 400, [{"kind": &"games", "n": 8}], 2)
+	d["season_full"] = 5
+	p.deals = [d]
+	p.cash = 10000
+	p.influence[&"pooma"] = 40.0
+	var rep := Sponsors.season_end(season)
+	check(rep["clawback"] == 3000 and p.cash == 7000, "missing a season clause takes back the difference on every full-pay match")
+	check(Sponsors.influence_of(p, &"pooma") < 40.0, "and costs influence")
+
+
+func test_set_bonus_grows_with_influence_and_rivals_cost_influence() -> void:
+	var slots := {}
+	for slot in [Gear.HELMET, Gear.VEST, Gear.BOOTS]:
+		slots[slot] = Gear.item(&"nyke", slot)
+	var base := Gear.total_bonus(slots, {})
+	var partner := Gear.total_bonus(slots, {&"nyke": 55.0})
+	var lead: StringName = Gear.LEANS[&"mobility"][0]
+	check(int(partner.get(lead, 0)) == int(base.get(lead, 0)) + 1, "partner influence makes the 3-piece set bonus +2 instead of +1")
+	for slot in [Gear.RIFLE, Gear.ATTACHMENTS]:
+		slots[slot] = Gear.item(&"nyke", slot)
+	var amb := Gear.total_bonus(slots, {&"nyke": 90.0})
+	var second: StringName = Gear.LEANS[&"mobility"][1]
+	check(int(amb.get(lead, 0)) > int(partner.get(lead, 0)) and int(amb.get(second, 0)) >= 2, "a full set at ambassador influence adds a lot and a second stat")
+	check(Gear.set_text(slots, {&"nyke": 90.0}).contains("+4"), "the loadout text shows the bigger bonus")
+	var season := _career(931)
+	var p := season.player
+	p.brand = 85.0
+	p.influence[&"addidas"] = 30.0
+	var offer := {"brand": &"nyke", "slots": [Gear.HELMET], "pay": 900, "reduced": 300, "years": 1, "clauses": [{"kind": &"wear", "n": 1}], "style": Sponsors.STYLE_MONEY, "countered": false, "renewal": false, "expires": season.year + 1, "reason": ""}
+	p.offers = [offer]
+	Sponsors.accept(season, offer)
+	check(Sponsors.influence_of(p, &"addidas") < 30.0, "signing a rival costs influence with the other brand")
 
 
 func _entry(score: float) -> Dictionary:

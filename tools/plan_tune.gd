@@ -78,7 +78,7 @@ func _init() -> void:
 				fat_n += 1
 		var sm := PlayerGrade.summary(PlayerGrade.log_for(season, season.year))
 		rows.append({"year": season.year, "age": p.age, "ovr": p.best_ovr(), "dev": p.dev, "study": snappedf(p.study_progress, 0.1),
-			"brand": snappedf(p.brand, 0.1), "wear": snappedf(p.wear, 0.1), "base": p.base_ovr(), "caps": _cap_avg(p), "cash": p.cash, "honors": (season.review.award_for(p) if season.review != null else []), "icon": _icon_gain(p), "icon_scales": _icon_scales(p), "slots": p.gear_slots.size(), "deals": p.deals.size(), "raises": raises, "stories": stories, "games": sm["games"], "avg": snappedf(sm["avg"], 0.1), "fatigue": snappedf(fat_sum / maxf(1.0, float(fat_n)), 0.1),
+			"brand": snappedf(p.brand, 0.1), "wear": snappedf(p.wear, 0.1), "base": p.base_ovr(), "caps": _cap_avg(p), "cash": p.cash, "owned": p.owned_gear.size(), "infl": _infl(p), "ndeals": p.deals.size(), "honors": (season.review.award_for(p) if season.review != null else []), "icon": _icon_gain(p), "icon_scales": _icon_scales(p), "slots": p.gear_slots.size(), "deals": p.deals.size(), "raises": raises, "stories": stories, "games": sm["games"], "avg": snappedf(sm["avg"], 0.1), "fatigue": snappedf(fat_sum / maxf(1.0, float(fat_n)), 0.1),
 			"on": "green" if season.user_team().green_team.has(p) else "roster", "hof": snappedf(PlayerLegacy.trajectory(season)["score"], 0.1)})
 		print("season %d done t=%d" % [n, Time.get_ticks_msec() / 1000])
 		_take_deals(season)
@@ -131,7 +131,39 @@ func _take_deals(season: Season) -> void:
 	offers.sort_custom(func(a, b): return int(Gear.brand(a["brand"])["tier"]) > int(Gear.brand(b["brand"])["tier"]))
 	for o in offers:
 		Sponsors.accept(season, o)
+	_buy_gear(season)
 	_equip_best(p)
+
+
+## Spends cash on any unlocked item that raises his effective OVR (most useful first).
+func _buy_gear(season: Season) -> void:
+	var p := season.player
+	var improved := true
+	while improved:
+		improved = false
+		var best_gain := 0
+		var best: Dictionary = {}
+		var now := Gear.preview(p, p.gear_slots)
+		for it in Sponsors.buyable(p):
+			if p.cash < int(it["price"]):
+				continue
+			var trial := p.gear_slots.duplicate()
+			trial[it["slot"]] = Gear.item(it["brand"], it["slot"])
+			var gain := Gear.preview(p, trial) - now
+			if gain > best_gain:
+				best_gain = gain
+				best = it
+		if not best.is_empty():
+			Sponsors.buy(season, best["brand"], best["slot"])
+			improved = true
+
+
+func _infl(p: Soldier) -> Dictionary:
+	var out := {}
+	for k in p.influence:
+		if float(p.influence[k]) > 0.0:
+			out[str(k)] = roundi(float(p.influence[k]))
+	return out
 
 
 func _icon_scales(p: Soldier) -> Dictionary:

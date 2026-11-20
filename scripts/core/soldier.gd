@@ -151,6 +151,10 @@ var request_block := 0
 var trade_offers: Array = []
 ## True only while his own trade request is being shopped or executed (Trades.tradeable lets him go then and never otherwise).
 var shopped := false
+## Sponsors (v2): influence per brand (0-100), and the items a deal ever granted / he bought, as "brand:slot" keys.
+var influence: Dictionary = {}
+var unlocked_gear: Array = []
+var owned_gear: Array = []
 var trade_offers_key := 0
 ## Equipped items by slot: slot -> item dict (see Gear.item).
 var gear_slots: Dictionary = {}

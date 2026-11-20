@@ -65,11 +65,11 @@ func loadout_page() -> Control:
 
 func _fill_loadout(box: VBoxContainer, st: Dictionary, fns: Dictionary) -> void:
 	var p := _season().player
-	box.add_child(_wrap("Gear comes from your sponsor deals. It adds to your ratings, and taking it off takes the bonus away again. It never counts toward Hall of Fame milestones.", 15))
+	box.add_child(_wrap("Gear comes from your sponsor deals, or from items you bought after a deal ended. Mix brands freely, one item per slot. It adds to your ratings, and taking it off takes the bonus away again. It never counts toward Hall of Fame milestones. Wearing several pieces of one brand wakes its set bonus, which grows with your influence with that brand.", 15))
 	var base := p.base_ovr()
 	var eff := p.best_ovr()
 	box.add_child(_label("Base OVR %d   ·   gear %+d   ·   effective OVR %d" % [base, eff - base, eff], 20, Color.WHITE))
-	var set_line := Gear.set_text(p.gear_slots)
+	var set_line := Gear.set_text(p.gear_slots, p.influence)
 	if set_line != "":
 		box.add_child(_label(set_line, 15, UiKit.GOOD))
 	for slot in Gear.SLOTS:
@@ -96,7 +96,7 @@ func _fill_loadout(box: VBoxContainer, st: Dictionary, fns: Dictionary) -> void:
 				trial[slot] = cand
 				var after := Gear.preview(p, trial)
 				var line := _hbox(12)
-				line.add_child(_label("    %s  (%s)  %s   →  OVR %d" % [cand["name"], Gear.tier_name(int(cand["tier"])), _bonus_text(cand["bonus"]), after], 14, UiKit.INFO))
+				line.add_child(_label("    %s  (%s)  %s   →  OVR %d%s" % [cand["name"], Gear.tier_name(int(cand["tier"])), _bonus_text(cand["bonus"]), after, "  ·  owned" if Sponsors.owns(p, cand["brand"], slot) and not Sponsors.holds(p, cand["brand"]) else ""], 14, UiKit.INFO))
 				line.add_child(UiKit.primary_button("Equip", func():
 					Gear.equip(p, cand)
 					st["open"] = &""
@@ -119,9 +119,9 @@ func _fill_loadout(box: VBoxContainer, st: Dictionary, fns: Dictionary) -> void:
 
 
 func _empty_reason(p: Soldier, slot: StringName) -> String:
-	if p.deals.is_empty():
+	if p.deals.is_empty() and p.owned_gear.is_empty():
 		return "Empty: no sponsor deal yet"
-	return "Empty: no deal covers this slot"
+	return "Empty: no deal or purchase gives you an item for this slot"
 
 
 # --- sponsors --------------------------------------------------------------------------------------
@@ -143,27 +143,45 @@ func _slots_text(slots: Array) -> String:
 	return ", ".join(slots.map(func(s): return String(Gear.SLOT_LABELS[s]).to_lower()))
 
 
+func _clauses_text(clauses: Array) -> String:
+	return "; ".join(clauses.map(func(c): return Sponsors.clause_text(c)))
+
+
+func _meter(v: float) -> String:
+	var n := clampi(roundi(v / 10.0), 0, 10)
+	return "[" + "#".repeat(n) + "-".repeat(10 - n) + "]"
+
+
 func _fill_sponsors(box: VBoxContainer, fns: Dictionary) -> void:
 	var s := _season()
 	var p := s.player
 	var h := Sponsors.heat(s)
-	box.add_child(_wrap("Sponsors come to you. Interest builds from your brand, recent performance, your draft slot (it fades) and your dev stars. A deal gives gear for the slots it covers and pays every season; keep your brand above its floor or it ends.", 15))
-	box.add_child(_label("Cash: $%dk   ·   sponsor heat %d   ·   brand %d (%s)" % [p.cash, roundi(h["heat"]), roundi(p.brand), WeeklyPlan.tier_name(p.brand)], 18, Color.WHITE))
+	box.add_child(_wrap("Sponsors come to you. A deal grants gear and pays a fixed amount every match you play, as long as you meet its clauses; miss them and the pay drops to a lower amount, and the brand's influence with you falls. Influence builds when you meet the clauses and wear their items. It never changes the pay inside a contract, but it decides how many items and how much money you are offered at renewal, and it makes their set bonus bigger. Dropping a deal costs you a lot of influence.", 15))
+	box.add_child(_label("Cash: %s   ·   sponsor heat %d   ·   brand %d (%s)   ·   deals %d of %d" % [Sponsors.money_text(p.cash), roundi(h["heat"]), roundi(p.brand), WeeklyPlan.tier_name(p.brand), p.deals.size(), Sponsors.deal_cap(p)], 18, Color.WHITE))
 	box.add_child(_wrap("Heat: " + ", ".join(h["parts"].map(func(x): return "%s %d" % [x[0], roundi(x[1])])), 14))
 	box.add_child(UiKit.heading("Your deals", 18))
 	if p.deals.is_empty():
 		box.add_child(_label("No deals yet.", 15, UiKit.MUTED))
-	for d in p.deals:
+	for d in p.deals.duplicate():
 		var b := Gear.brand(d["brand"])
-		var warn: bool = p.brand < float(d["floor"]) + 8.0 and float(d["floor"]) > 0.0
-		box.add_child(_label("%s (%s)  ·  %s  ·  $%dk a year  ·  %d year%s left  ·  brand floor %d%s" % [b["name"], Gear.tier_name(int(b["tier"])), _slots_text(d["slots"]), d["money"], d["years_left"], "" if int(d["years_left"]) == 1 else "s", roundi(float(d["floor"])), "   (close to the floor)" if warn else ""], 15, UiKit.BAD if warn else UiKit.TEXT))
+		var infl := Sponsors.influence_of(p, d["brand"])
+		var row := _vbox(3)
+		row.add_child(_label("%s (%s)  ·  %s  ·  %s a match (%s if you miss a clause)  ·  %d year%s left" % [b["name"], Gear.tier_name(int(b["tier"])), _slots_text(d["slots"]), Sponsors.money_text(int(d["pay"])), Sponsors.money_text(int(d["reduced"])), d["years_left"], "" if int(d["years_left"]) == 1 else "s"], 15, UiKit.TEXT))
+		row.add_child(_label("    Clauses: " + _clauses_text(d["clauses"]), 14, UiKit.MUTED))
+		var worn := Sponsors.worn_of(p, d["brand"])
+		row.add_child(_label("    Influence %s %d (%s)  ·  wearing %d of %d items" % [_meter(infl), roundi(infl), Sponsors.INFLUENCE_NAMES[Sponsors.influence_tier(infl)], worn, d["slots"].size()], 14, UiKit.GOOD if infl >= 50.0 else (UiKit.BAD if infl < 15.0 else UiKit.INFO)))
+		row.add_child(UiKit.button("Walk away (costs %d influence)" % roundi(Sponsors.DROP_LOSS), func():
+			Sponsors.drop(s, d)
+			fns["render"].call(), 13))
+		box.add_child(row)
 	box.add_child(UiKit.heading("Offers", 18))
 	if p.offers.is_empty():
 		box.add_child(_label("No offers right now.", 15, UiKit.MUTED))
 	for o in p.offers.duplicate():
 		var b := Gear.brand(o["brand"])
 		var row := _vbox(4)
-		row.add_child(_label("%s (%s)  ·  %s  ·  $%dk a year for %d year%s  ·  floor %d  ·  %s" % [b["name"], Gear.tier_name(int(b["tier"])), _slots_text(o["slots"]), o["money"], o["years"], "" if int(o["years"]) == 1 else "s", roundi(float(o["floor"])), "money-heavy" if o["style"] == Sponsors.STYLE_MONEY else "gear-heavy"], 15, Color.WHITE))
+		row.add_child(_label("%s%s (%s)  ·  %s  ·  %s a match (%s if you miss a clause) for %d year%s  ·  %s" % ["RENEWAL: " if bool(o.get("renewal", false)) else "", b["name"], Gear.tier_name(int(b["tier"])), _slots_text(o["slots"]), Sponsors.money_text(int(o["pay"])), Sponsors.money_text(int(o["reduced"])), o["years"], "" if int(o["years"]) == 1 else "s", "money-heavy" if o["style"] == Sponsors.STYLE_MONEY else "gear-heavy"], 15, Color.WHITE))
+		row.add_child(_label("    Clauses: " + _clauses_text(o["clauses"]), 14, UiKit.TEXT))
 		row.add_child(_label("    " + String(o["reason"]), 14, UiKit.MUTED))
 		var btns := _hbox(10)
 		var err := Sponsors.accept_error(p, o)
@@ -186,6 +204,31 @@ func _fill_sponsors(box: VBoxContainer, fns: Dictionary) -> void:
 			btns.add_child(_label(err, 13, UiKit.BAD))
 		row.add_child(btns)
 		box.add_child(row)
+	box.add_child(UiKit.heading("Influence", 18))
+	var any_infl := false
+	for br in Gear.BRANDS:
+		var v := Sponsors.influence_of(p, br["id"])
+		if v <= 0.0 and not Sponsors.holds(p, br["id"]):
+			continue
+		any_infl = true
+		box.add_child(_label("%s  %s %d  (%s)%s" % [br["name"], _meter(v), roundi(v), Sponsors.INFLUENCE_NAMES[Sponsors.influence_tier(v)], "" if Sponsors.holds(p, br["id"]) else "  ·  no deal"], 14, UiKit.TEXT))
+	if not any_infl:
+		box.add_child(_label("No brand has any influence with you yet.", 14, UiKit.MUTED))
+	box.add_child(UiKit.heading("Gear you can buy", 18))
+	var shop := Sponsors.buyable(p)
+	if shop.is_empty():
+		box.add_child(_label("Nothing. Items a deal gave you can be bought here once the deal is over.", 14, UiKit.MUTED))
+	for it in shop:
+		var row2 := _hbox(12)
+		var item := Gear.item(it["brand"], it["slot"])
+		row2.add_child(_label("%s  (%s)  %s  ·  %s" % [item["name"], Gear.tier_name(int(item["tier"])), _bonus_text(item["bonus"]), Sponsors.money_text(int(it["price"]))], 14, UiKit.TEXT))
+		var buy := UiKit.button("Buy", func():
+			var e := Sponsors.buy(s, it["brand"], it["slot"])
+			hub.app.toast(e if e != "" else "Bought %s." % item["name"])
+			fns["render"].call(), 14)
+		buy.disabled = p.cash < int(it["price"])
+		row2.add_child(buy)
+		box.add_child(row2)
 	box.add_child(UiKit.heading("What the others want", 18))
 	for t in Gear.TIER_BRAND.size():
 		var names := ", ".join(Gear.brands_in_tier(t).map(func(b): return b["name"]))

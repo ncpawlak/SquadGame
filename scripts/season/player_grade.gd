@@ -116,6 +116,7 @@ static func record(season: Season, m: ScheduledMatch) -> void:
 		Progression.gain_xp(season.player, bonus_xp(float(g["score"])))
 		entry["brand"] = WeeklyPlan.apply_brand(season, float(g["score"]))
 		Wear.record_game(season.player)
+		Sponsors.after_match(season, entry)
 	season.player_log.append(entry)
 	Stories.after_match(season, entry, m.winner() == team)
 	PlayerLegacy.update(season)
