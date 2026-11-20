@@ -1,8 +1,9 @@
 class_name PlayerRequest
 extends RefCounted
-## Career mode (#141): the player can ask the club for a trade. He needs a real reason, picks a destination from the
-## clubs that would take him, and the club answers: granted (he moves, the contract goes with him) or refused (a small
-## morale hit and a few weeks before he can ask again). Only while the trade window is open, and one move a season.
+## Career mode (#141): the player can ask the club for a trade. He needs a real reason and the club decides whether to
+## shop him. If it does, the other teams make real offers through the league's own trade logic (each pays with its own
+## players and picks, and the club has to like the package), and he picks one. A refusal costs a little morale and a few
+## weeks before he can ask again. Only while the trade window is open, and one move a season.
 ##
 ## Reasons (any one will do):
 ##   playing_time  he is on the bench or the Green Team (from Week 3 on)
@@ -37,7 +38,7 @@ static func reasons(season: Season) -> Array:
 	var early := season.phase == Season.PHASE_REGULAR and not season.preseason_camp and season.week < MIN_WEEK
 	if (st["where"] == PlayerCoach.WHERE_BENCH or st["where"] == PlayerCoach.WHERE_GREEN) and not early:
 		out.append(&"playing_time")
-	if rank_of(season, team) > season.league.teams.size() / 2 and p.best_ovr() >= _weakest_starter_ovr(team):
+	if rank_of(season, team) > season.league.teams.size() / 2 and p.best_ovr() >= weakest_starter_ovr(team):
 		out.append(&"contender")
 	if p.morale <= Soldier.MORALE_NEUTRAL - UNHAPPY_GAP:
 		out.append(&"unhappy")
@@ -54,7 +55,7 @@ static func rank_of(season: Season, team: Team) -> int:
 	return r
 
 
-static func _weakest_starter_ovr(team: Team) -> int:
+static func weakest_starter_ovr(team: Team) -> int:
 	var worst := 999
 	for s in team.starters():
 		worst = mini(worst, s.best_ovr())
@@ -79,53 +80,80 @@ static func error(season: Season) -> String:
 	return ""
 
 
-## Clubs that would take him, best team first: [{team, starts (bool), rank}].
-static func destinations(season: Season) -> Array:
-	var out: Array = []
-	var p := season.player
-	var mine := season.user_team()
-	if p == null or mine == null:
-		return out
-	for t in season.league.teams:
-		if t == mine:
-			continue
-		var worst := 999
-		for s in t.roster:
-			worst = mini(worst, s.best_ovr())
-		if t.roster.size() < Team.ROSTER_SIZE:
-			worst = 0
-		if p.best_ovr() < worst:
-			continue
-		out.append({"team": t, "starts": p.best_ovr() > _weakest_starter_ovr(t), "rank": rank_of(season, t)})
-	out.sort_custom(func(a, b): return int(a["rank"]) < int(b["rank"]))
-	return out
-
-
-## Asks for a trade to `dest`. Returns {result: granted|refused|error, text, reasons}.
-static func ask(season: Season, dest: Team) -> Dictionary:
+## The ask: the club decides whether to shop him. If it does, every team that wants him bids with a package from its own
+## assets (see Trades.shop_player). Returns {result: refused|none|offers|error, text, reasons, offers}.
+static func shop(season: Season) -> Dictionary:
 	var err := error(season)
 	if err != "":
 		return {"result": "error", "text": err}
 	var p := season.player
 	var mine := season.user_team()
-	if dest == null or dest == mine or not destinations(season).any(func(d): return d["team"] == dest):
-		return {"result": "error", "text": "That club would not take you."}
 	var why := reasons(season)
 	if why.is_empty():
 		return _refuse(season, p, "%s: \"Give us a reason. You are playing, your club is fine and you are in good spirits.\"" % mine.name, why)
-	if mine.roster_count() <= season.trades.min_roster(season) and mine.roster.has(p):
+	if mine.roster.has(p) and mine.roster_count() <= season.trades.min_roster(season):
 		return _refuse(season, p, "%s cannot spare a body right now." % mine.name, why)
 	if _core(mine, p) and not why.has(&"unhappy"):
 		return _refuse(season, p, "%s: \"You are one of our top players. We are not letting you go.\"" % mine.name, why)
-	p.trade_request = true  # he leaves relieved (Trades._move)
-	var give: Array = [Trades.player_asset(p)]
-	season.trades.execute(season, mine, give, dest, [])
+	p.shopped = true  # the league may deal for him only while he is being shopped
+	p.trade_request = true  # on the block, and he would leave relieved (Trades._move)
+	var offers := season.trades.shop_player(season, p)
+	p.shopped = false
+	p.trade_request = false
+	p.trade_offers = offers
+	p.trade_offers_key = _key(season)
+	season.player_notes.append({"year": season.year, "week": season.week, "text": "Your club agreed to shop you: %d team%s made an offer." % [offers.size(), "" if offers.size() == 1 else "s"]})
+	if offers.is_empty():
+		p.request_block = _key(season) + 1
+		return {"result": "none", "text": "%s shopped you around and nobody would pay for you right now." % mine.name, "reasons": why, "offers": []}
+	return {"result": "offers", "text": "%s agreed to shop you. %d team%s made an offer." % [mine.name, offers.size(), "" if offers.size() == 1 else "s"], "reasons": why, "offers": offers}
+
+
+## Offers still good this week.
+static func live_offers(season: Season) -> Array:
+	var p := season.player
+	if p == null or p.trade_offers_key != _key(season):
+		return []
+	return p.trade_offers
+
+
+## He takes `offer`: the club sends him out and gets the package back. Returns {result: granted|error, text}.
+static func accept(season: Season, offer: Dictionary) -> Dictionary:
+	var err := error(season)
+	if err == "" and not live_offers(season).has(offer):
+		err = "That offer is no longer on the table."
+	var p := season.player
+	var mine := season.user_team()
+	var dest: Team = offer["team"]
+	if err == "":
+		p.shopped = true
+		p.trade_request = true
+		err = season.trades.validate(season, mine, offer["get"], dest, offer["give"])
+		p.shopped = false
+		p.trade_request = false
+	if err != "":
+		p.trade_offers.erase(offer)
+		return {"result": "error", "text": err}
+	p.shopped = true
+	p.trade_request = true
+	season.trades.execute(season, mine, offer["get"], dest, offer["give"])
+	p.shopped = false
+	p.trade_request = false
 	season.player_team = dest
 	p.moved_year = season.year
 	p.request_block = 0
-	season.player_notes.append({"year": season.year, "week": season.week, "text": "You asked out and %s sent you to %s." % [mine.name, dest.name]})
+	p.trade_offers = []
+	p.trade_offers_key = 0
+	season.player_notes.append({"year": season.year, "week": season.week, "text": "%s traded you to %s." % [mine.name, dest.name]})
 	PlayerLegacy.update(season)
-	return {"result": "granted", "text": "%s agreed. You are now with %s." % [mine.name, dest.name], "reasons": why}
+	return {"result": "granted", "text": "Traded to %s." % dest.name}
+
+
+## Withdraws the request: he stays and the offers go.
+static func withdraw(season: Season) -> void:
+	var p := season.player
+	p.trade_offers = []
+	p.trade_offers_key = 0
 
 
 static func _core(team: Team, p: Soldier) -> bool:

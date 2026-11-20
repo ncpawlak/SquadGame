@@ -581,30 +581,36 @@ func test_trade_request_needs_a_reason_and_the_window() -> void:
 	var season := _career(5)
 	_to_week(season, 4)
 	var p := season.player
-	p.morale = Soldier.MORALE_NEUTRAL
-	var team := season.user_team()
-	if PlayerCoach.status(season)["where"] == PlayerCoach.WHERE_STARTER:
-		check(PlayerRequest.reasons(season).is_empty() or PlayerRequest.rank_of(season, team) > season.league.teams.size() / 2, "a starter on a good club has no case")
 	p.morale = 20.0
 	check(PlayerRequest.reasons(season).has(&"unhappy"), "low morale is a reason")
-	var dests := PlayerRequest.destinations(season)
-	check(not dests.is_empty() and dests[0]["team"] != team, "there are clubs that would take him")
 	season.week = Trades.DEADLINE_WEEK + 1
 	check(PlayerRequest.error(season) != "", "no requests after the deadline")
 
 
-func test_trade_request_grants_a_move_and_limits_it_to_once_a_season() -> void:
+func test_trade_request_shops_him_and_other_teams_pay() -> void:
 	var season := _career(6)
 	_to_week(season, 4)
 	var p := season.player
+	for st in p.stats.keys():
+		p.stats[st] = 82
 	p.morale = 20.0
 	var old := season.user_team()
-	var dest: Team = PlayerRequest.destinations(season)[0]["team"]
-	var res := PlayerRequest.ask(season, dest)
-	check(res["result"] == "granted", "an unhappy player gets his move (%s)" % res["text"])
-	check(season.user_team() == dest and dest.has_player(p) and not old.has_player(p), "he is on the new club")
+	var res := PlayerRequest.shop(season)
+	check(res["result"] == "offers" or res["result"] == "none", "an unhappy player is shopped (%s)" % res["text"])
+	check(res["result"] == "offers", "a strong young player draws offers")
+	if res["result"] != "offers":
+		return
+	var o: Dictionary = res["offers"][0]
+	check(o["team"] != old and not o["give"].is_empty(), "a rival team pays with its own assets")
+	var pays_players: Array = o["give"].filter(func(a): return not Trades.is_pick(a)).map(func(a): return a["soldier"])
+	var out := PlayerRequest.accept(season, o)
+	check(out["result"] == "granted", "he takes the deal (%s)" % out["text"])
+	check(season.user_team() == o["team"] and o["team"].has_player(p) and not old.has_player(p), "he is on the new club")
+	for so in pays_players:
+		check(old.has_player(so), "the club got the players back")
 	check(p.moved_year == season.year and PlayerRequest.error(season) != "", "one move a season")
-	check(not p.trade_request, "the request flag is cleared by the move")
+	check(not p.trade_request and not p.shopped, "the request flags are cleared by the move")
+	check(not Trades.tradeable(p), "the league can never deal for him on its own")
 
 
 func test_trade_request_refused_without_a_case_costs_morale() -> void:
@@ -614,10 +620,7 @@ func test_trade_request_refused_without_a_case_costs_morale() -> void:
 	p.morale = Soldier.MORALE_NEUTRAL
 	if not PlayerRequest.reasons(season).is_empty():
 		return
-	var dests := PlayerRequest.destinations(season)
-	if dests.is_empty():
-		return
 	var m := p.morale
-	var res := PlayerRequest.ask(season, dests[0]["team"])
+	var res := PlayerRequest.shop(season)
 	check(res["result"] == "refused" and p.morale < m, "no case: refused and morale drops")
 	check(PlayerRequest.error(season) != "", "he must wait before asking again")

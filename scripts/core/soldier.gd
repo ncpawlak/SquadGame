@@ -148,6 +148,10 @@ var warmup_streak := 0
 ## Career-mode trade requests (PlayerRequest): the season he last changed clubs, and when he may ask again.
 var moved_year := 0
 var request_block := 0
+var trade_offers: Array = []
+## True only while his own trade request is being shopped or executed (Trades.tradeable lets him go then and never otherwise).
+var shopped := false
+var trade_offers_key := 0
 ## Equipped items by slot: slot -> item dict (see Gear.item).
 var gear_slots: Dictionary = {}
 ## Sponsor deals he holds (see Sponsors) and the money they have paid him.
