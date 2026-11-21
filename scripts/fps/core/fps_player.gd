@@ -225,7 +225,10 @@ func _physics_process(delta: float) -> void:
 		want_jump = Input.is_action_just_pressed("fps_jump")
 		weapon.set_trigger(Input.is_action_pressed("fps_fire") and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED)
 		if Input.is_action_just_pressed("fps_reload"):
-			weapon.reload()
+			if weapon.reloading:
+				weapon.reload_tap()  # a second press during a reload is the active-reload press
+			else:
+				weapon.reload()
 		if Input.is_action_just_pressed("fps_fire_mode"):
 			weapon.cycle_fire_mode()
 		for i in 4:

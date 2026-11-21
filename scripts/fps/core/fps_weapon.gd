@@ -49,6 +49,9 @@ var flinch: Vector2 = Vector2.ZERO  ## (pitch up, yaw) degrees the aim is knocke
 var bloom: float = 0.0  ## extra spread degrees from sustained fire
 var recoil: Vector2 = Vector2.ZERO  ## (pitch up, yaw) degrees the camera is kicked by
 var sway_offset: Vector2 = Vector2.ZERO  ## idle sway degrees (pitch, yaw)
+## Multipliers on the idle sway the owner can set: a scope drill exaggerates it, holding your breath steadies it.
+var sway_mult: float = 1.0
+var steady: float = 1.0
 
 var reloading: bool = false
 var reload_left: float = 0.0
@@ -353,7 +356,7 @@ func tick(delta: float) -> void:
 	if mag > 0.0:
 		var step := (rate + mag * 2.0) * delta
 		recoil = recoil.move_toward(Vector2.ZERO, step)
-	var amp := sway_amplitude(def, stats)
+	var amp := sway_amplitude(def, stats) * sway_mult * steady
 	sway_offset = Vector2(sin(_time * 1.3) * amp, sin(_time * 0.9 + 1.7) * amp) * 0.5
 	if reloading:
 		reload_left -= delta
@@ -381,6 +384,11 @@ func tick(delta: float) -> void:
 
 
 # ---------------------------------------------------------------- firing
+
+## Where the shot would go right now (camera plus recoil, sway and flinch): origin and basis, -Z forward.
+func aim_transform() -> Transform3D:
+	return _aim_transform()
+
 
 func _aim_transform() -> Transform3D:
 	var base := Transform3D.IDENTITY

@@ -34,6 +34,8 @@ var player_spawn := Vector3(0, 0.1, 0)
 var loadout: Dictionary = {}
 ## True for drills where the player stands on a spot (he can look and shoot but not move).
 var lock_player := false
+## Fire mode forced for this drill ("" keeps the weapon's own); precision drills use &"semi" (one shot per click).
+var weapon_mode: StringName = &""
 var shots := 0
 var _built := false
 
@@ -89,6 +91,8 @@ func _apply_loadout() -> void:
 		player.call(&"setup", s)
 	if "lock_movement" in player:
 		player.set("lock_movement", lock_player)
+	if weapon_mode != &"" and "weapon" in player and player.get("weapon") != null:
+		player.get("weapon").fire_mode = weapon_mode
 
 
 ## Every rating at 50 with the given overrides.
@@ -237,6 +241,9 @@ func add_box(center: Vector3, size: Vector3, color: Color) -> StaticBody3D:
 
 ## The direction the player is aiming (camera forward), or -Z when there is no camera.
 func aim_direction() -> Vector3:
+	var w = player.get("weapon") if player != null and "weapon" in player else null
+	if w != null and w.has_method(&"aim_transform") and player.is_inside_tree():
+		return -(w.aim_transform() as Transform3D).basis.z
 	if player != null and player.is_inside_tree():
 		var cam := player.get_viewport().get_camera_3d()
 		if cam != null:
@@ -246,6 +253,9 @@ func aim_direction() -> Vector3:
 
 
 func aim_origin() -> Vector3:
+	var w = player.get("weapon") if player != null and "weapon" in player else null
+	if w != null and w.has_method(&"aim_transform") and player.is_inside_tree():
+		return (w.aim_transform() as Transform3D).origin
 	if player != null and player.is_inside_tree():
 		var cam := player.get_viewport().get_camera_3d()
 		if cam != null:
@@ -272,7 +282,8 @@ static func time_score(secs: float, par: float, limit: float) -> float:
 ## One popup target's value: how fast it was shot (1 for an instant hit, 0 at the end of its life) and how close to the
 ## bullseye (1 centre, 0 at the edge of the scoring disc), half each. A target never hit is worth 0.
 static func pop_value(reaction_s: float, life_s: float, closeness: float) -> float:
-	var speed := clamp01(1.0 - reaction_s / maxf(life_s, 0.001))
+	# A normal human reaction (about half a second) is full marks; the score falls to 0 as the target expires.
+	var speed := clamp01(1.0 - maxf(0.0, reaction_s - 0.45) / maxf(life_s - 0.45, 0.001))
 	return clamp01(0.5 * speed + 0.5 * clamp01(closeness))
 
 

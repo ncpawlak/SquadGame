@@ -37,6 +37,7 @@ func _init() -> void:
 	title = "Active reload"
 	instructions = "You cannot move. Three rounds per magazine. When you reload, press R again inside the green mark on the ring."
 	lock_player = true
+	weapon_mode = &"semi"
 	# Aim is 99 so the hits are yours; the reload rating stays standard (the drill times YOUR press).
 	loadout = {Stats.SHORT_ACC: 99, Stats.MEDIUM_ACC: 99, Stats.LONG_ACC: 99}
 	target_count = 30

@@ -26,6 +26,7 @@ func configure(for_stat: StringName) -> void:
 	distance = cfg["dist"]
 	instructions = "You cannot move. Shoot each target fast and as close to the bullseye as you can."
 	lock_player = true
+	weapon_mode = &"semi"
 	# Accuracy is 99 for the standard loadout, so the score is your aim, not the soldier's rating.
 	loadout = {Stats.SHORT_ACC: 99, Stats.MEDIUM_ACC: 99, Stats.LONG_ACC: 99}
 	target_count = 10

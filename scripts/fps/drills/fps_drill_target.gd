@@ -97,7 +97,8 @@ func set_tint(color: Color) -> void:
 func closeness(world_pos: Vector3) -> float:
 	var local := global_transform.affine_inverse() * world_pos if is_inside_tree() else world_pos - position
 	var d := Vector2(local.x - BULLSEYE.x, local.y - BULLSEYE.y).length()
-	return clampf(1.0 - d / BULLSEYE_RADIUS, 0.0, 1.0)
+	# The inner ring (radius 0.1) is full marks; it falls to 0 at the edge of the white ring (0.3).
+	return clampf(1.0 - maxf(0.0, d - 0.1) / (BULLSEYE_RADIUS - 0.1), 0.0, 1.0)
 
 
 ## Where a world-space hit landed on the target's face, relative to the bullseye (metres, x right, y up).

@@ -3,7 +3,7 @@ extends FpsDrill
 ## Grouping (GROUPING): six targets in a ring around you, you cannot move. Shoot every target (one shot each), three times
 ## round. The score is how tightly your three shots group on each target, however far from the bullseye the group is.
 
-const RING_RADIUS := 12.0
+const RING_RADIUS := 6.0
 const TARGETS := 6
 const PASSES := 3
 ## Mean distance from a target's group centre (metres) that scores zero.
@@ -22,6 +22,7 @@ func _init() -> void:
 	instructions = "You cannot move. Shoot all six targets, three times round. Keep your shots tight on each target."
 	duration = 90.0
 	lock_player = true
+	weapon_mode = &"semi"
 	# Accuracy, grouping and sway are 99 for the standard loadout, so the spread of your shots is your own aim.
 	loadout = {Stats.SHORT_ACC: 99, Stats.MEDIUM_ACC: 99, Stats.LONG_ACC: 99, Stats.GROUPING: 99, Stats.SWAY: 99}
 
@@ -32,8 +33,8 @@ func _build() -> void:
 		var t := FpsDrillTarget.new()
 		t.sticky = true
 		t.position = Vector3(sin(ang), 0.0, -cos(ang)) * RING_RADIUS
-		# Face the middle of the ring (the target's front is +Z).
-		t.rotation.y = ang
+		# Face the middle of the ring: the target's front is +Z, and turning by -ang points it back at the player.
+		t.rotation.y = -ang
 		add_child(t)
 		t.set_up(true)
 		t.hit.connect(_on_hit.bind(t))
