@@ -53,7 +53,16 @@ func setup(p_soldier: Soldier, p_team_id: int, p_role = Scheme.Role.FLEX) -> voi
 	tun = FpsBotBrain.tuning(soldier, role)
 	if _nav == null:
 		_build_nodes()
-	if weapon.has_method("setup"):
+	if weapon is FpsWeapon:
+		# The core weapon: it aims from the bot's head, uses his ratings for spread, recoil and reload, and deals the
+		# damage itself (so the bot must not apply it a second time).
+		var fw := weapon as FpsWeapon
+		fw.setup(null, soldier.stats if soldier != null else {}, self)
+		fw.aim_source = func() -> Transform3D: return _head.global_transform
+		fw.infinite_reserve = true
+		fw.equip(&"rifle")
+		apply_damage_itself = false
+	elif weapon.has_method("setup"):
 		weapon.setup(soldier)
 	rng.seed = (soldier.id if soldier != null else 0) * 7919 + team_id
 
