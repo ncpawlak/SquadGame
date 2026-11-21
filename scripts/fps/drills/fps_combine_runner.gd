@@ -16,6 +16,7 @@ var _result: Label
 var _on_done: Callable
 var _ended := false
 var _scores := {}
+var _hidden: Array = []  # opaque backdrops hidden while the 3D scene shows (restored at the end)
 
 
 static func launch(parent: Node, stat: StringName, on_done: Callable) -> FpsCombineRunner:
@@ -24,8 +25,18 @@ static func launch(parent: Node, stat: StringName, on_done: Callable) -> FpsComb
 	r.set_anchors_preset(Control.PRESET_FULL_RECT)
 	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(r)
+	r._hide_backdrops(parent)
 	r.start(stat)
 	return r
+
+
+## The app draws an opaque background (a ColorRect) over the whole window, which would hide the 3D scene behind it. Hide any
+## full-screen colour rectangles among the parent's children while a drill runs.
+func _hide_backdrops(parent: Node) -> void:
+	for c in parent.get_children():
+		if c is ColorRect and c.visible and c != self:
+			c.visible = false
+			_hidden.append(c)
 
 
 func start(stat: StringName) -> void:
@@ -86,6 +97,10 @@ func _finish_with(scores: Dictionary) -> void:
 	if _ended:
 		return
 	_ended = true
+	for c in _hidden:
+		if is_instance_valid(c):
+			c.visible = true
+	_hidden.clear()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	finished.emit(scores)
 	if _on_done.is_valid():
