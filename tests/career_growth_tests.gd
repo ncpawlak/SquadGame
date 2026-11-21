@@ -410,6 +410,21 @@ func test_coach_weighs_age_and_potential_when_picking_the_lineup() -> void:
 	Team.career_mode = false
 
 
+func test_career_opens_in_camp_and_the_camp_plan_runs_when_it_closes() -> void:
+	var season := _career(952, 0.9, &"marksman", 20)
+	season.camp = Camp.make(season.year - 1)
+	season.preseason_camp = true
+	var p := season.player
+	p.camp_plan = {WeeklyPlan.PRACTICE: 2, WeeklyPlan.STUDY: 2}
+	p.camp_plan_confirmed = true
+	var study_before := p.study_progress
+	var xp_before := p.xp + p.level * 100000
+	season.close_preseason_camp()
+	check(not season.preseason_camp, "camp is closed")
+	check(float(season.camp_report.get("study", 0.0)) > 0.0 and p.study_progress + float(p.dev) * 1000.0 > study_before, "the camp plan's study points landed")
+	check(p.xp + p.level * 100000 > xp_before, "the camp plan's practice gave XP")
+
+
 func test_deal_pays_in_full_or_reduced_and_moves_influence() -> void:
 	var season := _career(923)
 	var p := season.player

@@ -193,6 +193,7 @@ func _todos() -> Array:
 			out.append(_todo("Cap raised", "Done for this offseason", UiKit.TRIM, func(): open_cap_raise()))
 		else:
 			out.append(_todo("Raise a cap", "No group can take a raise at your age", UiKit.TRIM, func(): open_cap_raise()))
+	if s.phase == Season.PHASE_OFFSEASON or s.preseason_camp:
 		if not p.camp_plan_confirmed:
 			out.append(_todo("Set your camp plan", "8 points: practice, study, outing, brand", UiKit.GOLD, func(): open_plan(true), true))
 		else:
@@ -201,7 +202,7 @@ func _todos() -> Array:
 		out.append(_todo("Set your weekly plan", "Your points are wasted until you do", UiKit.GOLD, func(): open_plan(false), true))
 	else:
 		out.append(_todo("Weekly plan", _plan_summary(p.plan, true), UiKit.TRIM, func(): open_plan(false)))
-	if s.phase != Season.PHASE_OFFSEASON and WarmUp.opponent(s) != null:
+	if s.phase != Season.PHASE_OFFSEASON and not s.preseason_camp and WarmUp.opponent(s) != null:
 		var w_err := WarmUp.error(s)
 		if w_err == "":
 			out.append(_todo("Warm up", "Run a drill for a match-only bonus (up to +%d)" % WarmUp.MAX_BONUS, UiKit.GOLD, func(): open_warmup(), true))
@@ -381,79 +382,197 @@ func open_contract() -> void:
 	hub.open("Contract", func(): return contract())
 
 
+## A thin bar: a faint ghost up to `ghost` (a cap), then the solid fill up to `value`, both out of `maximum`.
+class Meter extends Control:
+	var value := 0.0
+	var ghost := 0.0
+	var maximum := 99.0
+	var color := Color.WHITE
+
+	func _init(v := 0.0, m := 99.0, c := Color.WHITE, g := 0.0, h := 10.0) -> void:
+		value = v
+		maximum = maxf(1.0, m)
+		color = c
+		ghost = g
+		custom_minimum_size = Vector2(60, h)
+		size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		draw_rect(Rect2(Vector2.ZERO, size), Color(1, 1, 1, 0.07))
+		if ghost > 0.0:
+			draw_rect(Rect2(0, 0, size.x * clampf(ghost / maximum, 0.0, 1.0), size.y), Color(color, 0.22))
+		var w := size.x * clampf(value / maximum, 0.0, 1.0)
+		draw_rect(Rect2(0, 0, w, size.y), color)
+		draw_rect(Rect2(0, 0, w, size.y * 0.45), Color(1, 1, 1, 0.14))
+
+
 ## Ratings by group with the cap, skill-point spending, and the training intensity.
 func my_player() -> Control:
 	var s := _season()
 	var p := s.player
-	var root := _vbox(14)
+	var team := s.user_team()
+	var root := _vbox(16)
 	root.name = "MyPlayer"
 	root.custom_minimum_size.x = 1100
-	var head := _hbox(22)
-	head.add_child(Portrait.new(p, 130, UiKit.ACCENT, s.user_team()))
-	var mid := _vbox(4)
-	mid.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	mid.add_child(_label(p.full_name().to_upper(), 15, UiKit.ACCENT))
-	mid.add_child(UiKit.display(("\"%s\"" % p.callsign).to_upper(), 36, Color.WHITE, true))
-	var a := Archetypes.find(s.player_archetype)
-	mid.add_child(_label("%s %s  ·  Age %d  ·  Level %d" % [a["name"], Scheme.ROLE_NAMES[Scheme.best_role(p.stats)], p.age, p.level], 15, UiKit.MUTED))
-	var facts := _hbox(26)
-	facts.add_child(_fact("OVR", str(p.best_ovr()), UiKit.ovr_color(p.best_ovr())))
-	facts.add_child(_fact("SKILL POINTS", str(p.skill_points), UiKit.INFO))
-	facts.add_child(_fact("FATIGUE", "%d" % roundi(p.fatigue), UiKit.GOLD if p.fatigue > 40.0 else UiKit.TEXT))
-	mid.add_child(facts)
-	head.add_child(mid)
-	root.add_child(head)
-
-	var xp: Array = Progression.xp_progress(p)
-	root.add_child(_label("XP: %d / %d to the next +%d skill points" % [xp[0], xp[1], Progression.SKILL_POINTS_PER_LEVEL], 15, UiKit.INFO))
-
-	root.add_child(UiKit.heading("Stars and brand", 20))
-	root.add_child(_label(_stars_line(p), 16, UiKit.TEXT))
-	root.add_child(_label("Brand %d  ·  %s" % [roundi(p.brand), WeeklyPlan.tier_name(p.brand)], 16, UiKit.TEXT))
-	root.add_child(UiKit.heading("Wear", 20))
-	root.add_child(_label("Wear %d  ·  %s. It builds with age, games, fatigue and injuries, and spa, camp rehab and the Sports Science Lab take it off. Regression lowers ratings only, never the caps, so skill points win them back." % [roundi(p.wear), Wear.tier_name(p.wear)], 14, UiKit.MUTED))
+	root.add_child(_hero(s, p, team))
+	root.add_child(_vitals(p))
+	var cols := _hbox(18)
+	root.add_child(cols)
+	var left := _vbox(10)
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cols.add_child(left)
+	left.add_child(UiKit.heading("Ratings", 22))
+	left.add_child(_label("Click a group to spend skill points. The pale bar is how far that group can grow (its cap).", 13, UiKit.MUTED))
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	left.add_child(grid)
 	for g in Stats.GROUP_ORDER:
-		root.add_child(_label("%s:  %s" % [Stats.GROUP_LABELS[g], Wear.risk_text(p.wear, g)], 15, UiKit.TEXT))
-	var plan_row := _hbox(12)
-	plan_row.add_child(UiKit.primary_button("Weekly plan", func(): open_plan(false), 18))
-	root.add_child(plan_row)
-	root.add_child(_label(_plan_summary(p.plan, p.plan_confirmed), 14, UiKit.MUTED))
-
-	root.add_child(UiKit.heading("Ratings  (click a group to spend skill points)", 20))
+		grid.add_child(_group_row(p, g))
+	var right := _vbox(10)
+	right.custom_minimum_size.x = 330
+	cols.add_child(right)
+	right.add_child(UiKit.heading("Your week", 22))
+	right.add_child(UiKit.primary_button("Weekly plan", func(): open_plan(false), 18))
+	right.add_child(_label(_plan_summary(p.plan, p.plan_confirmed), 13, UiKit.MUTED))
+	right.add_child(UiKit.button("Loadout and gear", func(): open_loadout(), 16))
+	right.add_child(UiKit.heading("Wear and tear", 18))
+	var wear := _label("Wear %d  ·  %s. Age, games, fatigue and injuries raise it. Spa, camp rehab and the Sports Science Lab lower it." % [roundi(p.wear), Wear.tier_name(p.wear)], 13, UiKit.MUTED)
+	wear.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	wear.custom_minimum_size.x = 320
+	right.add_child(wear)
 	for g in Stats.GROUP_ORDER:
-		root.add_child(_group_row(p, g))
+		var row := _hbox(8)
+		var gname := _label(String(Stats.GROUP_LABELS[g]), 13, UiKit.TEXT)
+		gname.custom_minimum_size.x = 100
+		row.add_child(gname)
+		var rl := _label(Wear.risk_text(p.wear, g), 13, UiKit.MUTED)
+		rl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		rl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(rl)
+		right.add_child(row)
 	return root
 
 
-func _fact(caption: String, value: String, color: Color) -> Control:
-	var c := _vbox(0)
-	c.add_child(_label(caption, 12, UiKit.MUTED))
-	c.add_child(UiKit.display(value, 30, color, true))
-	return c
+## The top band: portrait, name, role, the big OVR and the badges (stars, brand, story, status).
+func _hero(s: Season, p: Soldier, team: Team) -> Control:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", UiKit.flat(UiKit.PANEL, 10, 1, Color(UiKit.accent_of(team), 0.6)))
+	var back := UiKit.backdrop(Color(UiKit.accent_of(team), 0.55), UiKit.PANEL, true, UiKit.accent_of(team))
+	back.set_anchors_preset(Control.PRESET_FULL_RECT)
+	panel.add_child(back)
+	var h := _hbox(24)
+	panel.add_child(_wrap(h, 18))
+	h.add_child(Portrait.new(p, 150, UiKit.ACCENT, team))
+	var mid := _vbox(4)
+	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mid.alignment = BoxContainer.ALIGNMENT_CENTER
+	h.add_child(mid)
+	mid.add_child(_label(p.full_name().to_upper(), 15, Color(1, 1, 1, 0.75)))
+	mid.add_child(UiKit.display(("\"%s\"" % p.callsign).to_upper(), 52, Color.WHITE, true))
+	var a := Archetypes.find(s.player_archetype)
+	mid.add_child(_label("%s %s  ·  %s  ·  Age %d  ·  Level %d" % [a["name"], Scheme.ROLE_NAMES[Scheme.best_role(p.stats)], team.name, p.age, p.level], 15, Color(1, 1, 1, 0.8)))
+	var badges := _hbox(14)
+	badges.add_child(DevInsignia.make(p.dev, 15.0))
+	badges.add_child(_chip("BRAND  %s" % WeeklyPlan.tier_name(p.brand).to_upper(), UiKit.GOLD))
+	if p.backstory != &"":
+		badges.add_child(_chip(Backstory.story_name(p.backstory).to_upper(), UiKit.INFO))
+	var st := PlayerCoach.status(s)
+	badges.add_child(_chip(STATUS_NAMES[st["where"]], STATUS_COLORS[st["where"]]))
+	mid.add_child(badges)
+	var ovr := _vbox(0)
+	ovr.alignment = BoxContainer.ALIGNMENT_CENTER
+	var cap := _label("OVERALL", 13, Color(1, 1, 1, 0.7))
+	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ovr.add_child(cap)
+	var big := UiKit.display(str(p.best_ovr()), 96, UiKit.ovr_color(p.best_ovr()), true)
+	big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ovr.add_child(big)
+	var gear := p.best_ovr() - p.base_ovr()
+	var sub := _label("base %d  ·  gear %+d" % [p.base_ovr(), gear], 13, UiKit.GOOD if gear > 0 else Color(1, 1, 1, 0.6))
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ovr.add_child(sub)
+	var sp := _label("%d skill points" % p.skill_points, 14, UiKit.INFO)
+	sp.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ovr.add_child(sp)
+	h.add_child(ovr)
+	return panel
 
 
+func _chip(text: String, color: Color) -> Control:
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", UiKit.flat(Color(color, 0.16), 4, 1, Color(color, 0.7)))
+	var m := MarginContainer.new()
+	m.add_theme_constant_override("margin_left", 8)
+	m.add_theme_constant_override("margin_right", 8)
+	m.add_theme_constant_override("margin_top", 2)
+	m.add_theme_constant_override("margin_bottom", 2)
+	m.add_child(_label(text, 12, color))
+	pc.add_child(m)
+	pc.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return pc
+
+
+## Four gauges: XP to the next level, study toward the next star, fatigue and wear.
+func _vitals(p: Soldier) -> Control:
+	var row := _hbox(12)
+	var xp: Array = Progression.xp_progress(p)
+	row.add_child(_gauge("XP TO NEXT LEVEL", "%d / %d" % [xp[0], xp[1]], float(xp[0]), float(xp[1]), UiKit.INFO, "+%d skill points" % Progression.SKILL_POINTS_PER_LEVEL))
+	if p.dev >= Soldier.DEV_MAX:
+		row.add_child(_gauge("DEV STARS", "MAX", 1.0, 1.0, UiKit.GOLD, "Top star reached"))
+	else:
+		var cost := WeeklyPlan.star_cost(p.dev, p)
+		row.add_child(_gauge("STUDY TO NEXT STAR", "%d / %d" % [roundi(p.study_progress), roundi(cost)], p.study_progress, cost, UiKit.GOLD,
+			"Next: %s. Study, strong seasons and honors fill it" % Soldier.dev_stars(p.dev + 1)))
+	row.add_child(_gauge("FATIGUE", str(roundi(p.fatigue)), p.fatigue, 100.0, UiKit.BAD if p.fatigue > 60.0 else (UiKit.GOLD if p.fatigue > 40.0 else UiKit.GOOD), "Rest, spa and a lighter plan bring it down"))
+	row.add_child(_gauge("WEAR", str(roundi(p.wear)), p.wear, 100.0, UiKit.BAD if p.wear > 60.0 else (UiKit.GOLD if p.wear > 35.0 else UiKit.GOOD), Wear.tier_name(p.wear)))
+	return row
+
+
+func _gauge(caption: String, value: String, v: float, maximum: float, color: Color, hint: String) -> Control:
+	var card := PanelContainer.new()
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.add_theme_stylebox_override("panel", UiKit.flat(UiKit.PANEL, 8, 1, Color(color, 0.35)))
+	var box := _vbox(4)
+	card.add_child(_wrap(box, 12))
+	box.add_child(_label(caption, 11, UiKit.MUTED))
+	box.add_child(UiKit.display(value, 24, color, true))
+	box.add_child(Meter.new(v, maximum, color, 0.0, 8.0))
+	var hl := _label(hint, 11, UiKit.MUTED)
+	hl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hl.custom_minimum_size.x = 150
+	box.add_child(hl)
+	return card
+
+
+## One group as a card: its rating, a bar up to the cap, and every stat in it.
 func _group_row(p: Soldier, g: StringName) -> Control:
 	var upgradable := Stats.UPGRADABLE_GROUPS.has(g)
 	var gr := p.group_rating(g)
 	var b := Button.new()
 	UiKit.style_button(b, UiKit.PANEL_HI, UiKit.ACCENT, 8, false)
-	b.custom_minimum_size.y = 78
+	b.custom_minimum_size = Vector2(430, 120)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var cost := Progression.upgrade_cost(p, g)
 	b.disabled = not Progression.can_place(p, g)
-	var box := _vbox(2)
+	var box := _vbox(5)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.set_anchors_preset(Control.PRESET_FULL_RECT)
-	box.offset_left = 16
-	box.offset_right = -16
-	box.offset_top = 6
-	box.offset_bottom = -6
+	box.offset_left = 14
+	box.offset_right = -14
+	box.offset_top = 8
+	box.offset_bottom = -8
 	b.add_child(box)
-	var line := _hbox(14)
+	var line := _hbox(12)
 	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var title := _label(String(Stats.GROUP_LABELS[g]).to_upper(), 18, Color.WHITE if upgradable else UiKit.MUTED)
-	title.custom_minimum_size.x = 150
+	var title := _label(String(Stats.GROUP_LABELS[g]).to_upper(), 16, Color.WHITE if upgradable else UiKit.MUTED)
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	line.add_child(title)
-	line.add_child(_label(str(gr), 26, UiKit.ovr_color(gr)))
+	var num := UiKit.display(str(gr), 34, UiKit.ovr_color(gr), true)
+	num.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	line.add_child(num)
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -470,15 +589,19 @@ func _group_row(p: Soldier, g: StringName) -> Control:
 	else:
 		note = "+1  ·  %d SP" % cost
 		note_color = UiKit.INFO
-	line.add_child(_label(note, 16, note_color))
+	var nl := _label(note, 14, note_color)
+	nl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	line.add_child(nl)
 	box.add_child(line)
-	# Each stat with its personal cap: a stat the archetype cannot grow any further shows in red.
-	var stats := _hbox(14)
+	box.add_child(Meter.new(float(gr), 99.0, UiKit.ovr_color(gr), float(p.group_cap(g)) if upgradable else 0.0, 8.0))
+	# Every stat in the group; one the archetype cannot grow any further shows in red.
+	var stats := HFlowContainer.new()
 	stats.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stats.add_theme_constant_override("h_separation", 12)
 	for stat in Stats.GROUPS[g]:
-		var cap := p.stat_cap(stat)
-		var maxed: bool = int(p.stats[stat]) >= cap and upgradable
-		var t := _label("%s %d%s" % [Stats.ABBREV[stat], p.stats[stat], ("/%d" % cap) if p.stat_caps.has(stat) else ""], 13, UiKit.BAD if maxed else UiKit.MUTED)
+		var maxed: bool = int(p.stats[stat]) >= p.stat_cap(stat) and upgradable
+		var t := _label("%s %d" % [Stats.ABBREV[stat], p.stats[stat]], 12, UiKit.BAD if maxed else UiKit.MUTED)
+		t.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		stats.add_child(t)
 	box.add_child(stats)
 	if not b.disabled:

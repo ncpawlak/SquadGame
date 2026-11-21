@@ -937,6 +937,10 @@ func close_preseason_camp() -> void:
 	_camp_star_news()
 	offseason_xp(CAMP_WEEK_XP, Camp.DRILL_XP)
 	preseason_camp = false
+	if player_mode and player != null:
+		# The career's opening camp: the camp plan runs now and its outing morale lands straight away.
+		camp_report = WeeklyPlan.apply_camp(self)
+		WeeklyPlan.apply_camp_outing(self)
 	draft.scout_points += scout_points_per_week()
 
 

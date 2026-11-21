@@ -217,7 +217,8 @@ func show_player_create() -> void:
 
 func _on_player_created(choice: Dictionary) -> void:
 	var seed_value := preview_seed
-	season = Season.new_franchise(seed_value, 0, 2026, false)
+	# The career opens in the preseason camp (set a camp plan, then the season starts), not on Week 1.
+	season = Season.new_franchise(seed_value, 0, 2026, true)
 	season.player_mode = true
 	season.player_archetype = choice["archetype"]
 	season.player = PlayerCareer.create_soldier(season.league.next_soldier_id, choice["first"], choice["last"],

@@ -725,7 +725,14 @@ func sim_to(target: StringName) -> void:
 ## Opening camp of a new franchise: warn once about unused drills, then close it and go to Week 1.
 func _close_preseason_camp() -> void:
 	var user := season.user_team()
-	if season.camp.drills_left(user) > 0 and not _camp_skip_warned:
+	if season.player_mode and season.player != null:
+		# The career's opening camp is the player's camp plan, not team drills.
+		if not season.player.camp_plan_confirmed and not _camp_skip_warned:
+			_camp_skip_warned = true
+			player_ui.open_plan(true)
+			app.toast("You have not set a camp plan: its 8 points are wasted. Set one, or advance again to skip.")
+			return
+	elif season.camp.drills_left(user) > 0 and not _camp_skip_warned:
 		_camp_skip_warned = true
 		_rebuild_and_open("Training Camp", pages.training_camp)
 		app.toast("%d camp drill%s unused. Advance again to skip them and start the season." % [

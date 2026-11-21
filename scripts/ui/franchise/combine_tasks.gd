@@ -440,7 +440,10 @@ class Quick extends CombineTask:
 			_items.append(_make_item(k))
 		_buttons.alignment = BoxContainer.ALIGNMENT_CENTER
 		_buttons.add_theme_constant_override("separation", 12)
+		# Buttons are added after this is placed, so the row must grow upward from the bottom edge (it used to grow down and
+		# sit half off screen).
 		_buttons.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE, Control.PRESET_MODE_MINSIZE, 24)
+		_buttons.grow_vertical = Control.GROW_DIRECTION_BEGIN
 		add_child(_buttons)
 		_show_item()
 
