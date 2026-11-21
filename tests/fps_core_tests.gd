@@ -458,6 +458,12 @@ func test_crosshair_moves_with_the_aim_offset() -> void:
 	check(FpsHud.aim_to_pixels(Vector2.ZERO, 80.0, 900.0) == Vector2.ZERO, "no offset, centred")
 
 
+func test_vignette_shows_only_while_under_fire() -> void:
+	check(FpsHud.vignette_alpha(0.0) == 0.0, "no fire, no vignette")
+	check(FpsHud.vignette_alpha(0.5) > 0.0 and FpsHud.vignette_alpha(1.0) > FpsHud.vignette_alpha(0.5), "more fire, stronger vignette")
+	check(FpsHud.vignette_alpha(1.5) <= 0.6 + 0.0001, "capped")
+
+
 func test_hud_spread_math() -> void:
 	var a := FpsHud.spread_to_pixels(1.0, 80.0, 900.0)
 	var b := FpsHud.spread_to_pixels(3.0, 80.0, 900.0)

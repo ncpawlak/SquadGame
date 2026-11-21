@@ -128,7 +128,34 @@ func _ring_point(c: Vector2, bearing: float, radius: float) -> Vector2:
 	return c + Vector2(sin(bearing), -cos(bearing)) * radius
 
 
+## Opacity of the white "you are being shot at" vignette for a suppression value (0 none .. 1.5 heavy): 0 up to ~0.6.
+static func vignette_alpha(suppression: float) -> float:
+	return clampf(suppression, 0.0, 1.0) * 0.6
+
+
+## White edges that fade inward. Drawn while he is being shot at (hit or shot near), so the screen reads as under fire.
+func _draw_vignette() -> void:
+	if player == null or not is_instance_valid(player) or player.weapon == null:
+		return
+	var a := vignette_alpha(player.weapon.suppression)
+	if a <= 0.01:
+		return
+	var sz := overlay.size
+	var t := minf(sz.x, sz.y) * 0.22
+	var edge := Color(1, 1, 1, a)
+	var clear := Color(1, 1, 1, 0.0)
+	var strips := [
+		[PackedVector2Array([Vector2(0, 0), Vector2(sz.x, 0), Vector2(sz.x, t), Vector2(0, t)]), [edge, edge, clear, clear]],
+		[PackedVector2Array([Vector2(0, sz.y), Vector2(sz.x, sz.y), Vector2(sz.x, sz.y - t), Vector2(0, sz.y - t)]), [edge, edge, clear, clear]],
+		[PackedVector2Array([Vector2(0, 0), Vector2(0, sz.y), Vector2(t, sz.y), Vector2(t, 0)]), [edge, edge, clear, clear]],
+		[PackedVector2Array([Vector2(sz.x, 0), Vector2(sz.x, sz.y), Vector2(sz.x - t, sz.y), Vector2(sz.x - t, 0)]), [edge, edge, clear, clear]],
+	]
+	for st in strips:
+		overlay.draw_polygon(st[0], PackedColorArray(st[1]))
+
+
 func _draw_overlay() -> void:
+	_draw_vignette()
 	var centre := overlay.size * 0.5
 	var c := centre
 	var w: FpsWeapon = null
