@@ -200,6 +200,7 @@ func test_sponsors_follow_heat_and_tier() -> void:
 	var season := _career(920)
 	var p := season.player
 	p.brand = 0.0
+	p.dev = 1  # a 1-star with nothing else going for him (a 2-star young prospect can already draw a small deal)
 	season.player_pick = 0
 	check(Sponsors.refresh(season) == 0 and p.offers.is_empty(), "no brand, no draft slot, no offers")
 	season.player_pick = 3  # a top pick on the Green Team
@@ -713,8 +714,8 @@ func test_backstory_sets_stars_caps_and_extras() -> void:
 
 
 func test_backstory_talent_only_ever_takes_a_star_off() -> void:
-	check(Backstory.start_stars(Backstory.BALANCED, 4) == 2 and Backstory.start_stars(Backstory.BALANCED, 1) == 1, "a strong talent never adds a star; talent 1 takes one (not below 1)")
-	check(Backstory.start_stars(Backstory.PHENOM, 4) == 3 and Backstory.start_stars(Backstory.PHENOM, 1) == 2, "a phenom starts at 3, or 2 after a weak combine")
+	check(Backstory.start_stars(Backstory.BALANCED, 4) == 2 and Backstory.start_stars(Backstory.BALANCED, 1) == 2, "the story sets the stars whatever the talent roll")
+	check(Backstory.start_stars(Backstory.PHENOM, 4) == 3 and Backstory.start_stars(Backstory.PHENOM, 1) == 3, "a phenom starts at 3 whatever the talent")
 	check(Backstory.start_stars(Backstory.LATE, 1) == 1 and Backstory.start_stars(Backstory.LATE, 3) == 1, "a late bloomer stays at one star")
 
 

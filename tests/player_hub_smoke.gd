@@ -72,7 +72,7 @@ func _init() -> void:
 	var texts: Array = []
 	for l in hub._content.find_children("*", "Label", true, false):
 		texts.append(l.text)
-	_check(texts.any(func(t): return t == "YOU" or t == "You"), "home has a You section: %s" % [texts.slice(0, 12)])
+	_check(texts.any(func(t): return String(t).to_lower() == "your news"), "home has a Your News pane and no league news: %s" % [texts.slice(0, 12)])
 	var head_texts: Array = []
 	for l in hub._header.find_children("*", "Label", true, false):
 		head_texts.append(l.text)
@@ -101,7 +101,7 @@ func _init() -> void:
 	var before := p.skill_points
 	var stats_before := p.stats.duplicate()
 	for b in hub._content.find_children("*", "Button", true, false):
-		if not b.disabled and b.custom_minimum_size.y == 78:
+		if not b.disabled and b.custom_minimum_size.y == 120:
 			b.pressed.emit()
 			break
 	await process_frame
@@ -197,6 +197,13 @@ func _init() -> void:
 		await process_frame
 	await process_frame
 	await process_frame
+	if season.phase == Season.PHASE_OFFSEASON:
+		# A group at its ceiling opens the cap raise page first; advancing again skips it.
+		hub.advance()
+		while hub.simming:
+			await process_frame
+		await process_frame
+		await process_frame
 	_check(season.year == year + 1 and season.phase == Season.PHASE_REGULAR, "the next season started (year %d phase %s)" % [season.year, season.phase])
 	_check(season.user_team().org().has(season.player), "the player is still with his club")
 	_check(hub._content.get_child_count() > 0, "home builds in the new season")

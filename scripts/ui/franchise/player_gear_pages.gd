@@ -225,45 +225,214 @@ func _meter(v: float) -> String:
 	return "[" + "#".repeat(n) + "-".repeat(10 - n) + "]"
 
 
+const TIER_COLORS := [Color("#94a3b8"), Color("#22c55e"), Color("#38bdf8"), Color("#a855f7"), Color("#f59e0b")]
+var _sp_tab: StringName = &"deals"
+
+
+func _chip(text: String, color: Color, size := 12) -> Control:
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", UiKit.flat(Color(color, 0.16), 4, 1, Color(color, 0.7)))
+	var m := MarginContainer.new()
+	m.add_theme_constant_override("margin_left", 8)
+	m.add_theme_constant_override("margin_right", 8)
+	m.add_theme_constant_override("margin_top", 2)
+	m.add_theme_constant_override("margin_bottom", 2)
+	m.add_child(_label(text, size, color))
+	pc.add_child(m)
+	pc.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return pc
+
+
+func _card(accent: Color, width := 0) -> PanelContainer:
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", UiKit.flat(UiKit.PANEL, 8, 1, Color(accent, 0.5)))
+	if width > 0:
+		pc.custom_minimum_size.x = width
+	return pc
+
+
+func _pad(c: Control, m := 14) -> MarginContainer:
+	var mc := MarginContainer.new()
+	for side in ["left", "right", "top", "bottom"]:
+		mc.add_theme_constant_override("margin_" + side, m)
+	mc.add_child(c)
+	return mc
+
+
 func _fill_sponsors(box: VBoxContainer, fns: Dictionary) -> void:
 	var s := _season()
 	var p := s.player
 	var h := Sponsors.heat(s)
-	box.add_child(_wrap("Sponsors come to you. A deal grants gear and pays a fixed amount every match you play, as long as you meet its clauses; miss them and the pay drops to a lower amount, and the brand's influence with you falls. Influence builds when you meet the clauses and wear their items. It never changes the pay inside a contract, but it decides how many items and how much money you are offered at renewal, and it makes their set bonus bigger. Dropping a deal costs you a lot of influence.", 15))
-	box.add_child(_label("Team salary: %s a year, paid weekly in season" % Sponsors.money_text(PlayerPay.yearly(p)), 15, Color.WHITE))
-	box.add_child(_label("Cash: %s   ·   sponsor heat %d   ·   brand %d (%s)   ·   deals %d of %d" % [Sponsors.money_text(p.cash), roundi(h["heat"]), roundi(p.brand), WeeklyPlan.tier_name(p.brand), p.deals.size(), Sponsors.deal_cap(p)], 18, Color.WHITE))
-	box.add_child(_wrap("Heat: " + ", ".join(h["parts"].map(func(x): return "%s %d" % [x[0], roundi(x[1])])), 14))
-	box.add_child(UiKit.heading("Your deals", 18))
-	if p.deals.is_empty():
-		box.add_child(_label("No deals yet.", 15, UiKit.MUTED))
+	box.add_child(_sponsor_header(s, p, h))
+	box.add_child(_sponsor_tabs(p, fns))
+	match _sp_tab:
+		&"offers":
+			_tab_offers(box, s, p, fns)
+		&"brands":
+			_tab_brands(box, s, p)
+		&"shop":
+			_tab_shop(box, s, p, fns)
+		_:
+			_tab_deals(box, s, p, fns)
+	var foot := _hbox(12)
+	foot.add_child(UiKit.button("Loadout", func(): hub.open("Loadout", func(): return loadout_page()), 16))
+	foot.add_child(UiKit.button("Back", func(): hub.go_back(), 16))
+	box.add_child(foot)
+
+
+func _gauge_card(caption: String, value: String, v: float, maximum: float, color: Color, sub: String, tip := "") -> Control:
+	var card := _card(color)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var box := _vbox(4)
+	card.add_child(_pad(box, 12))
+	box.add_child(_label(caption, 11, UiKit.MUTED))
+	box.add_child(UiKit.display(value, 26, color, true))
+	if maximum > 0.0:
+		box.add_child(PlayerPages.Meter.new(v, maximum, color, 0.0, 8.0))
+	box.add_child(_label(sub, 11, UiKit.MUTED))
+	if tip != "":
+		card.tooltip_text = tip
+	return card
+
+
+func _sponsor_header(s: Season, p: Soldier, h: Dictionary) -> Control:
+	var row := _hbox(12)
+	row.add_child(_gauge_card("CASH", Sponsors.money_text(p.cash), 0.0, 0.0, UiKit.GOOD, "Salary %s a year" % Sponsors.money_text(PlayerPay.yearly(p))))
+	var parts: Array = h["parts"]
+	var tip := "\n".join(parts.map(func(x): return "%s  %d" % [x[0], roundi(x[1])]))
+	row.add_child(_gauge_card("SPONSOR HEAT", str(roundi(h["heat"])), float(h["heat"]), float(Sponsors.TIER_HEAT[Sponsors.TIER_HEAT.size() - 1]) + 10.0, UiKit.GOLD, "Hover for the breakdown", tip))
+	row.add_child(_gauge_card("BRAND", WeeklyPlan.tier_name(p.brand), p.brand, WeeklyPlan.BRAND_MAX, UiKit.INFO, "%d of %d" % [roundi(p.brand), roundi(WeeklyPlan.BRAND_MAX)]))
+	var cap := Sponsors.deal_cap(p)
+	row.add_child(_gauge_card("DEALS", "%d / %d" % [p.deals.size(), cap], float(p.deals.size()), float(maxi(1, cap)), UiKit.ACCENT, "slots in use"))
+	return row
+
+
+func _sponsor_tabs(p: Soldier, fns: Dictionary) -> Control:
+	var row := _hbox(8)
+	var tabs := [[&"deals", "DEALS  %d" % p.deals.size()], [&"offers", "OFFERS  %d" % p.offers.size()], [&"brands", "BRANDS"], [&"shop", "SHOP"]]
+	for t in tabs:
+		var key: StringName = t[0]
+		var b := UiKit.button(t[1], func():
+			_sp_tab = key
+			fns["render"].call(), 17)
+		UiKit.style_skewed(b, Color(UiKit.PANEL, 0.8))
+		b.custom_minimum_size = Vector2(150, 44)
+		if _sp_tab == key:
+			UiKit.style_primary(b)
+		elif key == &"offers" and not p.offers.is_empty():
+			UiKit.style_primary(b, Color("#f97316"))
+		row.add_child(b)
+	return row
+
+
+## Slot pips for a deal: one chip per slot it covers, lit when you are wearing that brand's item there.
+func _slot_pips(p: Soldier, brand_id: StringName, slots: Array) -> Control:
+	var row := _hbox(6)
+	for slot in slots:
+		var worn: bool = p.gear_slots.get(slot, {}).get("brand") == brand_id
+		row.add_child(_chip(String(Gear.SLOT_LABELS[slot]).to_upper(), UiKit.GOOD if worn else UiKit.MUTED, 11))
+	return row
+
+
+func _clause_chips(clauses: Array) -> Control:
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 6)
+	row.add_theme_constant_override("v_separation", 6)
+	for c in clauses:
+		row.add_child(_chip(Sponsors.clause_text(c), UiKit.INFO, 12))
+	return row
+
+
+func _tab_deals(box: VBoxContainer, s: Season, p: Soldier, fns: Dictionary) -> void:
+	var cap := Sponsors.deal_cap(p)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	box.add_child(grid)
 	for d in p.deals.duplicate():
 		var b := Gear.brand(d["brand"])
+		var tc: Color = TIER_COLORS[int(b["tier"])]
+		var card := _card(tc)
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		card.custom_minimum_size.x = 530
+		var v := _vbox(8)
+		card.add_child(_pad(v))
+		var top := _hbox(10)
+		top.add_child(UiKit.display(String(b["name"]).to_upper(), 24, Color.WHITE, true))
+		top.add_child(_chip(Gear.tier_name(int(b["tier"])).to_upper(), tc))
+		var sp := Control.new()
+		sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		top.add_child(sp)
+		top.add_child(_label("%d yr left" % int(d["years_left"]), 13, UiKit.MUTED))
+		v.add_child(top)
+		var pay := _hbox(10)
+		pay.add_child(UiKit.display("%s / match" % Sponsors.money_text(int(d["pay"])), 22, UiKit.GOOD, true))
+		pay.add_child(_label("%s if you miss a clause" % Sponsors.money_text(int(d["reduced"])), 12, UiKit.MUTED))
+		v.add_child(pay)
 		var infl := Sponsors.influence_of(p, d["brand"])
-		var row := _vbox(3)
-		row.add_child(_label("%s (%s)  ·  %s  ·  %s a match (%s if you miss a clause)  ·  %d year%s left" % [b["name"], Gear.tier_name(int(b["tier"])), _slots_text(d["slots"]), Sponsors.money_text(int(d["pay"])), Sponsors.money_text(int(d["reduced"])), d["years_left"], "" if int(d["years_left"]) == 1 else "s"], 15, UiKit.TEXT))
-		row.add_child(_label("    Clauses: " + _clauses_text(d["clauses"]), 14, UiKit.MUTED))
-		var worn := Sponsors.worn_of(p, d["brand"])
-		row.add_child(_label("    Influence %s %d (%s)  ·  wearing %d of %d items" % [_meter(infl), roundi(infl), Sponsors.INFLUENCE_NAMES[Sponsors.influence_tier(infl)], worn, d["slots"].size()], 14, UiKit.GOOD if infl >= 50.0 else (UiKit.BAD if infl < 15.0 else UiKit.INFO)))
-		row.add_child(UiKit.button("Walk away (costs %d influence)" % roundi(Sponsors.DROP_LOSS), func():
+		var irow := _hbox(10)
+		irow.add_child(_label("INFLUENCE", 11, UiKit.MUTED))
+		irow.add_child(PlayerPages.Meter.new(infl, 100.0, UiKit.GOOD if infl >= 50.0 else (UiKit.BAD if infl < 15.0 else UiKit.INFO), 0.0, 10.0))
+		irow.add_child(_label("%d  %s" % [roundi(infl), Sponsors.INFLUENCE_NAMES[Sponsors.influence_tier(infl)]], 12, UiKit.TEXT))
+		v.add_child(irow)
+		v.add_child(_slot_pips(p, d["brand"], d["slots"]))
+		v.add_child(_clause_chips(d["clauses"]))
+		var walk := UiKit.button("Walk away  (-%d influence)" % roundi(Sponsors.DROP_LOSS), func():
 			Sponsors.drop(s, d)
-			fns["render"].call(), 13))
-		box.add_child(row)
-	box.add_child(UiKit.heading("Offers", 18))
+			fns["render"].call(), 12)
+		walk.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		v.add_child(walk)
+		grid.add_child(card)
+	for i in maxi(0, cap - p.deals.size()):
+		var empty := _card(UiKit.MUTED)
+		empty.custom_minimum_size = Vector2(530, 110)
+		empty.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var c := CenterContainer.new()
+		c.add_child(_label("OPEN SLOT" if p.offers.is_empty() else "OPEN SLOT  ·  you have offers", 14, UiKit.MUTED if p.offers.is_empty() else Color("#f97316")))
+		empty.add_child(c)
+		grid.add_child(empty)
+
+
+func _tab_offers(box: VBoxContainer, s: Season, p: Soldier, fns: Dictionary) -> void:
 	if p.offers.is_empty():
-		box.add_child(_label("No offers right now.", 15, UiKit.MUTED))
+		box.add_child(_label("No offers right now. Heat and brand bring them.", 15, UiKit.MUTED))
+		return
 	for o in p.offers.duplicate():
 		var b := Gear.brand(o["brand"])
-		var row := _vbox(4)
-		row.add_child(_label("%s%s (%s)  ·  %s  ·  %s a match (%s if you miss a clause) for %d year%s  ·  %s" % ["RENEWAL: " if bool(o.get("renewal", false)) else "", b["name"], Gear.tier_name(int(b["tier"])), _slots_text(o["slots"]), Sponsors.money_text(int(o["pay"])), Sponsors.money_text(int(o["reduced"])), o["years"], "" if int(o["years"]) == 1 else "s", "money-heavy" if o["style"] == Sponsors.STYLE_MONEY else "gear-heavy"], 15, Color.WHITE))
-		row.add_child(_label("    Clauses: " + _clauses_text(o["clauses"]), 14, UiKit.TEXT))
-		row.add_child(_label("    " + String(o["reason"]), 14, UiKit.MUTED))
+		var tc: Color = TIER_COLORS[int(b["tier"])]
+		var renewal := bool(o.get("renewal", false))
+		var card := _card(Color("#f97316") if renewal else tc)
+		var v := _vbox(8)
+		card.add_child(_pad(v))
+		var top := _hbox(10)
+		top.add_child(UiKit.display(String(b["name"]).to_upper(), 26, Color.WHITE, true))
+		top.add_child(_chip(Gear.tier_name(int(b["tier"])).to_upper(), tc))
+		if renewal:
+			top.add_child(_chip("RENEWAL", Color("#f97316")))
+		top.add_child(_chip("MONEY" if o["style"] == Sponsors.STYLE_MONEY else "GEAR", UiKit.GOLD))
+		var sp := Control.new()
+		sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		top.add_child(sp)
+		top.add_child(UiKit.display("%s / match" % Sponsors.money_text(int(o["pay"])), 24, UiKit.GOOD, true))
+		v.add_child(top)
+		var meta := _hbox(14)
+		meta.add_child(_label("%d year%s" % [int(o["years"]), "" if int(o["years"]) == 1 else "s"], 13, UiKit.TEXT))
+		meta.add_child(_label("%s if you miss a clause" % Sponsors.money_text(int(o["reduced"])), 12, UiKit.MUTED))
+		meta.add_child(_slot_pips(p, o["brand"], o["slots"]))
+		v.add_child(meta)
+		v.add_child(_clause_chips(o["clauses"]))
+		var why := _label(String(o["reason"]), 12, UiKit.MUTED)
+		why.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		why.custom_minimum_size.x = 900
+		v.add_child(why)
 		var btns := _hbox(10)
 		var err := Sponsors.accept_error(p, o)
 		var accept := UiKit.primary_button("Accept", func():
 			var e := Sponsors.accept(s, o)
 			if e == "":
 				hub.app.toast("Signed with %s." % b["name"])
-			fns["render"].call(), 15)
+			fns["render"].call(), 16)
 		accept.disabled = err != ""
 		btns.add_child(accept)
 		if not bool(o["countered"]):
@@ -275,64 +444,94 @@ func _fill_sponsors(box: VBoxContainer, fns: Dictionary) -> void:
 			Sponsors.decline(s, o)
 			fns["render"].call(), 15))
 		if err != "":
-			btns.add_child(_label(err, 13, UiKit.BAD))
-		row.add_child(btns)
+			btns.add_child(_label(err, 12, UiKit.BAD))
+		v.add_child(btns)
+		box.add_child(card)
+
+
+## Every brand by tier: its influence with you, and whether it is signed, offering, within reach or locked.
+func _tab_brands(box: VBoxContainer, s: Season, p: Soldier) -> void:
+	for t in Gear.TIER_BRAND.size():
+		var tc: Color = TIER_COLORS[t]
+		var gated := t > Sponsors.tier_ceiling(s)
+		var head := _hbox(10)
+		head.add_child(UiKit.display(Gear.tier_name(t).to_upper(), 18, tc, true))
+		head.add_child(_label("needs heat %d" % roundi(float(Sponsors.TIER_HEAT[t])) + ("   ·   locked: bigger brand or a top prospect" if gated else ""), 12, UiKit.MUTED))
+		box.add_child(head)
+		var row := _hbox(10)
+		for br in Gear.brands_in_tier(t):
+			var id: StringName = br["id"]
+			var v := Sponsors.influence_of(p, id)
+			var signed := Sponsors.holds(p, id)
+			var offered := Sponsors._has_offer(p, id)
+			var card := _card(tc if not gated else UiKit.MUTED, 200)
+			card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			var c := _vbox(5)
+			card.add_child(_pad(c, 10))
+			c.add_child(_label(String(br["name"]).to_upper(), 14, Color.WHITE if not gated else UiKit.MUTED))
+			c.add_child(PlayerPages.Meter.new(v, 100.0, tc, 0.0, 8.0))
+			var state := "SIGNED" if signed else ("OFFER" if offered else ("LOCKED" if gated else "OPEN"))
+			var scol := UiKit.GOOD if signed else (Color("#f97316") if offered else (UiKit.MUTED if gated else UiKit.INFO))
+			var line := _hbox(6)
+			line.add_child(_chip(state, scol, 11))
+			line.add_child(_label(str(roundi(v)), 12, UiKit.MUTED))
+			c.add_child(line)
+			row.add_child(card)
 		box.add_child(row)
-	box.add_child(UiKit.heading("Influence", 18))
-	var any_infl := false
-	for br in Gear.BRANDS:
-		var v := Sponsors.influence_of(p, br["id"])
-		if v <= 0.0 and not Sponsors.holds(p, br["id"]):
-			continue
-		any_infl = true
-		box.add_child(_label("%s  %s %d  (%s)%s" % [br["name"], _meter(v), roundi(v), Sponsors.INFLUENCE_NAMES[Sponsors.influence_tier(v)], "" if Sponsors.holds(p, br["id"]) else "  ·  no deal"], 14, UiKit.TEXT))
-	if not any_infl:
-		box.add_child(_label("No brand has any influence with you yet.", 14, UiKit.MUTED))
-	box.add_child(UiKit.heading("Gear you can buy", 18))
+
+
+func _tab_shop(box: VBoxContainer, s: Season, p: Soldier, fns: Dictionary) -> void:
+	box.add_child(UiKit.heading("Buy back", 18))
 	var shop := Sponsors.buyable(p)
 	if shop.is_empty():
-		box.add_child(_label("Nothing. Items a deal gave you can be bought here once the deal is over.", 14, UiKit.MUTED))
+		box.add_child(_label("Nothing yet. Items from a finished deal can be bought here.", 14, UiKit.MUTED))
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 10)
+	flow.add_theme_constant_override("v_separation", 10)
+	box.add_child(flow)
 	for it in shop:
-		var row2 := _hbox(12)
 		var item := Gear.item(it["brand"], it["slot"])
-		row2.add_child(_label("%s  (%s)  %s  ·  %s" % [item["name"], Gear.tier_name(int(item["tier"])), _bonus_text(item["bonus"]), Sponsors.money_text(int(it["price"]))], 14, UiKit.TEXT))
-		var buy := UiKit.button("Buy", func():
+		var tc: Color = TIER_COLORS[int(item["tier"])]
+		var card := _card(tc, 250)
+		var v := _vbox(4)
+		card.add_child(_pad(v, 10))
+		v.add_child(_label(String(item["name"]), 14, Color.WHITE))
+		v.add_child(_label(_bonus_text(item["bonus"]), 12, UiKit.MUTED))
+		var buy := UiKit.button("Buy  %s" % Sponsors.money_text(int(it["price"])), func():
 			var e := Sponsors.buy(s, it["brand"], it["slot"])
 			hub.app.toast(e if e != "" else "Bought %s." % item["name"])
 			fns["render"].call(), 14)
 		buy.disabled = p.cash < int(it["price"])
-		row2.add_child(buy)
-		box.add_child(row2)
+		v.add_child(buy)
+		flow.add_child(card)
 	box.add_child(UiKit.heading("A foot in the door", 18))
-	box.add_child(_wrap("Buy one item from a brand that has not signed you, at %dx the normal price. It stays yours; wearing it builds a little influence (up to Friendly), and so does training your brand. When they sign you, the item is already paid for." % int(Sponsors.PREBUY_MULT), 14))
+	box.add_child(_wrap("Buy one item from a brand that has not signed you, at %dx the price. Wearing it builds influence, and it is already paid for when they sign you." % int(Sponsors.PREBUY_MULT), 13))
 	var pre := Sponsors.prebuy_brands(s)
 	if pre.is_empty():
 		box.add_child(_label("No brand to approach right now.", 14, UiKit.MUTED))
 	for id in pre:
 		var pb := Gear.brand(id)
-		var prow := _vbox(2)
-		prow.add_child(_label("%s (%s)  ·  influence %d" % [pb["name"], Gear.tier_name(int(pb["tier"])), roundi(Sponsors.influence_of(p, id))], 14, UiKit.TEXT))
+		var tc2: Color = TIER_COLORS[int(pb["tier"])]
+		var card2 := _card(tc2)
+		var pv := _vbox(6)
+		card2.add_child(_pad(pv, 12))
+		var head := _hbox(10)
+		head.add_child(UiKit.display(String(pb["name"]).to_upper(), 18, Color.WHITE, true))
+		head.add_child(_chip(Gear.tier_name(int(pb["tier"])).to_upper(), tc2, 11))
+		head.add_child(PlayerPages.Meter.new(Sponsors.influence_of(p, id), 100.0, tc2, 0.0, 8.0))
+		pv.add_child(head)
 		var pbtns := _hbox(6)
 		for slot in Gear.SLOTS:
 			var pit := Gear.item(id, slot)
-			var pbtn := UiKit.button("%s %s  %s" % [Gear.SLOT_LABELS[slot], _bonus_text(pit["bonus"]), Sponsors.money_text(Sponsors.prebuy_price(id, slot))], func():
+			var pbtn := UiKit.button("%s  %s" % [Gear.SLOT_LABELS[slot], Sponsors.money_text(Sponsors.prebuy_price(id, slot))], func():
 				var e := Sponsors.prebuy(s, id, slot)
 				hub.app.toast(e if e != "" else "Bought %s." % pit["name"])
 				fns["render"].call(), 12)
+			pbtn.tooltip_text = _bonus_text(pit["bonus"])
 			pbtn.disabled = Sponsors.prebuy_error(s, id, slot) != ""
 			pbtns.add_child(pbtn)
-		prow.add_child(pbtns)
-		box.add_child(prow)
-	box.add_child(UiKit.heading("What the others want", 18))
-	for t in Gear.TIER_BRAND.size():
-		var names := ", ".join(Gear.brands_in_tier(t).map(func(b): return b["name"]))
-		var gated := t > Sponsors.tier_ceiling(s)
-		var line := "%s (%s): heat %d%s" % [Gear.tier_name(t), names, roundi(float(Sponsors.TIER_HEAT[t])), "  ·  needs a bigger brand (or a top prospect)" if gated else ""]
-		box.add_child(_label(line, 14, UiKit.MUTED if gated else UiKit.TEXT))
-	var foot := _hbox(12)
-	foot.add_child(UiKit.button("Loadout", func(): hub.open("Loadout", func(): return loadout_page()), 16))
-	foot.add_child(UiKit.button("Back", func(): hub.go_back(), 16))
-	box.add_child(foot)
+		pv.add_child(pbtns)
+		box.add_child(card2)
 
 
 # --- stories ---------------------------------------------------------------------------------------

@@ -182,11 +182,7 @@ static func results(season: Season, on_continue: Callable) -> Control:
 			var stat: StringName = t["stat"]
 			col.add_child(UiKit.label("%-18s %3d - %-3d" % [Stats.LABELS[stat], b[stat].x, b[stat].y], 15, UiKit.TEXT))
 		grid.add_child(col)
-	var story_stars := int(Backstory.find(s.backstory)["stars"])
-	var stars_line := "Dev stars: %s" % s.dev_text()
-	if s.dev < story_stars:
-		stars_line += "   (your story starts at %s, but a weak combine took one off. Earn it back with study.)" % Soldier.dev_stars(story_stars)
-	root.add_child(UiKit.label(stars_line, 16, UiKit.GOLD))
+	root.add_child(UiKit.label("Dev stars: %s" % s.dev_text(), 16, UiKit.GOLD))
 	var note := UiKit.label("The draft is next.", 15, UiKit.MUTED)
 	root.add_child(note)
 	root.add_child(UiKit.primary_button("Continue", on_continue, 22))

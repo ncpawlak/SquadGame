@@ -1250,6 +1250,9 @@ func _home_top() -> Control:
 	if anchor != _home_anchor:
 		_home_anchor = anchor
 		home_week = 0
+	if season.player_mode:
+		# Career Home is all about you: no match card or league news, just your dashboard and your own news.
+		return player_ui.home_dashboard(_card_actions(_shown_match(team)))
 	var top := HBoxContainer.new()
 	top.add_theme_constant_override("separation", 18)
 	if season.player_mode:

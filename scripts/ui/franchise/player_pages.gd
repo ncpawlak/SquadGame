@@ -101,6 +101,218 @@ func home_left() -> Control:
 	return col
 
 
+## Career Home: all about you. A banner (where you stand), your gauges, last game and season on the left, the next game and
+## what to do this week in the middle, and a news pane that only carries your own news on the right.
+## `actions` is the hub's Preview / Sim To / Play row.
+func home_dashboard(actions: Control) -> Control:
+	var s := _season()
+	var top := _hbox(18)
+	top.name = "CareerDashboard"
+	if PlayerLegacy.retired(s):
+		var col := _vbox(10)
+		col.custom_minimum_size.x = COL_W
+		top.add_child(_retired_left(col))
+		top.add_child(_news_pane())
+		return top
+	var left := _vbox(12)
+	left.name = "TodoColumn"
+	left.custom_minimum_size.x = COL_W
+	left.add_child(_banner())
+	left.add_child(_vitals_grid(s.player))
+	left.add_child(UiKit.heading("Last Game", 20))
+	left.add_child(_last_game_card())
+	left.add_child(UiKit.heading("This Season", 20))
+	left.add_child(_season_card())
+	top.add_child(left)
+	var mid := _vbox(12)
+	mid.custom_minimum_size.x = COL_W
+	mid.add_child(UiKit.heading("Next Up", 20))
+	mid.add_child(_next_game_card())
+	mid.add_child(actions)
+	mid.add_child(UiKit.heading("This Week", 20))
+	for t in _todos():
+		mid.add_child(t)
+	top.add_child(mid)
+	top.add_child(_news_pane())
+	var i := 0
+	for c in left.get_children():
+		UiKit.fade_in(c, 0.04 * i, 0.25)
+		i += 1
+	return top
+
+
+## The banner at the top of the dashboard: your status, what the coach says, the big OVR and the Hall of Fame bar.
+func _banner() -> Control:
+	var s := _season()
+	var p := s.player
+	var team := s.user_team()
+	var st := PlayerCoach.status(s)
+	var color: Color = STATUS_COLORS[st["where"]]
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size.x = COL_W
+	panel.add_theme_stylebox_override("panel", UiKit.flat(UiKit.PANEL, 10, 1, Color(color, 0.7)))
+	var back := UiKit.backdrop(Color(color, 0.3), UiKit.PANEL, true, color)
+	back.set_anchors_preset(Control.PRESET_FULL_RECT)
+	panel.add_child(back)
+	var v := _vbox(8)
+	panel.add_child(_wrap(v, 16))
+	var top := _hbox(12)
+	v.add_child(top)
+	var left := _vbox(0)
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.add_child(UiKit.display(STATUS_NAMES[st["where"]], 34, color, true))
+	left.add_child(_label("%s  ·  %s" % [team.name, s.record_text(team)], 14, Color(1, 1, 1, 0.7)))
+	top.add_child(left)
+	var ovr := _vbox(0)
+	var cap := _label("OVR", 12, Color(1, 1, 1, 0.7))
+	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	ovr.add_child(cap)
+	var big := UiKit.display(str(p.best_ovr()), 56, UiKit.ovr_color(p.best_ovr()), true)
+	big.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	ovr.add_child(big)
+	top.add_child(ovr)
+	var msg := _label(String(st["text"]), 15, UiKit.TEXT)
+	msg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	msg.custom_minimum_size.x = COL_W - 34
+	v.add_child(msg)
+	if s.player_start_ovr > 0:
+		var d := p.best_ovr() - s.player_start_ovr
+		v.add_child(_label("%+d OVR since you were drafted" % d, 13, UiKit.GOOD if d > 0 else UiKit.MUTED))
+	var tr := PlayerLegacy.trajectory(s)
+	var hof := _hbox(10)
+	hof.add_child(_label("HALL OF FAME", 11, UiKit.MUTED))
+	hof.add_child(Meter.new(float(tr["score"]), maxf(1.0, float(tr["threshold"])), UiKit.GOLD, 0.0, 8.0))
+	hof.add_child(_label("%d / %d" % [roundi(float(tr["score"])), roundi(float(tr["threshold"]))], 12, UiKit.GOLD))
+	v.add_child(hof)
+	return panel
+
+
+## Two-by-two gauges for the home page: XP, the next star, fatigue and wear.
+func _vitals_grid(p: Soldier) -> Control:
+	var g := GridContainer.new()
+	g.columns = 2
+	g.add_theme_constant_override("h_separation", 10)
+	g.add_theme_constant_override("v_separation", 10)
+	g.custom_minimum_size.x = COL_W
+	var xp: Array = Progression.xp_progress(p)
+	g.add_child(_gauge("XP", "%d / %d" % [xp[0], xp[1]], float(xp[0]), float(xp[1]), UiKit.INFO, "%d skill points" % p.skill_points))
+	if p.dev >= Soldier.DEV_MAX:
+		g.add_child(_gauge("STARS", "MAX", 1.0, 1.0, UiKit.GOLD, "Top star reached"))
+	else:
+		var cost := WeeklyPlan.star_cost(p.dev, p)
+		g.add_child(_gauge("NEXT STAR", "%d / %d" % [roundi(p.study_progress), roundi(cost)], p.study_progress, cost, UiKit.GOLD, "%d to go" % maxi(0, roundi(cost) - roundi(p.study_progress))))
+	g.add_child(_gauge("FATIGUE", str(roundi(p.fatigue)), p.fatigue, 100.0, UiKit.BAD if p.fatigue > 60.0 else (UiKit.GOLD if p.fatigue > 40.0 else UiKit.GOOD), "lower is better"))
+	g.add_child(_gauge("WEAR", str(roundi(p.wear)), p.wear, 100.0, UiKit.BAD if p.wear > 60.0 else (UiKit.GOLD if p.wear > 35.0 else UiKit.GOOD), Wear.tier_name(p.wear)))
+	return g
+
+
+## The next game as a compact card: week, opponent, where. Camp and the offseason say what is happening instead.
+func _next_game_card() -> Control:
+	var s := _season()
+	var team := s.user_team()
+	var card := _card(UiKit.ACCENT)
+	var v := _vbox(4)
+	card.add_child(_wrap(v, 14))
+	if s.phase == Season.PHASE_OFFSEASON:
+		v.add_child(UiKit.display("OFFSEASON", 26, UiKit.GOLD, true))
+		v.add_child(_label("Set your camp plan, raise a cap and get ready for the next season.", 14, UiKit.MUTED))
+		return card
+	if s.preseason_camp:
+		v.add_child(UiKit.display("PRESEASON CAMP", 26, UiKit.GOLD, true))
+		v.add_child(_label("Set your camp plan, then close camp to start Week 1.", 14, UiKit.MUTED))
+		return card
+	var m := s.next_match_for(team)
+	if m == null:
+		v.add_child(UiKit.display("NO GAME", 26, UiKit.MUTED, true))
+		v.add_child(_label("Nothing left on the schedule this season.", 14, UiKit.MUTED))
+		return card
+	var opp: Team = m.away if m.home == team else m.home
+	v.add_child(_label(s.week_label(m.week).to_upper(), 12, UiKit.MUTED))
+	var row := _hbox(14)
+	row.add_child(UiKit.team_logo(opp, 54))
+	var info := _vbox(0)
+	info.add_child(UiKit.display(("%s %s" % ["vs" if m.home == team else "at", opp.name]).to_upper(), 24, Color.WHITE, true))
+	info.add_child(_label("%s  ·  %s" % [s.record_text(opp), "Home" if m.home == team else "Away"], 13, UiKit.MUTED))
+	row.add_child(info)
+	v.add_child(row)
+	return card
+
+
+## YOUR NEWS: only things that happened to you (coach calls, stories, sponsors, money, caps) and your game results,
+## newest first. Scrolls inside a fixed-height panel.
+func _news_pane() -> Control:
+	var s := _season()
+	var box := _vbox(8)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.custom_minimum_size = Vector2(430, 0)
+	box.add_child(UiKit.heading("Your News", 20))
+	var frame := PanelContainer.new()
+	frame.add_theme_stylebox_override("panel", UiKit.flat(Color(UiKit.PANEL, 0.85), 8, 1, Color(1, 1, 1, 0.08)))
+	frame.custom_minimum_size = Vector2(430, 700)
+	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(frame)
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	frame.add_child(sc)
+	var list := _vbox(6)
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(_wrap(list, 10))
+	var items: Array = []
+	var n := 0
+	for note in s.player_notes:
+		items.append({"year": int(note["year"]), "week": int(note["week"]), "text": String(note["text"]), "kind": "note", "n": n})
+		n += 1
+	for e in s.player_log:
+		var text := ""
+		var good := true
+		if e["played"]:
+			good = bool(e["won"])
+			text = "%s %s vs %s, %s. Grade %s: %d K, %d D, %d A%s." % ["Won" if e["won"] else "Lost", e["score_line"], e["opp"].name, s.week_label(int(e["week"])), e["letter"], e["kills"], e["deaths"], e["assists"], ", MVP" if e["mvp"] else ""]
+		else:
+			good = false
+			text = "Did not play vs %s (%s): %s." % [e["opp"].name, s.week_label(int(e["week"])), e["reason"]]
+		items.append({"year": int(e["year"]), "week": int(e["week"]), "text": text, "kind": "game_win" if good and e["played"] else ("game_dnp" if not e["played"] else "game_loss"), "n": n})
+		n += 1
+	items.sort_custom(func(a, b): return (int(a["year"]) * 1000 + int(a["week"])) * 10000 + int(a["n"]) > (int(b["year"]) * 1000 + int(b["week"])) * 10000 + int(b["n"]))
+	if items.is_empty():
+		list.add_child(_label("Nothing yet. Your story starts here: play, train and make some noise.", 14, UiKit.MUTED))
+	var shown := 0
+	for it in items:
+		if shown >= 40:
+			break
+		shown += 1
+		list.add_child(_news_row(s, it))
+	return box
+
+
+func _news_row(s: Season, it: Dictionary) -> Control:
+	var colors := {"note": UiKit.INFO, "game_win": UiKit.GOOD, "game_loss": UiKit.BAD, "game_dnp": UiKit.MUTED}
+	var c: Color = colors[it["kind"]]
+	var row := PanelContainer.new()
+	row.add_theme_stylebox_override("panel", UiKit.flat(Color(c, 0.08), 4, 0, Color.TRANSPARENT))
+	var h := _hbox(10)
+	row.add_child(h)
+	var bar := ColorRect.new()
+	bar.color = c
+	bar.custom_minimum_size = Vector2(4, 0)
+	h.add_child(bar)
+	var v := _vbox(2)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var w := int(it["week"])
+	var when := "%d  ·  %s" % [it["year"], s.week_label(w) if w >= 1 and w <= s.total_weeks() else "Offseason"]
+	v.add_child(_label(when.to_upper(), 11, UiKit.MUTED))
+	var t := _label(String(it["text"]), 14, UiKit.TEXT)
+	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	t.custom_minimum_size.x = 360
+	v.add_child(t)
+	var m := MarginContainer.new()
+	m.add_theme_constant_override("margin_top", 5)
+	m.add_theme_constant_override("margin_bottom", 5)
+	m.add_child(v)
+	h.add_child(m)
+	return row
+
+
 func _card(accent: Color) -> PanelContainer:
 	var pc := PanelContainer.new()
 	pc.custom_minimum_size.x = COL_W
@@ -367,7 +579,8 @@ func _plan_summary(plan: Dictionary, confirmed: bool) -> String:
 func _stars_line(p: Soldier) -> String:
 	if p.dev >= Soldier.DEV_MAX:
 		return "%s  ·  top star reached" % p.dev_text()
-	return "%s  ·  next star: %d / %d study points" % [p.dev_text(), roundi(p.study_progress), roundi(WeeklyPlan.star_cost(p.dev, p))]
+	var cost := roundi(WeeklyPlan.star_cost(p.dev, p))
+	return "%s  ·  next star: %d of %d study points (%d to go)" % [p.dev_text(), roundi(p.study_progress), cost, maxi(0, cost - roundi(p.study_progress))]
 
 
 func open_my_player() -> void:
@@ -525,7 +738,7 @@ func _vitals(p: Soldier) -> Control:
 	else:
 		var cost := WeeklyPlan.star_cost(p.dev, p)
 		row.add_child(_gauge("STUDY TO NEXT STAR", "%d / %d" % [roundi(p.study_progress), roundi(cost)], p.study_progress, cost, UiKit.GOLD,
-			"Next: %s. Study, strong seasons and honors fill it" % Soldier.dev_stars(p.dev + 1)))
+			"%d to go for %s. Study, strong seasons and honors fill it" % [maxi(0, roundi(cost) - roundi(p.study_progress)), Soldier.dev_stars(p.dev + 1)]))
 	row.add_child(_gauge("FATIGUE", str(roundi(p.fatigue)), p.fatigue, 100.0, UiKit.BAD if p.fatigue > 60.0 else (UiKit.GOLD if p.fatigue > 40.0 else UiKit.GOOD), "Rest, spa and a lighter plan bring it down"))
 	row.add_child(_gauge("WEAR", str(roundi(p.wear)), p.wear, 100.0, UiKit.BAD if p.wear > 60.0 else (UiKit.GOLD if p.wear > 35.0 else UiKit.GOOD), Wear.tier_name(p.wear)))
 	return row

@@ -190,7 +190,7 @@ func _stars_line(p: Soldier, plan: Dictionary, camp: bool) -> String:
 		return "%s  (top star reached)" % p.dev_text()
 	var lvl := WeeklyPlan.level(plan, WeeklyPlan.STUDY)
 	var pts: float = (WeeklyPlan.CAMP_STUDY_POINTS if camp else WeeklyPlan.STUDY_POINTS)[lvl]
-	return "%s   next star: %.1f / %d study points   (this plan adds %.1f)" % [p.dev_text(), p.study_progress, roundi(WeeklyPlan.star_cost(p.dev, p)), pts]
+	return "%s   next star: %.1f of %d study points (%d to go)   (this plan adds %.1f)" % [p.dev_text(), p.study_progress, roundi(WeeklyPlan.star_cost(p.dev, p)), maxi(0, roundi(WeeklyPlan.star_cost(p.dev, p) - p.study_progress)), pts]
 
 
 # --- skill-point placement --------------------------------------------------------------------------
