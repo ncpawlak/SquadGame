@@ -1,0 +1,125 @@
+[gd_scene load_steps=14 format=3]
+
+[ext_resource type="Script" path="res://scripts/fps/core/test_arena.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/fps/core/fps_player.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/fps/core/fps_target.gd" id="3"]
+[ext_resource type="PackedScene" path="res://scenes/fps/fps_hud.tscn" id="4"]
+
+[sub_resource type="BoxShape3D" id="floor_shape"]
+size = Vector3(200, 1, 200)
+
+[sub_resource type="BoxMesh" id="floor_mesh"]
+size = Vector3(200, 1, 200)
+
+[sub_resource type="StandardMaterial3D" id="floor_mat"]
+albedo_color = Color(0.32, 0.36, 0.3, 1)
+
+[sub_resource type="BoxShape3D" id="cover_shape"]
+size = Vector3(2.2, 1.2, 0.6)
+
+[sub_resource type="BoxMesh" id="cover_mesh"]
+size = Vector3(2.2, 1.2, 0.6)
+
+[sub_resource type="StandardMaterial3D" id="cover_mat"]
+albedo_color = Color(0.5, 0.5, 0.55, 1)
+
+[sub_resource type="ProceduralSkyMaterial" id="sky_mat"]
+
+[sub_resource type="Sky" id="sky"]
+sky_material = SubResource("sky_mat")
+
+[sub_resource type="Environment" id="env"]
+background_mode = 2
+sky = SubResource("sky")
+ambient_light_source = 3
+ambient_light_color = Color(0.7, 0.7, 0.75, 1)
+
+[node name="TestArena" type="Node3D"]
+script = ExtResource("1")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("env")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.7, 0.7, 0, -0.7, 0.7, 0, 10, 0)
+shadow_enabled = true
+
+[node name="Floor" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+
+[node name="Shape" type="CollisionShape3D" parent="Floor"]
+shape = SubResource("floor_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Floor"]
+mesh = SubResource("floor_mesh")
+surface_material_override/0 = SubResource("floor_mat")
+
+[node name="Cover1" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.5, 0.6, -4)
+
+[node name="Shape" type="CollisionShape3D" parent="Cover1"]
+shape = SubResource("cover_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Cover1"]
+mesh = SubResource("cover_mesh")
+surface_material_override/0 = SubResource("cover_mat")
+
+[node name="Cover2" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 0.6, -14)
+
+[node name="Shape" type="CollisionShape3D" parent="Cover2"]
+shape = SubResource("cover_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Cover2"]
+mesh = SubResource("cover_mesh")
+surface_material_override/0 = SubResource("cover_mat")
+
+[node name="Cover3" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 0.6, -28)
+
+[node name="Shape" type="CollisionShape3D" parent="Cover3"]
+shape = SubResource("cover_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Cover3"]
+mesh = SubResource("cover_mesh")
+surface_material_override/0 = SubResource("cover_mat")
+
+[node name="Cover4" type="StaticBody3D" parent="."]
+transform = Transform3D(0.8, 0, 0.6, 0, 1, 0, -0.6, 0, 0.8, 5, 0.6, -40)
+
+[node name="Shape" type="CollisionShape3D" parent="Cover4"]
+shape = SubResource("cover_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Cover4"]
+mesh = SubResource("cover_mesh")
+surface_material_override/0 = SubResource("cover_mat")
+
+[node name="TargetShort1" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, -8)
+script = ExtResource("3")
+
+[node name="TargetShort2" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0, -9)
+script = ExtResource("3")
+
+[node name="TargetMedium1" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -22)
+script = ExtResource("3")
+
+[node name="TargetMedium2" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 0, -26)
+script = ExtResource("3")
+
+[node name="TargetLong1" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -50)
+script = ExtResource("3")
+
+[node name="TargetLong2" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0, -75)
+script = ExtResource("3")
+
+[node name="Player" type="CharacterBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 4)
+script = ExtResource("2")
+
+[node name="FpsHud" parent="." instance=ExtResource("4")]
