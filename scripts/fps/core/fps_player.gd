@@ -32,6 +32,8 @@ var stamina: float = 100.0
 var move: Dictionary = {}  ## result of derive_movement()
 var dead: bool = false
 var controls_enabled: bool = true
+## Standing drills pin him to the spot: he can still look and shoot, but not walk, sprint or jump.
+var lock_movement: bool = false
 var sprinting: bool = false
 var crouching: bool = false
 var recovering_stamina: bool = false  ## true after hitting 0 until stamina recovers a bit
@@ -229,6 +231,10 @@ func _physics_process(delta: float) -> void:
 
 ## Movement step, separated from input so tests and scripted drills can drive the player.
 func simulate(delta: float, input_dir: Vector2, want_sprint: bool, want_crouch: bool, want_jump: bool) -> void:
+	if lock_movement:
+		input_dir = Vector2.ZERO
+		want_sprint = false
+		want_jump = false
 	_set_crouch(want_crouch, delta)
 	var moving := input_dir.length() > 0.1
 	var can_sprint := want_sprint and moving and not crouching and is_on_floor() and input_dir.y <= 0.1

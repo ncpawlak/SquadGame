@@ -148,7 +148,7 @@ func test_timer_and_countdown() -> void:
 	check(d.state == FpsDrill.State.COUNTDOWN, "starts in countdown")
 	d.advance(1.0)
 	check(d.state == FpsDrill.State.COUNTDOWN and d.elapsed == 0.0, "countdown does not eat run time")
-	d.advance(30.0)
+	d.advance(100.0)
 	check(d.state == FpsDrill.State.DONE and _done_scores.size() == 1, "overshoot finishes once")
 	d.advance(10.0)
 	check(_done_scores.size() == 1, "advancing after done does nothing")
@@ -162,10 +162,41 @@ func test_grouping_drill_from_shots() -> void:
 	d.finished.connect(_record)
 	d.start(null, 1)
 	d.advance(FpsDrill.COUNTDOWN_SECS + 0.1)
-	for i in d.burst:
-		d._on_shot_fired({"hit": true, "position": Vector3(0.01 * i, 1.6, -20.0)})
-	check(_done_scores.size() == 1 and _done_scores[0] > 0.9, "tight burst scores high: %s" % [_done_scores])
+	for pass_i in FpsGroupingDrill.PASSES:
+		for t in d.targets:
+			t.last_hit_pos = t.position + FpsDrillTarget.BULLSEYE + Vector3(0.01 * pass_i, 0.0, 0.0)
+			d._on_hit(false, t)
+	check(_done_scores.size() == 1 and _done_scores[0] > 0.9, "tight groups on every target score high: %s" % [_done_scores])
 	d.free()
+
+
+func test_grouping_rounds_and_scatter() -> void:
+	var d := FpsGroupingDrill.new()
+	_done_scores.clear()
+	d.finished.connect(_record)
+	d.start(null, 1)
+	d.advance(FpsDrill.COUNTDOWN_SECS + 0.1)
+	var first: FpsDrillTarget = d.targets[0]
+	first.last_hit_pos = first.position + FpsDrillTarget.BULLSEYE
+	d._on_hit(false, first)
+	d._on_hit(false, first)
+	check(d.shot_points[0].size() == 1, "a target takes one shot per round")
+	d.free()
+	check(FpsDrill.group_ring_score([[Vector2(0, 0), Vector2(0.01, 0), Vector2(0, 0.01)]], 0.25) > 0.9, "a tight group scores high")
+	check(FpsDrill.group_ring_score([[Vector2(-0.2, 0), Vector2(0.2, 0), Vector2(0, 0.2)]], 0.25) < 0.4, "a loose group scores low")
+	check(FpsDrill.group_ring_score([[Vector2(5, 5), Vector2(5.01, 5), Vector2(5, 5.01)]], 0.25) > 0.9, "where the group sits does not matter")
+
+
+func test_range_value_and_standard_loadout() -> void:
+	check(FpsDrill.pop_value(0.0, 2.0, 1.0) == 1.0, "instant bullseye is perfect")
+	check(FpsDrill.pop_value(1.0, 2.0, 1.0) < FpsDrill.pop_value(0.2, 2.0, 1.0), "faster is better")
+	check(FpsDrill.pop_value(0.2, 2.0, 0.2) < FpsDrill.pop_value(0.2, 2.0, 0.9), "closer to the bullseye is better")
+	check(FpsDrill.mean_value([1.0, 1.0], 4) == 0.5, "misses count as zero")
+	var std := FpsDrill.standard_stats({Stats.SHORT_ACC: 99})
+	check(std[Stats.SHORT_ACC] == 99 and std[Stats.SPEED] == 50 and std.size() == Stats.ALL.size(), "standard loadout is 50 with overrides")
+	var r := FpsRangeDrill.make(Stats.MEDIUM_ACC)
+	check(r.lock_player and r.loadout[Stats.MEDIUM_ACC] == 99, "range drills are standing drills at accuracy 99")
+	r.free()
 
 
 func test_sway_drill_shot() -> void:

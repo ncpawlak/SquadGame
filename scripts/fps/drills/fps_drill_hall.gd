@@ -18,6 +18,14 @@ const DRILLS := [
 	{"id": &"sway", "title": "Hold steady (sway)", "stat": Stats.SWAY, "scene": "res://scenes/fps/drills/sway.tscn"},
 	{"id": &"course", "title": "Obstacle course", "stat": Stats.AGILITY, "scene": "res://scenes/fps/drills/course.tscn"},
 	{"id": &"hold", "title": "Hold the point", "stat": Stats.ANCHOR, "scene": "res://scenes/fps/drills/hold.tscn"},
+	{"id": &"reload", "title": "Active reload", "stat": Stats.RELOAD, "scene": "res://scenes/fps/drills/reload.tscn"},
+	{"id": &"composure", "title": "Under fire", "stat": Stats.COMPOSURE, "scene": "res://scenes/fps/drills/composure.tscn"},
+	{"id": &"callouts", "title": "Squad callouts", "stat": Stats.TEAMWORK, "scene": "res://scenes/fps/drills/callouts.tscn"},
+	{"id": &"breach", "title": "Door breach", "stat": Stats.BREACH, "scene": "res://scenes/fps/drills/breach.tscn"},
+	{"id": &"defense", "title": "Hill defense", "stat": Stats.OBJ_IQ, "scene": "res://scenes/fps/drills/defense.tscn"},
+	{"id": &"maze", "title": "Maze", "stat": Stats.AWARENESS, "scene": "res://scenes/fps/drills/maze.tscn"},
+	{"id": &"sled", "title": "Sled push", "stat": Stats.STRENGTH, "scene": "res://scenes/fps/drills/sled.tscn"},
+	{"id": &"ruck", "title": "Ruck run", "stat": Stats.ENDURANCE, "scene": "res://scenes/fps/drills/ruck.tscn"},
 ]
 const FPS_PLAYER_CLASS := "FpsPlayer"
 const STUB_PLAYER := "res://scripts/fps/drills/stubs/fps_drill_stub_player.gd"

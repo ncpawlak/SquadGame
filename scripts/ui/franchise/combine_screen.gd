@@ -4,6 +4,10 @@ extends RefCounted
 ## report of the rating bands once the combine is locked in. Rules live in Combine; the tasks in CombineTasks.
 
 
+## Run the 3D drill for every stat that has one (the 2D mini-game stays for the rest). The checkbox on the drill list flips it.
+static var use_3d := true
+
+
 ## on_done: Callable() once the player locks the combine in. on_back: Callable() to leave without locking.
 static func make(season: Season, on_done: Callable, on_back: Callable) -> Control:
 	var combine: Combine = season.player_combine
@@ -64,6 +68,12 @@ static func make(season: Season, on_done: Callable, on_back: Callable) -> Contro
 	fns["list"] = func():
 		clear.call(lv)
 		lv.add_child(UiKit.display("DRILLS", 22, UiKit.ACCENT, true))
+		var cov := FpsCombineDrills.coverage()
+		var tg := CheckButton.new()
+		tg.text = "3D drills (%d of %d)" % [cov[0], cov[1]]
+		tg.button_pressed = CombineScreen.use_3d
+		tg.toggled.connect(func(on: bool): CombineScreen.use_3d = on)
+		lv.add_child(tg)
 		for g in Combine.DRILL_ORDER:
 			var drill: Dictionary = Camp.DRILLS[g]
 			var left_n := combine.tries_left(g)
@@ -110,23 +120,48 @@ static func make(season: Season, on_done: Callable, on_back: Callable) -> Contro
 		var tasks: Array = Combine.drill_tasks(group)
 		var run := {"i": 0, "scores": {}}
 		fns["brief"] = func():
+			# A 3D drill can score two stats at once (the obstacle course): skip tasks that are already scored.
+			while run["scores"].has(tasks[run["i"]]["stat"]) and run["i"] < tasks.size() - 1:
+				run["i"] += 1
+			if run["scores"].has(tasks[run["i"]]["stat"]):
+				combine.record_try(group, run["scores"])
+				fns["hub"].call()
+				return
 			clear.call(stage)
 			var spec: Dictionary = tasks[run["i"]]
+			var three_d: bool = CombineScreen.use_3d and FpsCombineDrills.available(spec["stat"])
 			stage.add_child(UiKit.display("%s  -  %s" % [Camp.DRILLS[group]["name"], spec["label"]], 28, Color.WHITE, true))
 			stage.add_child(UiKit.label("Task %d of %d" % [run["i"] + 1, tasks.size()], 15, UiKit.MUTED))
-			var preview := CombineTasks.make(spec)
-			var ins := UiKit.label(preview.instructions(), 18, UiKit.TEXT)
+			var ins: Label
+			if three_d:
+				var probe := (load(FpsCombineDrills.scene_for(spec["stat"])) as PackedScene).instantiate() as FpsDrill
+				ins = UiKit.label("3D drill: %s
+%s
+Mouse to look, click to shoot. Esc quits (and keeps your try)." % [probe.title, probe.instructions], 18, UiKit.TEXT)
+				probe.free()
+			else:
+				var preview := CombineTasks.make(spec)
+				ins = UiKit.label(preview.instructions(), 18, UiKit.TEXT)
+				preview.free()
 			ins.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			stage.add_child(ins)
-			preview.free()
 			var row := HBoxContainer.new()
 			row.add_theme_constant_override("separation", 12)
 			stage.add_child(row)
 			row.add_child(UiKit.primary_button("Start", func(): fns["play"].call(), 22))
 			row.add_child(UiKit.button("Quit drill (keeps your try)", func(): fns["hub"].call(), 16))
 		fns["play"] = func():
-			clear.call(stage)
 			var spec: Dictionary = tasks[run["i"]]
+			if CombineScreen.use_3d and FpsCombineDrills.available(spec["stat"]):
+				# Hide this screen and run the 3D drill full screen; it hands back the stat score(s).
+				wrap.visible = false
+				FpsCombineRunner.launch(wrap.get_parent(), spec["stat"], func(scores: Dictionary):
+					wrap.visible = true
+					for st in scores:
+						run["scores"][st] = float(scores[st])
+					fns["after"].call(float(run["scores"].get(spec["stat"], 0.0))))
+				return
+			clear.call(stage)
 			var task := CombineTasks.make(spec)
 			stage.add_child(task)
 			task.grab_focus()

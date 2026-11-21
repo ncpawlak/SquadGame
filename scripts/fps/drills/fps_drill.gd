@@ -29,6 +29,11 @@ var countdown_left := COUNTDOWN_SECS
 var score := 0.0
 var player: Node3D
 var player_spawn := Vector3(0, 0.1, 0)
+## Rating overrides for this drill on top of the standard loadout (every rating 50, no gear). A drill measures skill, not
+## the soldier's ratings: it sets the ratings that would add noise to 99 and leaves the rest standard.
+var loadout: Dictionary = {}
+## True for drills where the player stands on a spot (he can look and shoot but not move).
+var lock_player := false
 var shots := 0
 var _built := false
 
@@ -59,6 +64,7 @@ func start(p: Node3D = null, seed_value: int = -1) -> void:
 		if player.get_parent() == null:
 			add_child(player)
 		player.position = player_spawn
+		_apply_loadout()
 		if player.has_signal(&"shot_fired") and not player.is_connected(&"shot_fired", _on_shot_fired):
 			player.connect(&"shot_fired", _on_shot_fired)
 	state = State.COUNTDOWN
@@ -70,6 +76,29 @@ func start(p: Node3D = null, seed_value: int = -1) -> void:
 
 func _process(delta: float) -> void:
 	advance(delta)
+
+
+## Every drill runs on the standard loadout (plus this drill's overrides), never the soldier's own ratings, so the score is
+## skill only. Also pins the player to the spot for standing drills.
+func _apply_loadout() -> void:
+	if player == null:
+		return
+	if player.has_method(&"setup"):
+		var s := Soldier.new()
+		s.stats = FpsDrill.standard_stats(loadout)
+		player.call(&"setup", s)
+	if "lock_movement" in player:
+		player.set("lock_movement", lock_player)
+
+
+## Every rating at 50 with the given overrides.
+static func standard_stats(overrides: Dictionary = {}) -> Dictionary:
+	var out := {}
+	for id in Stats.ALL:
+		out[id] = 50
+	for id in overrides:
+		out[id] = int(overrides[id])
+	return out
 
 
 ## Move time forward. Safe to call at any rate and after the drill is done (it then does nothing).
@@ -240,6 +269,23 @@ static func time_score(secs: float, par: float, limit: float) -> float:
 	return clamp01(1.0 - (secs - par) / (limit - par))
 
 
+## One popup target's value: how fast it was shot (1 for an instant hit, 0 at the end of its life) and how close to the
+## bullseye (1 centre, 0 at the edge of the scoring disc), half each. A target never hit is worth 0.
+static func pop_value(reaction_s: float, life_s: float, closeness: float) -> float:
+	var speed := clamp01(1.0 - reaction_s / maxf(life_s, 0.001))
+	return clamp01(0.5 * speed + 0.5 * clamp01(closeness))
+
+
+## The mean of the per-target values over every target shown (misses count 0).
+static func mean_value(values: Array, count: int) -> float:
+	if count <= 0:
+		return 0.0
+	var total := 0.0
+	for v in values:
+		total += float(v)
+	return clamp01(total / float(count))
+
+
 ## Popup range: hit share of the targets shown, trimmed by shot precision, with a small headshot bonus.
 static func range_score(hits: int, headshots: int, shots_fired: int, targets: int) -> float:
 	if targets <= 0:
@@ -268,6 +314,27 @@ static func grouping_score(points: Array, fired: int, ref_spread: float) -> floa
 	var tight := clamp01(1.0 - spread / maxf(ref_spread, 0.001))
 	var landed := clampf(float(points.size()) / float(fired), 0.0, 1.0)
 	return clamp01(tight * landed)
+
+
+## Grouping ring: for each target, the mean distance of its shots from their own centre; the score is 1 minus the average
+## of those over `ref_spread`. A target with fewer than two shots counts as unscored (0). Wherever the group sits is fine.
+static func group_ring_score(per_target: Array, ref_spread: float) -> float:
+	if per_target.is_empty():
+		return 0.0
+	var total := 0.0
+	for pts in per_target:
+		if pts.size() < 2:
+			continue
+		var c := Vector2.ZERO
+		for p in pts:
+			c += p
+		c /= float(pts.size())
+		var s := 0.0
+		for p in pts:
+			s += (p as Vector2).distance_to(c)
+		s /= float(pts.size())
+		total += clamp01(1.0 - s / maxf(ref_spread, 0.001))
+	return clamp01(total / float(per_target.size()))
 
 
 ## Scope sway: half the score is how long the aim stayed inside the ring, half is the closing shot

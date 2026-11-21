@@ -24,7 +24,10 @@ func configure(for_stat: StringName) -> void:
 	title = cfg["title"]
 	target_life = cfg["life"]
 	distance = cfg["dist"]
-	instructions = "Shoot each target before it drops."
+	instructions = "You cannot move. Shoot each target fast and as close to the bullseye as you can."
+	lock_player = true
+	# Accuracy is 99 for the standard loadout, so the score is your aim, not the soldier's rating.
+	loadout = {Stats.SHORT_ACC: 99, Stats.MEDIUM_ACC: 99, Stats.LONG_ACC: 99}
 	target_count = 10
 	duration = first_at + target_count * gap_max + target_life + 1.0
 	slot_points.clear()
@@ -49,8 +52,23 @@ func _build() -> void:
 	_make_targets()
 
 
+var values: Array = []
+
+
+func _begin() -> void:
+	super()
+	values.clear()
+
+
+## Each hit is worth how quickly it came after the target popped and how close it was to the bullseye.
+func _hit_by(t: FpsDrillTarget) -> void:
+	if t == null:
+		return
+	values.append(FpsDrill.pop_value(elapsed - t.popped_at, target_life, t.closeness(t.last_hit_pos)))
+
+
 func _final_score() -> float:
-	return FpsDrill.range_score(hits, headshots, shots, target_count)
+	return FpsDrill.mean_value(values, target_count)
 
 
 func _hud_extra() -> String:

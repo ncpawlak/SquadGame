@@ -13,6 +13,8 @@ extends Node
 signal fired(result: Dictionary)
 signal reload_started(duration: float)
 signal reloaded
+## R pressed again while a reload is running; `progress` is how far along it is (0..1). Drills (active reload) listen.
+signal reload_tapped(progress: float)
 signal ammo_changed(ammo: int, reserve: int)
 signal empty
 signal weapon_changed(id: StringName)
@@ -50,6 +52,12 @@ var sway_offset: Vector2 = Vector2.ZERO  ## idle sway degrees (pitch, yaw)
 
 var reloading: bool = false
 var reload_left: float = 0.0
+## Length of the running reload including any extension (the HUD ring fills against this).
+var reload_total: float = 0.0
+## Optional magazine size override (a drill with a tiny mag); -1 uses the weapon def.
+var mag_limit: int = -1
+## Optional active-reload sweet spot as fractions of the reload (x = start, y = end); x < 0 means none. The HUD draws it.
+var sweet_spot: Vector2 = Vector2(-1.0, -1.0)
 var trigger_held: bool = false
 var _cooldown: float = 0.0
 var _burst_left: int = 0
@@ -175,7 +183,7 @@ func equip(id: StringName) -> void:
 	weapon_id = id
 	def = FpsWeaponDefs.get_def(id)
 	fire_mode = def.get("mode", &"semi")
-	ammo = int(def["mag_size"])
+	ammo = mag_size()
 	reserve = int(def["reserve"])
 	reloading = false
 	reload_left = 0.0
@@ -195,12 +203,42 @@ func cycle_fire_mode() -> void:
 
 
 func refill() -> void:
-	ammo = int(def["mag_size"])
+	ammo = mag_size()
 	reserve = int(def["reserve"])
 	ammo_changed.emit(ammo, reserve)
 
 
 # ---------------------------------------------------------------- state
+
+func mag_size() -> int:
+	return mag_limit if mag_limit > 0 else int(def["mag_size"])
+
+
+## How far through the running reload he is, 0..1 (0 when not reloading).
+func reload_progress() -> float:
+	if not reloading:
+		return 0.0
+	return clampf(1.0 - reload_left / maxf(reload_total, 0.001), 0.0, 1.0)
+
+
+## Active reload: a second press of R while reloading. Reports the progress; whoever owns the sweet spot decides.
+func reload_tap() -> void:
+	if reloading:
+		reload_tapped.emit(reload_progress())
+
+
+## Finish the running reload right now (a perfect active reload).
+func finish_reload_early() -> void:
+	if reloading:
+		_finish_reload()
+
+
+## Make the running reload take `secs` longer (a fumbled active reload).
+func extend_reload(secs: float) -> void:
+	if reloading:
+		reload_left += secs
+		reload_total += secs
+
 
 func reload_duration() -> float:
 	return reload_time(def, stats)
@@ -262,13 +300,14 @@ func aim_offset() -> Vector2:
 
 
 func reload() -> bool:
-	if reloading or ammo >= int(def["mag_size"]):
+	if reloading or ammo >= mag_size():
 		return false
 	if reserve <= 0 and not infinite_reserve:
 		return false
 	reloading = true
 	_burst_left = 0
 	reload_left = reload_duration()
+	reload_total = reload_left
 	reload_started.emit(reload_left)
 	return true
 
@@ -276,7 +315,8 @@ func reload() -> bool:
 func _finish_reload() -> void:
 	reloading = false
 	reload_left = 0.0
-	var need := int(def["mag_size"]) - ammo
+	sweet_spot = Vector2(-1.0, -1.0)
+	var need := mag_size() - ammo
 	if infinite_reserve:
 		ammo += need
 	else:

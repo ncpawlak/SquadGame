@@ -169,10 +169,13 @@ func _draw_overlay() -> void:
 	overlay.draw_circle(c, 1.5, col)
 	# Reload meter: a ring around the crosshair that fills as the reload completes (faster with the Reload rating).
 	if w != null and w.reloading:
-		var total := maxf(0.01, w.reload_duration())
+		var total := maxf(0.01, w.reload_total if w.reload_total > 0.0 else w.reload_duration())
 		var frac := clampf(1.0 - w.reload_left / total, 0.0, 1.0)
 		var r := gap + 26.0
 		overlay.draw_arc(c, r, 0.0, TAU, 48, Color(1, 1, 1, 0.18), 4.0)
+		# Active reload: the sweet spot, a green arc; press R again while the fill is inside it.
+		if w.sweet_spot.x >= 0.0:
+			overlay.draw_arc(c, r, -PI * 0.5 + TAU * w.sweet_spot.x, -PI * 0.5 + TAU * w.sweet_spot.y, 16, Color(0.3, 0.95, 0.4, 0.95), 7.0)
 		overlay.draw_arc(c, r, -PI * 0.5, -PI * 0.5 + TAU * frac, 48, Color(1.0, 0.8, 0.25, 0.95), 4.0)
 	if _hit_t > 0.0:
 		var a := _hit_t / 0.25

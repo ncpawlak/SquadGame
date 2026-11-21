@@ -21,7 +21,7 @@ func _make_targets() -> void:
 	for p in slot_points:
 		var t := FpsDrillTarget.new()
 		t.position = p
-		t.hit.connect(_on_target_hit)
+		t.hit.connect(_on_target_hit.bind(t))
 		add_child(t)
 		targets.append(t)
 
@@ -57,16 +57,22 @@ func _any_up() -> bool:
 	return false
 
 
-func _on_target_hit(head: bool) -> void:
+func _on_target_hit(head: bool, t: FpsDrillTarget = null) -> void:
 	if state != State.RUNNING:
 		return
 	hits += 1
 	if head:
 		headshots += 1
 	_hit_made()
+	_hit_by(t)
 
 
 func _hit_made() -> void:
+	pass
+
+
+## Like _hit_made but knows which target was hit.
+func _hit_by(_t: FpsDrillTarget) -> void:
 	pass
 
 
