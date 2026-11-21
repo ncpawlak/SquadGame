@@ -5,25 +5,33 @@ extends FpsDrill
 ## range, kills pay coins, waves get tougher. Your own rifle also hurts enemies, but the turrets are the point.
 ## Every step is plain code (advance, build_turret, upgrade_turret, damage_enemy) so tests drive it with no input or scene.
 
-const FIELD_W := 36.0
-const FIELD_D := 28.0
-## Same layout as the 2D task (0..1 coordinates), mapped onto the field: x across, z away from the player.
-const PATH_N := [Vector2(0.0, 0.28), Vector2(0.36, 0.28), Vector2(0.36, 0.74), Vector2(0.7, 0.74), Vector2(0.7, 0.36), Vector2(0.9, 0.36)]
-const PADS_N := [Vector2(0.18, 0.5), Vector2(0.2, 0.08), Vector2(0.5, 0.5), Vector2(0.52, 0.93), Vector2(0.58, 0.55), Vector2(0.84, 0.6), Vector2(0.8, 0.14), Vector2(0.54, 0.15)]
+## Three lanes (left, centre, right) start at the far edge and all merge on the last stretch into the hill. World corners:
+## x across, z away from the player (the hill is on the player's side of the merge).
+const LANES_W := [
+	[Vector2(-16, -26), Vector2(-16, -16), Vector2(-5, -16), Vector2(0, -12), Vector2(0, -5)],
+	[Vector2(0, -27), Vector2(0, -12), Vector2(0, -5)],
+	[Vector2(16, -26), Vector2(16, -16), Vector2(5, -16), Vector2(0, -12), Vector2(0, -5)],
+]
+## Build pads: two on each outer lane, two by the centre lane, and four around the merge and the hill.
+const PADS_W := [Vector2(-11, -20), Vector2(-20, -21), Vector2(-4, -22), Vector2(4, -22), Vector2(11, -20), Vector2(20, -21),
+	Vector2(-5, -9), Vector2(5, -9), Vector2(-8, -13), Vector2(8, -13)]
 const TURRET_RANGE := 8.0
 const RANGE_PER_LEVEL := 0.2
 const TURRET_COOLDOWN := 0.55
 const MAX_LEVEL := 3
-const START_COINS := 60
+const START_COINS := 75
 const COST := 25
-const UPGRADE_COST := 20
-const BOUNTY := 6
+const UPGRADE_COST := 25
+const BOUNTY := 5
 const HILL_HP := 10
-const WAVES := 5
-const PER_WAVE := 6
+const WAVES := 6
+const PER_WAVE := 9
+const LANES := 3
 const INTERACT_RANGE := 3.0
 
-var path: Array = []             # Vector3 corners
+var paths: Array = []            # one Array of Vector3 corners per lane
+var path: Array = []             # lane 0 (kept for the older helpers)
+var path_lens: Array = []
 var pads: Array = []             # Vector3 per pad
 var coins := 0
 var hill_hp := HILL_HP
@@ -46,14 +54,19 @@ func _init() -> void:
 	lock_player = false
 	# Your own gun is a helper: standard ratings everywhere.
 	loadout = {}
-	for p in PATH_N:
-		path.append(Vector3((p.x - 0.5) * FIELD_W, 0.0, -p.y * FIELD_D))
-	for p in PADS_N:
-		pads.append(Vector3((p.x - 0.5) * FIELD_W, 0.0, -p.y * FIELD_D))
-	path_len = FpsDefenseDrill.path_length(path)
-	spawns = FpsDefenseDrill.make_spawns(WAVES, PER_WAVE)
+	for lane in LANES_W:
+		var corners: Array = []
+		for p in lane:
+			corners.append(Vector3(p.x, 0.0, p.y))
+		paths.append(corners)
+		path_lens.append(FpsDefenseDrill.path_length(corners))
+	path = paths[0]
+	for p in PADS_W:
+		pads.append(Vector3(p.x, 0.0, p.y))
+	path_len = float(path_lens[0])
+	spawns = FpsDefenseDrill.make_spawns(WAVES, PER_WAVE, LANES)
 	total_enemies = spawns.size()
-	duration = float(spawns[spawns.size() - 1]["t"]) + path_len / 3.2 + 2.0
+	duration = float(spawns[spawns.size() - 1]["t"]) + float(path_lens.max()) / 3.0 + 2.0
 	player_spawn = Vector3(0, 0.1, 3.0)
 
 
@@ -80,15 +93,16 @@ static func pos_at(corners: Array, d: float) -> Vector3:
 	return corners[corners.size() - 1]
 
 
-## The spawn list: {t, hp, speed}. A wave's enemies are tougher and quicker than the last, spaced a little tighter.
-static func make_spawns(waves: int, per_wave: int) -> Array:
+## The spawn list: {t, hp, speed, lane}. A wave's enemies are tougher and quicker than the last and come down every lane at
+## once (a different lane leads each wave), so you have to guard all of them.
+static func make_spawns(waves: int, per_wave: int, lanes: int = LANES) -> Array:
 	var out: Array = []
 	var t := 1.5
 	for w in waves:
 		for k in per_wave:
-			out.append({"t": t, "hp": 2 + w * 2, "speed": 3.2 + 0.8 * float(w)})
-			t += 0.95 - 0.07 * float(w)
-		t += 3.0
+			out.append({"t": t, "hp": 2 + w * 2, "speed": 3.0 + 0.7 * float(w), "lane": (k + w) % maxi(lanes, 1)})
+			t += 0.55 - 0.03 * float(w)
+		t += 3.5
 	return out
 
 
@@ -167,12 +181,13 @@ func interact() -> bool:
 
 func _build() -> void:
 	# Path slabs (flat, no collision), the hill disc and the build pads.
-	for i in path.size() - 1:
-		var a: Vector3 = path[i]
-		var b: Vector3 = path[i + 1]
-		var mid := (a + b) / 2.0 + Vector3(0, 0.03, 0)
-		var sz := Vector3(maxf(absf(b.x - a.x), 2.4), 0.06, maxf(absf(b.z - a.z), 2.4))
-		add_box(mid, sz, Color(0.3, 0.27, 0.22)).collision_layer = 0
+	for lane in paths:
+		for i in lane.size() - 1:
+			var a: Vector3 = lane[i]
+			var b: Vector3 = lane[i + 1]
+			var mid := (a + b) / 2.0 + Vector3(0, 0.03, 0)
+			var sz := Vector3(maxf(absf(b.x - a.x), 2.4), 0.06, maxf(absf(b.z - a.z), 2.4))
+			add_box(mid, sz, Color(0.3, 0.27, 0.22)).collision_layer = 0
 	var hill_pos: Vector3 = path[path.size() - 1]
 	add_box(hill_pos + Vector3(0, 0.05, 0), Vector3(4.0, 0.1, 4.0), Color(0.2, 0.75, 0.3)).collision_layer = 0
 	for i in pads.size():
@@ -246,12 +261,12 @@ func _run(delta: float) -> void:
 		_spawn_idx += 1
 	for e in enemies.duplicate():
 		e.d += e.speed * delta
-		if e.d >= path_len:
+		if e.d >= float(path_lens[e.lane]):
 			_remove_enemy(e)
 			hill_hp -= 1
 			leaked += 1
 		else:
-			e.position = FpsDefenseDrill.pos_at(path, e.d) + Vector3(0, 0.9, 0)
+			e.position = FpsDefenseDrill.pos_at(paths[e.lane], e.d) + Vector3(0, 0.9, 0)
 	for pad in turrets:
 		var tw: Dictionary = turrets[pad]
 		tw["cd"] = float(tw["cd"]) - delta
@@ -265,15 +280,15 @@ func _run(delta: float) -> void:
 		finish(_final_score())
 
 
-## The enemy farthest along the path inside this turret's range.
+## The enemy closest to the hill (least path left) inside this turret's range.
 func _turret_target(pad: int, lvl: int) -> Enemy:
 	var from: Vector3 = pads[pad]
 	var r := FpsDefenseDrill.turret_range(lvl)
 	var best: Enemy = null
 	for e in enemies:
-		var p := FpsDefenseDrill.pos_at(path, e.d)
+		var p := FpsDefenseDrill.pos_at(paths[e.lane], e.d)
 		if Vector2(p.x - from.x, p.z - from.z).length() <= r:
-			if best == null or e.d > best.d:
+			if best == null or float(path_lens[e.lane]) - e.d < float(path_lens[best.lane]) - best.d:
 				best = e
 	return best
 
@@ -281,7 +296,8 @@ func _turret_target(pad: int, lvl: int) -> Enemy:
 func _spawn(s: Dictionary) -> void:
 	var e := Enemy.new()
 	e.setup(self, int(s["hp"]), float(s["speed"]))
-	e.position = FpsDefenseDrill.pos_at(path, 0.0) + Vector3(0, 0.9, 0)
+	e.lane = int(s.get("lane", 0))
+	e.position = FpsDefenseDrill.pos_at(paths[e.lane], 0.0) + Vector3(0, 0.9, 0)
 	add_child(e)
 	enemies.append(e)
 
@@ -331,6 +347,7 @@ class Enemy extends StaticBody3D:
 	var max_hp := 2
 	var speed := 3.2
 	var d := 0.0
+	var lane := 0
 
 	func setup(owner_drill: FpsDefenseDrill, p_hp: int, p_speed: float) -> void:
 		drill = owner_drill

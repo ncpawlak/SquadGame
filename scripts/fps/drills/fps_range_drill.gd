@@ -3,9 +3,9 @@ extends FpsPopupDrill
 ## Popup-target range at one distance. SHORT_ACC / MEDIUM_ACC / LONG_ACC use the same drill at 10, 25 and 50 m.
 
 const RANGES := {
-	Stats.SHORT_ACC: {"dist": 10.0, "life": 2.0, "title": "Short range"},
-	Stats.MEDIUM_ACC: {"dist": 25.0, "life": 1.8, "title": "Medium range"},
-	Stats.LONG_ACC: {"dist": 50.0, "life": 1.6, "title": "Long range"},
+	Stats.SHORT_ACC: {"dist": 6.0, "life": 2.0, "title": "Short range"},
+	Stats.MEDIUM_ACC: {"dist": 14.0, "life": 1.8, "title": "Medium range"},
+	Stats.LONG_ACC: {"dist": 28.0, "life": 1.6, "title": "Long range"},
 }
 const SLOTS := 5
 const SPACING := 1.8
@@ -27,6 +27,7 @@ func configure(for_stat: StringName) -> void:
 	instructions = "You cannot move. Shoot each target fast and as close to the bullseye as you can."
 	lock_player = true
 	weapon_mode = &"semi"
+	allow_reload = false
 	# Accuracy is 99 for the standard loadout, so the score is your aim, not the soldier's rating.
 	loadout = {Stats.SHORT_ACC: 99, Stats.MEDIUM_ACC: 99, Stats.LONG_ACC: 99}
 	target_count = 10

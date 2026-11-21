@@ -45,6 +45,7 @@ var fatigue: float = 0.0
 var suppression: float = 0.0
 var team_bonus: float = 0.0
 var flinch: Vector2 = Vector2.ZERO  ## (pitch up, yaw) degrees the aim is knocked by being shot at
+var shake_offset: Vector2 = Vector2.ZERO  ## continuous wobble while under fire (composure shrinks it)
 
 var bloom: float = 0.0  ## extra spread degrees from sustained fire
 var recoil: Vector2 = Vector2.ZERO  ## (pitch up, yaw) degrees the camera is kicked by
@@ -299,7 +300,7 @@ func suppress(amount: float) -> void:
 
 ## The aim is knocked off the camera line by recoil climb, idle sway and flinch: (pitch up, yaw) degrees.
 func aim_offset() -> Vector2:
-	return recoil + sway_offset + flinch
+	return recoil + sway_offset + flinch + shake_offset
 
 
 func reload() -> bool:
@@ -349,6 +350,9 @@ func tick(delta: float) -> void:
 	# bloom and recoil recover
 	bloom = maxf(0.0, bloom - float(def.get("bloom_recover", 4.0)) * FpsRatings.recover_mult(stats) * delta)
 	suppression = maxf(0.0, suppression - 0.8 * delta)
+	# While you are being shot at the crosshair keeps wandering; a calm soldier (high composure) wanders far less.
+	var shake_amp := suppression * 0.9 * FpsRatings.flinch_scale(stats)
+	shake_offset = Vector2(sin(_time * 19.0) + 0.6 * sin(_time * 31.0 + 1.0), cos(_time * 23.0) + 0.6 * cos(_time * 37.0 + 2.0)) * shake_amp
 	if flinch.length() > 0.0:
 		flinch = flinch.move_toward(Vector2.ZERO, (3.0 + flinch.length() * 3.0) * delta)
 	var rate := float(def.get("recoil_recover", 6.0))

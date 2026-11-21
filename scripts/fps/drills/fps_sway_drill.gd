@@ -33,6 +33,7 @@ func _init() -> void:
 	duration = HOLD + 5.0
 	lock_player = true
 	weapon_mode = &"semi"
+	allow_reload = false
 	# Aim is 99 so the shot is yours; the sway rating stays standard (the drill measures how steadily YOU hold).
 	loadout = {Stats.SHORT_ACC: 99, Stats.MEDIUM_ACC: 99, Stats.LONG_ACC: 99}
 

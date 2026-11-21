@@ -346,7 +346,8 @@ func test_scenes_are_drills() -> void:
 			continue
 		check(d.stat == pair[1] and d.title != "" and d.instructions != "" and d.duration > 0.0, "stat, title, instructions, duration")
 		var std := FpsDrill.standard_stats(d.loadout)
-		check(std[pair[1]] == 50, "own stat stays standard 50")
+		# Composure is the one exception: the under-fire drill sets it to 0 so being shot at really shakes the crosshair.
+		check(std[pair[1]] == (0 if pair[1] == Stats.COMPOSURE else 50), "own stat stays standard (50; composure 0 in its drill)")
 		d.finish(-3.0)
 		check(d.score == 0.0, "negative clamped")
 		d.free()

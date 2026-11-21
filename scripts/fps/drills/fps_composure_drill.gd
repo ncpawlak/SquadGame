@@ -8,9 +8,9 @@ extends FpsPopupDrill
 ## before the wave's first target the player is shot at (`suppress` per burst, one burst every `every` seconds).
 const PHASES := [
 	{"count": 6, "gap_min": 1.5, "gap_max": 1.9, "life": 2.0, "suppress": 0.0, "every": 0.5},
-	{"count": 6, "gap_min": 1.1, "gap_max": 1.4, "life": 1.8, "suppress": 0.3, "every": 0.5},
-	{"count": 7, "gap_min": 0.85, "gap_max": 1.1, "life": 1.5, "suppress": 0.45, "every": 0.45},
-	{"count": 8, "gap_min": 0.65, "gap_max": 0.85, "life": 1.3, "suppress": 0.6, "every": 0.4},
+	{"count": 6, "gap_min": 1.1, "gap_max": 1.4, "life": 1.8, "suppress": 0.5, "every": 0.45},
+	{"count": 7, "gap_min": 0.85, "gap_max": 1.1, "life": 1.5, "suppress": 0.75, "every": 0.4},
+	{"count": 8, "gap_min": 0.65, "gap_max": 0.85, "life": 1.3, "suppress": 1.0, "every": 0.35},
 ]
 const LEAD := 0.6
 ## The calm baseline never counts for less than this, so a poor opening cannot make a poor finish look like a good one.
@@ -34,7 +34,11 @@ func _init() -> void:
 	instructions = "You cannot move. Keep hitting the targets as the fire on you gets heavier."
 	lock_player = true
 	# Aim is 99 so the shots are yours; composure stays at the standard 50, so the shake is the standard amount.
-	loadout = {Stats.SHORT_ACC: 99, Stats.MEDIUM_ACC: 99, Stats.LONG_ACC: 99}
+	# Composure is 0 here (not the standard 50) so being shot at really throws the crosshair around: the drill measures how
+	# well you aim anyway.
+	loadout = {Stats.SHORT_ACC: 99, Stats.MEDIUM_ACC: 99, Stats.LONG_ACC: 99, Stats.COMPOSURE: 0}
+	weapon_mode = &"semi"
+	allow_reload = false
 	target_count = total_targets()
 	first_at = 1.0
 	duration = last_pop_time(FpsComposureDrill.make_phase_schedule(1, SLOTS, first_at)) + 3.0

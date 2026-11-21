@@ -264,3 +264,32 @@ func test_hall_registry_and_scores_clamped() -> void:
 		check(g[1] >= 0.0 and g[1] <= 1.0, "reported score in range")
 	course.free()
 	hall.free()
+
+
+func test_no_reload_drills_and_closer_ranges() -> void:
+	var r := FpsRangeDrill.make(Stats.LONG_ACC)
+	check(not r.allow_reload and r.weapon_mode == &"semi", "ranges are single shot with no reload")
+	check(FpsRangeDrill.RANGES[Stats.SHORT_ACC]["dist"] < 10.0 and FpsRangeDrill.RANGES[Stats.LONG_ACC]["dist"] < 50.0, "targets are closer than before")
+	r.free()
+	var p := FpsPlayer.new()
+	var w := FpsWeapon.new()
+	p.weapon = w
+	var d := FpsSwayDrill.new()
+	d.player = p
+	d._apply_loadout()
+	check(p.reload_enabled == false and w.mag_limit == 999 and w.fire_mode == &"semi", "a no-reload drill turns R off and deepens the magazine")
+	w.free()
+	p.free()
+	d.free()
+	var wk := FpsWeapon.new()
+	wk.setup(null, {Stats.COMPOSURE: 0})
+	wk.suppress(1.0)
+	wk.tick(0.2)
+	check(wk.shake_offset != Vector2.ZERO, "under fire the crosshair keeps wandering")
+	var calm := FpsWeapon.new()
+	calm.setup(null, {Stats.COMPOSURE: 99})
+	calm.suppress(1.0)
+	calm.tick(0.2)
+	check(calm.shake_offset.length() < wk.shake_offset.length() or wk.shake_offset.length() == 0.0, "higher composure wanders less")
+	wk.free()
+	calm.free()

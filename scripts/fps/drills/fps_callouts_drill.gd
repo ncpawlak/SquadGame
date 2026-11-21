@@ -41,6 +41,8 @@ func _init() -> void:
 	instructions = "You cannot move. Watch the targets light up, then shoot them in the same order."
 	duration = 120.0
 	lock_player = true
+	weapon_mode = &"semi"  # full auto sprays other targets and fails the round, so one shot per click
+	allow_reload = false
 	# Aim is 99 so a miss is a mistake, not the soldier's ratings; teamwork stays standard (this drill scores your attention).
 	loadout = {Stats.SHORT_ACC: 99, Stats.MEDIUM_ACC: 99, Stats.LONG_ACC: 99}
 

@@ -71,6 +71,16 @@ func start(stat: StringName) -> void:
 		hud = h
 
 
+func _process(_delta: float) -> void:
+	# The mouse must stay captured while a drill is running (a focus change or stray click can release it, and then the
+	# view stops turning). Esc quits the drill, so any uncaptured moment before the end is unintended.
+	if _ended or drill == null:
+		return
+	if drill.state == FpsDrill.State.COUNTDOWN or drill.state == FpsDrill.State.RUNNING:
+		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if _ended or drill == null:
 		return

@@ -34,6 +34,8 @@ var dead: bool = false
 var controls_enabled: bool = true
 ## Standing drills pin him to the spot: he can still look and shoot, but not walk, sprint or jump.
 var lock_movement: bool = false
+## Drills that must not allow a reload switch it off (R then does nothing).
+var reload_enabled: bool = true
 var sprinting: bool = false
 var crouching: bool = false
 var recovering_stamina: bool = false  ## true after hitting 0 until stamina recovers a bit
@@ -224,7 +226,7 @@ func _physics_process(delta: float) -> void:
 		want_crouch = Input.is_action_pressed("fps_crouch")
 		want_jump = Input.is_action_just_pressed("fps_jump")
 		weapon.set_trigger(Input.is_action_pressed("fps_fire") and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED)
-		if Input.is_action_just_pressed("fps_reload"):
+		if Input.is_action_just_pressed("fps_reload") and reload_enabled:
 			if weapon.reloading:
 				weapon.reload_tap()  # a second press during a reload is the active-reload press
 			else:

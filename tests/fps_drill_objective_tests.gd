@@ -186,7 +186,7 @@ func test_defense_metadata_and_spawns() -> void:
 	check(d.spawns.size() == FpsDefenseDrill.WAVES * FpsDefenseDrill.PER_WAVE and d.total_enemies == d.spawns.size(), "spawn count")
 	check(int(d.spawns[d.spawns.size() - 1]["hp"]) > int(d.spawns[0]["hp"]), "later waves have more hp")
 	check(float(d.spawns[d.spawns.size() - 1]["speed"]) > float(d.spawns[0]["speed"]), "later waves are faster")
-	check(d.pads.size() == 8 and d.path.size() == 6, "layout")
+	check(d.pads.size() == 10 and d.paths.size() == 3, "layout: ten pads, three lanes")
 	d.free()
 
 
@@ -209,7 +209,7 @@ func test_enemies_walk_the_path() -> void:
 	var d0 := e.d
 	d.advance(1.0)
 	check(e.d > d0 and absf((e.d - d0) - e.speed) < 0.2, "advances at its speed")
-	var p := FpsDefenseDrill.pos_at(d.path, e.d)
+	var p := FpsDefenseDrill.pos_at(d.paths[e.lane], e.d)
 	check(e.position.is_equal_approx(p + Vector3(0, 0.9, 0)), "body follows the path")
 	d.free()
 
@@ -226,10 +226,27 @@ func test_defense_economy() -> void:
 	check(d.coins == FpsDefenseDrill.START_COINS - FpsDefenseDrill.COST - FpsDefenseDrill.UPGRADE_COST, "upgrade costs coins")
 	check(not d.upgrade_turret(5), "cannot upgrade an empty pad")
 	check(not d.build_turret(99) and not d.build_turret(-1), "bad pad index")
+	d.coins = 10
 	check(not d.build_turret(4), "not enough coins left")
 	d.coins = 500
 	check(d.upgrade_turret(2) and not d.upgrade_turret(2) and d.turret_level(2) == FpsDefenseDrill.MAX_LEVEL, "max level")
 	check(FpsDefenseDrill.turret_range(3) > FpsDefenseDrill.turret_range(1), "upgrades extend range")
+	d.free()
+
+
+func test_three_lanes_merge_on_the_hill() -> void:
+	var d := FpsDefenseDrill.new()
+	check(d.paths.size() == 3, "three lanes")
+	var hill: Vector3 = d.paths[0][d.paths[0].size() - 1]
+	var starts := {}
+	for lane in d.paths:
+		check((lane[lane.size() - 1] as Vector3).is_equal_approx(hill), "every lane ends on the hill")
+		starts[(lane[0] as Vector3).x] = true
+	check(starts.size() == 3, "three different spawn points")
+	var used := {}
+	for s in d.spawns:
+		used[int(s["lane"])] = true
+	check(used.size() == 3, "enemies come down every lane")
 	d.free()
 
 

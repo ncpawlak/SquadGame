@@ -36,6 +36,8 @@ var loadout: Dictionary = {}
 var lock_player := false
 ## Fire mode forced for this drill ("" keeps the weapon's own); precision drills use &"semi" (one shot per click).
 var weapon_mode: StringName = &""
+## False for drills where reloading would get in the way: R does nothing and the magazine is deep enough not to run dry.
+var allow_reload := true
 var shots := 0
 var _built := false
 
@@ -93,6 +95,14 @@ func _apply_loadout() -> void:
 		player.set("lock_movement", lock_player)
 	if weapon_mode != &"" and "weapon" in player and player.get("weapon") != null:
 		player.get("weapon").fire_mode = weapon_mode
+	if not allow_reload:
+		if "reload_enabled" in player:
+			player.set("reload_enabled", false)
+		if "weapon" in player and player.get("weapon") != null:
+			var w = player.get("weapon")
+			w.mag_limit = 999
+			w.auto_reload = false
+			w.refill()
 
 
 ## Every rating at 50 with the given overrides.
