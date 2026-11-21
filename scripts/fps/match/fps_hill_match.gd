@@ -44,6 +44,7 @@ func start(team_a: Team, team_b: Team, p_map: Node, p_seed := 1) -> void:
 	map = p_map
 	_hill_center = map.hill_center()
 	_hill_radius = map.hill_radius()
+	FpsHill.set_zone(_hill_center, _hill_radius)
 	_cover = map.cover_points()
 	init_box(team_a, team_b)
 	bots = [[], []]
@@ -104,6 +105,7 @@ func advance(delta: float, on_ids: Array) -> int:
 					box[id]["caps"] += 1
 				hill_changed.emit(t)
 			score_changed.emit(scores)
+	FpsHill.state = {"holder": holder, "zone": zone, "scores": scores.duplicate(), "time_left": time_left, "hold_to_win": hold_to_win}
 	var w := FpsHillRules.winner(scores, time_left, hold_to_win)
 	if w >= 0:
 		finish(w)
@@ -135,6 +137,7 @@ func record_kill(killer_id: int, victim_id: int) -> void:
 
 func finish(w: int) -> Dictionary:
 	finished = true
+	FpsHill.clear()
 	result = {
 		"winner": w,
 		"scores": scores.duplicate(),

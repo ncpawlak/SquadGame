@@ -22,6 +22,8 @@ const JUMP_VELOCITY := 4.6
 @export var weapon_id: StringName = &"rifle"
 @export var capture_mouse: bool = true
 @export var infinite_reserve: bool = false
+## Which squad he plays for (teamwork looks for teammates in the same team, awareness for the others).
+@export var team_id: int = 0
 
 var soldier: Soldier = null
 var weapon: FpsWeapon
@@ -33,6 +35,9 @@ var controls_enabled: bool = true
 var sprinting: bool = false
 var crouching: bool = false
 var recovering_stamina: bool = false  ## true after hitting 0 until stamina recovers a bit
+var fatigue: float = 0.0  ## 0..1, builds while sprinting and lingers (endurance), opens the crosshair
+var team_bonus: float = 0.0  ## teamwork: a fractional bonus while teammates are close
+var _team_t: float = 0.0
 
 var head: Node3D
 var camera: Camera3D
@@ -55,6 +60,7 @@ func _ready() -> void:
 	ensure_input_actions()
 	_gravity = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
 	health = max_health
+	add_to_group(StringName("fps_team_%d" % team_id))
 	_build()
 	weapon.setup(camera, _stats, self)
 	weapon.infinite_reserve = infinite_reserve
@@ -98,7 +104,8 @@ func _build() -> void:
 # ---------------------------------------------------------------- stat mapping
 
 ## Ratings -> feel. Pure function so tests (and the HUD) need no scene.
-## SPEED -> walk speed, AGILITY -> acceleration, ENDURANCE -> stamina size and recovery.
+## SPEED -> walk speed, AGILITY -> left/right (strafe) speed, ENDURANCE -> stamina size and recovery. The other ratings
+## live in FpsRatings.
 static func derive_movement(stats: Dictionary) -> Dictionary:
 	var spd := clampf(float(stats.get(Stats.SPEED, 50)) / 99.0, 0.0, 1.0)
 	var agi := clampf(float(stats.get(Stats.AGILITY, 50)) / 99.0, 0.0, 1.0)
@@ -108,8 +115,9 @@ static func derive_movement(stats: Dictionary) -> Dictionary:
 		"walk_speed": walk,
 		"sprint_speed": walk * SPRINT_MULT,
 		"crouch_speed": walk * CROUCH_MULT,
-		"accel": lerpf(8.0, 22.0, agi),
-		"air_accel": lerpf(1.5, 4.0, agi),
+		"accel": lerpf(12.0, 18.0, agi),
+		"air_accel": lerpf(2.0, 3.5, agi),
+		"strafe": FpsRatings.strafe_mult(stats),
 		"stamina_max": lerpf(60.0, 140.0, end),
 		"stamina_regen": lerpf(8.0, 24.0, end),
 		"stamina_drain": 18.0,
@@ -235,8 +243,9 @@ func simulate(delta: float, input_dir: Vector2, want_sprint: bool, want_crouch: 
 		speed = move["crouch_speed"]
 	elif sprinting:
 		speed = move["sprint_speed"]
-	var wish := (global_transform.basis * Vector3(input_dir.x, 0.0, input_dir.y)).normalized() * speed \
-			if moving else Vector3.ZERO
+	# Agility scales only the left/right part of the input, so a nimble soldier sidesteps faster.
+	var local := Vector3(input_dir.x * float(move["strafe"]), 0.0, input_dir.y)
+	var wish := global_transform.basis * local * speed if moving else Vector3.ZERO
 	var accel: float = move["accel"] if is_on_floor() else move["air_accel"]
 	velocity.x = move_toward(velocity.x, wish.x, accel * delta * speed * 0.5 + accel * delta)
 	velocity.z = move_toward(velocity.z, wish.z, accel * delta * speed * 0.5 + accel * delta)
@@ -251,9 +260,20 @@ func simulate(delta: float, input_dir: Vector2, want_sprint: bool, want_crouch: 
 	weapon.move_fraction = clampf(horiz / float(move["sprint_speed"]), 0.0, 1.0)
 	weapon.crouched = crouching
 	weapon.airborne = not is_on_floor()
+	# Endurance: sprinting tires you, resting recovers; fatigue opens the crosshair.
+	if sprinting:
+		fatigue = minf(1.0, fatigue + FpsRatings.fatigue_gain(_stats) * delta)
+	else:
+		fatigue = maxf(0.0, fatigue - FpsRatings.fatigue_recover(_stats) * delta)
+	weapon.fatigue = fatigue
+	_team_t -= delta
+	if _team_t <= 0.0:
+		_team_t = 0.25
+		team_bonus = FpsRatings.team_bonus(_stats, teammate_distances())
+	weapon.team_bonus = team_bonus
 	head.rotation.x = _look_pitch
-	camera.rotation = Vector3(deg_to_rad(weapon.recoil.x + weapon.sway_offset.x), \
-			deg_to_rad(weapon.recoil.y + weapon.sway_offset.y), 0.0)
+	# The crosshair carries recoil climb, sway and flinch (FpsWeapon.aim_offset), so the camera itself stays put.
+	camera.rotation = Vector3.ZERO
 
 
 func _set_crouch(want: bool, delta: float) -> void:
@@ -280,6 +300,12 @@ func _blocked_above() -> bool:
 func take_damage(amount: float, hit: Dictionary = {}) -> float:
 	if dead or amount <= 0.0:
 		return 0.0
+	# Strength absorbs damage; standing on the hill, anchor does too; teamwork helps a little.
+	amount *= FpsRatings.damage_taken_mult(_stats) * (1.0 - team_bonus * 0.5)
+	if FpsHill.on_hill(global_position):
+		amount *= FpsRatings.anchor_damage_mult(_stats)
+	if weapon:
+		weapon.suppress(minf(1.0, amount / 25.0))
 	var applied := minf(amount, health)
 	health -= applied
 	var source = hit.get("source", null)
@@ -289,6 +315,35 @@ func take_damage(amount: float, hit: Dictionary = {}) -> float:
 		weapon.set_trigger(false)
 		died.emit(source)
 	return applied
+
+
+## Distances (metres) to living teammates (same team_id), for the teamwork bonus.
+func teammate_distances() -> Array:
+	var out: Array = []
+	if not is_inside_tree():
+		return out
+	for n in get_tree().get_nodes_in_group(StringName("fps_team_%d" % team_id)):
+		if n == self or not (n is Node3D):
+			continue
+		if n.get("alive") == false or n.get("dead") == true:
+			continue
+		out.append(global_position.distance_to((n as Node3D).global_position))
+	return out
+
+
+## Shot at (a bullet went close): builds suppression and shakes the crosshair (composure decides how much).
+func suppress(amount: float) -> void:
+	if not dead and weapon:
+		weapon.suppress(amount)
+
+
+## The ratings other nodes read about him (a fast mover grazes a little).
+func rating_stats() -> Dictionary:
+	return _stats
+
+
+func move_fraction_now() -> float:
+	return weapon.move_fraction if weapon else 0.0
 
 
 func is_headshot(world_pos: Vector3) -> bool:

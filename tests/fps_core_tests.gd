@@ -248,17 +248,120 @@ func test_recoil_kicks_and_recovers_bloom_builds() -> void:
 	w.free()
 
 
-func test_grouping_reduces_kick() -> void:
-	var a := FpsWeapon.new()
-	a.setup(null, {Stats.GROUPING: 90})
-	var b := FpsWeapon.new()
-	b.setup(null, {Stats.GROUPING: 20})
-	a.try_fire()
-	b.try_fire()
-	check(a.recoil.x < b.recoil.x, "better grouping, smaller kick")
-	check(a.bloom < b.bloom, "better grouping, less bloom")
-	a.free()
-	b.free()
+func test_sway_sets_climb_and_grouping_sets_open_and_close() -> void:
+	var good := FpsWeapon.new()
+	good.setup(null, {Stats.GROUPING: 90, Stats.SWAY: 90})
+	var bad := FpsWeapon.new()
+	bad.setup(null, {Stats.GROUPING: 20, Stats.SWAY: 20})
+	good.try_fire()
+	bad.try_fire()
+	check(good.recoil.x < bad.recoil.x, "worse sway, the crosshair climbs more")
+	check(good.bloom < bad.bloom, "worse grouping, the crosshair opens quicker")
+	check(FpsRatings.recover_mult({Stats.GROUPING: 20}) < FpsRatings.recover_mult({Stats.GROUPING: 90}), "worse grouping closes slower")
+	bad.bloom = 1.0
+	good.bloom = 1.0
+	bad.tick(0.1)
+	good.tick(0.1)
+	check(bad.bloom > good.bloom, "from the same opening the worse shooter's crosshair closes more slowly (%f vs %f)" % [bad.bloom, good.bloom])
+	good.free()
+	bad.free()
+
+
+func test_crosshair_carries_the_climb_not_the_camera() -> void:
+	var w := FpsWeapon.new()
+	w.setup(null, {Stats.SWAY: 10})
+	w.try_fire()
+	check(w.aim_offset().x > 0.0, "firing lifts the crosshair")
+	w.free()
+
+
+func test_rating_map_is_monotonic_and_bounded() -> void:
+	var lo := {}
+	var hi := {}
+	for id in Stats.ALL:
+		lo[id] = 0
+		hi[id] = 99
+	check(FpsRatings.expand_mult(hi) < FpsRatings.expand_mult(lo), "grouping: opens slower at 99")
+	check(FpsRatings.climb_mult(hi) < FpsRatings.climb_mult(lo), "sway: climbs less at 99")
+	check(FpsRatings.strafe_mult(hi) > FpsRatings.strafe_mult(lo), "agility: strafes faster")
+	check(is_equal_approx(FpsRatings.damage_taken_mult(hi), 0.75) and is_equal_approx(FpsRatings.damage_taken_mult(lo), 1.0), "strength: up to 25% less damage")
+	check(FpsRatings.fatigue_gain(hi) < FpsRatings.fatigue_gain(lo), "endurance: tires slower")
+	check(FpsRatings.fatigue_spread_mult(1.0) > FpsRatings.fatigue_spread_mult(0.0), "fatigue opens the crosshair")
+	check(FpsRatings.awareness_radius(hi) > FpsRatings.awareness_radius(lo), "awareness: senses further")
+	check(FpsRatings.flinch_scale(hi) < FpsRatings.flinch_scale(lo), "composure: flinches less")
+	check(FpsRatings.suppress_spread_mult(hi, 1.0) < FpsRatings.suppress_spread_mult(lo, 1.0), "composure: steadier under fire")
+	check(FpsRatings.anchor_damage_mult(hi) < FpsRatings.anchor_damage_mult(lo), "anchor: takes less on the hill")
+	check(FpsRatings.breach_damage_mult(hi) > FpsRatings.breach_damage_mult(lo) and FpsRatings.breach_spread_mult(hi) < FpsRatings.breach_spread_mult(lo), "breach: better against a held hill")
+	check(FpsRatings.intel_level(lo) == 0 and FpsRatings.intel_level({Stats.OBJ_IQ: 60}) == 1 and FpsRatings.intel_level(hi) == 2, "objective IQ: three levels of readout")
+	check(FpsRatings.graze_mult(hi, 1.0) < 1.0 and FpsRatings.graze_mult(hi, 0.0) == 1.0 and FpsRatings.graze_mult(lo, 1.0) == 1.0, "speed: only a fast mover grazes")
+
+
+func test_teamwork_bonus_needs_close_teammates() -> void:
+	var s := {Stats.TEAMWORK: 90}
+	check(FpsRatings.team_bonus(s, []) == 0.0, "alone: no bonus")
+	check(FpsRatings.team_bonus(s, [30.0]) == 0.0, "a far teammate: no bonus")
+	var one := FpsRatings.team_bonus(s, [3.0])
+	var two := FpsRatings.team_bonus(s, [3.0, 4.0])
+	check(one > 0.0 and two > one, "closer and more teammates: bigger bonus")
+	check(FpsRatings.team_bonus({Stats.TEAMWORK: 10}, [3.0, 4.0]) < two, "higher teamwork: bigger bonus")
+
+
+func test_composure_and_fatigue_change_spread() -> void:
+	var def := FpsWeaponDefs.get_def(&"rifle")
+	var calm := {Stats.COMPOSURE: 95}
+	var shaky := {Stats.COMPOSURE: 5}
+	var base := FpsWeapon.compute_spread(def, calm, 20.0)
+	check(FpsWeapon.compute_spread(def, shaky, 20.0, 0.0, 0.0, false, false, 0.0, 1.0) > FpsWeapon.compute_spread(def, calm, 20.0, 0.0, 0.0, false, false, 0.0, 1.0), "under fire a shaky soldier is less accurate than a calm one")
+	check(FpsWeapon.compute_spread(def, calm, 20.0, 0.0, 0.0, false, false, 1.0) > base, "fatigue widens spread")
+	check(FpsWeapon.compute_spread(def, calm, 20.0, 0.0, 0.0, false, false, 0.0, 0.0, 0.1) < base, "teamwork tightens spread")
+	var w := FpsWeapon.new()
+	w.setup(null, shaky)
+	w.suppress(1.0)
+	check(w.flinch != Vector2.ZERO and w.suppression > 0.0, "being shot at shakes the crosshair")
+	w.tick(2.0)
+	check(w.suppression < 1.0, "the shake wears off")
+	w.free()
+
+
+func test_hill_ratings_anchor_and_breach() -> void:
+	var w := FpsWeapon.new()
+	var me := Node3D.new()
+	var enemy := Node3D.new()
+	var holder := Node3D.new()
+	get_root().add_child(holder)
+	holder.add_child(me)
+	holder.add_child(enemy)
+	w.setup(null, {Stats.ANCHOR: 90, Stats.BREACH: 90}, me)
+	FpsHill.set_zone(Vector3.ZERO, 5.0)
+	me.position = Vector3(20, 0, 0)
+	enemy.position = Vector3(1, 0, 0)
+	check(w.hill_spread_mult(enemy) < 1.0, "off the hill, shooting at the hill: breach tightens")
+	check(w.damage_mult(enemy) > 1.0, "...and adds damage")
+	me.position = Vector3(1, 0, 0)
+	check(w.hill_spread_mult(null) < 1.0, "on the hill: anchor tightens")
+	check(w.damage_mult(enemy) == 1.0, "on the hill, breach does not apply")
+	FpsHill.clear()
+	check(w.hill_spread_mult(enemy) == 1.0 and w.damage_mult(enemy) == 1.0, "no hill, no hill bonuses")
+	w.free()
+	holder.queue_free()
+
+
+func test_strength_and_anchor_absorb_damage_for_the_player() -> void:
+	var weak := FpsPlayer.new()
+	var strong := FpsPlayer.new()
+	var a := Soldier.new()
+	a.stats = {Stats.STRENGTH: 0}
+	var b := Soldier.new()
+	b.stats = {Stats.STRENGTH: 99}
+	weak.soldier = a
+	weak._stats = a.stats
+	strong.soldier = b
+	strong._stats = b.stats
+	var dw := weak.take_damage(40.0)
+	var ds := strong.take_damage(40.0)
+	check(ds < dw and is_equal_approx(dw, 40.0), "strength absorbs damage (%f vs %f)" % [ds, dw])
+	weak.free()
+	strong.free()
 
 
 func test_weapon_defs_complete() -> void:
@@ -333,6 +436,7 @@ func test_raycast_hits_target_and_headshot() -> void:
 
 func test_player_takes_damage_and_dies() -> void:
 	var p := FpsPlayer.new()
+	p._stats = {Stats.STRENGTH: 0, Stats.TEAMWORK: 0}  # no absorption, so the numbers are exact
 	var log := []
 	p.damaged.connect(func(a: float, _s) -> void: log.append(a))
 	p.died.connect(func(s) -> void: log.append(s))
@@ -344,6 +448,14 @@ func test_player_takes_damage_and_dies() -> void:
 	check(p.dead and log == [30.0, 70.0, "bot"], "died signal fires once with source: %s" % [log])
 	p.weapon.free()
 	p.free()
+
+
+func test_crosshair_moves_with_the_aim_offset() -> void:
+	var up := FpsHud.aim_to_pixels(Vector2(2.0, 0.0), 80.0, 900.0)
+	check(up.y < 0.0 and is_equal_approx(up.x, 0.0), "climb moves the crosshair up the screen")
+	var left := FpsHud.aim_to_pixels(Vector2(0.0, 2.0), 80.0, 900.0)
+	check(left.x < 0.0, "a leftward yaw moves it left")
+	check(FpsHud.aim_to_pixels(Vector2.ZERO, 80.0, 900.0) == Vector2.ZERO, "no offset, centred")
 
 
 func test_hud_spread_math() -> void:

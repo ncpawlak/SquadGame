@@ -51,6 +51,7 @@ func setup(p_soldier: Soldier, p_team_id: int, p_role = Scheme.Role.FLEX) -> voi
 	team_id = p_team_id
 	role = int(p_role)
 	tun = FpsBotBrain.tuning(soldier, role)
+	add_to_group(StringName("fps_team_%d" % team_id))
 	if _nav == null:
 		_build_nodes()
 	if weapon is FpsWeapon:
@@ -103,6 +104,21 @@ func _build_nodes() -> void:
 	add_child(_nav)
 
 
+## Shot at (a bullet went close): the same composure shake the player gets.
+func suppress(amount: float) -> void:
+	if alive and weapon != null and weapon.has_method("suppress"):
+		weapon.suppress(amount)
+	_since_damaged = minf(_since_damaged, 1.0)
+
+
+func rating_stats() -> Dictionary:
+	return soldier.stats if soldier != null else {}
+
+
+func move_fraction_now() -> float:
+	return clampf(Vector2(velocity.x, velocity.z).length() / 6.0, 0.0, 1.0)
+
+
 func eye_pos() -> Vector3:
 	return global_position + Vector3(0, EYE_HEIGHT, 0)
 
@@ -129,6 +145,13 @@ func take_damage(amount: float, hit: Dictionary = {}) -> void:
 	if not alive:
 		return
 	var src = hit.get("source", null)
+	# Strength absorbs damage; on the hill, anchor does too (same rating map as the player).
+	var st: Dictionary = soldier.stats if soldier != null else {}
+	amount *= FpsRatings.damage_taken_mult(st)
+	if FpsHill.on_hill(global_position):
+		amount *= FpsRatings.anchor_damage_mult(st)
+	if weapon != null and weapon.has_method("suppress"):
+		weapon.suppress(minf(1.0, amount / 25.0))
 	health -= amount
 	_since_damaged = 0.0
 	damaged.emit(amount, src)
