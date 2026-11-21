@@ -184,12 +184,19 @@ static func ensure_input_actions() -> void:
 		InputMap.action_add_event(&"fps_fire", mb)
 
 
-func _unhandled_input(event: InputEvent) -> void:
+## Mouse look reads _input, not _unhandled_input: when the player runs inside the app's Control UI, a full-screen Control
+## would swallow the motion event before it got here and the crosshair would not move.
+func _input(event: InputEvent) -> void:
 	if dead or not controls_enabled:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		look((event as InputEventMouseMotion).relative)
-	elif event is InputEventMouseButton and event.pressed and capture_mouse \
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if dead or not controls_enabled:
+		return
+	if event is InputEventMouseButton and event.pressed and capture_mouse \
 			and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	elif event is InputEventKey and event.pressed and event.physical_keycode == KEY_ESCAPE:
