@@ -48,7 +48,7 @@ const STAR_COST := {1: 45.0, 2: 65.0, 3: 100.0}
 ## Career-mode tuning knobs (the league never reads them): the live star costs, and how much faster the player earns
 ## XP than the shared age-and-star table says. The tuning tool overrides both.
 static var star_costs: Dictionary = STAR_COST.duplicate()
-static var xp_boost := 2.5
+static var xp_boost := 2.0
 
 ## Brand earned by playing well whatever the plan: a base per played game, scaled by the grade (x0.5 .. x2).
 const BRAND_PASSIVE := 1.0
@@ -211,6 +211,7 @@ static func apply_week(season: Season) -> void:
 	var plan := s.plan
 	s.brand *= BRAND_DECAY
 	s.intensity = intensity_for(level(plan, PRACTICE))
+	CapMeters.train(s, level(plan, PRACTICE))
 	if add_study(s, STUDY_POINTS[clampi(level(plan, STUDY), 0, WEEK_MAX)], season.year):
 		_note(season, "Your study paid off: you are now a %s." % s.dev_text())
 	s.add_morale(SPA_MORALE[clampi(level(plan, SPA), 0, WEEK_MAX)])
@@ -221,9 +222,10 @@ static func apply_week(season: Season) -> void:
 ## Brand for a played match (called when the grade is recorded). Returns the points gained.
 static func apply_brand(season: Season, score: float) -> float:
 	var s := season.player
-	var gain := brand_gain(level(s.plan, BRAND), score, s.brand) + _soft(s.brand, BRAND_PASSIVE * grade_factor(score))
+	var gain := (brand_gain(level(s.plan, BRAND), score, s.brand) + _soft(s.brand, BRAND_PASSIVE * grade_factor(score))) * Assets.brand_mult(s)
 	var tier_before := Gear.tier_for_brand(s.brand)
 	s.brand = minf(BRAND_MAX, s.brand + gain)
+	Sponsors.train(s, level(s.plan, BRAND))
 	if Gear.tier_for_brand(s.brand) > tier_before:
 		Sponsors.refresh(season)  # a brand tier-up gets the sponsors talking
 	return gain

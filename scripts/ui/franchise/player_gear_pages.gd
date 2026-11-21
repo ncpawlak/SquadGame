@@ -139,6 +139,79 @@ func sponsors_page() -> Control:
 	return root
 
 
+func assets_page() -> Control:
+	var root := _vbox(10)
+	root.custom_minimum_size.x = 1100
+	var holder := _vbox(10)
+	root.add_child(holder)
+	var fns := {}
+	fns["render"] = func():
+		_clear(holder)
+		_fill_assets(holder, fns)
+	fns["render"].call()
+	return root
+
+
+func _service_effect(id: StringName, lv: Dictionary) -> String:
+	if id == Assets.COACH:
+		return "+%d%% XP" % roundi((float(lv["xp"]) - 1.0) * 100.0)
+	if lv.has("meter"):
+		return "fills the ceiling meter %d%% faster" % roundi((float(lv["meter"]) - 1.0) * 100.0)
+	return "+%d%% brand, +%d%% sponsor pay" % [roundi((float(lv["brand"]) - 1.0) * 100.0), roundi((float(lv["pay"]) - 1.0) * 100.0)]
+
+
+func _fill_assets(box: VBoxContainer, fns: Dictionary) -> void:
+	var s := _season()
+	var p := s.player
+	box.add_child(_wrap("Spend what you earn. A coach and an agent cost a retainer every week in season, and let you go if you cannot pay it. Property pays steady rent. A business can lose money in a bad year, but pays more on average.", 15))
+	box.add_child(_label("Cash: %s   ·   salary %s a year   ·   retainers %s a year   ·   rent %s a year" % [Sponsors.money_text(p.cash), Sponsors.money_text(PlayerPay.yearly(p)), Sponsors.money_text(Assets.upkeep_yearly(p)), Sponsors.money_text(Assets.rent_yearly(p))], 16, Color.WHITE))
+	for id in Assets.SERVICES:
+		var n := Assets.level(p, id)
+		box.add_child(UiKit.heading(Assets.title(id), 18))
+		var levels: Array = Assets.LEVELS[id]
+		if n > 0:
+			var cur: Dictionary = levels[n - 1]
+			box.add_child(_label("%s  ·  %s  ·  retainer %s a year" % [cur["name"], _service_effect(id, cur), Sponsors.money_text(int(cur["upkeep"]))], 15, UiKit.TEXT))
+		else:
+			box.add_child(_label("None.", 14, UiKit.MUTED))
+		var row := _hbox(10)
+		if n < levels.size():
+			var nxt: Dictionary = levels[n]
+			var buy := UiKit.button("Hire %s (%s, retainer %s)  %s" % [nxt["name"], Sponsors.money_text(Assets.cost_of(p, id)), Sponsors.money_text(int(nxt["upkeep"])), _service_effect(id, nxt)], func():
+				var e := Assets.buy(s, id)
+				hub.app.toast(e if e != "" else "Done.")
+				fns["render"].call(), 14)
+			buy.disabled = Assets.buy_error(p, id) != ""
+			row.add_child(buy)
+		if n > 0:
+			row.add_child(UiKit.button("Let them go", func():
+				Assets.sell(s, id)
+				fns["render"].call(), 14))
+		box.add_child(row)
+	for id in Assets.HOLDINGS:
+		var h: Dictionary = Assets.HOLDING[id]
+		box.add_child(UiKit.heading("Rental property" if id == Assets.PROPERTY else "Businesses", 18))
+		var what := ""
+		if id == Assets.PROPERTY:
+			what = "%s rent a year each" % Sponsors.money_text(roundi(float(h["price"]) * float(h["yield"])))
+		else:
+			what = "profit between %d%% and %d%% of its price a year, %d%% on average" % [roundi(float(h["low"]) * 100.0), roundi(float(h["high"]) * 100.0), roundi(float(h["yield"]) * 100.0)]
+		box.add_child(_label("Own %d of %d  ·  %s" % [Assets.count(p, id), int(h["max"]), what], 15, UiKit.TEXT))
+		var hrow := _hbox(10)
+		var hb := UiKit.button("Buy one (%s)" % Sponsors.money_text(int(h["price"])), func():
+			var e := Assets.buy(s, id)
+			hub.app.toast(e if e != "" else "Bought.")
+			fns["render"].call(), 14)
+		hb.disabled = Assets.buy_error(p, id) != ""
+		hrow.add_child(hb)
+		if Assets.count(p, id) > 0:
+			hrow.add_child(UiKit.button("Sell one (%s)" % Sponsors.money_text(roundi(float(h["price"]) * Assets.SELL_SHARE)), func():
+				Assets.sell(s, id)
+				fns["render"].call(), 14))
+		box.add_child(hrow)
+	box.add_child(UiKit.button("Back", func(): hub.go_back(), 16))
+
+
 func _slots_text(slots: Array) -> String:
 	return ", ".join(slots.map(func(s): return String(Gear.SLOT_LABELS[s]).to_lower()))
 
@@ -157,6 +230,7 @@ func _fill_sponsors(box: VBoxContainer, fns: Dictionary) -> void:
 	var p := s.player
 	var h := Sponsors.heat(s)
 	box.add_child(_wrap("Sponsors come to you. A deal grants gear and pays a fixed amount every match you play, as long as you meet its clauses; miss them and the pay drops to a lower amount, and the brand's influence with you falls. Influence builds when you meet the clauses and wear their items. It never changes the pay inside a contract, but it decides how many items and how much money you are offered at renewal, and it makes their set bonus bigger. Dropping a deal costs you a lot of influence.", 15))
+	box.add_child(_label("Team salary: %s a year, paid weekly in season" % Sponsors.money_text(PlayerPay.yearly(p)), 15, Color.WHITE))
 	box.add_child(_label("Cash: %s   ·   sponsor heat %d   ·   brand %d (%s)   ·   deals %d of %d" % [Sponsors.money_text(p.cash), roundi(h["heat"]), roundi(p.brand), WeeklyPlan.tier_name(p.brand), p.deals.size(), Sponsors.deal_cap(p)], 18, Color.WHITE))
 	box.add_child(_wrap("Heat: " + ", ".join(h["parts"].map(func(x): return "%s %d" % [x[0], roundi(x[1])])), 14))
 	box.add_child(UiKit.heading("Your deals", 18))
@@ -229,6 +303,26 @@ func _fill_sponsors(box: VBoxContainer, fns: Dictionary) -> void:
 		buy.disabled = p.cash < int(it["price"])
 		row2.add_child(buy)
 		box.add_child(row2)
+	box.add_child(UiKit.heading("A foot in the door", 18))
+	box.add_child(_wrap("Buy one item from a brand that has not signed you, at %dx the normal price. It stays yours; wearing it builds a little influence (up to Friendly), and so does training your brand. When they sign you, the item is already paid for." % int(Sponsors.PREBUY_MULT), 14))
+	var pre := Sponsors.prebuy_brands(s)
+	if pre.is_empty():
+		box.add_child(_label("No brand to approach right now.", 14, UiKit.MUTED))
+	for id in pre:
+		var pb := Gear.brand(id)
+		var prow := _vbox(2)
+		prow.add_child(_label("%s (%s)  ·  influence %d" % [pb["name"], Gear.tier_name(int(pb["tier"])), roundi(Sponsors.influence_of(p, id))], 14, UiKit.TEXT))
+		var pbtns := _hbox(6)
+		for slot in Gear.SLOTS:
+			var pit := Gear.item(id, slot)
+			var pbtn := UiKit.button("%s %s  %s" % [Gear.SLOT_LABELS[slot], _bonus_text(pit["bonus"]), Sponsors.money_text(Sponsors.prebuy_price(id, slot))], func():
+				var e := Sponsors.prebuy(s, id, slot)
+				hub.app.toast(e if e != "" else "Bought %s." % pit["name"])
+				fns["render"].call(), 12)
+			pbtn.disabled = Sponsors.prebuy_error(s, id, slot) != ""
+			pbtns.add_child(pbtn)
+		prow.add_child(pbtns)
+		box.add_child(prow)
 	box.add_child(UiKit.heading("What the others want", 18))
 	for t in Gear.TIER_BRAND.size():
 		var names := ", ".join(Gear.brands_in_tier(t).map(func(b): return b["name"]))

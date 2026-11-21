@@ -12,6 +12,8 @@ var rookie := false
 var green := false
 ## Signing bonus paid when he signed ($K; paid from the club fund, off the cap).
 var bonus: int = 0
+## A career player is paid the bonus once (see PlayerPay).
+var bonus_paid := false
 ## No-trade clause: he can't be traded for the life of the deal (unless he asks out).
 var no_trade := false
 

@@ -117,6 +117,7 @@ static func record(season: Season, m: ScheduledMatch) -> void:
 		entry["brand"] = WeeklyPlan.apply_brand(season, float(g["score"]))
 		Wear.record_game(season.player)
 		Sponsors.after_match(season, entry)
+		CapMeters.after_match(season, m.result.box[season.player.id], float(g["score"]))
 	season.player_log.append(entry)
 	Stories.after_match(season, entry, m.winner() == team)
 	PlayerLegacy.update(season)

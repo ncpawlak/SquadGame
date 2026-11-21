@@ -150,11 +150,11 @@ func test_gear_does_not_eat_skill_point_room() -> void:
 
 func test_gear_items_follow_the_tier_ladders() -> void:
 	var icon := Gear.item(&"cryo", Gear.HELMET)
-	check(icon["bonus"].values() == [10, 8, 6, 4] and icon["bonus"].size() == 4, "an Icon helmet is +10 +8 +6 +4 on four stats")
+	check(icon["bonus"].values() == [13, 12, 10, 9] and icon["bonus"].size() == 4, "an Icon helmet is +13 +12 +10 +9 on four stats")
 	var rifle := Gear.item(&"sigsawyer", Gear.RIFLE)
-	check(rifle["bonus"].values() == [10, 8, 6], "an Icon rifle is specialized: three stats, top values")
+	check(rifle["bonus"].values() == [13, 12, 10], "an Icon rifle is specialized: three stats, top values")
 	check(Gear.item(&"haynes", Gear.BOOTS)["bonus"].size() == 1, "an Unknown item boosts one stat")
-	check(Gear.item(&"overarmour", Gear.VEST)["bonus"].values() == [6, 4, 2], "a Known vest is +6 +4 +2")
+	check(Gear.item(&"overarmour", Gear.VEST)["bonus"].values() == [8, 7, 5], "a Rising vest is +8 +7 +5")
 	for b in Gear.BRANDS:
 		for slot in Gear.SLOTS:
 			var it := Gear.item(b["id"], slot)
@@ -163,6 +163,19 @@ func test_gear_items_follow_the_tier_ladders() -> void:
 				check(Gear.SLOT_POOLS[slot].has(st), "%s is in the %s pool" % [st, slot])
 	check(Gear.brands_in_tier(0).size() == 3 and Gear.brands_in_tier(4).size() == 3, "three sponsors a tier")
 	check(Gear.tier_for_brand(0.0) == 0 and Gear.tier_for_brand(45.0) == 2 and Gear.tier_for_brand(95.0) == 4, "brand unlocks tiers")
+
+
+func test_brands_in_a_tier_have_different_stat_orders() -> void:
+	for tier in 5:
+		var brands := Gear.brands_in_tier(tier)
+		if int(tier) == 0:
+			continue
+		for slot in Gear.SLOTS:
+			var seen := {}
+			for b in brands:
+				var order := str(Gear.item_stats(b["id"], slot))
+				check(not seen.has(order), "tier %d %s: %s differs from %s" % [tier, slot, b["id"], seen.get(order, "")])
+				seen[order] = b["id"]
 
 
 func test_gear_equip_set_bonus_and_cap() -> void:
@@ -237,6 +250,164 @@ func test_sponsor_offers_accept_counter_and_cap() -> void:
 	p.brand = 10.0
 	check(p.deals.size() > Sponsors.deal_cap(p) and Sponsors.accept_error(p, {"brand": &"fyla", "renewal": false}) != "", "the deal cap is enforced")
 	check(Sponsors.accept_error(p, {"brand": &"haynes", "renewal": false}) != "", "one deal per brand")
+
+
+func test_prebuy_is_a_foot_in_the_door() -> void:
+	var season := _career(931)
+	var p := season.player
+	p.brand = 25.0  # Known: ceiling Known, one tier above is Rising
+	p.cash = 1000000000
+	var ceiling := Sponsors.tier_ceiling(season)
+	var far: StringName = Gear.brands_in_tier(ceiling + 2)[0]["id"] if ceiling + 2 <= 4 else &""
+	if far != &"":
+		check(Sponsors.prebuy_error(season, far, Gear.HELMET) != "", "two tiers up is out of reach")
+	var reach: StringName = Gear.brands_in_tier(mini(ceiling + 1, 4))[0]["id"]
+	var normal := Sponsors.price(reach, Gear.HELMET)
+	check(Sponsors.prebuy_price(reach, Gear.HELMET) == normal * 3, "a pre-bought item costs 3x")
+	check(Sponsors.prebuy(season, reach, Gear.HELMET) == "", "pre-buying works")
+	check(p.owned_gear.has("%s:%s" % [reach, Gear.HELMET]) and p.cash == 1000000000 - normal * 3, "it is owned and paid for")
+	check(Sponsors.prebuy_error(season, reach, Gear.VEST) != "", "one item per brand until they sign")
+	check(Gear.equip(p, Gear.item(reach, Gear.HELMET)) == "", "he can wear it")
+	var before := Sponsors.influence_of(p, reach)
+	for i in 400:
+		Sponsors.after_match(season, {"kills": 1, "score": 60.0})
+	var infl := Sponsors.influence_of(p, reach)
+	check(infl > before and infl <= Sponsors.PRE_CAP + 0.01, "it builds influence but never past Friendly (%.1f)" % infl)
+	# Brand training warms deal brands and foot-in-the-door brands.
+	p.deals = [_deal(&"overarmour", [Gear.HELMET], 100, 40, [{"kind": &"wear", "n": 1}])]
+	p.influence[&"overarmour"] = 20.0
+	Sponsors.train(p, 3)
+	check(is_equal_approx(Sponsors.influence_of(p, &"overarmour"), 20.0 + Sponsors.TRAIN_INFLUENCE * 3.0), "brand training adds influence to a deal brand")
+	Sponsors.train(p, 0)
+	check(is_equal_approx(Sponsors.influence_of(p, &"overarmour"), 20.0 + Sponsors.TRAIN_INFLUENCE * 3.0), "no brand training, no influence")
+	# Signing clears the foot-in-the-door flag but keeps the item.
+	var offer := {"brand": reach, "slots": [Gear.RIFLE], "pay": 100, "reduced": 40, "years": 1, "clauses": [{"kind": &"wear", "n": 1}], "style": Sponsors.STYLE_MONEY, "countered": false, "renewal": false, "expires": season.year + 1, "reason": ""}
+	p.deals = []
+	p.offers = [offer]
+	check(Sponsors.accept(season, offer) == "" and p.foot_gear.is_empty() and p.owned_gear.has("%s:%s" % [reach, Gear.HELMET]), "signing ends the foot in the door, the item stays owned")
+
+
+func test_team_salary_is_weekly_and_the_bonus_is_up_front() -> void:
+	var season := _career(935)
+	var p := season.player
+	season.phase = Season.PHASE_REGULAR
+	season.week = 1
+	p.cash = 0
+	p.contract = Contract.make(6000, 2, season.year)
+	p.contract.bonus = 1500
+	var first := PlayerPay.weekly(season)
+	var weekly := roundi(6000.0 * 1000.0 / float(season.regular_weeks))
+	check(first == 1500 * 1000 + weekly and p.cash == first, "week one pays the whole bonus plus a week of salary")
+	check(PlayerPay.weekly(season) == weekly, "later weeks pay only the salary: a twelfth (or so) of the year")
+	var total := p.cash
+	for i in season.regular_weeks - 2:
+		total += PlayerPay.weekly(season)
+	check(absi(total - (1500 * 1000 + 6000 * 1000)) <= season.regular_weeks, "a regular season pays the full yearly salary once")
+	season.phase = Season.PHASE_PLAYOFFS
+	check(PlayerPay.weekly(season) == 0, "no salary in the playoffs")
+
+
+func test_assets_services_holdings_and_retainers() -> void:
+	var season := _career(937)
+	var p := season.player
+	season.phase = Season.PHASE_REGULAR
+	season.week = 1
+	p.cash = 1000000000
+	check(Assets.xp_mult(p) == 1.0 and Assets.brand_mult(p) == 1.0 and Assets.pay_mult(p) == 1.0, "no assets, no effect")
+	var cash := p.cash
+	check(Assets.buy(season, Assets.COACH) == "" and Assets.level(p, Assets.COACH) == 1 and p.cash == cash - int(Assets.LEVELS[Assets.COACH][0]["price"]), "hire a coach")
+	check(Assets.xp_mult(p) > 1.0, "a coach adds XP")
+	cash = p.cash
+	check(Assets.buy(season, Assets.COACH) == "" and p.cash == cash - (int(Assets.LEVELS[Assets.COACH][1]["price"]) - int(Assets.LEVELS[Assets.COACH][0]["price"])), "the next level credits the old one")
+	check(Assets.buy(season, Assets.AGENT) == "" and Assets.brand_mult(p) > 1.0 and Assets.pay_mult(p) > 1.0, "an agent adds brand and sponsor pay")
+	check(Assets.buy(season, Assets.PROPERTY) == "" and Assets.buy(season, Assets.PROPERTY) == "" and Assets.buy(season, Assets.PROPERTY) == "", "buy three properties")
+	check(Assets.buy(season, Assets.PROPERTY) != "", "no fourth property")
+	var net := Assets.weekly(season)
+	var rent := roundi(float(Assets.rent_yearly(p)) / float(season.regular_weeks))
+	var fees := roundi(float(Assets.upkeep_yearly(p)) / float(season.regular_weeks))
+	check(absi(net - (rent - fees)) <= 2, "a week nets the rent minus the retainers")
+	# Cannot pay: the service drops a level.
+	p.cash = 0
+	p.assets[Assets.PROPERTY] = 0
+	Assets.weekly(season)
+	p.assets[Assets.PROPERTY] = 3
+	check(Assets.level(p, Assets.COACH) == 1, "a retainer he cannot pay lets the service go a level")
+	# Selling gives back part of the price.
+	p.cash = 0
+	check(Assets.sell(season, Assets.PROPERTY) == roundi(float(Assets.HOLDING[Assets.PROPERTY]["price"]) * Assets.SELL_SHARE) and Assets.count(p, Assets.PROPERTY) == 2, "selling a property returns most of its price")
+	# A business settles once a season, inside its range.
+	p.cash = 1000000000
+	Assets.buy(season, Assets.BUSINESS)
+	var before := p.cash
+	var got := Assets.season_end(season)
+	check(p.cash == before + got and got >= roundi(float(Assets.HOLDING[Assets.BUSINESS]["price"]) * -0.05) - 1 and got <= roundi(float(Assets.HOLDING[Assets.BUSINESS]["price"]) * 0.25) + 1, "a business season is a bounded gamble")
+
+
+func test_ceiling_meters_fill_from_play_and_fold_into_the_raise() -> void:
+	var season := _career(939, 0.9, &"marksman", 20)
+	var p := season.player
+	var line := {"kills": 8, "headshots": 3, "kills_long": 2, "kills_short": 2, "opening_kills": 1, "bursts": 10, "assists": 2, "clutches": 1, "saves": 0, "wipes": 0,
+		"caps": 2, "hill_s": 40.0, "contest_s": 30.0, "distance": 6000.0, "rounds_survived": 5}
+	CapMeters.after_match(season, line, 90.0)
+	check(CapMeters.value(p, Stats.ACCURACY) > 0.0 and CapMeters.value(p, Stats.OBJECTIVE) > 0.0 and CapMeters.match_gains(line)[Stats.ACCURACY] > CapMeters.match_gains(line)[Stats.HANDLING], "kills feed Accuracy more than Handling, and captures feed Objective")
+	var good := CapMeters.value(p, Stats.ACCURACY)
+	p.meters.clear()
+	CapMeters.after_match(season, line, 40.0)
+	check(CapMeters.value(p, Stats.ACCURACY) < good, "a poor grade fills less")
+	var before := CapMeters.value(p, Stats.PHYSICALITY)
+	CapMeters.train(p, 3)
+	check(CapMeters.value(p, Stats.PHYSICALITY) > before and CapMeters.value(p, Stats.PHYSICALITY) - before > CapMeters.value(p, Stats.MENTALITY) * 0.0, "practice fills Physicality")
+	# A specialist trainer fills one group faster.
+	p.meters.clear()
+	p.assets[&"spec_accuracy"] = 3
+	CapMeters.after_match(season, line, 90.0)
+	check(is_equal_approx(CapMeters.value(p, Stats.ACCURACY), good * 1.5), "an elite specialist fills his group x1.5")
+	# A full meter is a point in the offseason raise, and the raise spends it.
+	season.phase = Season.PHASE_OFFSEASON
+	p.cap_raise_year = 0
+	p.camp_focus = &""
+	p.cap_story_bonus = 0
+	p.meters[Stats.ACCURACY] = 250.0
+	var size_with := CapRaise.size(season, Stats.ACCURACY)
+	p.meters[Stats.ACCURACY] = 0.0
+	var size_without := CapRaise.size(season, Stats.ACCURACY)
+	check(size_with == mini(size_without + 2, int(CapRaise.window(p, Stats.ACCURACY)["max"])) and size_with > size_without, "two full meters add two points to the raise (%d vs %d)" % [size_with, size_without])
+	p.meters[Stats.ACCURACY] = 250.0
+	var cap_before := p.group_cap(Stats.ACCURACY)
+	check(not CapRaise.apply(season, Stats.ACCURACY).is_empty() and p.group_cap(Stats.ACCURACY) >= cap_before + size_with - 0, "the raise lands")
+	check(CapMeters.value(p, Stats.ACCURACY) <= 50.0 + 0.01, "the raise spent the meter points and kept the leftover")
+
+
+func test_coach_weighs_age_and_potential_when_picking_the_lineup() -> void:
+	var season := _career(951, 0.9, &"marksman", 20)
+	var team := season.user_team()
+	var young: Soldier = null
+	var vet: Soldier = null
+	for s in team.roster:
+		if s != season.player:
+			if young == null:
+				young = s
+			elif vet == null:
+				vet = s
+	young.age = 23
+	young.dev = 4
+	vet.age = 31
+	vet.dev = 1
+	var sv := team.start_adjust(young) - team.start_adjust(vet)
+	check(team.start_adjust(vet) < 0.0, "a 31-year-old loses points")
+	check(sv > 0.0 and sv <= Team.START_DEV_CAP + Team.START_AGE_CAP, "a young 4-star gains on a vet, within the caps (%.1f)" % sv)
+	# A clearly better veteran still wins: the adjustment is capped, so 10 OVR is never overturned.
+	check(Team.START_DEV_CAP + Team.START_AGE_CAP < 10.0, "the caps cannot overturn a 10 OVR gap")
+	# Career mode only, and only the user's club: AI teams and the league table pick by pure OVR.
+	team.user_controlled = true
+	Team.career_mode = false
+	team.auto_lineup()
+	var plain := team.lineup.duplicate()
+	Team.career_mode = true
+	team.user_controlled = false
+	team.auto_lineup()
+	check(team.lineup == plain, "AI teams are unchanged")
+	Team.career_mode = false
 
 
 func test_deal_pays_in_full_or_reduced_and_moves_influence() -> void:

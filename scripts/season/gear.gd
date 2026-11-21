@@ -1,6 +1,6 @@
 class_name Gear
 extends RefCounted
-## Career-mode gear (#141): five slots, fifteen sponsor brands (three per brand tier), each brand selling a full line.
+## Career-mode gear (#141): six slots, fifteen sponsor brands (three per brand tier), each brand selling a full line.
 ## An item gives bonuses on 1-4 stats from its slot's pool: the sponsor tier sets the ladder of values and how many stats,
 ## and the gear type sets the breadth (the rifle and attachments are specialized, one stat fewer). Gear is additive:
 ## effective rating = base + gear (see Soldier.set_gear_bonus), so changing it re-rates the player. Items come from
@@ -11,26 +11,29 @@ const VEST := &"vest"
 const RIFLE := &"rifle"
 const ATTACHMENTS := &"attachments"
 const BOOTS := &"boots"
-const SLOTS: Array[StringName] = [HELMET, VEST, RIFLE, ATTACHMENTS, BOOTS]
-const SLOT_LABELS := {HELMET: "Helmet", VEST: "Vest", RIFLE: "Rifle", ATTACHMENTS: "Attachments", BOOTS: "Boots"}
-const SLOT_NOUN := {HELMET: "Helm", VEST: "Plate Carrier", RIFLE: "Rifle", ATTACHMENTS: "Optic Kit", BOOTS: "Boots"}
+const HEADSET := &"headset"
+const SLOTS: Array[StringName] = [HELMET, VEST, RIFLE, ATTACHMENTS, BOOTS, HEADSET]
+const SLOT_LABELS := {HELMET: "Helmet", VEST: "Vest", RIFLE: "Rifle", ATTACHMENTS: "Attachments", BOOTS: "Boots", HEADSET: "Headset"}
+const SLOT_NOUN := {HELMET: "Helm", VEST: "Plate Carrier", RIFLE: "Rifle", ATTACHMENTS: "Optic Kit", BOOTS: "Boots", HEADSET: "Comms Headset"}
 const SLOT_POOLS := {
 	HELMET: [Stats.AWARENESS, Stats.COMPOSURE, Stats.TOUGHNESS, Stats.INJURY],
 	VEST: [Stats.TOUGHNESS, Stats.INJURY, Stats.STRENGTH, Stats.ENDURANCE],
 	RIFLE: [Stats.SHORT_ACC, Stats.MEDIUM_ACC, Stats.LONG_ACC, Stats.GROUPING],
 	ATTACHMENTS: [Stats.SWAY, Stats.RELOAD, Stats.GROUPING, Stats.LONG_ACC],
 	BOOTS: [Stats.SPEED, Stats.AGILITY, Stats.ENDURANCE, Stats.STRENGTH],
+	HEADSET: [Stats.TEAMWORK, Stats.OBJ_IQ, Stats.ANCHOR, Stats.BREACH],
 }
 ## Slots whose items carry one stat fewer (minimum 1) but keep the top values.
 const SPECIALIZED: Array[StringName] = [RIFLE, ATTACHMENTS]
 
 ## Bonus ladders by sponsor tier (index = brand tier 0 Unknown .. 4 Icon), highest first.
-const LADDERS := [[2], [4, 2], [6, 4, 2], [8, 6, 4, 2], [10, 8, 6, 4]]
+## Values step down by 1 from the top stat.
+const LADDERS := [[3], [5, 4], [8, 7, 5], [10, 9, 8, 7], [13, 12, 10, 9]]
 ## Brand needed for each sponsor tier (brand points, see WeeklyPlan.BRAND_TIER_SIZE).
 const TIER_BRAND := [0.0, 20.0, 40.0, 60.0, 80.0]
 ## Tuning: multiplies every ladder value (rounded). 1.0 = the spec ladders.
 static var scale := 1.0
-const STAT_CAP := 12  # total gear bonus on any one stat
+const STAT_CAP := 15  # total gear bonus on any one stat
 const SET_PIECES := 3  # items from one brand that wake its set bonus (+1 on its lead stat)
 
 const LEANS := {
@@ -89,20 +92,45 @@ static func tier_for_brand(value: float) -> int:
 ## The stats an item of `brand_id` in `slot` boosts, lean-favoured first, then the slot's pool order.
 static func item_stats(brand_id: StringName, slot: StringName) -> Array:
 	var b := brand(brand_id)
-	var lean: Array = LEANS.get(b.get("lean", &"mixed"), [])
-	var pool: Array = SLOT_POOLS[slot]
-	var ordered: Array = []
-	for st in lean:
-		if pool.has(st):
-			ordered.append(st)
-	for st in pool:
-		if not ordered.has(st):
-			ordered.append(st)
 	var ladder: Array = LADDERS[int(b["tier"])]
 	var n := ladder.size()
 	if SPECIALIZED.has(slot):
 		n = maxi(1, n - 1)
-	return ordered.slice(0, n)
+	# Brands of one tier never share an item: bump the seed until the order differs from the earlier brands'.
+	var taken: Array = []
+	for other in brands_in_tier(int(b["tier"])):
+		if other["id"] == brand_id:
+			break
+		taken.append(_ordered(other["id"], slot, taken, n))
+	return _ordered(brand_id, slot, taken, n)
+
+
+## Every item has its own stat order: the brand's lean picks the top stat, the rest are a seeded shuffle.
+static func _ordered(brand_id: StringName, slot: StringName, taken: Array, n: int) -> Array:
+	var lean: Array = LEANS.get(brand(brand_id).get("lean", &"mixed"), [])
+	var pool: Array = SLOT_POOLS[slot]
+	var attempt := 0
+	while true:
+		var rng := RandomNumberGenerator.new()
+		rng.seed = hash("%s/%s/%d" % [brand_id, slot, attempt])
+		var rest: Array = pool.duplicate()
+		var ordered: Array = []
+		for st in lean:
+			if pool.has(st):
+				ordered.append(st)
+				rest.erase(st)
+				break
+		for i in range(rest.size() - 1, 0, -1):
+			var j := rng.randi_range(0, i)
+			var tmp = rest[i]
+			rest[i] = rest[j]
+			rest[j] = tmp
+		ordered.append_array(rest)
+		var out: Array = ordered.slice(0, n)
+		if not taken.has(out) or attempt > 40:
+			return out
+		attempt += 1
+	return []
 
 
 ## One item: {brand, brand_name, slot, tier, name, bonus: {stat: value}}.

@@ -32,14 +32,23 @@ const AGE_DEV_XP := [
 ]
 
 
-static func xp_to_next(level: int) -> int:
-	return 500 + 150 * (level - 1)
+## Career mode only (the league table is untouched): how fast the XP per level grows, and what a group upgrade costs
+## at 90+ (the league pays 4 up to 95 and 6 above). The tuning tool overrides both.
+static var career_level_step := 90
+static var career_cost_90 := 3
+static var career_cost_95 := 4
+
+
+static func xp_to_next(level: int, soldier: Soldier = null) -> int:
+	var step := career_level_step if soldier != null and soldier.player_controlled else 150
+	return 500 + step * (level - 1)
 
 
 static func xp_multiplier(soldier: Soldier) -> float:
 	var m := dev_xp_multiplier(soldier.age, soldier.dev)
 	if soldier.player_controlled:
 		m *= WeeklyPlan.xp_boost  # career mode only: the league table is untouched
+		m *= Assets.xp_mult(soldier)
 	return m
 
 
@@ -53,7 +62,7 @@ static func dev_xp_multiplier(age: int, dev: int) -> float:
 
 ## Progress toward the next batch of skill points: [xp, needed].
 static func xp_progress(soldier: Soldier) -> Array:
-	return [soldier.xp, xp_to_next(soldier.level)]
+	return [soldier.xp, xp_to_next(soldier.level, soldier)]
 
 
 ## SP needed to upgrade a group by 1 from its current rating.
@@ -70,7 +79,10 @@ static func group_cost(group_rating: int) -> int:
 
 
 static func upgrade_cost(soldier: Soldier, group: StringName) -> int:
-	return group_cost(soldier.group_rating(group))
+	var rating := soldier.group_rating(group)
+	if soldier.player_controlled and rating >= 90:
+		return career_cost_95 if rating >= 95 else career_cost_90
+	return group_cost(rating)
 
 
 ## Adds XP (after the dev multiplier). Returns a report: { xp, levels, points, xp_before, level_before }
@@ -79,8 +91,8 @@ static func gain_xp(soldier: Soldier, base_xp: float) -> Dictionary:
 	var amount := roundi(base_xp * xp_multiplier(soldier))
 	var report := {"xp": amount, "levels": 0, "points": 0, "xp_before": soldier.xp, "level_before": soldier.level}
 	soldier.xp += amount
-	while soldier.xp >= xp_to_next(soldier.level):
-		soldier.xp -= xp_to_next(soldier.level)
+	while soldier.xp >= xp_to_next(soldier.level, soldier):
+		soldier.xp -= xp_to_next(soldier.level, soldier)
 		soldier.level += 1
 		soldier.skill_points += SKILL_POINTS_PER_LEVEL
 		report["levels"] += 1

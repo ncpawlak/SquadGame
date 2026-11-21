@@ -86,6 +86,8 @@ static func parts(season: Season, group: StringName) -> Array:
 	var team := season.user_team()
 	if team != null and Facilities.steps(team, Facilities.INSTITUTE) >= INSTITUTE_MIN_STEPS:
 		out.append(["Performance Institute", 1])
+	if CapMeters.points(p, group) > 0:
+		out.append(["Play", CapMeters.points(p, group)])
 	if p.camp_focus == group:
 		out.append(["Camp special", 1])
 	if p.cap_story_bonus > 0:
@@ -109,6 +111,13 @@ static func apply(season: Season, group: StringName) -> Dictionary:
 	var n := size(season, group)
 	if n <= 0:
 		return {}
+	# The meter pays only the points that fit under the window's maximum.
+	var others := 0
+	for part in parts(season, group):
+		if part[0] != "Play":
+			others += int(part[1])
+	var window_max := int(window(p, group)["max"])
+	CapMeters.spend(p, group, maxi(0, n - mini(others, window_max)))
 	var before := p.group_cap(group)
 	p.group_caps[group] = mini(Stats.MAX_RATING, before + n)
 	for st in Stats.group_stats(group):

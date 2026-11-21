@@ -59,10 +59,17 @@ const AI_EXTEND_CHANCE := 0.6
 const AI_TAX_OVR := 85
 
 var league: League
+
+
+func _init() -> void:
+	Team.career_mode = false  # a fresh season starts without the career lineup rule until player_mode is set
 ## Per-franchise options (trade difficulty, animations, fantasy draft).
 var settings := FranchiseSettings.new()
 ## Player mode (#100): true when the user plays one created soldier instead of running a club.
-var player_mode := false
+var player_mode := false:
+	set(v):
+		player_mode = v
+		Team.career_mode = v
 ## The created soldier and his archetype id (see Archetypes). Null / &"" in manager mode.
 var player: Soldier = null
 var player_archetype: StringName = &""
@@ -623,6 +630,8 @@ func finish_week() -> Array:
 	_week_matches = []
 	for m in played:
 		play_week_match(m)
+	if player_mode and player != null:
+		PlayerPay.weekly(self)
 	var played_ids := {}
 	var playing_teams := {}
 	for m in played:
@@ -1497,6 +1506,8 @@ func _begin_season() -> void:
 	league.ensure_callsigns()
 	market.begin_season(self)
 	revenue.begin_season(self)
+	if player_mode and player != null:
+		PlayerPay.settle_bonus(self)
 	news.begin_season(self)
 	storylines.begin_season(self)
 	newsroom.publish_preseason(self)
@@ -1528,6 +1539,7 @@ func _advance() -> void:
 			WeeklyPlan.apply_honors(self)
 			Stories.honors_study(self)
 			Sponsors.season_end(self)
+			Assets.season_end(self)
 		var retire_rng := RandomNumberGenerator.new()
 		retire_rng.seed = _mix([league.league_seed, year, 0x2E71])
 		var retired := Retirement.run(self, retire_rng)

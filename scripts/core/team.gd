@@ -19,6 +19,11 @@ const KEEP_DRAFT_BONUS := [10.0, 5.0, 2.0]
 static var year_now := 0
 ## Teams in the league (picks per draft round) for keep_value's draft round.
 static var league_size := 20
+## Career mode: the user's club picks its lineup by start value (see start_value), not raw OVR. Set by Season.player_mode.
+static var career_mode := false
+## Start value: at most this many points for a young high-potential player, and at most this many off for age.
+const START_DEV_CAP := 4.0
+const START_AGE_CAP := 5.0
 
 var id: int
 var name: String
@@ -188,6 +193,8 @@ func _best_pick(sch: Scheme, consider_fatigue: bool) -> Dictionary:
 			var value := float(s.ovr_at_role(role))
 			if consider_fatigue:
 				value *= 1.0 - Conditioning.penalty(s.fatigue)
+			if career_mode and user_controlled:
+				value += start_adjust(s)
 			row.append(value)
 		vals.append(row)
 	# Upper bound on what the remaining slots can add (each slot's best value), for pruning.
@@ -318,6 +325,28 @@ func keep_value(s: Soldier) -> float:
 		c += clampf(surplus / 7000.0, -3.0, 3.0)
 		v += clampf(c, -3.0, 5.0)
 	return v
+
+
+## Points the coach adds to (or takes off) a player's OVR when he picks the lineup in career mode: young players with
+## upside and dev stars get up to START_DEV_CAP (the keep_value future term, so the two agree), and age takes points off
+## from 30 (and faster from 33), up to START_AGE_CAP. A first or second round pick gets a little extra while he is new.
+## It only breaks near-ties: a clearly better player always starts.
+func start_adjust(s: Soldier) -> float:
+	var now := float(s.best_ovr())
+	var age_w := clampf((28.0 - s.age) / 7.0, 0.0, 1.0)
+	var g := clampi(s.dev, Soldier.DEV_MIN, Soldier.DEV_MAX) - Soldier.DEV_MIN
+	var up := (maxf(0.0, float(s.potential_ovr()) - now) * float(KEEP_DEV_W[g]) + float(KEEP_DEV_FLAT[g])) * age_w
+	var down := 0.0
+	if s.age >= 30:
+		down += float(s.age - 29) * 0.8
+	if s.age >= 33:
+		down += float(s.age - 32) * 1.2
+	return minf(up + draft_bonus(s) * 0.15, START_DEV_CAP) - minf(down, START_AGE_CAP)
+
+
+## OVR at `role` plus the coach's adjustment: what the lineup compares in career mode.
+func start_value(s: Soldier, role: Scheme.Role) -> float:
+	return float(s.ovr_at_role(role)) + start_adjust(s)
 
 
 ## Draft capital a front office protects: a pick from this draft (or last season's) by round,

@@ -215,6 +215,7 @@ func _todos() -> Array:
 		out.append(_todo("Sponsors", "%d offer%s waiting" % [p.offers.size(), "" if p.offers.size() == 1 else "s"], UiKit.GOLD, func(): open_sponsors(), true))
 	else:
 		out.append(_todo("Sponsors", "%d deal%s  ·  %s" % [p.deals.size(), "" if p.deals.size() == 1 else "s", Sponsors.money_text(p.cash)], UiKit.TRIM, func(): open_sponsors()))
+	out.append(_todo("Money", "%s  ·  %d thing%s you pay for or own" % [Sponsors.money_text(p.cash), _asset_count(p), "" if _asset_count(p) == 1 else "s"], UiKit.TRIM, func(): open_assets()))
 	out.append(_todo("Loadout", "Base %d, gear %+d, effective %d" % [p.base_ovr(), p.best_ovr() - p.base_ovr(), p.best_ovr()], UiKit.TRIM, func(): open_loadout()))
 	var notes := s.player_notes
 	if not notes.is_empty():
@@ -322,6 +323,17 @@ func open_request() -> void:
 
 func open_loadout() -> void:
 	hub.open("Loadout", func(): return _gear().loadout_page())
+
+
+func open_assets() -> void:
+	hub.open("Money", func(): return _gear().assets_page())
+
+
+func _asset_count(p: Soldier) -> int:
+	var n := 0
+	for k in p.assets:
+		n += int(p.assets[k])
+	return n
 
 
 func open_sponsors() -> void:

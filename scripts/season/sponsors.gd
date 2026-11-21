@@ -17,10 +17,10 @@ const MATCHES_PER_YEAR := 16.0
 ## Influence: tiers (cold, friendly, partner, ambassador), what a deal may grant at each, and the meter's moves.
 const INFLUENCE_TIERS := [0.0, 25.0, 50.0, 75.0]
 const INFLUENCE_NAMES := ["Cold", "Friendly", "Partner", "Ambassador"]
-const GRANT_CAP := [2, 3, 4, 5]
+const GRANT_CAP := [3, 3, 4, 6]
 const SIGN_START := 10.0
 const GAIN_BASE := 0.6
-const GAIN_PER_ITEM := 0.4
+const GAIN_PER_ITEM := 0.7
 const MISS_LOSS := 1.5
 const SEASON_MISS_LOSS := 8.0
 const DROP_LOSS := 35.0
@@ -29,7 +29,14 @@ const RENEW_MIN := 15.0
 const PAY_INFLUENCE := 0.6  # a contract pays x (0.8 + 0.6 * influence / 100)
 const REDUCED_LOW := 0.35
 const REDUCED_HIGH := 0.6
-const BUY_MATCHES := 12.0  # an unlocked item costs this many matches of its tier's pay
+const PREBUY_MULT := 3.0  # an item from a brand with no deal costs this many times the normal price
+const PRE_CAP := 25.0  # a pre-bought item alone never takes a brand past Friendly
+const PRE_START := 3.0
+const PRE_GAIN := 0.25  # per match per worn pre-bought item
+const PRE_UNLOCK := 15.0  # influence at which a brand one tier above your ceiling may call
+const PRE_HEAT := 0.6  # influence adds this much heat for that brand
+const TRAIN_INFLUENCE := 0.15  # per brand-training level, per match, to every deal brand (and pre-bought brand)
+const ITEM_PRICE := [200000, 1000000, 3000000, 8000000, 20000000]  # dollars by brand tier, sized against team salaries
 const RIVALS := {&"haynes": &"champ", &"champ": &"haynes", &"fyla": &"rebook", &"rebook": &"fyla", &"overarmour": &"pooma",
 	&"pooma": &"overarmour", &"nyke": &"addidas", &"addidas": &"nyke", &"glok": &"sigsawyer", &"sigsawyer": &"glok"}
 const GRADE_FLOOR := [55, 60, 64, 68, 72]
@@ -243,9 +250,9 @@ static func _terms(season: Season, brand_id: StringName, margin: float, style: S
 	var b := Gear.brand(brand_id)
 	var tier := int(b["tier"])
 	var infl := influence_of(p, brand_id)
-	var n := clampi(1 + int(margin / 15.0), 1, 5)
+	var n := clampi(1 + int(margin / 15.0), 1, Gear.SLOTS.size())
 	if style == STYLE_GEAR:
-		n = mini(5, n + 1)
+		n = mini(Gear.SLOTS.size(), n + 1)
 	else:
 		n = maxi(1, n - 1)
 	n = clampi(n, n_floor, maxi(n_floor, GRANT_CAP[influence_tier(infl)]))
@@ -256,7 +263,7 @@ static func _terms(season: Season, brand_id: StringName, margin: float, style: S
 		slots[i] = slots[j]
 		slots[j] = tmp
 	var picked: Array = slots.slice(0, n)
-	var pay := contract_pay(tier, n, style, infl)
+	var pay := roundi(float(contract_pay(tier, n, style, infl)) * Assets.pay_mult(p))
 	var reduced := roundi(float(pay) * rng.randf_range(REDUCED_LOW, REDUCED_HIGH))
 	return {"slots": picked, "pay": pay, "reduced": reduced, "years": rng.randi_range(1, 3), "clauses": _clauses(season, tier, n, rng)}
 
@@ -275,14 +282,16 @@ static func refresh(season: Season) -> int:
 		if p.offers.size() >= MAX_OFFERS:
 			break
 		var tier := int(b["tier"])
-		if tier > ceiling or h < float(TIER_HEAT[tier]):
+		var infl_b := influence_of(p, b["id"]) if _foot_of(p, b["id"]) > 0 else 0.0
+		var bonus := infl_b * PRE_HEAT
+		if tier > ceiling + (1 if infl_b >= PRE_UNLOCK else 0) or h + bonus < float(TIER_HEAT[tier]):
 			continue
 		if holds(p, b["id"]) or _has_offer(p, b["id"]) or _rival_blocks(p, b["id"]):
 			continue
 		if rng.randf() > 0.5:
 			continue
 		var style := STYLE_MONEY if rng.randf() < 0.5 else STYLE_GEAR
-		var t := _terms(season, b["id"], h - float(TIER_HEAT[tier]), style, rng)
+		var t := _terms(season, b["id"], h + bonus - float(TIER_HEAT[tier]), style, rng)
 		t["brand"] = b["id"]
 		t["style"] = style
 		t["countered"] = false
@@ -326,7 +335,7 @@ static func _renewal(season: Season, d: Dictionary) -> Dictionary:
 	var slots: Array = d["slots"].duplicate()
 	var want := slots.size()
 	if it >= 1:
-		want = mini(5, slots.size() + it)  # friendly +1 item, partner +2, ambassador +3
+		want = mini(Gear.SLOTS.size(), slots.size() + it)  # friendly +1 item, partner +2, ambassador +3
 	want = mini(want, GRANT_CAP[it] if it >= 1 else slots.size())
 	var extras: Array = Gear.SLOTS.filter(func(x): return not slots.has(x))
 	for i in range(extras.size() - 1, 0, -1):
@@ -336,7 +345,7 @@ static func _renewal(season: Season, d: Dictionary) -> Dictionary:
 		extras[j] = tmp
 	while slots.size() < want and not extras.is_empty():
 		slots.append(extras.pop_back())
-	var pay := contract_pay(tier, slots.size(), style, infl)
+	var pay := roundi(float(contract_pay(tier, slots.size(), style, infl)) * Assets.pay_mult(p))
 	return {"brand": brand_id, "slots": slots, "pay": pay, "reduced": roundi(float(pay) * rng.randf_range(REDUCED_LOW, REDUCED_HIGH)),
 		"years": rng.randi_range(1, 3), "clauses": _clauses(season, tier, slots.size(), rng), "style": style, "countered": true, "renewal": true,
 		"expires": season.year + 1,
@@ -370,6 +379,9 @@ static func accept(season: Season, offer: Dictionary) -> String:
 	p.deals.append({"brand": offer["brand"], "slots": offer["slots"].duplicate(), "pay": int(offer["pay"]), "reduced": int(offer["reduced"]),
 		"years_left": int(offer["years"]), "clauses": offer["clauses"].duplicate(true), "signed": season.year, "season_full": 0, "season_games": 0})
 	p.offers.erase(offer)
+	for key in p.foot_gear.duplicate():
+		if String(key).begins_with(String(offer["brand"]) + ":"):
+			p.foot_gear.erase(key)  # the foot in the door did its job
 	if influence_of(p, offer["brand"]) < SIGN_START:
 		p.influence[offer["brand"]] = SIGN_START
 	var rival: StringName = RIVALS.get(offer["brand"], &"")
@@ -427,7 +439,10 @@ static func drop(season: Season, d: Dictionary) -> void:
 ## and its brand's influence moves. A deal whose influence runs out is cancelled. Returns the money earned.
 static func after_match(season: Season, entry: Dictionary) -> int:
 	var p := season.player
-	if p == null or p.deals.is_empty():
+	if p == null:
+		return 0
+	_foot_influence(p)
+	if p.deals.is_empty():
 		return 0
 	var earned := 0
 	for d in p.deals.duplicate():
@@ -454,8 +469,8 @@ static func owns(p: Soldier, brand_id: StringName, slot: StringName) -> bool:
 	return p.owned_gear.has("%s:%s" % [brand_id, slot])
 
 
-static func price(brand_id: StringName, slot: StringName) -> int:
-	return roundi(float(slot_pay(int(Gear.brand(brand_id)["tier"]))) * BUY_MATCHES)
+static func price(brand_id: StringName, _slot: StringName) -> int:
+	return int(ITEM_PRICE[int(Gear.brand(brand_id)["tier"])])
 
 
 ## Unlocked items he does not own and no active deal gives him: [{brand, slot, price}].
@@ -486,6 +501,103 @@ static func buy(season: Season, brand_id: StringName, slot: StringName) -> Strin
 	p.cash -= pr
 	p.owned_gear.append("%s:%s" % [brand_id, slot])
 	season.player_notes.append({"year": season.year, "week": season.week, "text": "You bought the %s for %s." % [Gear.item(brand_id, slot)["name"], money_text(pr)]})
+	return ""
+
+
+# --- the foot in the door ----------------------------------------------------------------------
+
+## Pre-bought items of `brand_id` he owns (no deal with that brand yet).
+static func _foot_of(p: Soldier, brand_id: StringName) -> int:
+	var n := 0
+	for key in p.foot_gear:
+		if String(key).begins_with(String(brand_id) + ":"):
+			n += 1
+	return n
+
+
+## Wearing a pre-bought item builds a little influence with a brand that has no deal yet, up to Friendly.
+static func _foot_influence(p: Soldier) -> void:
+	for b in Gear.BRANDS:
+		var id: StringName = b["id"]
+		if holds(p, id) or _foot_of(p, id) == 0:
+			continue
+		var worn := 0
+		for slot in p.gear_slots:
+			if p.gear_slots[slot].get("brand") == id and p.foot_gear.has("%s:%s" % [id, slot]):
+				worn += 1
+		if worn > 0 and influence_of(p, id) < PRE_CAP:
+			_add_influence(p, id, minf(PRE_GAIN * float(worn), PRE_CAP - influence_of(p, id)))
+
+
+## Brand training also warms the sponsors: `level` is the weekly brand level. Deal brands gain freely, brands with only a
+## pre-bought item gain up to Friendly.
+static func train(p: Soldier, level: int) -> void:
+	if p == null or level <= 0:
+		return
+	var amount := TRAIN_INFLUENCE * float(level)
+	for d in p.deals:
+		_add_influence(p, d["brand"], amount)
+	for b in Gear.BRANDS:
+		var id: StringName = b["id"]
+		if not holds(p, id) and _foot_of(p, id) > 0 and influence_of(p, id) < PRE_CAP:
+			_add_influence(p, id, minf(amount, PRE_CAP - influence_of(p, id)))
+
+
+static func prebuy_price(brand_id: StringName, slot: StringName) -> int:
+	return price(brand_id, slot) * int(PREBUY_MULT)
+
+
+## "" if he can pre-buy this item now.
+static func prebuy_error(season: Season, brand_id: StringName, slot: StringName) -> String:
+	var p := season.player
+	var b := Gear.brand(brand_id)
+	if b.is_empty() or not Gear.SLOTS.has(slot):
+		return "No such item."
+	if holds(p, brand_id):
+		return "You already have a deal with them."
+	if p.unlocked_gear.has("%s:%s" % [brand_id, slot]):
+		return "A deal gave you that before: buy it at the normal price."
+	if owns(p, brand_id, slot):
+		return "You already own it."
+	if _foot_of(p, brand_id) > 0:
+		return "One item per brand until they sign you."
+	if _rival_blocks(p, brand_id) or holds(p, RIVALS.get(brand_id, &"")):
+		return "Their rival has you."
+	if int(b["tier"]) > tier_ceiling(season) + 1:
+		return "Too far above your level."
+	var pr := prebuy_price(brand_id, slot)
+	if p.cash < pr:
+		return "You need %s." % money_text(pr)
+	return ""
+
+
+## Brands he can pre-buy from: [{brand, tier}] (not held, none bought yet, within one tier of his ceiling, no rival deal).
+static func prebuy_brands(season: Season) -> Array:
+	var p := season.player
+	var out: Array = []
+	for b in Gear.BRANDS:
+		var id: StringName = b["id"]
+		if holds(p, id) or _foot_of(p, id) > 0 or int(b["tier"]) > tier_ceiling(season) + 1:
+			continue
+		if _rival_blocks(p, id) or holds(p, RIVALS.get(id, &"")):
+			continue
+		out.append(id)
+	return out
+
+
+static func prebuy(season: Season, brand_id: StringName, slot: StringName) -> String:
+	var err := prebuy_error(season, brand_id, slot)
+	if err != "":
+		return err
+	var p := season.player
+	var pr := prebuy_price(brand_id, slot)
+	p.cash -= pr
+	var key := "%s:%s" % [brand_id, slot]
+	p.owned_gear.append(key)
+	p.foot_gear.append(key)
+	if influence_of(p, brand_id) < PRE_START:
+		p.influence[brand_id] = PRE_START
+	season.player_notes.append({"year": season.year, "week": season.week, "text": "You bought the %s for %s. It is a foot in the door." % [Gear.item(brand_id, slot)["name"], money_text(pr)]})
 	return ""
 
 

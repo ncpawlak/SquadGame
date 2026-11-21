@@ -155,6 +155,9 @@ var shopped := false
 var influence: Dictionary = {}
 var unlocked_gear: Array = []
 var owned_gear: Array = []
+var meters: Dictionary = {}  # hidden ceiling meters per stat group (see CapMeters)
+var assets: Dictionary = {}  # what he spent cash on (see Assets)
+var foot_gear: Array = []  # items bought from a brand with no deal ("brand:slot"), they build a little influence
 var trade_offers_key := 0
 ## Equipped items by slot: slot -> item dict (see Gear.item).
 var gear_slots: Dictionary = {}
