@@ -4,13 +4,18 @@ extends RefCounted
 ##
 ## Everyone in the match gets an "impact" number from the box score, weighted a little by role. The player's
 ## impact is compared with the other nine players in the same match (so a low-scoring game isn't a bad grade for
-## anyone), and a win helps. That gives a 0-100 score and a letter.
+## anyone), and a win helps. A positive K/D adds a little, and a win with K/D at or above 1 is never below a C-.
+## That gives a 0-100 score and a letter.
 
 ## Score for an average showing, points per standard deviation above it, and the result swing.
-const BASE := 72.0
-const PER_Z := 14.0
-const WIN_BONUS := 3.0
+const BASE := 75.0
+const PER_Z := 12.0
+const WIN_BONUS := 5.0
 const LOSS_PENALTY := -2.0
+## A positive K/D is never a bad game, even when teammates had a bigger one.
+const POSITIVE_KD_BONUS := 2.0
+## A win with a non-negative K/D is at least a C-.
+const WIN_KD_FLOOR := 70.0
 ## Floor for the spread so one lopsided player does not make everyone else look the same.
 const MIN_STD := 1.0
 ## Extra XP a good game earns, per grade point above BASE (none below it).
@@ -82,7 +87,14 @@ static func grade(result: MatchResult, player: Soldier, team: Team) -> Dictionar
 	var mine: Dictionary = result.box[player.id]
 	var won := result.winner() == team
 	var tied := result.winner() == null
-	var score := clampf(BASE + PER_Z * z + (0.0 if tied else (WIN_BONUS if won else LOSS_PENALTY)), 0.0, 100.0)
+	var kills := int(mine.get("kills", 0))
+	var deaths := int(mine.get("deaths", 0))
+	var raw := BASE + PER_Z * z + (0.0 if tied else (WIN_BONUS if won else LOSS_PENALTY))
+	if kills > deaths:
+		raw += POSITIVE_KD_BONUS
+	if won and kills >= deaths:
+		raw = maxf(raw, WIN_KD_FLOOR)
+	var score := clampf(raw, 0.0, 100.0)
 	return {"score": score, "letter": letter_for(score), "z": z, "won": won,
 		"kills": int(mine.get("kills", 0)), "deaths": int(mine.get("deaths", 0)), "assists": int(mine.get("assists", 0)),
 		"damage": int(round(float(mine.get("damage", 0.0)))), "mvp": result.mvp_id == player.id}

@@ -440,12 +440,14 @@ func play_match(m: ScheduledMatch) -> void:
 	if viewer or play_runner or m.is_played() or _roster_blocked() or play_block_reason(m) != "":
 		return
 	_root.visible = false
+	_bg.visible = false  # the team-gradient backdrop would cover the 3D scene
 	play_runner = FpsMatchRunner.launch(self, m, _on_play_finished.bind(m), season.player)
 
 
 func _on_play_finished(r: MatchResult, m: ScheduledMatch) -> void:
 	m.set_live_result(r)
 	play_runner = null
+	_bg.visible = true
 	_root.visible = true
 	sim_week()
 
