@@ -25,7 +25,7 @@ The Web preset is the no-threads build, so it runs on any static host without sp
 
 ## Franchise mode (main screen)
 
-Title → New Franchise → choose a start point (Manager / GM, or Player, coming soon) → pick one of 20 teams → franchise hub (Madden/CFB-style). Title → Load Franchise opens the save slots.
+Title → New Franchise → choose a start point (Manager / GM, or Player: see **Player mode** below) → pick one of 20 teams → franchise hub (Madden/CFB-style). Title → Load Franchise opens the save slots.
 
 - **The league** (`scripts/core/league_data.gd`, `data/league.json`): 20 fixed franchises in 4 divisions of 5 -
   East (NYE, DET, BOS, IND, BKN), South (CHA, ATL, MIA, NSH, ORL), Central (ARL, CHI, STL, LOU, LRK) and West
@@ -34,6 +34,27 @@ Title → New Franchise → choose a start point (Manager / GM, or Player, comin
   franchise). Team OVRs start from 85 (New York Empire) down to 65 (Little Rock Riverhawks), league average ~75: most players sit between 60 and 85 and only a handful are 90+. Each team carries 2-4 players with 3-4 dev stars (better teams more); most have 1-2. Stars are fixed (mapped from the old grade: F/D 1, C 2, B 3, A 4; 90+ OVR at least 3, 85+ at least 2; promising rookies 3-4); only draft prospects roll them. Every team has the same
   cap, so payrolls (and cap space) differ. `tools/build_league.gd` regenerates `league.json` from the table in
   `league_data.gd` with one fixed seed (only needed if the table changes).
+- **Franchise settings** (`scripts/season/franchise_settings.gd`): a popup at team select (and the Franchise Settings card in
+  Settings) holds the per-franchise options: **trade difficulty** (Easy / Normal / Hard), **reduced animations** and
+  **Fantasy draft**. They are stored on `Season.settings` (old saves keep the defaults) and pushed into `Trades` and `Fx`; the
+  in-game settings cards write to them too.
+- **Fantasy draft** (`scripts/season/fantasy_draft.gd`, `scripts/ui/franchise/fantasy_draft_pages.gd`): turn it on at team
+  select and, before Week 1, every soldier in the league (rosters and Green Teams) goes into one pool and the 20 clubs draft them
+  back over 15 snake rounds (random round-1 order, reversing each round). Picks keep their contracts and careers; each lands on the
+  roster first, then the Green Team. The draft room has a pick-slots panel, a next-pick banner, a sortable board with star ratings
+  and group stats, and View buttons on player rows; AI picks weigh OVR/upside, role need and a little noise. Leftovers are released
+  to free agency, then a **Set Roster** step opens before the usual preseason camp. A draft in progress is saved.
+- **Storylines** (`scripts/season/storylines.gd`, `story_defs.gd`, `scripts/ui/franchise/story_pages.gd`, issue #104): a
+  season-long narrative layer. Stories are state machines over real league state (rivalries, schedule, results, contracts, trust);
+  they are seeded at season start or triggered by what your club is doing, move Setup > Escalation > Showdown > Resolved, and some
+  pause for a decision whose effects (rivalry heat, buzz, morale, XP, skill points, trust, trade requests) are listed before you
+  choose. Up to 3 run at once, at most 2 of them arcs. There are 20 kinds: **arcs** (Rivalry Run, Rookie's Rise, Cinderella,
+  Veteran's Last Ride, Title Chase, Hot Seat), **spotlights** (Revenge Game, Derby Week, Statement Game, Must-Win, Milestone Chase,
+  Banner Night) and **conditionals** (Contract Standoff, Bench Grumble, Press Storm, Comeback Trail, Bromance, Locker Room Rift,
+  Poaching Rumor, Promise Kept or Broken). Home has a Storylines to-do (it flags decisions waiting), Home > Storylines lists active
+  and finished stories with detail pages, and a season-end **summary page** totals each story's earnings. Story beats also feed
+  the Weekly News. Hot Seat is narrative only.
+- **Player mode** - see the section below.
 - **Team logos** (`assets/logos/<ABBR>.png`, 256x256 transparent PNGs): shown on team-select tiles (inside an
   OVR ring), the hub header, home matchup, standings, playoff bracket, scores, news, draft and roster screens via
   `UiKit.team_logo` / `UiKit.logo_bb`; a team without a logo falls back to its coloured abbreviation chip.
@@ -95,7 +116,7 @@ Title → New Franchise → choose a start point (Manager / GM, or Player, comin
 - **League tab**: one big pane whose < > arrows flip between **Standings** (the four divisions as a 2x2 grid of mini tables with logos, W-L, game record, diff, streak and playoff seed - or one whole-league table), **Scores** (a week of results with week arrows), **League Leaders** and the **Playoff Picture** bracket. Under it, live cards (your OVR rank, the kills leader, the latest headline, the MVP favourite, free agents) and a second row of cards (Schedule, Team Stats, Teams, Retirements)
 - **Personnel tab**: one big pane whose < > arrows flip between **Contracts & Payroll** and **Trades** (plus the **Draft Room** while the draft runs). Trades lists incoming offers, then the trade block, then a card into the manual **Trade Center** builder. It opens on the view the current phase needs (trades in season, the Draft Room on draft day) and the header shows payroll, cap space and roster size. Under it, live cards (Free Agency, Re-sign, your next pick, scout points) and a second row of cards (Trade Log, Draft Recap, Weekly News archive with a NEW badge, Extensions: your final-year players and their extension status). Trade block rows show portrait, big OVR, POT, the six stat-group bars, contract pips and morale; offers put Accept / Counter / Decline on the right. The live draft order table also shows age, scout grade, hometown and each team's need
 - **Training Camp**: six drill cards in the team colours. Click a drill, then click players on the Camp Board (OVR, POT, point pool, stat-group bars, best drill) to plan who goes; Auto-fill plans the best fits. **Run Camp** runs every planned drill at once and shows a camp report with each stat gain
-- **Settings tab**: two rows of cards - Franchise (Sim Options, Save, Load, Franchise Settings soon) and System (Debug Sim Tools, Main Menu)
+- **Settings tab**: two rows of cards - Franchise (Sim Options, Save, Load, Franchise Settings) and System (Debug Sim Tools, Main Menu)
 - **Buttons**: all slanted; main actions (Make Offer, Sign, Propose Trade, Accept, Draft) use the team accent colour
 - **Player page**: slanted OVR/POT plates, contract / season / career chips in the header, and a right-hand season snapshot (GP, kills, K/D, assists, accuracy, damage) with the last 5 matches  (sorting, swaps and scheme changes refresh in place). Under it, live cards for Player Progression (can level up),
   Training (avg fatigue), Injuries (out), Team Stats (K/D + league rank) and Schedule (record, last / next) with pulsing
@@ -469,6 +490,34 @@ The old debug UI is still available from the title screen or Settings → Debug 
 - Upgrade stat groups with skill points, swap lineup slots.
 - Batch-sim 200 matches.
 
+## Player mode (issues #100, #101)
+
+New Franchise > **Player** makes you one soldier instead of the manager. Every club, yours included, is run by the AI
+(`Soldier.player_controlled` stops it cutting, trading, auto-training or auto-spending for you; `Season.user_team()` names your club).
+
+1. **Create-a-player** (`player_create.gd`, `scripts/season/archetypes.gd`, `data/archetypes.json`): face, name, callsign, role and one
+   of 15 archetypes (5 per role). Each archetype raises and lowers specific stats and gives a per-stat ceiling (combine ceiling + 12
+   lifetime growth cap, enforced on upgrades and skill-point spending). You start at the combine floor (`PlayerCareer`).
+2. **The combine** (`combine.gd`, `combine_screen.gd`, `combine_tasks.gd`): five drills, one mini-game per drilled rating, up to 3 tries
+   per drill (best kept) across nine task types. Scores become rating bands inside the archetype ceilings; the true rating sits at a
+   hidden point in each band set by a rolled talent (dev stars). Starting OVR is capped at 75. Toughness and Injury are fixed at 90.
+   (Hill Assault uses stand-in tasks for now.)
+3. **Scouting report and draft night** (`player_draft.gd`, `player_draft_pages.gd`): you join an extra pre-season rookie class. The report
+   shows a projected pick and range, class rank, area grade, a mock-draft landing spot and scout tiers per rating group. Draft night
+   reveals picks live (slower before yours) with a story about a slide or a jump; undrafted players pick from three Green Team offers.
+   Every rookie starts on his club's Green Team and you are never cut in the trim.
+4. **The career loop** (`player_coach.gd`, `player_grade.gd`, `player_pages.gd`): a Green Team player is called up once he beats the
+   weakest healthy roster player, with a status line saying why he is or is not starting. Every match gets a 0-100 score and a
+   letter from your box score against the other nine players (plus a small win bonus); good games earn bonus XP, and every match
+   goes in a season log, missed games included. The hub has a player header, a Home left column (You, Last Game, This Season, This
+   Week), tabs Home / Career / League / Settings, and pages for My Player (training, skill points), Game Log and Contract. The
+   offseason runs itself behind one loading screen.
+5. **Hall of Fame path** (`player_legacy.gd`): a live Hall of Fame score from the league's own formula (provisional until the
+   minimum games are played) with a projected pace over a 120-game career, 19 milestones (games, kills, MVP, grades, honors, titles,
+   ratings, Hall pace) announced by toast, a career recap and a Hall of Fame card on Home. **Retirement is your choice**, made in
+   the offseason (the age check no longer retires you before 40); the usual three-season wait then runs and the real vote decides,
+   and the hub can play the league forward to it.
+
 ## Tests
 
 run_tests, season_tests, save_tests and ledger_tests run every `test_*` method in their file, in the order written, so a new
@@ -484,6 +533,15 @@ godot --headless --path . --script res://tests/save_tests.gd    # save/load roun
 godot --headless --path . --script res://tests/ledger_tests.gd  # stat ledger: phase split, once-only recording, saves (fast; ONLY=test_a,test_b)
 godot --headless --path . --script res://tests/ability_tests.gd  # player abilities: tiers, slots, locking, saves (fast; ONLY=test_a,test_b)
 godot --headless --path . --script res://tools/ability_distribution.gd  # dev tool: how many players qualify for each ability at candidate cut-offs
+godot --headless --path . --script res://tests/player_mode_tests.gd  # player mode 1: archetypes, created soldier, saves
+godot --headless --path . --script res://tests/combine_tests.gd  # player mode 2: combine tasks, bands, cap, talent roll
+godot --headless --path . --script res://tests/player_draft_tests.gd  # player mode 3: report, draft night, undrafted path
+godot --headless --path . --script res://tests/player_career_tests.gd  # player mode 4: grades, coach, AI-run club, growth caps
+godot --headless --path . --script res://tests/player_legacy_tests.gd  # player mode 5: Hall path, milestones, retirement
+godot --headless --path . --script res://tests/player_hub_smoke.gd  # player hub pages, a week and an offseason through the UI
+godot --headless --path . --script res://tests/fantasy_draft_ui.gd  # fantasy draft room and Set Roster tile
+godot --headless --path . --script res://tests/fx_tests.gd  # UI animation helpers and CapBar end states
+godot --headless --path . --script res://tests/data_edit_tests.gd  # Data Edit model on a scratch copy of league.json
 godot --headless --path . --script res://tests/engine_golden.gd  # match engine golden: fixed seeds keep their results (GOLDEN_WRITE=1 only when the sim should change)
 ```
 
@@ -613,5 +671,9 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
 - Best-of-3 match modes (done; next: more modes and per-mode schemes)
 - Weekly News: your club's beat writer files a generated newspaper article every week and offseason step (done)
 - Stat ledger (#11): phase splits, league leaders, single-match records and streaks, record and MVP stories (done; next: Next Gen telemetry, weather splits)
+- Fantasy draft and per-franchise settings (done)
+- Player abilities (#124) and their match effects (done)
+- Storylines (#104): 20 arcs, spotlights and conditionals with player choices and a season summary (done)
+- Player mode (#100, #101): create-a-player, combine, draft night, career loop, Hall of Fame path and retirement (done)
 - Visual combat
 - Android and PC exports
