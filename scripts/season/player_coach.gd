@@ -102,7 +102,9 @@ static func weekly(season: Season) -> String:
 	if not team.green_team.has(s) or s.is_injured():
 		return ""
 	var worst := _call_up_target(season, team)
-	if worst == null or s.best_ovr() < worst.best_ovr() + CALLUP_MARGIN:
+	# After MAX_SEASONS on the Green Team he goes up whatever his rating: the league rule would release anyone else.
+	var forced := s.green_seasons >= GreenTeam.MAX_SEASONS
+	if worst == null or (not forced and s.best_ovr() < worst.best_ovr() + CALLUP_MARGIN):
 		return ""
 	if team.roster_count() >= Team.ROSTER_SIZE:
 		GreenTeam._move_down(team, worst)
@@ -110,6 +112,8 @@ static func weekly(season: Season) -> String:
 		GreenTeam._move_up(team, worst)  # could not promote him: put the other player back
 		return ""
 	var line := "The coach called you up: you are now better than %s (%d vs %d OVR)." % [worst.short_name(), s.best_ovr(), worst.best_ovr()]
+	if s.best_ovr() < worst.best_ovr() + CALLUP_MARGIN:
+		line = "The coach called you up: you have used your %d Green Team seasons." % GreenTeam.MAX_SEASONS
 	season.player_notes.append({"year": season.year, "week": season.week, "text": line})
 	PlayerLegacy.update(season)
 	return line

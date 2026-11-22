@@ -113,6 +113,15 @@ var home_state := ""
 var player_controlled := false
 ## Lifetime per-stat caps (stat -> rating) for a created soldier (see Archetypes.growth_caps); {} = none.
 var stat_caps: Dictionary = {}
+## Player mode weekly plan (see WeeklyPlan): the plan that repeats each week, whether he has ever confirmed one, the
+## same for camp, study points toward the next star, brand (0-100) and the hidden talent roll (1-4) behind his caps.
+var plan: Dictionary = {}
+var plan_confirmed := false
+var camp_plan: Dictionary = {}
+var camp_plan_confirmed := false
+var study_progress := 0.0
+var brand := 0.0
+var talent := 0
 
 # Green Team (development roster; see Team.green_team and GreenTeam)
 ## Reps (0..REP_MAX): practice time with the club. They reveal his potential (see potential_text).
