@@ -329,6 +329,14 @@ func matchup(m: ScheduledMatch) -> Control:
 	var watch := UiKit.primary_button("WATCH", func(): hub.watch_match(m), 26)
 	watch.custom_minimum_size = Vector2(260, 64)
 	watch.tooltip_text = "Watch the match live on the tactical map."
+	if s.player_mode:
+		var why: String = hub.play_block_reason(m)
+		var play := UiKit.primary_button("PLAY", func(): hub.play_match(m), 26)
+		play.name = "PlayButton"
+		play.custom_minimum_size = Vector2(260, 64)
+		play.disabled = why != ""
+		play.tooltip_text = why if why != "" else "Play your soldier first person in the 3D match. The result counts; Esc to pause or sim the rest."
+		btns.add_child(play)
 	btns.add_child(watch)
 	var sim := UiKit.button("SIM", hub.sim_week, 26)
 	UiKit.style_skewed(sim)
@@ -336,7 +344,7 @@ func matchup(m: ScheduledMatch) -> Control:
 	sim.tooltip_text = "Simulate the match instantly and go to the week's results."
 	btns.add_child(sim)
 	v.add_child(btns)
-	v.add_child(UiKit.label("Go back (Esc) to adjust your lineup first; Advance again sims the match.", 14, UiKit.MUTED))
+	v.add_child(UiKit.label("Go back (Esc) to adjust your lineup first; Advance again sims the match." + ("  PLAY puts you in the 3D match: your result is the real one." if s.player_mode else ""), 14, UiKit.MUTED))
 	return v
 
 

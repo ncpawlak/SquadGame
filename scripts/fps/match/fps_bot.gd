@@ -45,6 +45,23 @@ var _cover_goal := Vector3.INF
 var _offset := Vector3.ZERO
 var _last_visible := 0
 
+## Role mode (the world offers arena_map()): FpsRoleBrain drives goals, cover bounding and peek/duck like the 2D sim.
+const BURST := 3
+var brain: FpsRoleBrain = null
+var crouched := false
+var mode_override: StringName = &""
+var _arena: ArenaMap = null
+var _goal2 := Vector2.INF
+var _wp := Vector2.INF
+var _wp_goal := Vector2.INF
+var _repath_t := 0.0
+var _stuck_t := 0.0
+var _last_pos2 := Vector2.INF
+var _burst_n := 0
+var _settle_t := 0.0
+var _col: CollisionShape3D
+var _mesh: MeshInstance3D
+
 
 func setup(p_soldier: Soldier, p_team_id: int, p_role = Scheme.Role.FLEX) -> void:
 	soldier = p_soldier
@@ -78,7 +95,9 @@ func _build_nodes() -> void:
 	col.shape = cap
 	col.position.y = 0.9
 	add_child(col)
+	_col = col
 	var mesh := MeshInstance3D.new()
+	_mesh = mesh
 	var cm := CapsuleMesh.new()
 	cm.height = 1.8
 	cm.radius = 0.35
@@ -120,7 +139,7 @@ func move_fraction_now() -> float:
 
 
 func eye_pos() -> Vector3:
-	return global_position + Vector3(0, EYE_HEIGHT, 0)
+	return global_position + Vector3(0, _head.position.y if _head != null else EYE_HEIGHT, 0)
 
 
 func hp_frac() -> float:
@@ -139,12 +158,25 @@ func respawn(at: Vector3) -> void:
 	velocity = Vector3.ZERO
 	visible = true
 	process_mode = Node.PROCESS_MODE_INHERIT
+	if brain != null:
+		_role_refresh_mode()
+		brain.reset_life()
+	_goal2 = Vector2.INF
+	_wp = Vector2.INF
+	_burst_n = 0
+	_settle_t = 0.0
+	_set_crouch(false)
 
 
 func take_damage(amount: float, hit: Dictionary = {}) -> void:
 	if not alive:
 		return
+	# Nobody can be shot in their own spawn zone (the sim's rule).
+	if _arena != null and ArenaMap.in_spawn_zone(team_id, Vector2(global_position.x, global_position.z)):
+		return
 	var src = hit.get("source", null)
+	if brain != null and src is Node3D and is_instance_valid(src):
+		brain.shot_at(Vector2(global_position.x, global_position.z), _arena, Vector2(src.global_position.x, src.global_position.z))
 	# Strength absorbs damage; on the hill, anchor does too (same rating map as the player).
 	var st: Dictionary = soldier.stats if soldier != null else {}
 	amount *= FpsRatings.damage_taken_mult(st)
@@ -220,6 +252,11 @@ func _scan() -> void:
 
 func _physics_process(delta: float) -> void:
 	if not alive or world == null:
+		return
+	if brain == null and _arena == null and world.has_method("arena_map"):
+		_role_init()
+	if brain != null:
+		_role_process(delta)
 		return
 	state_time += delta
 	_since_damaged += delta
@@ -329,6 +366,232 @@ func _aim_and_shoot(delta: float) -> void:
 	_head.rotation += Vector3(rng.randf_range(-err, err), 0, 0)
 	var res: Dictionary = weapon.try_fire()
 	_head.rotation = saved
+	if res.get("hit", false):
+		var c = res.get("collider")
+		if apply_damage_itself and c != null and c.is_in_group(&"damageable") and c.has_method("take_damage"):
+			res["source"] = self
+			c.take_damage(res.get("damage", 0.0), res)
+		shot_fired.emit(res)
+
+
+# --- role mode: the sim's tactics in 3D (FpsRoleBrain) ------------------------------------------
+# World interface used here: arena_map() -> ArenaMap, game_mode() -> StringName, scheme_of(team_id) -> Scheme,
+# enemies_of(team_id), allies_of(team_id). Nothing else (no hill_* / zone_* / cover_points) is needed.
+
+func set_mode_context(mode: StringName) -> void:
+	mode_override = mode
+	if brain != null:
+		_role_refresh_mode()
+
+
+func cover_spot_2d() -> Vector2:
+	return brain.cover_spot if brain != null else Vector2.INF
+
+
+func goes_point_now() -> bool:
+	return brain != null and brain.goes_point
+
+
+func _pos2() -> Vector2:
+	return Vector2(global_position.x, global_position.z)
+
+
+func _role_init() -> void:
+	_arena = world.arena_map()
+	_arena.ensure_built()
+	brain = FpsRoleBrain.new()
+	var sch: Scheme = world.scheme_of(team_id) if world.has_method("scheme_of") else null
+	brain.setup(soldier, team_id, role, slot, sch, rng)
+	_role_refresh_mode()
+	brain.reset_life()
+
+
+func _role_refresh_mode() -> void:
+	var mode: StringName = mode_override
+	if mode == &"" and world != null and world.has_method("game_mode"):
+		mode = world.game_mode()
+	brain.set_koth(mode == MatchEngine.MODE_KOTH)
+
+
+func _set_crouch(down: bool) -> void:
+	if down == crouched or _col == null:
+		return
+	crouched = down
+	var h := 1.0 if down else 1.8
+	(_col.shape as CapsuleShape3D).height = h
+	_col.position.y = h * 0.5
+	(_mesh.mesh as CapsuleMesh).height = h
+	_mesh.position.y = h * 0.5
+	_head.position.y = 0.85 if down else EYE_HEIGHT
+
+
+func _unit(n) -> Dictionary:
+	var r = n.get("role")
+	return {
+		"pos": Vector2(n.global_position.x, n.global_position.z), "alive": n.alive,
+		"role": int(r) if r != null else -1,
+		"cover": n.cover_spot_2d() if n.has_method("cover_spot_2d") else Vector2.INF,
+		"goes": n.goes_point_now() if n.has_method("goes_point_now") else false,
+		"hp": n.hp_frac() * 100.0 if n.has_method("hp_frac") else 100.0,
+	}
+
+
+func _aim_height(n: Node3D) -> float:
+	var down = n.get("crouched")
+	if down == null:
+		down = n.get("crouching")
+	return 0.55 if down else EYE_HEIGHT * 0.8
+
+
+func _role_scan() -> void:
+	var best: Node3D = null
+	var best_d := INF
+	var count := 0
+	var from := global_position + Vector3(0, EYE_HEIGHT, 0)  # a ducked soldier still reads the field when he peeks
+	var other := 1 - team_id
+	for e in world.enemies_of(team_id):
+		if not e.alive:
+			continue
+		var ep := Vector2(e.global_position.x, e.global_position.z)
+		if ArenaMap.in_spawn_zone(other, ep):
+			continue  # untouchable in his spawn zone
+		var d: float = e.global_position.distance_to(global_position)
+		if d > tun["spot_range"]:
+			continue
+		var q := PhysicsRayQueryParameters3D.create(from, e.global_position + Vector3(0, _aim_height(e), 0))
+		q.exclude = [get_rid()]
+		var r := get_world_3d().direct_space_state.intersect_ray(q)
+		if not (r.is_empty() or r["collider"] == e):
+			continue
+		count += 1
+		if d < best_d:
+			best_d = d
+			best = e
+	_last_visible = count
+	if best != target:
+		target = best
+		_target_seen_t = 0.0
+	if best != null:
+		brain.note_visible(Vector2(best.global_position.x, best.global_position.z))
+
+
+func _role_tick() -> void:
+	var pos2 := _pos2()
+	var allies: Array = []
+	var enemies: Array = []
+	for a in world.allies_of(team_id):
+		if a != self:
+			allies.append(_unit(a))
+	var other := 1 - team_id
+	for e in world.enemies_of(team_id):
+		var u := _unit(e)
+		if not ArenaMap.in_spawn_zone(other, u["pos"]):
+			enemies.append(u)
+	_role_refresh_mode()
+	if brain.koth:
+		var squad := allies.duplicate()
+		var me := _unit(self)
+		me["self"] = true
+		squad.append(me)
+		brain.point_decisions(pos2, health, squad, enemies)
+	_goal2 = brain.goal(pos2, _arena, allies, enemies, weapon.reloading if "reloading" in weapon else false)
+	state = brain.posture
+	_set_crouch(brain.ducked(pos2))
+
+
+func _role_process(delta: float) -> void:
+	state_time += delta
+	_since_damaged += delta
+	_scan_t -= delta
+	if _scan_t <= 0.0:
+		_scan_t = 0.2
+		_role_scan()
+	var ticks := brain.advance(delta)
+	if ticks > 0 or _goal2 == Vector2.INF:
+		_role_tick()
+	_role_move(delta)
+	_role_aim(delta)
+
+
+func _role_move(delta: float) -> void:
+	var pos2 := _pos2()
+	var stop := brain.ducked(pos2) or pos2.distance_to(_goal2) < 0.45
+	var dir := Vector2.ZERO
+	if not stop:
+		_repath_t -= delta
+		if _wp == Vector2.INF or _wp_goal == Vector2.INF or _goal2.distance_squared_to(_wp_goal) > 4.0 \
+				or _repath_t <= 0.0 or pos2.distance_squared_to(_wp) < 0.25:
+			_wp = _arena.next_waypoint(pos2, _goal2)
+			_wp_goal = _goal2
+			_repath_t = 2.0
+		var to := _wp - pos2
+		if to.length() < 0.001:
+			stop = true
+		else:
+			dir = to.normalized()
+	if stop:
+		velocity.x = move_toward(velocity.x, 0, 25.0 * delta)
+		velocity.z = move_toward(velocity.z, 0, 25.0 * delta)
+		_stuck_t = 0.0
+	else:
+		var speed: float = tun["move_speed"]
+		if brain.posture == FpsRoleBrain.POSTURE_BOUND or brain.posture == FpsRoleBrain.POSTURE_FALLBACK:
+			speed *= 1.15
+		elif target != null and brain.posture != FpsRoleBrain.POSTURE_POINT:
+			speed *= 0.75  # fighting while closing
+		velocity.x = dir.x * speed
+		velocity.z = dir.y * speed
+		if Vector2(velocity.x, velocity.z).length() > 0.5 and _last_pos2 != Vector2.INF and pos2.distance_to(_last_pos2) < speed * delta * 0.15:
+			_stuck_t += delta
+			if _stuck_t > 0.6:
+				_stuck_t = 0.0
+				_repath_t = 0.0
+		else:
+			_stuck_t = 0.0
+	_last_pos2 = pos2
+	velocity.y = 0.0 if is_on_floor() else velocity.y - 20.0 * delta
+	move_and_slide()
+	if weapon is FpsWeapon:
+		weapon.move_fraction = move_fraction_now()
+		weapon.crouched = crouched
+
+
+func _role_aim(delta: float) -> void:
+	var look_at_pos: Vector3
+	var has_target := target != null and is_instance_valid(target)
+	if has_target:
+		_target_seen_t += delta
+		look_at_pos = target.global_position + Vector3(0, _aim_height(target), 0)
+	elif Vector2(velocity.x, velocity.z).length() > 0.5:
+		look_at_pos = global_position + Vector3(velocity.x, 0, velocity.z) + Vector3(0, EYE_HEIGHT, 0)
+	else:
+		return
+	var flat := look_at_pos - global_position
+	flat.y = 0
+	if flat.length() > 0.05:
+		rotation.y = lerp_angle(rotation.y, atan2(-flat.x, -flat.z), minf(1.0, 12.0 * delta))
+	var to_t := look_at_pos - _head.global_position
+	var pitch := atan2(to_t.y, Vector2(to_t.x, to_t.z).length())
+	_head.rotation.x = lerp_angle(_head.rotation.x, pitch, minf(1.0, 12.0 * delta))
+	if not has_target or _target_seen_t < tun["reaction_s"]:
+		return
+	var pos2 := _pos2()
+	if brain.in_cover(pos2) and not brain.peeking:
+		return  # head down behind cover until the next peek
+	if _settle_t > 0.0:
+		_settle_t -= delta
+		return
+	var err_mult: float = tun["fire_error_mult"] if _since_damaged < 2.0 else 1.0
+	var err := deg_to_rad(BASE_AIM_ERROR_DEG * err_mult)
+	var saved := _head.rotation
+	_head.rotation += Vector3(rng.randf_range(-err, err), 0, 0)
+	var res: Dictionary = weapon.try_fire()
+	_head.rotation = saved
+	if res.get("fired", res.get("hit", false)):
+		_burst_n += 1
+		if _burst_n >= BURST:
+			_burst_n = 0
+			_settle_t = 0.45 + rng.randf() * 0.5
 	if res.get("hit", false):
 		var c = res.get("collider")
 		if apply_damage_itself and c != null and c.is_in_group(&"damageable") and c.has_method("take_damage"):

@@ -251,4 +251,4 @@ func _draw_hill(centre: Vector2) -> void:
 		var left := float(st.get("time_left", 0.0))
 		text += "   ·   %d / %d   vs   %d / %d   ·   %d:%02d left" % [roundi(mine), roundi(win), roundi(theirs), roundi(win), int(left) / 60, int(left) % 60]
 	var size := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 18)
-	overlay.draw_string(font, Vector2(centre.x - size.x * 0.5, 34.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(1, 1, 1, 0.9))
+	overlay.draw_string(font, Vector2(centre.x - size.x * 0.5, 92.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(1, 1, 1, 0.9))

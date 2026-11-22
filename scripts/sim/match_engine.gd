@@ -378,6 +378,17 @@ func start(team_a: Team, team_b: Team, seed_value: int, field: ArenaMap = null, 
 			_result.events.append("%s look flat in warmups." % _result.teams[i].abbrev)
 
 
+## Starts the engine part-way through a match, for "sim the rest" of a match played elsewhere (the 3D game):
+## `first_game_index` games (0-based index into GAME_ORDER) are already done and the sides have won
+## `games_won_a`/`games_won_b` of them. The result holds only the games simulated from here, with the
+## running games-won score and box lines for everyone (callers merge those into the games they kept).
+func start_from(team_a: Team, team_b: Team, seed_value: int, field: ArenaMap, wx: Weather, crowd_edge: float,
+		first_game_index: int, games_won_a: int, games_won_b: int) -> void:
+	start(team_a, team_b, seed_value, field, wx, crowd_edge)
+	_game_number = first_game_index
+	_result.score = [games_won_a, games_won_b]
+
+
 func _roll_form(sd: float) -> float:
 	return clampf(_rng.randfn(0.0, sd), -sd * FORM_LIMIT, sd * FORM_LIMIT)
 

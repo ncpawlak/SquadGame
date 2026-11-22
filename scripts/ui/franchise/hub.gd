@@ -35,6 +35,7 @@ var _scroll: ScrollContainer
 var _root: VBoxContainer
 ## Live match viewer overlay while watching the user's match (hub root hidden meanwhile).
 var viewer: MatchViewer = null
+var play_runner: Node = null
 ## True while a loading screen is up (week sims, Sim To, new season); hub input is ignored.
 var simming := false
 
@@ -418,6 +419,35 @@ func watch_match(m: ScheduledMatch) -> void:
 	viewer.finished.connect(_on_viewer_finished.bind(m))
 	_root.visible = false
 	add_child(viewer)
+
+
+## Why the user can't play `m` in 3D ("" when he can): career mode only, and his own soldier must start for his club in it.
+func play_block_reason(m: ScheduledMatch) -> String:
+	if not season.player_mode or season.player == null:
+		return "Playing a match in 3D is only available in player mode."
+	var ut := season.user_team()
+	if ut == null or not m.involves(ut):
+		return "Your club is not in this fixture."
+	if not (season.player in ut.starters()):
+		return "You are not in the starting squad for this match. Set your lineup first."
+	if m.is_played():
+		return "This match has already been played."
+	return ""
+
+
+## Play the user's match in first person; the 3D result is the real result and the rest of the week is simmed after.
+func play_match(m: ScheduledMatch) -> void:
+	if viewer or play_runner or m.is_played() or _roster_blocked() or play_block_reason(m) != "":
+		return
+	_root.visible = false
+	play_runner = FpsMatchRunner.launch(self, m, _on_play_finished.bind(m), season.player)
+
+
+func _on_play_finished(r: MatchResult, m: ScheduledMatch) -> void:
+	m.set_live_result(r)
+	play_runner = null
+	_root.visible = true
+	sim_week()
 
 
 func _on_viewer_finished(r: MatchResult, m: ScheduledMatch) -> void:

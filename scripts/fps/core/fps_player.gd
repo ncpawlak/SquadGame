@@ -31,7 +31,13 @@ var health: float = 100.0
 var stamina: float = 100.0
 var move: Dictionary = {}  ## result of derive_movement()
 var dead: bool = false
+## Read-only mirror of `dead`, so bots and the match game treat him like a bot (`alive`).
+var alive: bool:
+	get:
+		return not dead
 var controls_enabled: bool = true
+## Optional Callable(player) -> bool; when it returns false the player takes no damage (the match's spawn-zone safety).
+var damage_gate: Callable = Callable()
 ## Standing drills pin him to the spot: he can still look and shoot, but not walk, sprint or jump.
 var lock_movement: bool = false
 ## Drills that must not allow a reload switch it off (R then does nothing).
@@ -317,6 +323,8 @@ func _blocked_above() -> bool:
 
 func take_damage(amount: float, hit: Dictionary = {}) -> float:
 	if dead or amount <= 0.0:
+		return 0.0
+	if damage_gate.is_valid() and not damage_gate.call(self):
 		return 0.0
 	# Strength absorbs damage; standing on the hill, anchor does too; teamwork helps a little.
 	amount *= FpsRatings.damage_taken_mult(_stats) * (1.0 - team_bonus * 0.5)
