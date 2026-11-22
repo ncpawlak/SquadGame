@@ -72,7 +72,7 @@ func test_tables_and_limits() -> void:
 	check(WeeklyPlan.error({WeeklyPlan.PRACTICE: 4}) != "", "4 in one weekly activity is illegal")
 	check(WeeklyPlan.error({WeeklyPlan.PRACTICE: 3, WeeklyPlan.STUDY: 2}) != "", "5 points is illegal")
 	check(WeeklyPlan.error({WeeklyPlan.PRACTICE: 4, WeeklyPlan.STUDY: 4}, true) == "", "camp allows 4 + 4")
-	check(WeeklyPlan.error({WeeklyPlan.SPA: 1}, true) != "", "camp has no spa")
+	check(WeeklyPlan.error({WeeklyPlan.SPA: 4}, true) == "", "camp spa is rehab (up to 4)")
 	check(WeeklyPlan.error({WeeklyPlan.PRACTICE: 4, WeeklyPlan.STUDY: 4, WeeklyPlan.OUTING: 1}, true) != "", "camp has 8 points")
 	check(WeeklyPlan.error({&"nap": 1}) != "", "unknown activities are refused")
 
@@ -252,6 +252,9 @@ func test_plan_state_survives_save() -> void:
 	p.camp_plan = {WeeklyPlan.STUDY: 4}
 	p.study_progress = 12.5
 	p.brand = 33.0
+	p.wear = 41.5
+	p.wear_weeks = 6
+	p.wear_rehab = 2
 	var text := SaveSystem.to_text(s)
 	var loaded := SaveSystem.from_text(text)
 	check(loaded != null, "load failed")
@@ -260,6 +263,7 @@ func test_plan_state_survives_save() -> void:
 	check(SaveSystem.to_text(loaded) == text, "re-serialization not stable")
 	var lp := loaded.player
 	check(lp.plan == p.plan and lp.plan_confirmed and lp.camp_plan == p.camp_plan and is_equal_approx(lp.study_progress, 12.5) and is_equal_approx(lp.brand, 33.0) and lp.talent == p.talent, "plan state lost")
+	check(is_equal_approx(lp.wear, 41.5) and lp.wear_weeks == 6 and lp.wear_rehab == 2, "wear state lost")
 
 
 func test_placing_skill_points_by_hand() -> void:

@@ -126,7 +126,7 @@ func _status_card() -> Control:
 	msg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	msg.custom_minimum_size.x = COL_W - 30
 	v.add_child(msg)
-	v.add_child(_label("%s   ·   brand %d (%s)" % [_stars_line(p), roundi(p.brand), WeeklyPlan.tier_name(p.brand)], 13, UiKit.INFO))
+	v.add_child(_label("%s   ·   brand %d (%s)   ·   wear %d (%s)" % [_stars_line(p), roundi(p.brand), WeeklyPlan.tier_name(p.brand), roundi(p.wear), Wear.tier_name(p.wear)], 13, UiKit.INFO))
 	if s.player_start_ovr > 0:
 		var d := p.best_ovr() - s.player_start_ovr
 		v.add_child(_label("%+d OVR since you were drafted (%d)" % [d, s.player_start_ovr], 13, UiKit.GOOD if d > 0 else UiKit.MUTED))
@@ -324,6 +324,10 @@ func my_player() -> Control:
 	root.add_child(UiKit.heading("Stars and brand", 20))
 	root.add_child(_label(_stars_line(p), 16, UiKit.TEXT))
 	root.add_child(_label("Brand %d  ·  %s" % [roundi(p.brand), WeeklyPlan.tier_name(p.brand)], 16, UiKit.TEXT))
+	root.add_child(UiKit.heading("Wear", 20))
+	root.add_child(_label("Wear %d  ·  %s. It builds with age, games, fatigue and injuries, and spa, camp rehab and the Sports Science Lab take it off. Regression lowers ratings only, never the caps, so skill points win them back." % [roundi(p.wear), Wear.tier_name(p.wear)], 14, UiKit.MUTED))
+	for g in Stats.GROUP_ORDER:
+		root.add_child(_label("%s:  %s" % [Stats.GROUP_LABELS[g], Wear.risk_text(p.wear, g)], 15, UiKit.TEXT))
 	var plan_row := _hbox(12)
 	plan_row.add_child(UiKit.primary_button("Weekly plan", func(): open_plan(false), 18))
 	root.add_child(plan_row)

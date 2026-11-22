@@ -122,6 +122,14 @@ var camp_plan_confirmed := false
 var study_progress := 0.0
 var brand := 0.0
 var talent := 0
+## Career-mode Wear (see Wear): the meter, and this season's running counters.
+var wear := 0.0
+var wear_fatigue_sum := 0.0
+var wear_spa_sum := 0.0
+var wear_weeks := 0
+var wear_games := 0
+var wear_injuries := 0
+var wear_rehab := 0
 
 # Green Team (development roster; see Team.green_team and GreenTeam)
 ## Reps (0..REP_MAX): practice time with the club. They reveal his potential (see potential_text).

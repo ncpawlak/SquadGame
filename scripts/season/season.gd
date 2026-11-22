@@ -640,6 +640,8 @@ func finish_week() -> Array:
 			inj["year"] = year
 			last_injuries.append(inj)
 			injury_log.append(inj)
+			if player_mode and inj["soldier"] == player:
+				Wear.record_injury(player, int(inj["weeks"]))
 	GreenTeam.update_covers(self)
 	_track_promises(played)
 	for t in league.teams:
