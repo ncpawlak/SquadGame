@@ -25,7 +25,7 @@ The Web preset is the no-threads build, so it runs on any static host without sp
 
 ## Franchise mode (main screen)
 
-Title → New Franchise → choose a start point (Manager / GM, or Player: see **Player mode** below) → pick one of 20 teams → franchise hub (Madden/CFB-style). Title → Load Franchise opens the save slots.
+Title → **Franchise** (New / Continue / Load) → pick one of 20 teams → franchise hub (Madden/CFB-style). Title → **Career** (New Career / Continue / Load Career) plays one soldier instead: see **Player mode** below.
 
 - **The league** (`scripts/core/league_data.gd`, `data/league.json`): 20 fixed franchises in 4 divisions of 5 -
   East (NYE, DET, BOS, IND, BKN), South (CHA, ATL, MIA, NSH, ORL), Central (ARL, CHI, STL, LOU, LRK) and West
@@ -492,16 +492,18 @@ The old debug UI is still available from the title screen or Settings → Debug 
 
 ## Player mode (issues #100, #101)
 
-New Franchise > **Player** makes you one soldier instead of the manager. Every club, yours included, is run by the AI
+Title > **Career** > New Career makes you one soldier instead of the manager. Every club, yours included, is run by the AI
 (`Soldier.player_controlled` stops it cutting, trading, auto-training or auto-spending for you; `Season.user_team()` names your club).
 
-1. **Create-a-player** (`player_create.gd`, `scripts/season/archetypes.gd`, `data/archetypes.json`): face, name, callsign, role and one
-   of 15 archetypes (5 per role). Each archetype raises and lowers specific stats and gives a per-stat ceiling (combine ceiling + 12
+1. **Create-a-player** (`player_create.gd`, `scripts/season/archetypes.gd`, `data/archetypes.json`): face, name, callsign, an **age from
+   18 to 23** (younger means lower combine ceilings and a small draft-stock bonus), role, one of 15 archetypes (5 per role) and a
+   **starting story** (below). Each archetype raises and lowers specific stats and gives a per-stat ceiling (combine ceiling + 12
    lifetime growth cap, enforced on upgrades and skill-point spending). You start at the combine floor (`PlayerCareer`).
 2. **The combine** (`combine.gd`, `combine_screen.gd`, `combine_tasks.gd`): five drills, one mini-game per drilled rating, up to 3 tries
    per drill (best kept) across nine task types. Scores become rating bands inside the archetype ceilings; the true rating sits at a
    hidden point in each band set by a rolled talent (dev stars). Starting OVR is capped at 75. Toughness and Injury are fixed at 90.
-   (Hill Assault uses stand-in tasks for now.)
+   The drills are playable **3D first-person scenes** (`scripts/fps/drills/`, see **First-person layer**) covering all 16 stats, with
+   the 2D mini-games kept as the fallback. A standard loadout (every rating 50 plus per-drill overrides) makes a drill score skill only.
 3. **Scouting report and draft night** (`player_draft.gd`, `player_draft_pages.gd`): you join an extra pre-season rookie class. The report
    shows a projected pick and range, class rank, area grade, a mock-draft landing spot and scout tiers per rating group. Draft night
    reveals picks live (slower before yours) with a story about a slide or a jump; undrafted players pick from three Green Team offers.
@@ -509,14 +511,75 @@ New Franchise > **Player** makes you one soldier instead of the manager. Every c
 4. **The career loop** (`player_coach.gd`, `player_grade.gd`, `player_pages.gd`): a Green Team player is called up once he beats the
    weakest healthy roster player, with a status line saying why he is or is not starting. Every match gets a 0-100 score and a
    letter from your box score against the other nine players (plus a small win bonus); good games earn bonus XP, and every match
-   goes in a season log, missed games included. The hub has a player header, a Home left column (You, Last Game, This Season, This
-   Week), tabs Home / Career / League / Settings, and pages for My Player (training, skill points), Game Log and Contract. The
-   offseason runs itself behind one loading screen.
+   goes in a season log, missed games included. The hub has a player header, a Career Home dashboard (status banner, gauges, last game, season, next game, this week, and a
+   news pane with only your news), tabs Home / Career / League / Settings, and pages for My Player (training, skill points, gear),
+   Game Log, Contract and Sponsors. A new career opens in preseason camp, and the offseason runs itself behind one loading screen.
+   Grades have a higher base and win bonus, a positive K/D bonus and a C- floor for a win with K/D of at least 1. You can **PLAY**
+   the match yourself from the career matchup page (3D layer below) or sim it.
 5. **Hall of Fame path** (`player_legacy.gd`): a live Hall of Fame score from the league's own formula (provisional until the
    minimum games are played) with a projected pace over a 120-game career, 19 milestones (games, kills, MVP, grades, honors, titles,
    ratings, Hall pace) announced by toast, a career recap and a Hall of Fame card on Home. **Retirement is your choice**, made in
    the offseason (the age check no longer retires you before 40); the usual three-season wait then runs and the real vote decides,
    and the hub can play the league forward to it.
+
+### Career growth (issues #138, #141)
+
+All of this is career-only: AI soldiers keep the old progression and decline.
+
+- **Weekly plan** (`weekly_plan.gd`, `player_plan_pages.gd`): each week you spend 4 points (at most 3 on one activity) across Practice
+  (XP), Study (progress toward the next dev star), Team outing (morale for your group, half for the club), Brand exposure and Spa
+  (recovery). Camp is 8 points (4 max, no spa). Every point except Spa adds fatigue; the plan starts blank, carries over, and unspent
+  points are wasted. Skill points are placed by hand: click a group, place its stat points, preview and confirm.
+- **Dev stars**: everyone starts with 1-3 stars (set by the starting story, see below); study fills a bar per star (one star a
+  season, costs rise per star). Strong seasons, titles and yearly honors move the next-star meter and a stellar first roster season
+  can earn one outright. Stars multiply young players' XP, and career XP and upgrade costs are tuned separately.
+- **Starting stories** (`backstory.gd`): **Phenom** (3 stars, ceilings -6, brand and sponsor interest early), **Balanced** (2 stars, the
+  baseline), **Late bloomer** (1 star, ceilings +5, cheaper stars) or **Walk-on** (1 star, extra skill points and morale, little early
+  interest). The combine's hidden talent moves the star count one either way.
+- **Brand**: earned every game (scaled by the grade) and by awards, All-League picks, titles and Player of the Week; it decays slowly
+  and lifts market value, re-sign price and sponsor interest.
+- **Ceiling meters and the cap raise** (`cap_meters.gd`, `cap_raise.gd`): a hidden meter per stat group is filled by what you do in
+  matches (kills and headshots feed Accuracy and Handling, captures feed Objective, running feeds Physicality) and a little by
+  practice; a full meter is one ceiling point. Once an offseason you pick a group and raise its ceiling: base +2 plus a point each for
+  a strong season, a Performance Institute tier, a camp special and a story, +6 at most, never past 99. The age window follows each
+  group's peak age.
+- **Wear** (`scripts/sim/wear.gd`): one 0-100 regression meter fed by age, fatigue, games and major injuries and reduced by rest, spa,
+  camp rehab and the Sports Science Lab. At the offseason each stat group rolls by tier and loses rating only (never the cap), so
+  skill points can win it back. The status card shows the tier and per-group risk.
+- **Gear** (`gear.gd`, `player_gear_pages.gd`): six slots (helmet, vest, rifle, attachments, boots, headset) and fifteen sponsor brands,
+  three per brand tier, each selling a full line. An item adds bonuses to 1-4 stats (per-stat gear cap 12); effective rating is base
+  + gear, so changing the loadout re-rates the player. Full brand sets give a bonus.
+- **Sponsors** (`sponsors.gd`): sponsors come to you as interest (heat) builds from brand, recent form, draft slot, stars and youth.
+  A deal is a contract of 1-3 seasons with clauses: it grants items and pays per match while the clauses are met (less when they
+  are not). Each brand has an influence meter (cold, friendly, partner, ambassador) that grows when clauses are met and its gear is
+  worn and sets what the next contract offers. Deals can be renewed or dropped, rivals exist, a deal cap applies, and items from a
+  past deal can be bought back with cash. The Sponsors page has Deals / Offers / Brands / Shop tabs.
+- **Money** (`assets.gd`, `player_pay.gd`): your team salary is paid weekly in season and the signing bonus once, up front. You can
+  spend cash on a private coach (more XP), an agent (more brand and better sponsor pay), rental property (steady rent) and
+  businesses (a gamble with a higher average). Retainers are paid weekly; the service drops a level when cash runs out.
+- **Match warm-up** (`warm_up.gd`): before a match, pick a stat group and run its combine drill (or auto-run for a small bonus); the
+  score becomes up to +15 on every rating in the group for that match only. One a week, with a small repeat discount.
+- **Stories and camp specials** (`stories.gd`): automatic events (group training, breakthrough game, injury comeback) and ones that ask
+  you something (media storm, captaincy, veteran mentor) feed skill points, morale, brand and the cap raise.
+- **Trade requests** (`player_request.gd`): once a season, while the trade window is open, you can ask the club for a trade for a real
+  reason (playing time, a better contender, unhappiness or star power). If the club shops you, other teams make real offers through the
+  league trade logic and you pick one; a refusal costs morale and a cooldown. A move to a much better club adds brand.
+- Tuning: `tools/plan_tune.gd` plays full careers (see `plan_tune_batch.sh`, `plan_tune_report.py`); `ui_shot_plan.gd` and
+  `ui_shot_warmup.gd` capture the new screens.
+
+### First-person layer (`scripts/fps/`)
+
+A 3D first-person layer built on Godot's 3D renderer, used for the combine drills and for playing your own career matches.
+
+- **Core** (`fps/core/`): player controller, hitscan weapon with recoil, sway, active reload and flinch, health and damage, targets, HUD,
+  and `FpsRatings`, which maps the soldier's ratings to how the weapon and movement behave.
+- **Drills** (`fps/drills/`): short/medium/long range, popup targets, grouping, sway hold, steady aim, obstacle course and maze, active
+  reload, under fire, squad callouts, sled push, ruck run, door breach, hill hold and hill defense, run through `FpsCombineRunner`
+  over the combine screen and the warm-up page.
+- **Match** (`fps/match/`): a playable best-of-3 (team deathmatch, hill, sudden death) on the same `ArenaMap` field the 2D viewer draws.
+  Role-driven bots (`FpsBot`, `FpsRoleBrain`) follow the sim's role goals, standoffs, flank routes and cover-to-cover bounding.
+  Individual respawns, a scoreboard, spectating and a pause menu with **sim the rest** (finishes the match with
+  `MatchEngine.start_from`); the result is a normal `MatchResult`, so it flows through stats and the ledger like a simulated match.
 
 ## Tests
 
@@ -539,6 +602,12 @@ godot --headless --path . --script res://tests/player_draft_tests.gd  # player m
 godot --headless --path . --script res://tests/player_career_tests.gd  # player mode 4: grades, coach, AI-run club, growth caps
 godot --headless --path . --script res://tests/player_legacy_tests.gd  # player mode 5: Hall path, milestones, retirement
 godot --headless --path . --script res://tests/player_hub_smoke.gd  # player hub pages, a week and an offseason through the UI
+godot --headless --path . --script res://tests/weekly_plan_tests.gd  # career weekly plan, stars, brand (TEST_ONLY=<name part>)
+godot --headless --path . --script res://tests/wear_tests.gd  # career Wear regression meter
+godot --headless --path . --script res://tests/career_growth_tests.gd  # cap raise, gear, sponsors, stories, trade requests, warm-up
+godot --headless --path . --script res://tests/fps_core_tests.gd  # first-person core: player, weapon, damage (ONLY=test_a,test_b)
+godot --headless --path . --script res://tests/fps_drill_tests.gd  # 3D combine drills (also fps_drill_shooting/movement/objective_tests)
+godot --headless --path . --script res://tests/fps_match_tests.gd  # first-person hill match rules and bots (also fps_arena/bot_role/match_game/play_tests)
 godot --headless --path . --script res://tests/fantasy_draft_ui.gd  # fantasy draft room and Set Roster tile
 godot --headless --path . --script res://tests/fx_tests.gd  # UI animation helpers and CapBar end states
 godot --headless --path . --script res://tests/data_edit_tests.gd  # Data Edit model on a scratch copy of league.json
@@ -675,5 +744,7 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
 - Player abilities (#124) and their match effects (done)
 - Storylines (#104): 20 arcs, spotlights and conditionals with player choices and a season summary (done)
 - Player mode (#100, #101): create-a-player, combine, draft night, career loop, Hall of Fame path and retirement (done)
+- Career growth (#138, #141): weekly plan, stars, gear, sponsors, wear, cap raises, trade requests (done)
+- First-person layer: 3D combine drills and playable career matches (done; next: more modes, franchise-mode play)
 - Visual combat
 - Android and PC exports
