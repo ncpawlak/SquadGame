@@ -238,6 +238,8 @@ static func run(season: Season, rng: RandomNumberGenerator) -> SeasonReview:
 		for so: Soldier in t.roster:
 			if so.dev_changed_in(season.year):
 				continue
+			if so.player_controlled:
+				continue  # the career player's stars come from his own meter (WeeklyPlan, Stories), never this re-grade
 			var delta := 0
 			var reasons: Array = []
 			var lab := ""

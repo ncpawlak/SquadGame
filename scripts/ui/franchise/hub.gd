@@ -35,6 +35,7 @@ var _scroll: ScrollContainer
 var _root: VBoxContainer
 ## Live match viewer overlay while watching the user's match (hub root hidden meanwhile).
 var viewer: MatchViewer = null
+var play_runner: Node = null
 ## True while a loading screen is up (week sims, Sim To, new season); hub input is ignored.
 var simming := false
 
@@ -420,6 +421,37 @@ func watch_match(m: ScheduledMatch) -> void:
 	add_child(viewer)
 
 
+## Why the user can't play `m` in 3D ("" when he can): career mode only, and his own soldier must start for his club in it.
+func play_block_reason(m: ScheduledMatch) -> String:
+	if not season.player_mode or season.player == null:
+		return "Playing a match in 3D is only available in player mode."
+	var ut := season.user_team()
+	if ut == null or not m.involves(ut):
+		return "Your club is not in this fixture."
+	if not (season.player in ut.starters()):
+		return "You are not in the starting squad for this match. Set your lineup first."
+	if m.is_played():
+		return "This match has already been played."
+	return ""
+
+
+## Play the user's match in first person; the 3D result is the real result and the rest of the week is simmed after.
+func play_match(m: ScheduledMatch) -> void:
+	if viewer or play_runner or m.is_played() or _roster_blocked() or play_block_reason(m) != "":
+		return
+	_root.visible = false
+	_bg.visible = false  # the team-gradient backdrop would cover the 3D scene
+	play_runner = FpsMatchRunner.launch(self, m, _on_play_finished.bind(m), season.player)
+
+
+func _on_play_finished(r: MatchResult, m: ScheduledMatch) -> void:
+	m.set_live_result(r)
+	play_runner = null
+	_bg.visible = true
+	_root.visible = true
+	sim_week()
+
+
 func _on_viewer_finished(r: MatchResult, m: ScheduledMatch) -> void:
 	m.set_live_result(r)
 	viewer.queue_free()
@@ -556,6 +588,7 @@ var _camp_skip_warned := false
 ## Player mode: the club runs every offseason step (re-signing, free agency, the draft, camp), so they all go
 ## by behind one loading screen and the next season opens with a line about how he grew.
 var _camp_warned_year := 0
+var _cap_warned_year := 0
 
 
 func _advance_offseason_player() -> void:
@@ -564,6 +597,11 @@ func _advance_offseason_player() -> void:
 		_camp_warned_year = season.year
 		player_ui.open_plan(true)
 		app.toast("You have not set a camp plan: its 8 points are wasted. Set one, or advance again to skip.")
+		return
+	if not PlayerLegacy.retired(season) and _cap_warned_year != season.year and not CapRaise.eligible_groups(season).is_empty():
+		_cap_warned_year = season.year
+		player_ui.open_cap_raise()
+		app.toast("A group is at its ceiling: raise its cap before the season rolls over. Advance again to skip.")
 		return
 	var before := season.player.best_ovr()
 	var ls := _begin_loading("%d Season" % (season.year + 1))
@@ -719,7 +757,14 @@ func sim_to(target: StringName) -> void:
 ## Opening camp of a new franchise: warn once about unused drills, then close it and go to Week 1.
 func _close_preseason_camp() -> void:
 	var user := season.user_team()
-	if season.camp.drills_left(user) > 0 and not _camp_skip_warned:
+	if season.player_mode and season.player != null:
+		# The career's opening camp is the player's camp plan, not team drills.
+		if not season.player.camp_plan_confirmed and not _camp_skip_warned:
+			_camp_skip_warned = true
+			player_ui.open_plan(true)
+			app.toast("You have not set a camp plan: its 8 points are wasted. Set one, or advance again to skip.")
+			return
+	elif season.camp.drills_left(user) > 0 and not _camp_skip_warned:
 		_camp_skip_warned = true
 		_rebuild_and_open("Training Camp", pages.training_camp)
 		app.toast("%d camp drill%s unused. Advance again to skip them and start the season." % [
@@ -1237,6 +1282,9 @@ func _home_top() -> Control:
 	if anchor != _home_anchor:
 		_home_anchor = anchor
 		home_week = 0
+	if season.player_mode:
+		# Career Home is all about you: no match card or league news, just your dashboard and your own news.
+		return player_ui.home_dashboard(_card_actions(_shown_match(team)))
 	var top := HBoxContainer.new()
 	top.add_theme_constant_override("separation", 18)
 	if season.player_mode:

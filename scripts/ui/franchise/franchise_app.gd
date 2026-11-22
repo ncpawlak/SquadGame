@@ -60,7 +60,7 @@ func show_title() -> void:
 	wrap.add_child(root)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 14)
-	col.custom_minimum_size.x = 440
+	col.custom_minimum_size.x = 780
 	root.add_child(col)
 	var title := UiKit.display("SQUAD LEAGUE", 96, Color.WHITE, true)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -72,19 +72,57 @@ func show_title() -> void:
 	bar.custom_minimum_size = Vector2(220, 5)
 	bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	col.add_child(bar)
-	var sub := UiKit.display("FRANCHISE", 28, UiKit.ACCENT)
+	var sub := UiKit.display("CAREER  ·  FRANCHISE", 28, UiKit.ACCENT)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(sub)
 	col.add_child(_spacer(24))
-	if season:
-		col.add_child(_menu_button("Resume Franchise", show_hub))
-	col.add_child(_menu_button("New Franchise", show_mode_select))
-	col.add_child(_menu_button("Load Franchise", show_load_menu))
-	col.add_child(_menu_button("Exhibition Match", func(): toast("Exhibition mode is coming soon. Use Debug Sim Tools for now.")))
-	col.add_child(_menu_button("Data Edit", show_data_edit))
-	col.add_child(_menu_button("Debug Sim Tools", open_debug))
+	# Two big buttons; picking one opens its own buttons beside it (new, continue, load).
+	var menu := HBoxContainer.new()
+	menu.add_theme_constant_override("separation", 24)
+	menu.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_child(menu)
+	var main := VBoxContainer.new()
+	main.add_theme_constant_override("separation", 14)
+	menu.add_child(main)
+	var side := VBoxContainer.new()
+	side.add_theme_constant_override("separation", 14)
+	side.custom_minimum_size.x = 300
+	side.alignment = BoxContainer.ALIGNMENT_CENTER
+	menu.add_child(side)
+	var open_side := func(kind: StringName):
+		for c in side.get_children():
+			side.remove_child(c)
+			c.queue_free()
+		var in_career := season != null and season.player_mode
+		var in_franchise := season != null and not season.player_mode
+		if kind == &"career":
+			side.add_child(UiKit.display("CAREER", 20, UiKit.ACCENT, true))
+			side.add_child(_menu_button("New Career", show_player_create, 22, 300))
+			if in_career:
+				side.add_child(_menu_button("Continue", show_hub, 22, 300))
+			side.add_child(_menu_button("Load Career", show_load_menu, 22, 300))
+		else:
+			side.add_child(UiKit.display("FRANCHISE", 20, UiKit.ACCENT, true))
+			side.add_child(_menu_button("New Franchise", show_team_select, 22, 300))
+			if in_franchise:
+				side.add_child(_menu_button("Continue", show_hub, 22, 300))
+			side.add_child(_menu_button("Load Franchise", show_load_menu, 22, 300))
+		var k := 0
+		for c in side.get_children():
+			UiKit.fade_in(c, 0.04 * k, 0.2)
+			k += 1
+	var career_btn := _menu_button("Career", func(): open_side.call(&"career"))
+	var franchise_btn := _menu_button("Franchise", func(): open_side.call(&"franchise"))
+	main.add_child(career_btn)
+	main.add_child(franchise_btn)
+	main.add_child(_menu_button("Exhibition Match", func(): toast("Exhibition mode is coming soon. Use Debug Sim Tools for now.")))
+	main.add_child(_menu_button("Data Edit", show_data_edit))
+	main.add_child(_menu_button("Debug Sim Tools", open_debug))
 	if not OS.has_feature("web"):
-		col.add_child(_menu_button("Quit", func(): get_tree().quit()))
+		main.add_child(_menu_button("Quit", func(): get_tree().quit()))
+	# Reopen whichever mode is running so Continue is one click away.
+	if season != null:
+		open_side.call(&"career" if season.player_mode else &"franchise")
 	col.add_child(_spacer(16))
 	var hint := UiKit.label("Arrows / WASD / D-pad to move  -  Enter / A to select", 14, UiKit.MUTED)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -212,16 +250,17 @@ func show_player_create() -> void:
 	if preview_seed == 0:
 		preview_seed = randi_range(1, 999999)
 	var taken := PlayerCareer.taken_callsigns(League.load_fixed(preview_seed))
-	_set_screen(PlayerCreate.make(taken, show_mode_select, _on_player_created))
+	_set_screen(PlayerCreate.make(taken, show_title, _on_player_created))
 
 
 func _on_player_created(choice: Dictionary) -> void:
 	var seed_value := preview_seed
-	season = Season.new_franchise(seed_value, 0, 2026, false)
+	# The career opens in the preseason camp (set a camp plan, then the season starts), not on Week 1.
+	season = Season.new_franchise(seed_value, 0, 2026, true)
 	season.player_mode = true
 	season.player_archetype = choice["archetype"]
 	season.player = PlayerCareer.create_soldier(season.league.next_soldier_id, choice["first"], choice["last"],
-		choice["callsign"], choice["head"], int(choice["morph"]), choice["archetype"], int(choice["age"]))
+		choice["callsign"], choice["head"], int(choice["morph"]), choice["archetype"], int(choice["age"]), StringName(choice.get("backstory", Backstory.DEFAULT)))
 	season.league.next_soldier_id += 1
 	season.player_combine = Combine.make(choice["archetype"], int(choice["age"]))
 	preview_seed = 0
@@ -937,10 +976,10 @@ static func focusables(n: Node, out: Array[Control] = []) -> Array[Control]:
 
 # --- helpers ------------------------------------------------------------------
 
-func _menu_button(text: String, cb: Callable) -> Button:
-	var b := UiKit.button(text, cb, 24)
+func _menu_button(text: String, cb: Callable, font := 24, width := 440) -> Button:
+	var b := UiKit.button(text, cb, font)
 	UiKit.style_skewed(b)
-	b.custom_minimum_size = Vector2(440, 58)
+	b.custom_minimum_size = Vector2(width, 58)
 	return b
 
 

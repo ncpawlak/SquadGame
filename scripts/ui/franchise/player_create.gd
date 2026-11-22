@@ -12,7 +12,7 @@ const ROLE_ORDER := [Scheme.Role.FRONTMAN, Scheme.Role.CENTER, Scheme.Role.FLEX]
 ## taken: lower-cased callsigns already in use. on_back: Callable().
 ## on_done: Callable(choice: Dictionary) with keys first, last, callsign, head, morph, archetype.
 static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Control:
-	var st := {"role": Scheme.Role.FRONTMAN, "arch": &"", "group": "", "head": "", "morph": 1, "age": PlayerCareer.START_AGE}
+	var st := {"role": Scheme.Role.FRONTMAN, "arch": &"", "group": "", "head": "", "morph": 1, "age": PlayerCareer.START_AGE, "story": Backstory.DEFAULT}
 	st["arch"] = StringName(Archetypes.for_role(st["role"])[0]["id"])
 	var heads: Array = FaceSpec.db().get("heads", {}).keys()
 	heads.sort()
@@ -46,7 +46,7 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 	bar.custom_minimum_size = Vector2(90, 4)
 	bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	tt.add_child(bar)
-	tt.add_child(UiKit.label("Pick a face, a name and an archetype. Your archetype sets how high each rating can go at the combine.", 15, UiKit.MUTED))
+	tt.add_child(UiKit.label("Pick a face, a name, an archetype and a starting story. Your archetype sets how high each rating can go at the combine; your story sets how fast you grow.", 15, UiKit.MUTED))
 	head.add_child(tt)
 
 	var cols := HBoxContainer.new()
@@ -117,6 +117,18 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 	var blurb := UiKit.label("", 16, UiKit.TEXT)
 	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	rv.add_child(blurb)
+	rv.add_child(UiKit.display("STARTING STORY", 22, UiKit.ACCENT, true))
+	var stories := HFlowContainer.new()
+	stories.name = "Stories"
+	stories.add_theme_constant_override("h_separation", 8)
+	stories.add_theme_constant_override("v_separation", 8)
+	rv.add_child(stories)
+	var story_blurb := UiKit.label("", 15, UiKit.TEXT)
+	story_blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	rv.add_child(story_blurb)
+	var story_fx := VBoxContainer.new()
+	story_fx.add_theme_constant_override("separation", 2)
+	rv.add_child(story_fx)
 	var ceil_box := VBoxContainer.new()
 	ceil_box.add_theme_constant_override("separation", 4)
 	ceil_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -202,6 +214,26 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 			ceil_box.add_child(row)
 		ceil_box.add_child(UiKit.label("Green: raised by your archetype.  Red: lowered.  These are the highest ratings the combine can award.", 13, UiKit.MUTED))
 		ceil_box.add_child(UiKit.label("Starting OVR is capped at %d whatever you score." % Archetypes.START_OVR_CAP, 13, UiKit.MUTED))
+	fns["stories"] = func():
+		for c in stories.get_children():
+			c.queue_free()
+		for id in Backstory.ORDER:
+			var b := UiKit.button(Backstory.story_name(id), func():
+				st["story"] = id
+				fns["stories"].call(), 15)
+			if id == st["story"]:
+				UiKit.style_primary(b)
+			stories.add_child(b)
+		story_blurb.text = String(Backstory.find(st["story"])["blurb"])
+		for c in story_fx.get_children():
+			c.queue_free()
+		for fx in Backstory.effects(st["story"]):
+			var col := UiKit.TEXT
+			if int(fx[1]) > 0:
+				col = UiKit.GOOD
+			elif int(fx[1]) < 0:
+				col = UiKit.BAD
+			story_fx.add_child(UiKit.label("• " + String(fx[0]), 14, col))
 	fns["archs"] = func():
 		for c in archs.get_children():
 			c.queue_free()
@@ -246,10 +278,11 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 			on_done.call({"first": PlayerCareer.clean(first.text, PlayerCareer.MAX_NAME),
 				"last": PlayerCareer.clean(last.text, PlayerCareer.MAX_NAME),
 				"callsign": PlayerCareer.clean(call.text, PlayerCareer.MAX_CALLSIGN),
-				"head": st["head"], "morph": st["morph"], "archetype": st["arch"], "age": st["age"]}))
+				"head": st["head"], "morph": st["morph"], "archetype": st["arch"], "age": st["age"], "backstory": st["story"]}))
 
 	fns["roles"].call()
 	fns["archs"].call()
+	fns["stories"].call()
 	fns["ceilings"].call()
 	fns["heads"].call()
 	fns["age"].call()

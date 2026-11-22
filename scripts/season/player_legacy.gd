@@ -102,7 +102,7 @@ static func value_of(season: Season, m: Dictionary) -> float:
 		&"matches": return float(p.career["matches"])
 		&"kills": return float(p.career["kills"])
 		&"mvps": return float(p.career.get("mvps", 0))
-		&"ovr": return float(p.best_ovr())
+		&"ovr": return float(p.base_ovr())  # gear never counts toward milestones
 		&"grade":
 			var best := 0.0
 			for e in season.player_log:

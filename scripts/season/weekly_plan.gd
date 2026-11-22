@@ -19,7 +19,7 @@ const BRAND := &"brand"
 const SPA := &"spa"
 
 const WEEK_ACTIVITIES: Array[StringName] = [PRACTICE, STUDY, OUTING, BRAND, SPA]
-const CAMP_ACTIVITIES: Array[StringName] = [PRACTICE, STUDY, OUTING, BRAND]
+const CAMP_ACTIVITIES: Array[StringName] = [PRACTICE, STUDY, OUTING, BRAND, SPA]
 const LABELS := {PRACTICE: "Practice", STUDY: "Study Session", OUTING: "Team Outing", BRAND: "Brand Exposure", SPA: "Spa"}
 
 const WEEK_POINTS := 4
@@ -44,12 +44,16 @@ const CAMP_BRAND_BASE := [0.0, 3.0, 6.5, 11.0, 16.0]
 const OUTING_CLUB_SHARE := 0.5
 
 ## Dev star costs in study points: the cost to leave star `dev`. Visible to the player.
-const STAR_COST := {1: 30.0, 2: 40.0, 3: 70.0}
+const STAR_COST := {1: 45.0, 2: 65.0, 3: 100.0}
 ## Career-mode tuning knobs (the league never reads them): the live star costs, and how much faster the player earns
 ## XP than the shared age-and-star table says. The tuning tool overrides both.
 static var star_costs: Dictionary = STAR_COST.duplicate()
-static var xp_boost := 1.8
+static var xp_boost := 2.0
 
+## Brand earned by playing well whatever the plan: a base per played game, scaled by the grade (x0.5 .. x2).
+const BRAND_PASSIVE := 1.0
+## One-time brand for a season honor (also scaled down near the top, like every gain).
+const HONOR_BRAND := {"Season MVP": 18.0, "Rookie of the Year": 10.0, "Best role": 10.0, "All-League": 8.0, "Champion": 6.0, "Player of the Week": 3.0}
 const BRAND_MAX := 100.0
 const BRAND_DECAY := 0.98
 const BRAND_TIER_SIZE := 20.0
@@ -136,8 +140,8 @@ static func week_xp(plan: Dictionary) -> float:
 # --- stars --------------------------------------------------------------------------------------
 
 ## Study points needed to leave star `dev` (0 at the top).
-static func star_cost(dev: int) -> float:
-	return float(star_costs.get(dev, 0.0))
+static func star_cost(dev: int, s: Soldier = null) -> float:
+	return float(star_costs.get(dev, 0.0)) * Backstory.cost_mult(s)
 
 
 ## Adds study points. Returns true if a star was earned. One star a season: a full bar waits for the next one.
@@ -145,7 +149,7 @@ static func add_study(s: Soldier, pts: float, year: int) -> bool:
 	if pts <= 0.0 or s.dev >= Soldier.DEV_MAX:
 		return false
 	s.study_progress += pts
-	var cost := star_cost(s.dev)
+	var cost := star_cost(s.dev, s)
 	if s.study_progress < cost:
 		return false
 	if s.dev_changed_in(year):
@@ -207,18 +211,60 @@ static func apply_week(season: Season) -> void:
 	var plan := s.plan
 	s.brand *= BRAND_DECAY
 	s.intensity = intensity_for(level(plan, PRACTICE))
+	CapMeters.train(s, level(plan, PRACTICE))
 	if add_study(s, STUDY_POINTS[clampi(level(plan, STUDY), 0, WEEK_MAX)], season.year):
 		_note(season, "Your study paid off: you are now a %s." % s.dev_text())
 	s.add_morale(SPA_MORALE[clampi(level(plan, SPA), 0, WEEK_MAX)])
+	Wear.record_week(s, level(plan, SPA))
 	apply_outing(team, s, OUTING_MORALE[clampi(level(plan, OUTING), 0, WEEK_MAX)])
 
 
 ## Brand for a played match (called when the grade is recorded). Returns the points gained.
 static func apply_brand(season: Season, score: float) -> float:
 	var s := season.player
-	var gain := brand_gain(level(s.plan, BRAND), score, s.brand)
+	var gain := (brand_gain(level(s.plan, BRAND), score, s.brand) + _soft(s.brand, BRAND_PASSIVE * grade_factor(score))) * Assets.brand_mult(s)
+	var tier_before := Gear.tier_for_brand(s.brand)
 	s.brand = minf(BRAND_MAX, s.brand + gain)
+	Sponsors.train(s, level(s.plan, BRAND))
+	if Gear.tier_for_brand(s.brand) > tier_before:
+		Sponsors.refresh(season)  # a brand tier-up gets the sponsors talking
 	return gain
+
+
+static func _soft(brand: float, amount: float) -> float:
+	return amount * maxf(0.0, 1.0 - brand / (BRAND_MAX * BRAND_SOFT))
+
+
+## Season honors turn into brand: the season's awards, All-League, a title and each Player of the Week.
+## Call once per season after the review. Returns the brand gained.
+static func apply_honors(season: Season) -> float:
+	var s := season.player
+	var rev := season.review
+	if s == null or rev == null or not season.player_mode:
+		return 0.0
+	var tier_before := Gear.tier_for_brand(s.brand)
+	var total := 0.0
+	var names: PackedStringArray = []
+	for a in rev.award_for(s):
+		var key: String = "Best role" if String(a).begins_with("Best ") else String(a)
+		if HONOR_BRAND.has(key):
+			var g := _soft(s.brand + total, float(HONOR_BRAND[key]))
+			total += g
+			names.append(String(a))
+	var team := season.user_team()
+	if team != null and season.champion == team:
+		total += _soft(s.brand + total, float(HONOR_BRAND["Champion"]))
+		names.append("Champion")
+	var potw := SeasonReview.potw_count(season, s, season.regular_weeks)
+	if potw > 0:
+		total += _soft(s.brand + total, float(HONOR_BRAND["Player of the Week"]) * potw)
+		names.append("Player of the Week x%d" % potw)
+	if total > 0.0:
+		s.brand = minf(BRAND_MAX, s.brand + total)
+		_note(season, "Your honors (%s) lifted your brand by %d." % [", ".join(names), roundi(total)])
+		if Gear.tier_for_brand(s.brand) > tier_before:
+			Sponsors.refresh(season)
+	return total
 
 
 ## The camp plan, applied once when camp runs. Outing morale waits for the season rollover (see apply_camp_outing).
@@ -244,6 +290,7 @@ static func apply_camp(season: Season) -> Dictionary:
 		if int(sm["games"]) > 0:
 			rep["brand"] = brand_gain(b, float(sm["avg"]), s.brand, true)
 			s.brand = minf(BRAND_MAX, s.brand + float(rep["brand"]))
+	s.wear_rehab = clampi(level(plan, SPA), 0, CAMP_MAX)  # camp rehab: each point takes Wear off at the next aging
 	season.camp_outing_level = clampi(level(plan, OUTING), 0, CAMP_MAX)
 	rep["outing"] = season.camp_outing_level
 	return rep

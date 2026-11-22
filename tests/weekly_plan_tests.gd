@@ -72,7 +72,7 @@ func test_tables_and_limits() -> void:
 	check(WeeklyPlan.error({WeeklyPlan.PRACTICE: 4}) != "", "4 in one weekly activity is illegal")
 	check(WeeklyPlan.error({WeeklyPlan.PRACTICE: 3, WeeklyPlan.STUDY: 2}) != "", "5 points is illegal")
 	check(WeeklyPlan.error({WeeklyPlan.PRACTICE: 4, WeeklyPlan.STUDY: 4}, true) == "", "camp allows 4 + 4")
-	check(WeeklyPlan.error({WeeklyPlan.SPA: 1}, true) != "", "camp has no spa")
+	check(WeeklyPlan.error({WeeklyPlan.SPA: 4}, true) == "", "camp spa is rehab (up to 4)")
 	check(WeeklyPlan.error({WeeklyPlan.PRACTICE: 4, WeeklyPlan.STUDY: 4, WeeklyPlan.OUTING: 1}, true) != "", "camp has 8 points")
 	check(WeeklyPlan.error({&"nap": 1}) != "", "unknown activities are refused")
 
@@ -116,7 +116,8 @@ func test_spa_recovers_and_the_hooks_use_the_plan() -> void:
 func test_stars_start_at_one_and_cost_more_each_time() -> void:
 	var s := _career(802)
 	var p := s.player
-	check(p.dev == 1 and p.talent >= 1 and p.talent <= 4, "everyone starts at 1 star with a hidden talent (dev %d talent %d)" % [p.dev, p.talent])
+	check(p.dev == Backstory.start_stars(p.backstory, p.talent) and p.talent >= 1 and p.talent <= 4, "the story and the hidden talent set the starting stars (dev %d talent %d)" % [p.dev, p.talent])
+	p.dev = 1  # the rest of this test walks the bar from one star
 	check(WeeklyPlan.star_cost(1) < WeeklyPlan.star_cost(2) and WeeklyPlan.star_cost(2) < WeeklyPlan.star_cost(3) and WeeklyPlan.star_cost(4) == 0.0, "each star costs more; the top costs nothing")
 	check(not WeeklyPlan.add_study(p, WeeklyPlan.star_cost(1) - 1.0, 2026) and p.dev == 1, "below the cost: no star")
 	check(WeeklyPlan.add_study(p, 2.0, 2026) and p.dev == 2 and p.study_progress < 2.0, "crossing the cost earns a star and carries the excess")
@@ -183,7 +184,8 @@ func test_brand() -> void:
 	check(gain > 0.0 and p.brand == gain, "a played week with brand 3 earns brand")
 	var before := p.brand
 	p.plan = {}
-	check(WeeklyPlan.apply_brand(s, 95.0) == 0.0 and p.brand == before, "no brand points, no gain")
+	var passive := WeeklyPlan.apply_brand(s, 95.0)
+	check(passive > 0.0 and passive < gain, "no brand points still earns the smaller performance brand")
 	p.plan = {WeeklyPlan.BRAND: 2}
 	p.brand = 50.0
 	WeeklyPlan.apply_week(s)
@@ -252,6 +254,9 @@ func test_plan_state_survives_save() -> void:
 	p.camp_plan = {WeeklyPlan.STUDY: 4}
 	p.study_progress = 12.5
 	p.brand = 33.0
+	p.wear = 41.5
+	p.wear_weeks = 6
+	p.wear_rehab = 2
 	var text := SaveSystem.to_text(s)
 	var loaded := SaveSystem.from_text(text)
 	check(loaded != null, "load failed")
@@ -260,6 +265,7 @@ func test_plan_state_survives_save() -> void:
 	check(SaveSystem.to_text(loaded) == text, "re-serialization not stable")
 	var lp := loaded.player
 	check(lp.plan == p.plan and lp.plan_confirmed and lp.camp_plan == p.camp_plan and is_equal_approx(lp.study_progress, 12.5) and is_equal_approx(lp.brand, 33.0) and lp.talent == p.talent, "plan state lost")
+	check(is_equal_approx(lp.wear, 41.5) and lp.wear_weeks == 6 and lp.wear_rehab == 2, "wear state lost")
 
 
 func test_placing_skill_points_by_hand() -> void:

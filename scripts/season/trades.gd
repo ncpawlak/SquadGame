@@ -263,7 +263,7 @@ func picks_of(season: Season, team: Team) -> Array:
 ## Players `team` can trade: everyone under contract past this season, except a no-trade clause
 ## (waived if he has asked out).
 static func tradeable(s: Soldier) -> bool:
-	return s.contract != null and s.contract.years > 0 and s.retired_year == 0 and not s.player_controlled and (not s.contract.no_trade or s.trade_request)
+	return s.contract != null and s.contract.years > 0 and s.retired_year == 0 and (not s.player_controlled or s.shopped) and (not s.contract.no_trade or s.trade_request)
 
 
 func assets_of(season: Season, team: Team) -> Array:
@@ -854,7 +854,11 @@ func restructure(season: Season, team: Team, limit := Team.ROSTER_SIZE) -> Dicti
 				dealt = true
 				break
 		if not dealt:
-			var s: Soldier = order[0]
+			# Never the player's own soldier: release_player refuses it and the loop would spin forever.
+			var cut: Array = order.filter(func(x: Soldier): return not x.player_controlled)
+			if cut.is_empty():
+				break
+			var s: Soldier = cut[0]
 			season.release_player(team, s)
 			out["cut"].append(s)
 			moves.append({"year": season.year, "when": _when(season), "team": team, "soldier": s, "kind": &"cut", "to": null})
@@ -1336,6 +1340,27 @@ func _offer_to_user(season: Season, rng: RandomNumberGenerator) -> bool:
 					"useful": useful_ratio(season, user, pay, want), "lineup": lineup_change(user, want, pay)})
 			return true
 	return false
+
+
+## Career mode: the club shops one player to every other team. Each team that wants him builds a fair package from its own
+## assets (the same logic as a block offer), and the club has to like the deal too. Returns [{team, give, get, reason, fair}],
+## best market value first.
+func shop_player(season: Season, s: Soldier) -> Array:
+	var out: Array = []
+	var mine := season.user_team()
+	_begin_pass()
+	_search_budget = 80
+	var want := [player_asset(s)]
+	for ai: Team in season.league.teams:
+		if ai == mine or patience_of(ai) <= 0 or not _wants(season, ai, s):
+			continue
+		var pay := _payment(season, ai, mine, want, want)
+		if pay.is_empty():
+			continue
+		out.append({"team": ai, "give": pay, "get": want, "reason": _reason(season, ai, s, pay), "fair": fair_ratio(season, pay, want)})
+	_end_pass()
+	out.sort_custom(func(a, b): return float(a["fair"]) > float(b["fair"]))
+	return out
 
 
 ## User accepts offer `o`. Returns "" or the reason it can't go through any more.

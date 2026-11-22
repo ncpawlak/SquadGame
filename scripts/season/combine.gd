@@ -33,7 +33,7 @@ const TASKS := {
 	Stats.HANDLING: [
 		{"stat": Stats.RELOAD, "task": &"timing", "label": "Reload", "zone": 0.16, "speed": 1.0, "rounds": 5},
 		{"stat": Stats.GROUPING, "task": &"recoil", "label": "Burst grouping", "shots": 8},
-		{"stat": Stats.SWAY, "task": &"track", "label": "Hold steady", "radius": 64.0, "drift": 70.0, "push": 0.0, "secs": 10.0},
+		{"stat": Stats.SWAY, "task": &"steady", "label": "Steady aim", "shots": 6, "radius": 34.0, "sway": 46.0},
 	],
 	Stats.PHYSICALITY: [
 		{"stat": Stats.SPEED, "task": &"mash", "label": "Sprint", "mode": &"alt", "secs": 6.0, "goal": 48.0},
@@ -42,14 +42,14 @@ const TASKS := {
 		{"stat": Stats.ENDURANCE, "task": &"pace", "label": "Ruck march", "secs": 15.0},
 	],
 	Stats.MENTALITY: [
-		{"stat": Stats.AWARENESS, "task": &"recall", "label": "Map recall", "n": 5, "show": 2.5, "rounds": 3},
-		{"stat": Stats.COMPOSURE, "task": &"quick", "label": "Under pressure", "kind": &"colors", "count": 12, "limit": 1.6},
+		{"stat": Stats.AWARENESS, "task": &"maze", "label": "Map run", "cols": 15, "rows": 9, "rounds": 3},
+		{"stat": Stats.COMPOSURE, "task": &"rhythm", "label": "Under pressure", "count": 28},
 		{"stat": Stats.TEAMWORK, "task": &"sequence", "label": "Callouts", "start": 3, "rounds": 5},
 	],
 	Stats.OBJECTIVE: [
 		{"stat": Stats.ANCHOR, "task": &"track", "label": "Hold the point", "radius": 52.0, "drift": 100.0, "push": 160.0, "secs": 10.0},
 		{"stat": Stats.BREACH, "task": &"timing", "label": "Breach timing", "zone": 0.09, "speed": 1.5, "rounds": 5},
-		{"stat": Stats.OBJ_IQ, "task": &"quick", "label": "Hill calls", "kind": &"calls", "count": 6, "limit": 6.0},
+		{"stat": Stats.OBJ_IQ, "task": &"defense", "label": "Hill defense", "waves": 3, "per_wave": 8, "hp": 8, "coins": 150, "cost": 50, "upgrade": 60, "bounty": 18},
 	],
 }
 
@@ -195,7 +195,8 @@ func finalize(s: Soldier, rng: RandomNumberGenerator) -> Dictionary:
 		var u := clampf(rng.randfn(0.5 + lean, 0.25), 0.0, 1.0)
 		s.stats[stat] = roundi(lerpf(float(b[stat].x), float(b[stat].y), u))
 	s.stats.merge(Archetypes.FIXED_STATS, true)
-	PlayerGenerator.roll_caps(s, rng, roundi(float(s.age - Archetypes.AGE_MIN) * age_cap_bonus))
+	PlayerGenerator.roll_caps(s, rng, roundi(float(s.age - Archetypes.AGE_MIN) * age_cap_bonus) + Backstory.cap_offset(s.backstory))
 	s.talent = talent
-	s.dev = Soldier.DEV_MIN
+	s.dev = Backstory.start_stars(s.backstory, talent) if s.backstory != &"" else Soldier.DEV_MIN
+	Backstory.apply_start(s)
 	return b

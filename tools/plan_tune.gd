@@ -7,7 +7,7 @@ extends SceneTree
 ## spa), nospa (practice 3 + study 1), smart (grinds on the Green Team, spas and builds brand once he plays).
 ## vote=1 retires him at the end and plays on to the Hall of Fame vote.
 
-var args := {"age": "21", "style": "smart", "seed": "1", "seasons": "8", "skill": "0.8", "archetype": "marksman", "vote": "0", "out": ""}
+var args := {"age": "21", "style": "smart", "seed": "1", "seasons": "8", "assets": "none", "skill": "0.8", "archetype": "marksman", "vote": "0", "out": ""}
 
 
 func _init() -> void:
@@ -15,8 +15,19 @@ func _init() -> void:
 		var kv := String(a).split("=", true, 1)
 		if kv.size() == 2:
 			args[kv[0]] = kv[1]
+	if args.has("lstep"):
+		Progression.career_level_step = int(args["lstep"])
+	if args.has("cost90"):
+		Progression.career_cost_90 = int(args["cost90"])
+		Progression.career_cost_95 = int(args["cost95"])
 	if args.has("boost"):
 		WeeklyPlan.xp_boost = float(args["boost"])
+	if args.has("wgain"):
+		Wear.age_gain = float(args["wgain"])
+	if args.has("wspa"):
+		Wear.spa_per_level = float(args["wspa"])
+	if String(args.get("nostars", "0")) == "1":
+		Stories.star_sources = false
 	if args.has("agecap"):
 		Combine.age_cap_bonus = float(args["agecap"])
 	if args.has("costs"):
@@ -32,7 +43,7 @@ func _init() -> void:
 	heads.sort()
 	season.player_mode = true
 	season.player_archetype = arch
-	season.player = PlayerCareer.create_soldier(season.league.next_soldier_id, "Sim", "Player", "Simmer%d" % seed_value, heads[seed_value % heads.size()], seed_value, arch, age)
+	season.player = PlayerCareer.create_soldier(season.league.next_soldier_id, "Sim", "Player", "Simmer%d" % seed_value, heads[seed_value % heads.size()], seed_value, arch, age, StringName(args.get("story", "balanced")))
 	season.league.next_soldier_id += 1
 	season.player_combine = Combine.make(arch, age)
 	for g in Combine.DRILL_ORDER:
@@ -55,11 +66,15 @@ func _init() -> void:
 	var seasons := int(args["seasons"])
 	var fatigue_sum := 0.0
 	var fatigue_n := 0
+	var raises := 0
+	var stories := 0
 	for n in seasons:
 		var fat_sum := 0.0
 		var fat_n := 0
 		var started := 0
 		while season.phase != Season.PHASE_OFFSEASON:
+			_take_deals(season)
+			_spend(season)
 			_set_plan(season, false)
 			if p.skill_points > 0:
 				Progression.auto_spend(p, Scheme.best_role(p.stats))
@@ -69,9 +84,13 @@ func _init() -> void:
 				fat_n += 1
 		var sm := PlayerGrade.summary(PlayerGrade.log_for(season, season.year))
 		rows.append({"year": season.year, "age": p.age, "ovr": p.best_ovr(), "dev": p.dev, "study": snappedf(p.study_progress, 0.1),
-			"brand": snappedf(p.brand, 0.1), "games": sm["games"], "avg": snappedf(sm["avg"], 0.1), "fatigue": snappedf(fat_sum / maxf(1.0, float(fat_n)), 0.1),
+			"brand": snappedf(p.brand, 0.1), "wear": snappedf(p.wear, 0.1), "base": p.base_ovr(), "caps": _cap_avg(p), "cash": p.cash, "coach": Assets.level(p, Assets.COACH), "meters": _meters(p), "specs": Assets.level(p, &"spec_accuracy") * 10 + Assets.level(p, &"spec_handling"), "agent": Assets.level(p, Assets.AGENT), "props": Assets.count(p, Assets.PROPERTY), "biz": Assets.count(p, Assets.BUSINESS), "salary": PlayerPay.yearly(p), "owned": p.owned_gear.size(), "infl": _infl(p), "ndeals": p.deals.size(), "honors": (season.review.award_for(p) if season.review != null else []), "icon": _icon_gain(p), "icon_scales": _icon_scales(p), "slots": p.gear_slots.size(), "deals": p.deals.size(), "raises": raises, "stories": stories, "games": sm["games"], "avg": snappedf(sm["avg"], 0.1), "fatigue": snappedf(fat_sum / maxf(1.0, float(fat_n)), 0.1),
 			"on": "green" if season.user_team().green_team.has(p) else "roster", "hof": snappedf(PlayerLegacy.trajectory(season)["score"], 0.1)})
 		print("season %d done t=%d" % [n, Time.get_ticks_msec() / 1000])
+		_take_deals(season)
+		stories += _answer_stories(season)
+		if _raise_cap(season):
+			raises += 1
 		fatigue_sum += fat_sum
 		fatigue_n += fat_n
 		if n == seasons - 1:
@@ -86,7 +105,7 @@ func _init() -> void:
 	for note in season.player_notes:
 		if String(note["text"]).begins_with("Your study paid off"):
 			stars.append("%d.w%d" % [note["year"], note["week"]])
-	var result := {"age": age, "style": args["style"], "seed": seed_value, "skill": skill, "boost": WeeklyPlan.xp_boost, "agecap": Combine.age_cap_bonus, "costs": WeeklyPlan.star_costs.values(), "arch": String(arch), "entry_ovr": entry_ovr,
+	var result := {"age": age, "style": args["style"], "seed": seed_value, "skill": skill, "boost": WeeklyPlan.xp_boost, "assets": args["assets"], "agecap": Combine.age_cap_bonus, "costs": WeeklyPlan.star_costs.values(), "arch": String(arch), "story": String(args.get("story", "balanced")), "star_sources": Stories.star_sources, "entry_ovr": entry_ovr,
 		"proj": proj, "pick": season.player_pick, "talent": p.talent, "stars": stars, "seasons": rows, "milestones": season.player_milestones.size()}
 	if int(args["vote"]) == 1:
 		_wait_vote(season, result)
@@ -109,6 +128,197 @@ func _wait_vote(season: Season, result: Dictionary) -> void:
 	var v := PlayerLegacy.simulate_to_vote(season)
 	result["verdict"] = String(v)
 	result["final_hof"] = snappedf(float(PlayerLegacy.final_score(season)["score"]), 0.1)
+
+
+## Signs every offer that fits (best tier first), like a player who takes what he is given.
+func _take_deals(season: Season) -> void:
+	var p := season.player
+	var offers: Array = p.offers.duplicate()
+	offers.sort_custom(func(a, b): return int(Gear.brand(a["brand"])["tier"]) > int(Gear.brand(b["brand"])["tier"]))
+	for o in offers:
+		Sponsors.accept(season, o)
+	_buy_gear(season)
+	_equip_best(p)
+	_meet_clauses(p)
+
+
+## Spends cash on any unlocked item that raises his effective OVR (most useful first).
+func _buy_gear(season: Season) -> void:
+	var p := season.player
+	var improved := true
+	while improved:
+		improved = false
+		var best_gain := 0
+		var best: Dictionary = {}
+		var now := _score(p, p.gear_slots)
+		for it in Sponsors.buyable(p):
+			if p.cash < int(it["price"]):
+				continue
+			var trial := p.gear_slots.duplicate()
+			trial[it["slot"]] = Gear.item(it["brand"], it["slot"])
+			var gain := _score(p, trial) - now
+			if gain > best_gain:
+				best_gain = gain
+				best = it
+		if not best.is_empty():
+			Sponsors.buy(season, best["brand"], best["slot"])
+			improved = true
+
+
+## The money policy: letters in `assets` pick what he buys (c coach, a agent, p property, b business), each only when
+## cash covers its price and a reserve of two years of retainers.
+func _spend(season: Season) -> void:
+	var p := season.player
+	var pol := String(args["assets"])
+	if pol == "none" or p == null:
+		return
+	var buying := true
+	while buying:
+		buying = false
+		for pair in [["c", Assets.COACH], ["a", Assets.AGENT], ["p", Assets.PROPERTY], ["b", Assets.BUSINESS], ["s", &"spec_accuracy"], ["s", &"spec_handling"]]:
+			if not pol.contains(pair[0]) or Assets.buy_error(p, pair[1]) == "Already the best." or Assets.buy_error(p, pair[1]) == "You own as many as you can manage.":
+				continue
+			var next_upkeep := 0
+			if Assets.SERVICES.has(pair[1]):
+				next_upkeep = int(Assets.LEVELS[pair[1]][Assets.level(p, pair[1])]["upkeep"])
+			var reserve := 2 * (Assets.upkeep_yearly(p) + next_upkeep)
+			if p.cash >= Assets.cost_of(p, pair[1]) + reserve:
+				if Assets.buy(season, pair[1]) == "":
+					buying = true
+
+
+func _meters(p: Soldier) -> Dictionary:
+	var out := {}
+	for g in Stats.UPGRADABLE_GROUPS:
+		out[str(g)] = roundi(CapMeters.value(p, g))
+	return out
+
+
+func _infl(p: Soldier) -> Dictionary:
+	var out := {}
+	for k in p.influence:
+		if float(p.influence[k]) > 0.0:
+			out[str(k)] = roundi(float(p.influence[k]))
+	return out
+
+
+func _icon_scales(p: Soldier) -> Dictionary:
+	var out := {}
+	var keep := Gear.scale
+	for sc in [1.0, 1.5, 2.0, 2.5, 3.0]:
+		Gear.scale = sc
+		out[str(sc)] = _icon_gain(p)
+	Gear.scale = keep
+	return out
+
+
+## What a full loadout of the best Icon-tier items (chosen per slot for the best effective OVR) would add to base OVR.
+func _icon_gain(p: Soldier) -> int:
+	var slots := {}
+	for _pass in 2:
+		for slot in Gear.SLOTS:
+			var best_ovr := Gear.preview(p, slots)
+			for b in Gear.brands_in_tier(4):
+				var trial := slots.duplicate()
+				trial[slot] = Gear.item(b["id"], slot)
+				var o := Gear.preview(p, trial)
+				if o > best_ovr:
+					best_ovr = o
+					slots[slot] = trial[slot]
+	return Gear.preview(p, slots) - p.base_ovr()
+
+
+## Fills each slot with the item that gives the best effective OVR (a few passes, since slots interact through the set bonus).
+## Wears enough of each deal brand to keep its wear clause, even where another item scores a little higher.
+func _meet_clauses(p: Soldier) -> void:
+	for d in p.deals:
+		var need := 0
+		for c in d["clauses"]:
+			if c["kind"] == &"wear":
+				need = int(c["n"])
+		var worn := Sponsors.worn_of(p, d["brand"])
+		while worn < need:
+			# Swap in the deal item that costs the least OVR.
+			var best_slot: StringName = &""
+			var best_ovr := -1
+			for slot in d["slots"]:
+				if p.gear_slots.get(slot, {}).get("brand") == d["brand"]:
+					continue
+				var trial := p.gear_slots.duplicate()
+				trial[slot] = Gear.item(d["brand"], slot)
+				var o := Gear.preview(p, trial)
+				if o > best_ovr:
+					best_ovr = o
+					best_slot = slot
+			if best_slot == &"":
+				break
+			Gear.equip(p, Gear.item(d["brand"], best_slot))
+			worn = Sponsors.worn_of(p, d["brand"])
+
+
+## Effective OVR first, then the total of the stat bonuses worn (so a slot is never left empty over a +0 OVR rounding).
+func _score(p: Soldier, slots: Dictionary) -> int:
+	var sum := 0
+	var b := Gear.total_bonus(slots, p.influence)
+	for st in b:
+		sum += int(b[st])
+	return Gear.preview(p, slots) * 1000 + sum
+
+
+func _equip_best(p: Soldier) -> void:
+	Gear.prune(p)
+	for _pass in 3:
+		for slot in Gear.SLOTS:
+			var best: Dictionary = p.gear_slots.get(slot, {})
+			var trial := p.gear_slots.duplicate()
+			var best_ovr := _score(p, p.gear_slots) if not best.is_empty() else -1
+			for it in Gear.available(p, slot):
+				trial[slot] = it
+				var o := _score(p, trial)
+				if o > best_ovr:
+					best_ovr = o
+					best = it
+			if not best.is_empty():
+				Gear.equip(p, best)
+
+
+## Takes the first choice of every waiting story (a mentor teaches the group with the most room). Returns how many.
+func _answer_stories(season: Season) -> int:
+	var p := season.player
+	var n := 0
+	for st in p.stories.duplicate():
+		var key := String(st["choices"][0]["key"])
+		if st["kind"] == "mentor":
+			var best := Stats.ACCURACY
+			for g in Stats.UPGRADABLE_GROUPS:
+				if p.group_cap(g) - p.group_rating(g) > p.group_cap(best) - p.group_rating(best):
+					best = g
+			key = String(best)
+		Stories.choose(season, st, key)
+		n += 1
+	return n
+
+
+## Sets a camp special on the first capped group, then raises the biggest available cap. Returns true if one was raised.
+func _raise_cap(season: Season) -> bool:
+	var p := season.player
+	var ready := CapRaise.eligible_groups(season)
+	if ready.is_empty():
+		return false
+	if p.camp_focus == &"":
+		Stories.set_camp_special(season, ready[0])
+	var best: StringName = ready[0]
+	for g in ready:
+		if CapRaise.size(season, g) > CapRaise.size(season, best):
+			best = g
+	return not CapRaise.apply(season, best).is_empty()
+
+
+func _cap_avg(p: Soldier) -> float:
+	var total := 0.0
+	for g in Stats.UPGRADABLE_GROUPS:
+		total += p.group_cap(g)
+	return snappedf(total / float(Stats.UPGRADABLE_GROUPS.size()), 0.1)
 
 
 ## The automatic plan for the chosen style (camp: the offseason plan).

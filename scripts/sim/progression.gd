@@ -32,14 +32,23 @@ const AGE_DEV_XP := [
 ]
 
 
-static func xp_to_next(level: int) -> int:
-	return 500 + 150 * (level - 1)
+## Career mode only (the league table is untouched): how fast the XP per level grows, and what a group upgrade costs
+## at 90+ (the league pays 4 up to 95 and 6 above). The tuning tool overrides both.
+static var career_level_step := 90
+static var career_cost_90 := 3
+static var career_cost_95 := 4
+
+
+static func xp_to_next(level: int, soldier: Soldier = null) -> int:
+	var step := career_level_step if soldier != null and soldier.player_controlled else 150
+	return 500 + step * (level - 1)
 
 
 static func xp_multiplier(soldier: Soldier) -> float:
 	var m := dev_xp_multiplier(soldier.age, soldier.dev)
 	if soldier.player_controlled:
 		m *= WeeklyPlan.xp_boost  # career mode only: the league table is untouched
+		m *= Assets.xp_mult(soldier)
 	return m
 
 
@@ -53,7 +62,7 @@ static func dev_xp_multiplier(age: int, dev: int) -> float:
 
 ## Progress toward the next batch of skill points: [xp, needed].
 static func xp_progress(soldier: Soldier) -> Array:
-	return [soldier.xp, xp_to_next(soldier.level)]
+	return [soldier.xp, xp_to_next(soldier.level, soldier)]
 
 
 ## SP needed to upgrade a group by 1 from its current rating.
@@ -70,7 +79,10 @@ static func group_cost(group_rating: int) -> int:
 
 
 static func upgrade_cost(soldier: Soldier, group: StringName) -> int:
-	return group_cost(soldier.group_rating(group))
+	var rating := soldier.group_rating(group)
+	if soldier.player_controlled and rating >= 90:
+		return career_cost_95 if rating >= 95 else career_cost_90
+	return group_cost(rating)
 
 
 ## Adds XP (after the dev multiplier). Returns a report: { xp, levels, points, xp_before, level_before }
@@ -79,8 +91,8 @@ static func gain_xp(soldier: Soldier, base_xp: float) -> Dictionary:
 	var amount := roundi(base_xp * xp_multiplier(soldier))
 	var report := {"xp": amount, "levels": 0, "points": 0, "xp_before": soldier.xp, "level_before": soldier.level}
 	soldier.xp += amount
-	while soldier.xp >= xp_to_next(soldier.level):
-		soldier.xp -= xp_to_next(soldier.level)
+	while soldier.xp >= xp_to_next(soldier.level, soldier):
+		soldier.xp -= xp_to_next(soldier.level, soldier)
 		soldier.level += 1
 		soldier.skill_points += SKILL_POINTS_PER_LEVEL
 		report["levels"] += 1
@@ -97,7 +109,7 @@ static func is_capped(soldier: Soldier, group: StringName) -> bool:
 	if soldier.group_headroom(group) <= 0:
 		return true
 	for s in Stats.group_stats(group):
-		if soldier.stats[s] < soldier.stat_cap(s):
+		if soldier.base_stat(s) < soldier.stat_cap(s):
 			return false
 	return true
 
@@ -129,7 +141,7 @@ static func upgrade_group(soldier: Soldier, group: StringName, rng: RandomNumber
 	for i in members.size():
 		var open: Array = []
 		for s in members:
-			if gains[s] < MAX_STAT_GAIN_PER_UPGRADE and soldier.stats[s] + gains[s] < soldier.stat_cap(s):
+			if gains[s] < MAX_STAT_GAIN_PER_UPGRADE and soldier.base_stat(s) + gains[s] < soldier.stat_cap(s):
 				open.append(s)
 		if open.is_empty():
 			break
@@ -152,7 +164,7 @@ static func placement_total(group: StringName) -> int:
 static func placement_room(soldier: Soldier, group: StringName) -> int:
 	var room := 0
 	for s in Stats.group_stats(group):
-		room += maxi(0, mini(Stats.MAX_RATING, soldier.stat_cap(s)) - int(soldier.stats[s]))
+		room += maxi(0, mini(Stats.MAX_RATING, soldier.stat_cap(s)) - soldier.base_stat(s))
 	return room
 
 
@@ -172,7 +184,7 @@ static func placement_error(soldier: Soldier, group: StringName, alloc: Dictiona
 			return "%s is not in that group." % st
 		if int(alloc[st]) < 0:
 			return "Points cannot be negative."
-		if int(soldier.stats[st]) + int(alloc[st]) > mini(Stats.MAX_RATING, soldier.stat_cap(st)):
+		if soldier.base_stat(st) + int(alloc[st]) > mini(Stats.MAX_RATING, soldier.stat_cap(st)):
 			return "%s is at its cap (%d)." % [Stats.LABELS[st], mini(Stats.MAX_RATING, soldier.stat_cap(st))]
 		sum += int(alloc[st])
 	if sum != members.size():

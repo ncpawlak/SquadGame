@@ -36,7 +36,7 @@ static func status(season: Season) -> Dictionary:
 		if worst == null:
 			out["text"] = "On the Green Team. No healthy player on the roster to pass right now."
 		else:
-			var need := worst.best_ovr() + CALLUP_MARGIN
+			var need := ceili(_worth(team, worst) + CALLUP_MARGIN - (team.start_adjust(s) if Team.career_mode else 0.0))
 			out["holder"] = worst
 			out["target"] = need
 			out["gap"] = need - s.best_ovr()
@@ -52,9 +52,18 @@ static func status(season: Season) -> Dictionary:
 		var h := holder.ovr_at_role(role)
 		out["gap"] = h - ovr
 		out["target"] = h
-		if h - ovr > 0:
-			out["text"] = "On the bench. %s starts ahead of you at %s: %d OVR to catch up." % [holder.short_name(), Scheme.ROLE_NAMES[role], h - ovr]
+		# The coach compares start values (OVR plus age and potential), so the target is in those terms.
+		var edge := team.start_value(holder, role) - team.start_value(s, role) if Team.career_mode else float(h - ovr)
+		if edge > 0.0:
+			var need := ovr + ceili(edge)
+			out["target"] = need
+			out["gap"] = need - ovr
+			if h - ovr > 0:
+				out["text"] = "On the bench. %s starts ahead of you at %s. The coach counts age and potential too: reach %d OVR (you are %d)." % [holder.short_name(), Scheme.ROLE_NAMES[role], need, ovr]
+			else:
+				out["text"] = "On the bench. You match %s at %s, but the coach prefers his age and potential: reach %d OVR (you are %d)." % [holder.short_name(), Scheme.ROLE_NAMES[role], need, ovr]
 		else:
+			out["gap"] = 0
 			out["text"] = "On the bench. You match %s at %s, but the coach is sticking with the starter." % [holder.short_name(), Scheme.ROLE_NAMES[role]]
 	else:
 		out["text"] = "On the bench."
@@ -88,9 +97,14 @@ static func _call_up_target(_season: Season, team: Team) -> Soldier:
 	for s in team.roster:
 		if s.is_injured() or s.injury_cover_for != 0:
 			continue
-		if worst == null or s.best_ovr() < worst.best_ovr():
+		if worst == null or _worth(team, s) < _worth(team, worst):
 			worst = s
 	return worst
+
+
+## What the coach weighs for a call-up: best-role OVR, plus age and potential in career mode.
+static func _worth(team: Team, s: Soldier) -> float:
+	return float(s.best_ovr()) + (team.start_adjust(s) if Team.career_mode else 0.0)
 
 
 ## Weekly, before lineups: calls the player up when he has earned it. Returns the news line, or "".
@@ -104,7 +118,7 @@ static func weekly(season: Season) -> String:
 	var worst := _call_up_target(season, team)
 	# After MAX_SEASONS on the Green Team he goes up whatever his rating: the league rule would release anyone else.
 	var forced := s.green_seasons >= GreenTeam.MAX_SEASONS
-	if worst == null or (not forced and s.best_ovr() < worst.best_ovr() + CALLUP_MARGIN):
+	if worst == null or (not forced and _worth(team, s) < _worth(team, worst) + CALLUP_MARGIN):
 		return ""
 	if team.roster_count() >= Team.ROSTER_SIZE:
 		GreenTeam._move_down(team, worst)
@@ -112,7 +126,7 @@ static func weekly(season: Season) -> String:
 		GreenTeam._move_up(team, worst)  # could not promote him: put the other player back
 		return ""
 	var line := "The coach called you up: you are now better than %s (%d vs %d OVR)." % [worst.short_name(), s.best_ovr(), worst.best_ovr()]
-	if s.best_ovr() < worst.best_ovr() + CALLUP_MARGIN:
+	if _worth(team, s) < _worth(team, worst) + CALLUP_MARGIN:
 		line = "The coach called you up: you have used your %d Green Team seasons." % GreenTeam.MAX_SEASONS
 	season.player_notes.append({"year": season.year, "week": season.week, "text": line})
 	PlayerLegacy.update(season)

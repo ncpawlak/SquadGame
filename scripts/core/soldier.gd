@@ -122,6 +122,54 @@ var camp_plan_confirmed := false
 var study_progress := 0.0
 var brand := 0.0
 var talent := 0
+## Career-mode starting story (Backstory id); empty for league soldiers.
+var backstory: StringName = &""
+## Career-mode Wear (see Wear): the meter, and this season's running counters.
+var wear := 0.0
+var wear_fatigue_sum := 0.0
+var wear_spa_sum := 0.0
+var wear_weeks := 0
+var wear_games := 0
+var wear_injuries := 0
+var wear_rehab := 0
+## Career-mode growth (see CapRaise): the year of his last cap raise, the group a camp special points at, and story
+## points waiting to add to the next raise.
+var cap_raise_year := 0
+var camp_focus: StringName = &""
+var cap_story_bonus := 0
+## Gear (see Gear): the bonus the equipped items have added to `stats` (stat -> points actually applied). `stats` is always the
+## effective rating the sim reads; the base rating is stats minus this.
+var gear_delta: Dictionary = {}
+## Career-mode match warm-up (WarmUp): the pending bonus, and what is on his stats right now (only during his match).
+var warmup: Dictionary = {}
+var match_delta: Dictionary = {}
+var warmup_last: StringName = &""
+var warmup_streak := 0
+## Career-mode trade requests (PlayerRequest): the season he last changed clubs, and when he may ask again.
+var moved_year := 0
+var request_block := 0
+var trade_offers: Array = []
+## True only while his own trade request is being shopped or executed (Trades.tradeable lets him go then and never otherwise).
+var shopped := false
+## Sponsors (v2): influence per brand (0-100), and the items a deal ever granted / he bought, as "brand:slot" keys.
+var influence: Dictionary = {}
+var unlocked_gear: Array = []
+var owned_gear: Array = []
+var meters: Dictionary = {}  # hidden ceiling meters per stat group (see CapMeters)
+var assets: Dictionary = {}  # what he spent cash on (see Assets)
+var foot_gear: Array = []  # items bought from a brand with no deal ("brand:slot"), they build a little influence
+var trade_offers_key := 0
+## Equipped items by slot: slot -> item dict (see Gear.item).
+var gear_slots: Dictionary = {}
+## Sponsor deals he holds (see Sponsors) and the money they have paid him.
+var deals: Array = []
+var offers: Array = []
+## Stories waiting on an answer, the year each kind last fired, his club's current win streak and whether he is captain.
+var stories: Array = []
+var story_years: Dictionary = {}
+var streak := 0
+var captain := false
+var cash := 0
 
 # Green Team (development roster; see Team.green_team and GreenTeam)
 ## Reps (0..REP_MAX): practice time with the club. They reveal his potential (see potential_text).
@@ -368,9 +416,70 @@ func stat_cap(stat: StringName) -> int:
 	return int(stat_caps.get(stat, Stats.MAX_RATING))
 
 
-## Group upgrades left before the cap (0 = capped).
+## Group upgrades left before the cap (0 = capped). Gear does not eat into the room: it counts the base rating.
 func group_headroom(group: StringName) -> int:
-	return maxi(0, group_cap(group) - group_rating(group))
+	return maxi(0, group_cap(group) - Stats.group_rating(base_stats(), group))
+
+
+## One stat without the gear bonus.
+func base_stat(stat: StringName) -> int:
+	return int(stats[stat]) - int(gear_delta.get(stat, 0)) - int(match_delta.get(stat, 0))
+
+
+## All stats without the gear bonus.
+func base_stats() -> Dictionary:
+	if gear_delta.is_empty() and match_delta.is_empty():
+		return stats
+	var out := stats.duplicate()
+	for st in gear_delta:
+		out[st] = int(out[st]) - int(gear_delta[st])
+	for st in match_delta:
+		out[st] = int(out[st]) - int(match_delta[st])
+	return out
+
+
+## Best-role OVR without the gear bonus (what milestones and the Hall of Fame should read).
+func base_ovr() -> int:
+	var b := base_stats()
+	return Scheme.ovr_for_role(b, Scheme.best_role(b))
+
+
+## Sets the gear bonus to `bonus` (stat -> points), replacing the previous one. Ratings clamp at 99; what was actually
+## added is remembered so removing the gear restores the base exactly.
+func set_gear_bonus(bonus: Dictionary) -> void:
+	var on_match := match_delta.duplicate()
+	if not on_match.is_empty():
+		set_match_bonus({})
+	var keys := {}
+	for st in gear_delta:
+		keys[st] = true
+	for st in bonus:
+		keys[st] = true
+	var fresh := {}
+	for st in keys:
+		var base := int(stats[st]) - int(gear_delta.get(st, 0))
+		var now := Stats.clamp_rating(base + int(bonus.get(st, 0)))
+		stats[st] = now
+		if now != base:
+			fresh[st] = now - base
+	gear_delta = fresh
+	if not on_match.is_empty():
+		set_match_bonus(on_match)
+
+
+## Sets the match-only warm-up bonus (stat -> points), replacing the previous one. Clamps at 99 and remembers what was
+## really added so clearing it restores the ratings exactly.
+func set_match_bonus(bonus: Dictionary) -> void:
+	for st in match_delta:
+		stats[st] = int(stats[st]) - int(match_delta[st])
+	var fresh := {}
+	for st in bonus:
+		var base := int(stats[st])
+		var now := Stats.clamp_rating(base + int(bonus[st]))
+		stats[st] = now
+		if now != base:
+			fresh[st] = now - base
+	match_delta = fresh
 
 
 func is_injured() -> bool:

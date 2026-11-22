@@ -38,7 +38,7 @@ func _clear(box: Control) -> void:
 
 # --- weekly / camp plan ---------------------------------------------------------------------------
 
-## The plan screen. `camp`: the offseason camp plan (8 points, no spa, no fatigue meter).
+## The plan screen. `camp`: the offseason camp plan (8 points, spa is rehab, no fatigue meter).
 func plan_page(camp := false) -> Control:
 	var p := _season().player
 	var st := {"plan": (p.camp_plan if camp else p.plan).duplicate()}
@@ -59,7 +59,7 @@ func _fill_plan(box: VBoxContainer, camp: bool, st: Dictionary, fns: Dictionary)
 	var p := s.player
 	var plan: Dictionary = st["plan"]
 	var intro := _label("%d points, at most %d in any one activity. Every point except spa adds fatigue. Your plan repeats until you change it." % [WeeklyPlan.points(camp), WeeklyPlan.max_level(camp)] if not camp \
-		else "Camp: %d points, at most %d in any one activity. Camp has no fatigue and no spa. Your camp plan repeats every offseason." % [WeeklyPlan.points(camp), WeeklyPlan.max_level(camp)], 15, UiKit.MUTED)
+		else "Camp: %d points, at most %d in any one activity. Camp has no fatigue; spa here is rehab and takes Wear off. Your camp plan repeats every offseason." % [WeeklyPlan.points(camp), WeeklyPlan.max_level(camp)], 15, UiKit.MUTED)
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	intro.custom_minimum_size.x = 1100
 	box.add_child(intro)
@@ -96,6 +96,8 @@ func _fill_plan(box: VBoxContainer, camp: bool, st: Dictionary, fns: Dictionary)
 			t.custom_minimum_size.x = 170
 			row.add_child(t)
 		box.add_child(row)
+	if camp:
+		_camp_special_row(box, fns)
 	var left := WeeklyPlan.unspent(plan, camp)
 	box.add_child(_label("Points left: %d" % left, 20, UiKit.GOLD if left > 0 else UiKit.GOOD))
 	if left > 0:
@@ -177,6 +179,8 @@ func _bonus_text(a: StringName, lvl: int, camp: bool) -> String:
 			var room := maxf(0.0, 1.0 - p.brand / (WeeklyPlan.BRAND_MAX * WeeklyPlan.BRAND_SOFT))
 			return "+%.1f to %.1f brand" % [base * WeeklyPlan.FACTOR_LOW * room, base * WeeklyPlan.FACTOR_HIGH * room]
 		WeeklyPlan.SPA:
+			if camp:
+				return "rehab: -%d Wear" % roundi(lvl * Wear.rehab_per_point)
 			return "+%d%% recovery, +%d morale" % [roundi(WeeklyPlan.SPA_RECOVERY[lvl] * 100.0), roundi(WeeklyPlan.SPA_MORALE[lvl])]
 	return ""
 
@@ -186,10 +190,76 @@ func _stars_line(p: Soldier, plan: Dictionary, camp: bool) -> String:
 		return "%s  (top star reached)" % p.dev_text()
 	var lvl := WeeklyPlan.level(plan, WeeklyPlan.STUDY)
 	var pts: float = (WeeklyPlan.CAMP_STUDY_POINTS if camp else WeeklyPlan.STUDY_POINTS)[lvl]
-	return "%s   next star: %.1f / %d study points   (this plan adds %.1f)" % [p.dev_text(), p.study_progress, roundi(WeeklyPlan.star_cost(p.dev)), pts]
+	return "%s   next star: %.1f of %d study points (%d to go)   (this plan adds %.1f)" % [p.dev_text(), p.study_progress, roundi(WeeklyPlan.star_cost(p.dev, p)), maxi(0, roundi(WeeklyPlan.star_cost(p.dev, p) - p.study_progress)), pts]
 
 
 # --- skill-point placement --------------------------------------------------------------------------
+
+## The offseason cap raise: pick one capped group and raise its ceiling.
+func cap_raise_page() -> Control:
+	var root := _vbox(10)
+	root.custom_minimum_size.x = 1000
+	var holder := _vbox(10)
+	root.add_child(holder)
+	var fns := {}
+	fns["render"] = func():
+		_clear(holder)
+		_fill_cap_raise(holder, fns)
+	fns["render"].call()
+	return root
+
+
+func _fill_cap_raise(box: VBoxContainer, fns: Dictionary) -> void:
+	var s := _season()
+	var p := s.player
+	var intro := _label("Once an offseason you can raise one group's ceiling, maxed or not. The raise is +2 (+1 as a group nears its peak age, none at it), plus a point each for a strong season, a Performance Institute, a camp special and a story (max +%d). It closes once a group is past its peak age. A raise lifts the cap only: you still earn the rating with skill points." % CapRaise.MAX_RAISE, 15, UiKit.MUTED)
+	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	intro.custom_minimum_size.x = 960
+	box.add_child(intro)
+	var window := CapRaise.window_error(s)
+	if window != "":
+		box.add_child(_label(window, 16, UiKit.GOLD))
+	for g in Stats.UPGRADABLE_GROUPS:
+		var row := _hbox(14)
+		var name := _label(String(Stats.GROUP_LABELS[g]), 18, Color.WHITE)
+		name.custom_minimum_size.x = 150
+		row.add_child(name)
+		var info := _label("rating %d  /  cap %d" % [p.group_rating(g), p.group_cap(g)], 16, UiKit.TEXT)
+		info.custom_minimum_size.x = 220
+		row.add_child(info)
+		var err := CapRaise.group_error(s, g)
+		if err == "":
+			var n := CapRaise.size(s, g)
+			var why := ", ".join(CapRaise.parts(s, g).map(func(x): return "%s +%d" % [x[0], x[1]]))
+			row.add_child(_label("+%d  (%s)" % [n, why], 14, UiKit.GOOD))
+			var go := UiKit.primary_button("Raise", func():
+				var rep := CapRaise.apply(s, g)
+				if not rep.is_empty():
+					hub.app.toast("%s cap +%d, now %d." % [Stats.GROUP_LABELS[g], rep["size"], rep["cap"]])
+				fns["render"].call(), 16)
+			row.add_child(go)
+		else:
+			row.add_child(_label(err, 14, UiKit.MUTED))
+		box.add_child(row)
+
+
+## Camp special (optional, free): which group the camp focuses on. It adds a point to that group's next cap raise.
+func _camp_special_row(box: VBoxContainer, fns: Dictionary) -> void:
+	var s := _season()
+	var p := s.player
+	var row := _hbox(8)
+	row.add_child(_label("Camp special:", 16, UiKit.GOLD))
+	var none := UiKit.button("None" + ("  ✓" if p.camp_focus == &"" else ""), func():
+		Stories.set_camp_special(s, &"")
+		fns["render"].call(), 14)
+	row.add_child(none)
+	for g in Stats.UPGRADABLE_GROUPS:
+		row.add_child(UiKit.button("%s%s" % [Stats.GROUP_LABELS[g], "  ✓" if p.camp_focus == g else ""], func():
+			Stories.set_camp_special(s, g)
+			fns["render"].call(), 14))
+	box.add_child(row)
+	box.add_child(_label("A masterclass on one group: it adds a point to that group's cap raise this offseason (free, and a mentor story can set it too).", 13, UiKit.MUTED))
+
 
 ## Place a group upgrade by hand: one stat point per stat in the group, up to each stat's cap, then confirm.
 func placement_page(group: StringName) -> Control:
@@ -222,7 +292,7 @@ func _fill_placement(box: VBoxContainer, group: StringName, st: Dictionary, fns:
 	for stat in members:
 		var add := int(alloc.get(stat, 0))
 		var cap := mini(Stats.MAX_RATING, p.stat_cap(stat))
-		var cur := int(p.stats[stat])
+		var cur := p.base_stat(stat)
 		var row := _hbox(14)
 		var name := _label(String(Stats.LABELS[stat]), 18, UiKit.TEXT)
 		name.custom_minimum_size.x = 210

@@ -59,10 +59,17 @@ const AI_EXTEND_CHANCE := 0.6
 const AI_TAX_OVR := 85
 
 var league: League
+
+
+func _init() -> void:
+	Team.career_mode = false  # a fresh season starts without the career lineup rule until player_mode is set
 ## Per-franchise options (trade difficulty, animations, fantasy draft).
 var settings := FranchiseSettings.new()
 ## Player mode (#100): true when the user plays one created soldier instead of running a club.
-var player_mode := false
+var player_mode := false:
+	set(v):
+		player_mode = v
+		Team.career_mode = v
 ## The created soldier and his archetype id (see Archetypes). Null / &"" in manager mode.
 var player: Soldier = null
 var player_archetype: StringName = &""
@@ -623,6 +630,8 @@ func finish_week() -> Array:
 	_week_matches = []
 	for m in played:
 		play_week_match(m)
+	if player_mode and player != null:
+		PlayerPay.weekly(self)
 	var played_ids := {}
 	var playing_teams := {}
 	for m in played:
@@ -640,6 +649,8 @@ func finish_week() -> Array:
 			inj["year"] = year
 			last_injuries.append(inj)
 			injury_log.append(inj)
+			if player_mode and inj["soldier"] == player:
+				Wear.record_injury(player, int(inj["weeks"]))
 	GreenTeam.update_covers(self)
 	_track_promises(played)
 	for t in league.teams:
@@ -651,6 +662,7 @@ func finish_week() -> Array:
 	var news_week := week
 	if phase == PHASE_REGULAR and week == midseason_week():
 		_ai_extend()
+	WarmUp.clear(self)
 	_advance()
 	market.week(self, played, news_week)
 	revenue.week(self, played, news_week)
@@ -925,6 +937,10 @@ func close_preseason_camp() -> void:
 	_camp_star_news()
 	offseason_xp(CAMP_WEEK_XP, Camp.DRILL_XP)
 	preseason_camp = false
+	if player_mode and player != null:
+		# The career's opening camp: the camp plan runs now and its outing morale lands straight away.
+		camp_report = WeeklyPlan.apply_camp(self)
+		WeeklyPlan.apply_camp_outing(self)
 	draft.scout_points += scout_points_per_week()
 
 
@@ -1494,6 +1510,8 @@ func _begin_season() -> void:
 	league.ensure_callsigns()
 	market.begin_season(self)
 	revenue.begin_season(self)
+	if player_mode and player != null:
+		PlayerPay.settle_bonus(self)
 	news.begin_season(self)
 	storylines.begin_season(self)
 	newsroom.publish_preseason(self)
@@ -1513,12 +1531,19 @@ func _advance() -> void:
 		champion = last_round[0].winner()
 		phase = PHASE_OFFSEASON
 		history.append(SeasonSnapshot.capture(self))
+		if player_mode and player != null:
+			Stories.season_end(self)
 		var rrng := RandomNumberGenerator.new()
 		rrng.seed = _mix([league.league_seed, year, 0x4E71])
 		Soldier.log_year = year
 		Soldier.log_when = "Season review"
 		review = SeasonReview.run(self, rrng)
 		review_history.append(review)
+		if player_mode and player != null:
+			WeeklyPlan.apply_honors(self)
+			Stories.honors_study(self)
+			Sponsors.season_end(self)
+			Assets.season_end(self)
 		var retire_rng := RandomNumberGenerator.new()
 		retire_rng.seed = _mix([league.league_seed, year, 0x2E71])
 		var retired := Retirement.run(self, retire_rng)
