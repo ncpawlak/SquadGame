@@ -2134,7 +2134,7 @@ func _storyline_todo() -> Button:
 		st = done_this_year[0]
 	var body := "[color=white]%s[/color]
 %s" % [UiKit.esc(String(st["title"])), UiKit.esc(sl.status_line(st, season))]
-	return _todo("Storylines", body, Color("#a855f7"), open_storylines, st["status"] != Storylines.STATUS_ACTIVE, not pending.is_empty())
+	return _todo("Storylines", body, Color("#a855f7"), open_storylines, pending.is_empty(), not pending.is_empty())
 
 
 func open_storylines() -> void:

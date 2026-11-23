@@ -9,9 +9,9 @@ const OFFSEASON_MAX := 13
 ## must be back to this before Week 1. See GreenTeam.
 const GREEN_SIZE := 6
 ## How much each group counts toward team_ovr().
-const TEAM_OVR_W_STARTERS := 0.75
-const TEAM_OVR_W_BENCH := 0.17
-const TEAM_OVR_W_GREEN := 0.08
+const TEAM_OVR_W_STARTERS := 0.85
+const TEAM_OVR_W_BENCH := 0.12
+const TEAM_OVR_W_GREEN := 0.03
 ## Future weight by dev stars (1..4) in keep_value: faster developers reach their ceiling sooner.
 const KEEP_DEV_W := [0.35, 0.55, 0.75, 0.9]
 ## Flat bonus by dev stars (1..4) for young players on top of the raw gap (scaled by age weight).

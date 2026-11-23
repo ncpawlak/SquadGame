@@ -3089,19 +3089,27 @@ func training() -> Control:
 		_training_refresh_all(ctx))
 	ctx["rest_btn"] = rest_btn
 	top.add_child(rest_btn)
-	# Blanket-set everyone (healthy) to one chosen intensity.
+	# Blanket-set everyone (healthy) to one chosen intensity: picking it from the list applies it at once.
+	var set_lbl := UiKit.label("Set everyone to:", 16, UiKit.MUTED)
+	set_lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top.add_child(set_lbl)
 	var set_pick := OptionButton.new()
 	set_pick.custom_minimum_size = Vector2(130, 44)
 	UiKit.style_button(set_pick)
+	set_pick.add_item("Choose...")
+	set_pick.set_item_disabled(0, true)
 	for it in Training.INTENSITIES:
 		set_pick.add_item(Training.label(it))
-	set_pick.select(Training.INTENSITIES.find(Soldier.INTENSITY_NORMAL))
-	top.add_child(UiKit.button("Set everyone to:", func():
-		var chosen: StringName = Training.INTENSITIES[set_pick.selected]
+	set_pick.select(0)
+	set_pick.item_selected.connect(func(idx: int):
+		if idx < 1:
+			return
+		var chosen: StringName = Training.INTENSITIES[idx - 1]
 		for so in team.org():
 			if not so.is_injured():
 				so.intensity = chosen
-		_training_refresh_all(ctx)))
+		_training_refresh_all(ctx)
+		set_pick.select(0))
 	top.add_child(set_pick)
 	v.add_child(top)
 
@@ -5468,6 +5476,53 @@ func _camp_card(s: Season, g: StringName, open: bool) -> Control:
 
 
 ## Roster rows to assign to the focused drill.
+var _camp_sort_key: StringName = &""
+var _camp_sort_desc := true
+
+
+## Sort value of one soldier for the chosen camp-board column.
+func _camp_sort_value(s: Season, so: Soldier) -> float:
+	match _camp_sort_key:
+		&"ovr":
+			return float(so.best_ovr())
+		&"pot":
+			return float(so.potential_grade())
+		&"pool":
+			return float(Camp.known_pool(so)[1])
+		&"best":
+			return float(Camp.DRILLS.keys().find(_camp_best_drill(s, so)))
+	return float(so.group_rating(_camp_sort_key))
+
+
+## A clickable column heading on the camp board: click to sort by it, click again to flip.
+func _camp_sort_head(text: String, width: int, key: StringName, focus := false) -> Control:
+	var active := key == _camp_sort_key
+	var b := Button.new()
+	b.text = text + ((" ▼" if _camp_sort_desc else " ▲") if active and key != &"" else (" ▼" if focus and _camp_sort_key == &"" else ""))
+	b.flat = true
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.clip_text = true
+	b.custom_minimum_size = Vector2(width, 26)
+	b.add_theme_font_size_override("font_size", 13)
+	var lit := (active and key != &"") or (focus and _camp_sort_key == &"")
+	b.add_theme_color_override("font_color", UiKit.ACCENT.lightened(0.3) if lit else UiKit.MUTED)
+	b.add_theme_color_override("font_hover_color", Color.WHITE)
+	for state in ["normal", "hover", "pressed", "focus"]:
+		var f := UiKit.flat(Color.TRANSPARENT if state != "hover" else UiKit.LINE, 4)
+		f.content_margin_left = 0
+		f.content_margin_right = 0
+		b.add_theme_stylebox_override(state, f)
+	b.tooltip_text = "Sort by this column" if key != &"" else "Back to the suggested order"
+	b.pressed.connect(func():
+		if key == _camp_sort_key and key != &"":
+			_camp_sort_desc = not _camp_sort_desc
+		else:
+			_camp_sort_key = key
+			_camp_sort_desc = true
+		_camp_refresh())
+	return b
+
+
 func _camp_board(s: Season) -> Control:
 	var user := s.user_team()
 	var g := _camp_focus
@@ -5478,16 +5533,13 @@ func _camp_board(s: Season) -> Control:
 	var spacer := Control.new()
 	spacer.custom_minimum_size.x = 14 + 48 + 10 + 190
 	head.add_child(spacer)
-	for c in [["OVR", 64], ["POT", 64], ["POOL", 70]]:
-		head.add_child(_col_head(c[0], c[1]))
+	for c in [["OVR", 64, &"ovr"], ["POT", 64, &"pot"], ["POOL", 70, &"pool"]]:
+		head.add_child(_camp_sort_head(c[0], c[1], c[2]))
 	for gr in Stats.GROUP_ORDER:
-		var hl := _col_head(Stats.GROUP_LABELS[gr].to_upper(), 90)
-		if gr == g:
-			hl.add_theme_color_override("font_color", UiKit.ACCENT.lightened(0.3))
-			hl.text = "▼ " + hl.text
+		var hl := _camp_sort_head(Stats.GROUP_LABELS[gr].to_upper(), 90, gr, gr == g)
 		head.add_child(hl)
-	head.add_child(_col_head("BEST DRILL", 150))
-	head.add_child(_col_head("CAMP", 150))
+	head.add_child(_camp_sort_head("BEST DRILL", 150, &"best"))
+	head.add_child(_camp_sort_head("CAMP", 150, &""))
 	v.add_child(head)
 	var list: Array = user.org().filter(func(so: Soldier): return not s.camp.has_attended(so))
 	list.sort_custom(func(a: Soldier, b: Soldier):
@@ -5495,6 +5547,12 @@ func _camp_board(s: Season) -> Control:
 		var ob := s.camp_check(g, b) == ""
 		if oa != ob:
 			return oa
+		if _camp_sort_key != &"":
+			var ka: float = _camp_sort_value(s, a)
+			var kb: float = _camp_sort_value(s, b)
+			if ka != kb:
+				return ka > kb if _camp_sort_desc else ka < kb
+			return a.id < b.id
 		var pa := _camp_planned_group(a) not in [&"", g]
 		var pb := _camp_planned_group(b) not in [&"", g]
 		if pa != pb:
