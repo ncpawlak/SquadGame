@@ -2086,7 +2086,7 @@ func open_resign() -> void:
 
 
 func open_extensions() -> void:
-	open_subtab(Tab.PERSONNEL, "Contracts", "Extensions")
+	open_subtab(Tab.PERSONNEL, "Contracts", "Re-sign Players")
 
 
 func open_free_agents() -> void:
@@ -2689,7 +2689,7 @@ func _recap_draft() -> Draft:
 func _personnel_modes(view: int) -> Array:
 	match view:
 		0:
-			return [["Contracts", "Contracts & Payroll", pages.contracts], ["Re-sign", "Re-sign Players", pages.resign], ["Extensions", "Extensions", pages.extensions]]
+			return [["Contracts", "Contracts & Payroll", pages.contracts], ["Re-sign", "Re-sign Players", pages.resign]]
 		1:
 			return [["Offers & Block", "Trades", pages.trade_hub], ["Trade Log", "Trade Log", pages.trade_log]]
 		2:

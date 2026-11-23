@@ -216,7 +216,7 @@ static func fs(size: int) -> int:
 
 ## Button text size: never below 17.
 static func bfs(size: int) -> int:
-	return maxi(17, size) + text_boost
+	return maxi(16, size) + text_boost
 
 
 ## Plain label. Big sizes switch to the condensed broadcast face (24+ bold, 40+ extra bold).
@@ -534,7 +534,7 @@ static func row_tile(title: String, accent: Color, cb: Callable, h := 46, detail
 ## through it and select rows). highlight_rows: row index -> bg colour.
 ## cell_colors: row index -> {col index -> colour}. on_row: optional Callable(row_index).
 static func table(headers: Array, rows: Array, col_widths: Array, highlight_rows := {}, cell_colors := {},
-		on_row := Callable()) -> VBoxContainer:
+		on_row := Callable(), row_h := 36, row_font := 16) -> VBoxContainer:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 2)
 	var width := 28
@@ -562,8 +562,8 @@ static func table(headers: Array, rows: Array, col_widths: Array, highlight_rows
 		var mine := bg == MINE
 		if mine:
 			b.add_theme_stylebox_override("normal", flat(MINE, 3, 2, ACCENT.darkened(0.1)))
-		b.custom_minimum_size = Vector2(width, 36)
-		var hb := _cells(rows[i], col_widths, Color.WHITE if mine else TEXT, 16)
+		b.custom_minimum_size = Vector2(width, row_h)
+		var hb := _cells(rows[i], col_widths, Color.WHITE if mine else TEXT, row_font)
 		hb.set_anchors_preset(Control.PRESET_FULL_RECT)
 		hb.offset_left = 14
 		hb.offset_right = -14

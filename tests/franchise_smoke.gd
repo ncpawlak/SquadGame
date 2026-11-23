@@ -525,9 +525,9 @@ func _extension_flow(hub) -> void:
 	guy.ext_walked_year = 0
 	hub.open_extensions()
 	await process_frame
-	# Extensions is a mode of the Personnel > Contracts tab now, not a pushed page.
+	# Extensions live in the Personnel > Contracts > Re-sign mode now, not a pushed page.
 	_check(hub.tab_index == hub.Tab.PERSONNEL and hub.page_stack.is_empty() and hub.personnel_view == 0
-		and hub._pers_mode.get(0, 0) == 2, "extensions opens as Personnel > Contracts > Extensions")
+		and hub._pers_mode.get(0, 0) == 1, "extensions open inside Personnel > Contracts > Re-sign")
 	_check(_find_button(hub, "Negotiate") != null, "extensions page has Negotiate")
 	hub.pages.open_negotiation(guy)
 	await process_frame
@@ -537,7 +537,7 @@ func _extension_flow(hub) -> void:
 	await process_frame
 	_check(_press(hub, "Sleep on it") and talks.is_resting(), "sleep on it pauses extension talks")
 	await process_frame
-	_check(_find_button(hub, "Back to Extensions") != null, "resting room offers a way back")
+	_check(_find_button(hub, "Back to Re-sign") != null, "resting room offers a way back")
 	hub.season.week += 1
 	_check(hub.season.negotiation(user, guy) == talks and talks.can_act(), "talks resume next week")
 	hub.season.week -= 1
