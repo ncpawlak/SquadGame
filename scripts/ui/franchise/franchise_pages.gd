@@ -1673,8 +1673,8 @@ func _slot_tag(team: Team, s: Soldier) -> String:
 	return String(slot) if slot != &"" else "BN"
 
 
-## Player page tabs (Madden player card): Overview, Ratings, Contract, Stats, DNA.
-const PLAYER_TABS := ["Overview", "Ratings", "Contract", "Stats", "DNA", "Progression"]
+## Player page tabs (Madden player card): Overview, Ratings, Contract, Stats, Personality.
+const PLAYER_TABS := ["Overview", "Ratings", "Contract", "Stats", "Personality", "Progression"]
 var _player_tab := 0
 ## Stats tab view: true = this season match by match, false = career by season.
 var _stats_season := true
@@ -1706,7 +1706,7 @@ func _player_build(s: Soldier) -> Control:
 		var idx := i
 		var b := Button.new()
 		b.text = PLAYER_TABS[i].to_upper()
-		b.custom_minimum_size = Vector2(140, 36)
+		b.custom_minimum_size = Vector2(150, 36)
 		UiKit.style_tab(b, i == _player_tab, 20)
 		b.pressed.connect(func(): _player_refresh(s, idx))
 		tabs.add_child(b)
@@ -2482,8 +2482,8 @@ func _stat_line_cells(label: String, team_abbrev: String, d: Dictionary) -> Arra
 
 
 func _player_dna(s: Soldier, team: Team) -> Control:
-	var v := _vbox(14)
-	var facts := _row(12)
+	var v := _vbox(8)
+	var facts := _row(8)
 	facts.add_child(_fact_box("CALLSIGN", "\"%s\"" % s.callsign.to_upper() if s.callsign != "" else "-"))
 	facts.add_child(_fact_box("ARCHETYPE", Stats.GROUP_LABELS[Callsigns.best_group(s)]))
 	facts.add_child(_fact_box("POTENTIAL", "%s  [font_size=14][color=#8b97ab]peak %d[/color][/font_size]" % [pot_bb(s), s.potential_ovr()]))
@@ -2493,9 +2493,17 @@ func _player_dna(s: Soldier, team: Team) -> Control:
 	var hall := HallOfFame.entry_of(_season(), s)
 	if not hall.is_empty():
 		facts.add_child(_fact_box("HALL OF FAME", "Class of %d" % hall["year"]))
-	v.add_child(facts)
-	v.add_child(_dna_panel(s, team))
-	v.add_child(_chemistry_box(s, team))
+	var cols := _row(24)
+	var left := _vbox(10)
+	left.custom_minimum_size.x = 700
+	left.add_child(facts)
+	left.add_child(_dna_panel(s, team))
+	cols.add_child(left)
+	var right := _vbox(8)
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.add_child(_chemistry_box(s, team))
+	cols.add_child(right)
+	v.add_child(cols)
 	return v
 
 
@@ -2519,7 +2527,7 @@ func _chemistry_box(s: Soldier, team: Team) -> Control:
 	if rows.get_child_count() == 0:
 		rows.add_child(FrontEnd.empty_note("No bonds yet."))
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(0, 340)
+	scroll.custom_minimum_size = Vector2(0, 450)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(rows)
@@ -2543,7 +2551,7 @@ func _chemistry_row(s: Soldier, o: Soldier, p: Dictionary, starters: Array) -> C
 	var nm := UiKit.button(o.tag(), func(): open_player(o, 4), 15)
 	nm.flat = true
 	nm.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	nm.custom_minimum_size = Vector2(150, 0)
+	nm.custom_minimum_size = Vector2(110, 0)
 	nm.clip_text = true
 	nm.tooltip_text = o.full_name()
 	h.add_child(nm)
@@ -2561,7 +2569,7 @@ func _chemistry_row(s: Soldier, o: Soldier, p: Dictionary, starters: Array) -> C
 		club.tooltip_text = "Free agent"
 	h.add_child(club)
 	var badge := UiKit.label(Relationships.LEVEL_NAMES[lvl].to_upper(), 13, Relationships.LEVEL_COLORS[lvl])
-	badge.custom_minimum_size.x = 110
+	badge.custom_minimum_size.x = 84
 	h.add_child(badge)
 	var lo: float = Relationships.LEVEL_POINTS[lvl]
 	var hi: float = Relationships.LEVEL_POINTS[lvl + 1] if lvl + 1 < Relationships.LEVEL_POINTS.size() else Relationships.MAX_POINTS
@@ -2570,7 +2578,7 @@ func _chemistry_row(s: Soldier, o: Soldier, p: Dictionary, starters: Array) -> C
 	bar.max_value = hi
 	bar.value = pts
 	bar.show_percentage = false
-	bar.custom_minimum_size = Vector2(160, 10)
+	bar.custom_minimum_size = Vector2(90, 10)
 	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	bar.add_theme_stylebox_override("background", UiKit.flat(UiKit.LINE, 4))
 	var fill := UiKit.flat(Relationships.LEVEL_COLORS[lvl], 4)
@@ -2579,18 +2587,22 @@ func _chemistry_row(s: Soldier, o: Soldier, p: Dictionary, starters: Array) -> C
 	bar.add_theme_stylebox_override("fill", fill)
 	h.add_child(bar)
 	var nxt := ("%d / %d to %s" % [roundi(pts), roundi(hi), Relationships.LEVEL_NAMES[lvl + 1]]) if lvl + 1 < Relationships.LEVEL_NAMES.size() else ("%d / %d" % [roundi(pts), roundi(hi)])
-	var nl := UiKit.label(nxt, 13, UiKit.MUTED)
-	nl.custom_minimum_size.x = 170
+	var nl := UiKit.label("%d/%d" % [roundi(pts), roundi(hi)], 13, UiKit.MUTED)
+	nl.tooltip_text = nxt
+	nl.mouse_filter = Control.MOUSE_FILTER_PASS
+	nl.custom_minimum_size.x = 62
 	h.add_child(nl)
-	var gp := UiKit.label("%d GP together" % int(p["m"]), 14, UiKit.TEXT)
-	gp.custom_minimum_size.x = 120
+	var gp := UiKit.label("%d GP" % int(p["m"]), 14, UiKit.TEXT)
+	gp.tooltip_text = "games played together"
+	gp.mouse_filter = Control.MOUSE_FILTER_PASS
+	gp.custom_minimum_size.x = 56
 	h.add_child(gp)
 	var d := float(p["d"])
 	var trend := UiKit.label("▲ Rising" if d > 0.01 else ("▼ Fading" if d < -0.01 else "■ Steady"), 14, UiKit.GOOD if d > 0.01 else (UiKit.BAD if d < -0.01 else UiKit.MUTED))
-	trend.custom_minimum_size.x = 90
+	trend.custom_minimum_size.x = 76
 	h.add_child(trend)
 	if lvl > 0 and starters.has(s) and starters.has(o):
-		h.add_child(UiKit.label("+%d IN LINEUP" % Relationships.LEVEL_BONUS[lvl], 13, UiKit.GOOD))
+		h.add_child(UiKit.label("+%d" % Relationships.LEVEL_BONUS[lvl], 14, UiKit.GOOD))
 	pane.add_child(h)
 	return pane
 
@@ -2598,19 +2610,19 @@ func _chemistry_row(s: Soldier, o: Soldier, p: Dictionary, starters: Array) -> C
 ## Motivations (strongest first), personality and relationship with his club.
 func _dna_panel(s: Soldier, team: Team) -> Control:
 	var d := s.get_dna()
-	var v := _vbox(8)
+	var v := _vbox(4)
 	v.add_child(_section("WHAT DRIVES HIM  -  %s" % d.headline().to_upper()))
 	for m in d.ranked():
 		var blurb: String = Dna.BLURBS[m]
 		if m == &"hometown" and s.home_state != "":
 			blurb += " (%s, %s region)" % [LeagueData.state_name(s.home_state), LeagueData.region_of(s.home_state)]
-		v.add_child(_meter(String(Dna.LABELS[m]).to_upper(), d.value(m), 99, UiKit.ACCENT if d.value(m) >= 60 else UiKit.ACCENT.darkened(0.45), "%d  -  %s" % [d.value(m), blurb], 130))
-	v.add_child(_section("PERSONALITY"))
-	v.add_child(_meter("TEMPERAMENT", d.temperament, 99, UiKit.INFO, "%d  -  %s" % [d.temperament, d.temperament_label()], 130))
-	v.add_child(_meter("SAVVY", d.savvy, 99, UiKit.INFO, "%d  -  %s (high = sees through weak arguments, holds a higher floor)" % [d.savvy, d.savvy_label()], 130))
+		v.add_child(_meter(String(Dna.LABELS[m]).to_upper(), d.value(m), 99, UiKit.ACCENT if d.value(m) >= 60 else UiKit.ACCENT.darkened(0.45), "%d  -  %s" % [d.value(m), blurb], 130, 14))
+	v.add_child(_section("TEMPERAMENT AND SAVVY"))
+	v.add_child(_meter("TEMPERAMENT", d.temperament, 99, UiKit.INFO, "%d  -  %s" % [d.temperament, d.temperament_label()], 130, 14))
+	v.add_child(_meter("SAVVY", d.savvy, 99, UiKit.INFO, "%d  -  %s" % [d.savvy, d.savvy_label()], 130, 14))
 	v.add_child(_section("CLUB TRUST"))
 	v.add_child(_meter("TRUST", s.trust, 100, _dna_color(s.trust), "%d  -  %s%s" % [roundi(s.trust), Soldier.trust_label(s.trust),
-		(" with " + team.name) if team != null else ""], 130))
+		(" with " + team.name) if team != null else ""], 130, 14))
 	if not s.promise.is_empty():
 		var g := int(s.promise["games"])
 		v.add_child(UiKit.rich("[color=%s]STARTER PROMISE[/color]  -  %d season, with %s: started %d of %d games (needs %d%%)" % [UiKit.hex(UiKit.ACCENT),
