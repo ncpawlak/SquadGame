@@ -121,7 +121,6 @@ static func list_page(season: Season, hub) -> Control:
 		if summaries == 0:
 			v.add_child(UiKit.label("No storylines are running right now.", 17, UiKit.MUTED))
 		return v
-	v.add_child(UiKit.label("Pick a story to read it, see what it needs and make your call.", 16, UiKit.MUTED))
 	for st: Dictionary in shown:
 		var live: bool = st["status"] == Storylines.STATUS_ACTIVE
 		var sub := "%s  -  %s  -  %s" % [StoryDefs.KIND_LABEL.get(st["kind"], "STORY"), season.storylines.stage_name(st).to_upper(), season.storylines.status_line(st, season)]

@@ -93,7 +93,6 @@ func show_mode_select() -> void:
 	bar.custom_minimum_size = Vector2(90, 4)
 	bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	tt.add_child(bar)
-	tt.add_child(UiKit.label("Pick how you want to build your franchise  -  hover a mode to preview it, click to begin", 15, UiKit.MUTED))
 	head.add_child(tt)
 
 	var center := CenterContainer.new()
@@ -271,7 +270,7 @@ func show_team_select() -> void:
 	bar.custom_minimum_size = Vector2(90, 4)
 	bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	tt.add_child(bar)
-	tt.add_child(UiKit.label("%d teams  -  %d divisions  -  %s season  -  hover a team for its scouting report, click to take over" % [
+	tt.add_child(UiKit.label("%d teams  -  %d divisions  -  %s season" % [
 		preview.league.teams.size(), preview.divisions().size(), preview.year], 15, UiKit.MUTED))
 	head.add_child(tt)
 
@@ -558,7 +557,6 @@ func open_settings_popup(team_index: int, team: Team) -> void:
 	col.add_theme_constant_override("separation", 14)
 	card.add_child(col)
 	col.add_child(UiKit.display("FRANCHISE SETTINGS", 32, Color.WHITE, true))
-	col.add_child(UiKit.label("%s  -  you can change these later in Settings" % team.name, 15, UiKit.MUTED))
 
 	var diff_btn := UiKit.button("", func(): pass, 18)
 	var anim_btn := UiKit.button("", func(): pass, 18)

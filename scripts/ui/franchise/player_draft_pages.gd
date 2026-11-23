@@ -37,7 +37,7 @@ static func _who(season: Season) -> String:
 
 static func report(season: Season, on_enter: Callable) -> Control:
 	var r := PlayerDraft.report(season)
-	var f := _frame("DRAFT REPORT", "What the league's scouts see of you. Their read is fuzzier than the truth.")
+	var f := _frame("DRAFT REPORT", "")
 	var root: VBoxContainer = f[1]
 	root.name = "DraftReport"
 	root.add_child(UiKit.label(_who(season), 18, UiKit.ACCENT))
@@ -67,7 +67,6 @@ static func report(season: Season, on_enter: Callable) -> Control:
 	lv.add_child(pad)
 	var ovr: Vector2i = season.player_combine.ovr_range()
 	lv.add_child(UiKit.label("Your combine range: OVR %d - %d" % [ovr.x, ovr.y], 16, UiKit.TEXT))
-	lv.add_child(UiKit.label("The draft has %d picks. Every drafted player starts on his club's Green Team." % r["picks"], 14, UiKit.MUTED))
 
 	var right := UiKit.panel(UiKit.PANEL, 12)
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -76,7 +75,6 @@ static func report(season: Season, on_enter: Callable) -> Control:
 	rv.add_theme_constant_override("separation", 6)
 	right.add_child(rv)
 	rv.add_child(UiKit.display("HOW SCOUTS RATE YOU", 22, UiKit.ACCENT, true))
-	rv.add_child(UiKit.label("Each line is where you rank in this class, as a range.", 14, UiKit.MUTED))
 	for g in Stats.UPGRADABLE_GROUPS:
 		if not r["windows"].has(g):
 			continue
@@ -98,7 +96,7 @@ static func report(season: Season, on_enter: Callable) -> Control:
 
 ## The live reveal of `res` (PlayerDraft.run's result): picks appear one at a time, slower just before yours.
 static func night(season: Season, res: Dictionary, on_done: Callable) -> Control:
-	var f := _frame("DRAFT NIGHT", "%d picks. Your name is in there somewhere." % res["picks"].size())
+	var f := _frame("DRAFT NIGHT", "")
 	var root: VBoxContainer = f[1]
 	root.name = "DraftNight"
 	var picks: Array = res["picks"]
@@ -184,7 +182,7 @@ static func night(season: Season, res: Dictionary, on_done: Callable) -> Control
 # --- undrafted offers ------------------------------------------------------------------------
 
 static func offers(season: Season, on_signed: Callable) -> Control:
-	var f := _frame("UNDRAFTED", "No team called your name, but some want you on their Green Team. Pick one.")
+	var f := _frame("UNDRAFTED", "")
 	var root: VBoxContainer = f[1]
 	root.name = "DraftOffers"
 	root.add_child(UiKit.label(_who(season), 18, UiKit.ACCENT))
@@ -223,6 +221,5 @@ static func landing(season: Season, on_continue: Callable) -> Control:
 	var s := season.player
 	var how := "Drafted with pick %d" % season.player_pick if season.player_pick > 0 else "Signed as an undrafted free agent"
 	root.add_child(UiKit.label("%s. Green Team deal: %s." % [how, Contracts.money(s.contract.salary)], 18, UiKit.TEXT))
-	root.add_child(UiKit.label("You start on the Green Team and earn your way onto the roster.", 16, UiKit.MUTED))
 	root.add_child(UiKit.primary_button("Begin your rookie season", on_continue, 24))
 	return f[0]

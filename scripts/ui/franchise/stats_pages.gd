@@ -91,7 +91,6 @@ func _team_leaders(s: Season) -> Control:
 	if played == 0:
 		v.add_child(UiKit.label("No matches recorded here yet.", 18, UiKit.MUTED))
 		return v
-	v.add_child(UiKit.label("Team totals for the %d season, from every match played so far." % s.year, 13, UiKit.MUTED))
 	var user_abbrev := s.user_team().abbrev
 	var flow := HFlowContainer.new()
 	flow.add_theme_constant_override("h_separation", 20)

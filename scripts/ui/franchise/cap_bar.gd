@@ -4,8 +4,8 @@ extends Control
 ## to the cap (headroom), greyed past the cap (locked), with dividers every 5 points and the cap
 ## labelled above its tick. `preview` brightens the next +1 slice (hovering an upgradable group).
 
-const BAR_H := 8.0
-const LABEL_H := 16.0
+const BAR_H := 6.0
+const LABEL_H := 13.0
 const HEADROOM := Color("#05070c")
 const LOCKED := Color("#5d6678")
 

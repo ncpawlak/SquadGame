@@ -199,6 +199,9 @@ func taken_callsigns(except: Soldier = null) -> Dictionary:
 ## Gives `s` a callsign if he doesn't have one (or his is taken by someone else).
 func give_callsign(s: Soldier) -> void:
 	var taken := taken_callsigns(s)
+	if s.callsign.length() > Callsigns.MAX_LEN:
+		var short := Callsigns.shorten(s.callsign)
+		s.callsign = short if short != "" and not taken.has(short.to_lower()) else ""
 	if s.callsign == "" or taken.has(s.callsign.to_lower()):
 		s.callsign = Callsigns.pick(s, taken)
 
@@ -209,6 +212,10 @@ func ensure_callsigns() -> void:
 	var pool: Array[Soldier] = all_soldiers()
 	pool.append_array(free_agents)
 	for s in pool:
+		if s.callsign.length() > Callsigns.MAX_LEN:
+			# Saves and data from before the length limit: "Big Cast Iron" becomes "Cast Iron" where that is free.
+			var short := Callsigns.shorten(s.callsign)
+			s.callsign = short if short != "" and not taken.has(short.to_lower()) else ""
 		if s.callsign == "" or taken.has(s.callsign.to_lower()):
 			s.callsign = Callsigns.pick(s, taken)
 		taken[s.callsign.to_lower()] = true

@@ -46,7 +46,7 @@ func finances() -> Control:
 	var rv := s.revenue
 	var v := _vbox(14)
 	var l := rv.ledger_of(s.year, us)
-	v.add_child(_section("%s  -  %d SEASON  -  money earned, and the club fund" % [us.name.to_upper(), s.year]))
+	v.add_child(_section("%s  -  %d SEASON" % [us.name.to_upper(), s.year]))
 	if l.is_empty():
 		v.add_child(UiKit.label("No ledger yet.", 16, UiKit.MUTED))
 		return v
@@ -63,8 +63,6 @@ func finances() -> Control:
 	v.add_child(UiKit.rich("SPENT IN %d   signing bonuses [color=white]%s[/color]   -   luxury tax [color=white]%s[/color]   -   facilities [color=white]%s[/color]   -   facility upkeep [color=white]%s[/color]" % [
 		s.year, _money(float(rv.bonuses_paid(s.year, us))), _money(float(rv.tax_paid(s.year, us))),
 		_money(float(s.facilities.purchases_of(s.year, us))), _money(float(s.facilities.upkeep_of(s.year, us)))], 16))
-	v.add_child(UiKit.label("The club fund is filled once a year by the board grant and pays signing bonuses, the luxury tax and facilities (upgrades and their yearly upkeep). It carries over with no limit. Revenue doesn't go into it: the board reads it. Player pay comes under the salary cap and is not taken from this money; a signing bonus is paid from the fund in full when he signs and never counts on the cap (at most half the deal's total salary).%s" % (
-		"  While the fund is below $0 the board freezes spending: no bonuses, and no deal may take payroll over the tax line." if fund < 0.0 else ""), 14, UiKit.BAD if fund < 0.0 else UiKit.MUTED))
 	var fb := UiKit.button("Facilities", func(): hub.open("Facilities", facilities), 15)
 	fb.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	v.add_child(fb)
@@ -124,7 +122,6 @@ func _board_section(v: VBoxContainer, s: Season, us: Team) -> void:
 	var years: Array = rv.grants.keys()
 	years.sort()
 	if years.is_empty():
-		v.add_child(UiKit.label("The board reviews the season after the Final and grants next season's money: market size, results against the preseason expectation (#%d), playoff wins, awards, player development and unused cap room. A fund below $0 or three straight seasons below expectations cut the grant." % int(s.market.preseason_rank.get(us.abbrev, 0)), 14, UiKit.MUTED))
 		return
 	var y := int(years[-1])
 	var r := rv.grant_of(y, us)
@@ -195,10 +192,6 @@ func facilities() -> Control:
 		v.add_child(UiKit.label("The %d board review took %s in upkeep." % [last, _money(float(paid))], 18, UiKit.MUTED))
 	for id in Facilities.IDS:
 		v.add_child(_facility_card(s, us, id))
-	var help := UiKit.label("Upgrades are bought in the offseason from the club fund and work at once. One level per facility and %d upgrades a club each offseason. Upkeep is %d%% of everything invested (your starting levels count), at most %d%% of the year's board grant, and is charged right after the grant. If the fund can't cover it, a facility loses a level instead." % [
-		Facilities.MAX_UPGRADES, roundi(100.0 * Facilities.UPKEEP_SHARE), roundi(100.0 * Facilities.UPKEEP_GRANT_CAP)], 16, UiKit.MUTED)
-	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(help)
 	return v
 
 
@@ -358,9 +351,8 @@ func market_buzz() -> Control:
 	var s := _season()
 	var us := s.user_team()
 	var v := _vbox(14)
-	v.add_child(_section("%s  -  %d SEASON  -  the city and how much it cares" % [us.name.to_upper(), s.year]))
+	v.add_child(_section("%s  -  %d SEASON" % [us.name.to_upper(), s.year]))
 	v.add_child(UiKit.market_meters(us, 18, 260))
-	v.add_child(UiKit.label("Market size is fixed: a bad team still plays in a big city. Buzz moves with results, rivalries, streaks, the playoffs and big stories, but never fast. It drifts back to a resting level of %d for this market." % roundi(Market.baseline(us)), 14, UiKit.MUTED))
 
 	v.add_child(_section("WHAT MOVED YOUR BUZZ THIS YEAR"))
 	var log_rows: Array = []
@@ -373,7 +365,6 @@ func market_buzz() -> Control:
 		v.add_child(UiKit.label("Nothing yet this season.", 15, UiKit.MUTED))
 	else:
 		v.add_child(UiKit.table(["WHEN", "WHAT", "POINTS"], log_rows, [140, 520, 90], {}, colors))
-	v.add_child(UiKit.label("Points go into a reservoir that buzz absorbs a little at a time; the league's average gain is shared out at season's end, so buzz is relative.", 13, UiKit.MUTED))
 
 	v.add_child(_section("THE LEAGUE'S BUZZ"))
 	var teams: Array = s.league.teams.duplicate()

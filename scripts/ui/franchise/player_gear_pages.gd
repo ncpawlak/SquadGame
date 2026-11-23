@@ -65,7 +65,6 @@ func loadout_page() -> Control:
 
 func _fill_loadout(box: VBoxContainer, st: Dictionary, fns: Dictionary) -> void:
 	var p := _season().player
-	box.add_child(_wrap("Gear comes from your sponsor deals, or from items you bought after a deal ended. Mix brands freely, one item per slot. It adds to your ratings, and taking it off takes the bonus away again. It never counts toward Hall of Fame milestones. Wearing several pieces of one brand wakes its set bonus, which grows with your influence with that brand.", 15))
 	var base := p.base_ovr()
 	var eff := p.best_ovr()
 	box.add_child(_label("Base OVR %d   ·   gear %+d   ·   effective OVR %d" % [base, eff - base, eff], 20, Color.WHITE))
@@ -163,7 +162,6 @@ func _service_effect(id: StringName, lv: Dictionary) -> String:
 func _fill_assets(box: VBoxContainer, fns: Dictionary) -> void:
 	var s := _season()
 	var p := s.player
-	box.add_child(_wrap("Spend what you earn. A coach and an agent cost a retainer every week in season, and let you go if you cannot pay it. Property pays steady rent. A business can lose money in a bad year, but pays more on average.", 15))
 	box.add_child(_label("Cash: %s   ·   salary %s a year   ·   retainers %s a year   ·   rent %s a year" % [Sponsors.money_text(p.cash), Sponsors.money_text(PlayerPay.yearly(p)), Sponsors.money_text(Assets.upkeep_yearly(p)), Sponsors.money_text(Assets.rent_yearly(p))], 16, Color.WHITE))
 	for id in Assets.SERVICES:
 		var n := Assets.level(p, id)
@@ -505,7 +503,6 @@ func _tab_shop(box: VBoxContainer, s: Season, p: Soldier, fns: Dictionary) -> vo
 		v.add_child(buy)
 		flow.add_child(card)
 	box.add_child(UiKit.heading("A foot in the door", 18))
-	box.add_child(_wrap("Buy one item from a brand that has not signed you, at %dx the price. Wearing it builds influence, and it is already paid for when they sign you." % int(Sponsors.PREBUY_MULT), 13))
 	var pre := Sponsors.prebuy_brands(s)
 	if pre.is_empty():
 		box.add_child(_label("No brand to approach right now.", 14, UiKit.MUTED))
@@ -552,7 +549,6 @@ func stories_page() -> Control:
 func _fill_stories(box: VBoxContainer, fns: Dictionary) -> void:
 	var s := _season()
 	var p := s.player
-	box.add_child(_wrap("Things that happen on the way: a decision here can change your morale, brand and skill points. Automatic stories (group training, a breakthrough game, a comeback) show up as coach notes.", 15))
 	if p.stories.is_empty():
 		box.add_child(_label("Nothing waiting.", 16, UiKit.MUTED))
 	for st in p.stories.duplicate():

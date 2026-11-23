@@ -46,7 +46,6 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 	bar.custom_minimum_size = Vector2(90, 4)
 	bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	tt.add_child(bar)
-	tt.add_child(UiKit.label("Pick a face, a name, an archetype and a starting story. Your archetype sets how high each rating can go at the combine; your story sets how fast you grow.", 15, UiKit.MUTED))
 	head.add_child(tt)
 
 	var cols := HBoxContainer.new()
@@ -147,7 +146,7 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 	fns["age"] = func():
 		age_label.text = str(st["age"])
 		var off := Archetypes.age_offset(st["age"])
-		age_hint.text = "Every rating ceiling %s. Younger means rawer now, with more room and more seasons to grow." % ("is full" if off == 0 else "is %d lower" % -off)
+		age_hint.text = ""
 		fns["ceilings"].call()
 	age_row.add_child(UiKit.button("-", func():
 		st["age"] = maxi(Archetypes.AGE_MIN, st["age"] - 1)
@@ -212,8 +211,6 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 				cell.custom_minimum_size.x = 76
 				row.add_child(cell)
 			ceil_box.add_child(row)
-		ceil_box.add_child(UiKit.label("Green: raised by your archetype.  Red: lowered.  These are the highest ratings the combine can award.", 13, UiKit.MUTED))
-		ceil_box.add_child(UiKit.label("Starting OVR is capped at %d whatever you score." % Archetypes.START_OVR_CAP, 13, UiKit.MUTED))
 	fns["stories"] = func():
 		for c in stories.get_children():
 			c.queue_free()

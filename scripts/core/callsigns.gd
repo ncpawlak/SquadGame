@@ -3,6 +3,9 @@ extends RefCounted
 ## Callsign pools keyed by a soldier's best stat group. A soldier gets one from the pool matching
 ## his strongest group; callsigns are unique among active soldiers in the league.
 
+## Longest callsign allowed, in characters ("Bad Monkey" fits, "Big Cast Iron" does not).
+const MAX_LEN := 10
+
 const POOLS := {
 	&"accuracy": ["Hawkeye", "Deadeye", "Longshot", "Crosshair", "Bullseye", "Sniper", "Lancer", "Pinpoint",
 		"Scope", "Falcon", "Arrow", "Marksman", "Needle", "Optic", "Sightline", "Kestrel", "Zero", "Range",
@@ -21,7 +24,7 @@ const POOLS := {
 		"Lockdown", "Overlord", "Baron", "Claim", "Bastille", "Citadel", "Highground"],
 	&"durability": ["Ironside", "Rock", "Granite", "Bunker", "Fortress", "Steel", "Cast Iron", "Bedrock",
 		"Concrete", "Rebar", "Bastion", "Wall", "Armor", "Kevlar", "Bulwark", "Crowbar", "Nails", "Gravel",
-		"Rampart", "Tough Guy", "Unbreakable", "Brickhouse", "Mule", "Stone", "Oak"],
+		"Rampart", "Tough Guy", "Unbroken", "Brickhouse", "Mule", "Stone", "Oak"],
 }
 
 ## Used once a soldier's group pools are all taken (a 240-man league plus free agents and prospects).
@@ -78,21 +81,37 @@ static func pick(s: Soldier, taken: Dictionary) -> String:
 		var start := absi(hash(s.id * 31 + 7)) % pool.size()
 		for i in pool.size():
 			var name: String = pool[(start + i) % pool.size()]
-			if not taken.has(name.to_lower()):
+			if name.length() <= MAX_LEN and not taken.has(name.to_lower()):
 				return name
 	var gstart := absi(hash(s.id * 17 + 3)) % GENERAL.size()
 	for i in GENERAL.size():
 		var name: String = GENERAL[(gstart + i) % GENERAL.size()]
-		if not taken.has(name.to_lower()):
+		if name.length() <= MAX_LEN and not taken.has(name.to_lower()):
 			return name
 	var own: Array = POOLS[order[0]]
 	for pre in PREFIXES:
 		for i in own.size():
 			var name := "%s %s" % [pre, own[(absi(hash(s.id)) + i) % own.size()]]
-			if not taken.has(name.to_lower()):
+			# An adjective only works as part of a callsign when the whole thing fits ("Bad Monkey").
+			if name.length() <= MAX_LEN and not taken.has(name.to_lower()):
 				return name
-	var base: String = POOLS[order[0]][absi(hash(s.id)) % POOLS[order[0]].size()]
+	var short: Array = []
+	for nm in own:
+		if String(nm).length() <= MAX_LEN - 3:
+			short.append(nm)
+	var base: String = short[absi(hash(s.id)) % short.size()]
 	var n := 2
 	while taken.has(("%s %d" % [base, n]).to_lower()):
 		n += 1
 	return "%s %d" % [base, n]
+
+
+## A too-long callsign cut down to fit by dropping its leading adjective ("Big Cast Iron" -> "Cast Iron"),
+## or "" when that is not enough.
+static func shorten(callsign: String) -> String:
+	for pre in PREFIXES:
+		if callsign.begins_with(pre + " "):
+			var rest := callsign.substr(pre.length() + 1)
+			if rest.length() <= MAX_LEN:
+				return rest
+	return ""

@@ -65,11 +65,9 @@ func _ready() -> void:
 	var create := MenuText.new("New Career" if career else "New Franchise", 54, _accent, "Create a soldier" if career else "Pick a team", 600)
 	create.pressed.connect(app.show_player_create if career else app.show_team_select)
 	left.add_child(create)
-	var hints := FrontEnd.footer([["Arrows / WASD / D-pad", "Move"], ["Enter / A", "Select"], ["Esc / B", "Back"]])
 	var hp := Control.new()
 	hp.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	left.add_child(hp)
-	left.add_child(hints)
 	if has_save:
 		create.set_meta(&"skip_autofocus", true)
 

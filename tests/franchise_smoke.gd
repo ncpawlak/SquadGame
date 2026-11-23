@@ -128,14 +128,15 @@ func _init() -> void:
 	await process_frame
 	await process_frame
 	_check(hub.page_stack.is_empty() or hub.page_stack[-1]["title"] != "Player Progression", "progression closes when no one is left to level up")
-	hub.select_tab(1)
+	hub.select_tab(0)
 	await process_frame
-	var prog_card: Button = null
-	for b in hub._content.find_children("*", "Button", true, false):
-		# The Team tab's live links are text chips ("PLAYER PROGRESSION  3").
-		if b.text.to_upper().begins_with("PLAYER PROGRESSION"):
-			prog_card = b
-	_check(prog_card != null and prog_card.disabled, "progression card is disabled with no one to level up")
+	# The Team tab no longer has a Player Progression button; Home's "Upgrade Players" to-do is the entry point,
+	# and it disappears once nobody can level up.
+	var upgrade_todo: Control = null
+	for l in hub._content.find_children("*", "Label", true, false):
+		if String(l.text).to_upper() == "UPGRADE PLAYERS":
+			upgrade_todo = l
+	_check(upgrade_todo == null, "Upgrade Players to-do is gone when no one can level up")
 	hub.page_stack.clear()
 	hub.refresh()
 	# Auto-progress all.
@@ -524,7 +525,9 @@ func _extension_flow(hub) -> void:
 	guy.ext_walked_year = 0
 	hub.open_extensions()
 	await process_frame
-	_check(hub.page_stack[-1]["title"] == "Extensions", "extensions page opens")
+	# Extensions is a mode of the Personnel > Contracts tab now, not a pushed page.
+	_check(hub.tab_index == hub.Tab.PERSONNEL and hub.page_stack.is_empty() and hub.personnel_view == 0
+		and hub._pers_mode.get(0, 0) == 2, "extensions opens as Personnel > Contracts > Extensions")
 	_check(_find_button(hub, "Negotiate") != null, "extensions page has Negotiate")
 	hub.pages.open_negotiation(guy)
 	await process_frame

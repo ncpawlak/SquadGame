@@ -77,9 +77,7 @@ func _ready() -> void:
 		quit.pressed.connect(func(): get_tree().quit())
 		quit.set_meta(&"skip_autofocus", true)
 		bottom.add_child(quit)
-	var hints := FrontEnd.footer([["Arrows / WASD / D-pad", "Move"], ["Enter / A", "Select"]])
-	hints.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	bottom.add_child(hints)
+	# The key-hint footer was removed (text kept in HelpText "global.key_hints_menu").
 
 	# The mode you last played takes the initial focus.
 	var f_running: bool = int(franchise["slot"]) == -1

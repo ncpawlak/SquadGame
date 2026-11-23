@@ -38,7 +38,6 @@ static func make(season: Season, on_done: Callable, on_back: Callable) -> Contro
 	bar.custom_minimum_size = Vector2(90, 4)
 	bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	tt.add_child(bar)
-	tt.add_child(UiKit.label("Run each drill up to %d times. Your best score on every rating counts, and sets the range scouts see." % Combine.TRIES, 15, UiKit.MUTED))
 	head.add_child(tt)
 
 	var body := HBoxContainer.new()
@@ -91,14 +90,11 @@ static func make(season: Season, on_done: Callable, on_back: Callable) -> Contro
 		var fin := UiKit.primary_button("Lock in combine", on_done, 20)
 		fin.disabled = not combine.is_complete()
 		lv.add_child(fin)
-		if not combine.is_complete():
-			lv.add_child(UiKit.label("Run every drill at least once to finish.", 13, UiKit.MUTED))
 
 	fns["hub"] = func():
 		clear.call(stage)
 		fns["list"].call()
 		stage.add_child(UiKit.display("YOUR RANGES SO FAR", 24, UiKit.ACCENT, true))
-		stage.add_child(UiKit.label("Each range is where your rating can land. Where inside it depends on talent you cannot see.", 15, UiKit.MUTED))
 		var b := combine.bands()
 		var any := false
 		for g in Combine.DRILL_ORDER:
@@ -204,7 +200,6 @@ static func results(season: Season, on_continue: Callable) -> Control:
 		Archetypes.find(season.player_archetype)["name"], Scheme.ROLE_NAMES[Archetypes.role_of(season.player_archetype)]], 18, UiKit.ACCENT))
 	var r := combine.ovr_range()
 	root.add_child(UiKit.label("Overall range: %d - %d" % [r.x, r.y], 24, Color.WHITE))
-	root.add_child(UiKit.label("Starting OVR is capped at %d. Your true ratings sit inside these ranges." % Archetypes.START_OVR_CAP, 14, UiKit.MUTED))
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 60)
@@ -218,7 +213,5 @@ static func results(season: Season, on_continue: Callable) -> Control:
 			col.add_child(UiKit.label("%-18s %3d - %-3d" % [Stats.LABELS[stat], b[stat].x, b[stat].y], 15, UiKit.TEXT))
 		grid.add_child(col)
 	root.add_child(UiKit.label("Dev stars: %s" % s.dev_text(), 16, UiKit.GOLD))
-	var note := UiKit.label("The draft is next.", 15, UiKit.MUTED)
-	root.add_child(note)
 	root.add_child(UiKit.primary_button("Continue", on_continue, 22))
 	return wrap

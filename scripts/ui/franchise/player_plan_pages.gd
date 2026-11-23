@@ -58,11 +58,6 @@ func _fill_plan(box: VBoxContainer, camp: bool, st: Dictionary, fns: Dictionary)
 	var s := _season()
 	var p := s.player
 	var plan: Dictionary = st["plan"]
-	var intro := _label("%d points, at most %d in any one activity. Every point except spa adds fatigue. Your plan repeats until you change it." % [WeeklyPlan.points(camp), WeeklyPlan.max_level(camp)] if not camp \
-		else "Camp: %d points, at most %d in any one activity. Camp has no fatigue; spa here is rehab and takes Wear off. Your camp plan repeats every offseason." % [WeeklyPlan.points(camp), WeeklyPlan.max_level(camp)], 15, UiKit.MUTED)
-	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	intro.custom_minimum_size.x = 1100
-	box.add_child(intro)
 	var pr := {}
 	if not camp:
 		pr = WeeklyPlan.projection(s, plan)
@@ -103,10 +98,6 @@ func _fill_plan(box: VBoxContainer, camp: bool, st: Dictionary, fns: Dictionary)
 	if left > 0:
 		box.add_child(_label("%d unspent point%s will be wasted." % [left, "" if left == 1 else "s"], 15, UiKit.GOLD))
 	box.add_child(_label(_stars_line(p, plan, camp), 15, UiKit.INFO))
-	if not camp and not bool(pr.get("played", false)) and WeeklyPlan.level(plan, WeeklyPlan.BRAND) > 0:
-		box.add_child(_label("You are not expected to play this week, so brand exposure earns nothing.", 14, UiKit.GOLD))
-	if not camp and not bool(pr.get("played", false)):
-		box.add_child(_label("You are not expected to play this week: fatigue will not hurt you.", 14, UiKit.MUTED))
 	var err := WeeklyPlan.error(plan, camp)
 	if err != "":
 		box.add_child(_label(err, 15, UiKit.BAD))
@@ -212,10 +203,6 @@ func cap_raise_page() -> Control:
 func _fill_cap_raise(box: VBoxContainer, fns: Dictionary) -> void:
 	var s := _season()
 	var p := s.player
-	var intro := _label("Once an offseason you can raise one group's ceiling, maxed or not. The raise is +2 (+1 as a group nears its peak age, none at it), plus a point each for a strong season, a Performance Institute, a camp special and a story (max +%d). It closes once a group is past its peak age. A raise lifts the cap only: you still earn the rating with skill points." % CapRaise.MAX_RAISE, 15, UiKit.MUTED)
-	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	intro.custom_minimum_size.x = 960
-	box.add_child(intro)
 	var window := CapRaise.window_error(s)
 	if window != "":
 		box.add_child(_label(window, 16, UiKit.GOLD))
@@ -258,7 +245,6 @@ func _camp_special_row(box: VBoxContainer, fns: Dictionary) -> void:
 			Stories.set_camp_special(s, g)
 			fns["render"].call(), 14))
 	box.add_child(row)
-	box.add_child(_label("A masterclass on one group: it adds a point to that group's cap raise this offseason (free, and a mentor story can set it too).", 13, UiKit.MUTED))
 
 
 ## Place a group upgrade by hand: one stat point per stat in the group, up to each stat's cap, then confirm.

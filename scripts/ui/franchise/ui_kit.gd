@@ -928,7 +928,10 @@ static func market_meters(team: Team, size := 14, bar_width := 150) -> Control:
 		var tag := label(r[0], size - 2, MUTED)
 		tag.custom_minimum_size.x = 56
 		hb.add_child(tag)
-		hb.add_child(label(String(r[1]).to_upper(), size, r[3]))
+		var val := label(String(r[1]).to_upper(), size, r[3])
+		val.custom_minimum_size.x = size * 10
+		val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		hb.add_child(val)
 		var bar := ProgressBar.new()
 		bar.custom_minimum_size = Vector2(bar_width, 7)
 		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER

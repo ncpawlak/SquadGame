@@ -68,7 +68,6 @@ func _champions() -> Control:
 		func(i: int):
 			var snap: SeasonSnapshot = snaps[i]
 			hub.open("%d Season" % snap.year, func(): return season_page(snap))))
-	v.add_child(UiKit.label("Click a year for its final table and bracket.", 13, UiKit.MUTED))
 
 	var titles := {}  # Team -> [years]
 	for snap: SeasonSnapshot in s.history:
@@ -173,7 +172,6 @@ func _awards() -> Control:
 			targets.append(a["soldier"])
 	v.add_child(UiKit.table(["YEAR", "AWARD", "SOLDIER", "TEAM", "SEASON"], arows, [70, 200, 220, 70, 330], {}, {},
 		func(i: int): pages.open_player(targets[i])))
-	v.add_child(UiKit.label("The full All-League teams are on the Awards page.", 13, UiKit.MUTED))
 	return v
 
 
@@ -216,7 +214,6 @@ func _records() -> Control:
 	var abbrev := records_team
 	var phase := records_phase
 	var who := "LEAGUE" if abbrev == "" else s.league.team_by_abbrev(abbrev).name.to_upper()
-	v.add_child(UiKit.label("The best mark in each category. Click a row for the top %d. Every league starts with the same marks from earlier years; every season played here counts too." % Records.TOP_N, 13, UiKit.MUTED))
 
 	v.add_child(pages._section("%s SEASON RECORDS" % who))
 	v.add_child(_holders(Records.PLAYER_STATS, func(stat): return Records.player_seasons(s, stat, abbrev, phase), "season"))
@@ -224,7 +221,6 @@ func _records() -> Control:
 	v.add_child(_holders(Records.PLAYER_STATS, func(stat): return Records.player_careers(s, stat, abbrev, phase), "career"))
 	v.add_child(pages._section("%s SINGLE-MATCH RECORDS" % who))
 	v.add_child(_holders(StatRegistry.SINGLE_MATCH, func(stat): return Records.single_matches(s, stat, phase, abbrev), "match"))
-	v.add_child(UiKit.label("Single-match records and streaks start from those marks; matches played here count from the first one.", 13, UiKit.MUTED))
 	v.add_child(pages._section("%s TEAM RECORDS" % who))
 	v.add_child(_holders(Records.TEAM_STATS, func(stat): return Records.team_seasons(s, stat, abbrev), "team"))
 	v.add_child(_holders(StatRegistry.STREAKS, func(stat): return Records.streaks(s, stat["id"], abbrev), "team"))
@@ -327,9 +323,6 @@ func callsign_proposals() -> Control:
 	if open_list.is_empty():
 		v.add_child(UiKit.label("Nothing to decide.", 16, UiKit.MUTED))
 		return v
-	var help := UiKit.label("Retiring a callsign takes it out of the league for good: it hangs from your banner row and nobody is given it again. Anything you leave open is retired when the next season starts.", 14, UiKit.MUTED)
-	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(help)
 	for e: Dictionary in open_list.duplicate():
 		var card := UiKit.panel()
 		var box := VBoxContainer.new()

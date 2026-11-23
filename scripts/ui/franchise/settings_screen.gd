@@ -70,7 +70,6 @@ func _ready() -> void:
 	var grow := Control.new()
 	grow.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	left.add_child(grow)
-	left.add_child(FrontEnd.footer([["Arrows / WASD / D-pad", "Move"], ["Enter / A", "Change"], ["Esc / B", "Back"]]))
 
 	# Right: the highlighted row explains itself.
 	var right := CenterContainer.new()
