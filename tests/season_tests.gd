@@ -443,7 +443,17 @@ func test_season_review_and_aging() -> void:
 			check(so.dev >= Soldier.DEV_MIN and so.dev <= Soldier.DEV_MAX, "stars in range")
 			if so.best_ovr() >= 85:
 				check(so.potential_grade() >= 2, "%s (%d OVR) potential C+ (%s)" % [so.full_name(), so.best_ovr(), so.potential_letter()])
+	var start_ages := {}
+	for so in s.league.all_soldiers():
+		start_ages[so] = so.age
 	s.sim_to_end_of_season()
+	# Everyone turns a year older the moment the offseason opens (not at the next season's start).
+	var aged := 0
+	for so in start_ages:
+		if s.league.all_soldiers().has(so) or s.league.free_agents.has(so):
+			check(so.age == start_ages[so] + 1, "everyone ages a year when the offseason opens")
+			aged += 1
+	check(aged > 0, "some soldiers aged")
 	var rev := s.review
 	check(rev != null and rev.year == 2026, "review created at season end")
 	check(s.review_history.size() == 1, "review stored in history")
@@ -470,7 +480,7 @@ func test_season_review_and_aging() -> void:
 			ages[so] = so.age
 	s.start_next_season()
 	for so in ages:
-		check(so.age == ages[so] + 1, "everyone ages a year")
+		check(so.age == ages[so], "no second aging at the start of the next season")
 	for r in s.aging_report:
 		var so: Soldier = r["soldier"]
 		for g in r["changes"]:

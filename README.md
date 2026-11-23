@@ -205,11 +205,14 @@ Title → **Franchise** (New / Continue / Load) → pick one of 20 teams → fra
   a note for blue chips, specialists, steals and reaches, and click-through to each player's profile. Past recaps
   stay under Personnel → Draft.
 - **Contracts & payroll** (`scripts/core/contract.gd`, `scripts/season/contracts.gd`): every soldier has a salary
-  and years left. Hard cap of $150M per team per season, the same for everyone (Madden-style); minimum salary
-  $750K always fits. **Salary floor** $20M: a team whose payroll ends a season below it pays the shortfall as a
-  penalty (charged to its cap, reported in News); League → Teams flags teams below the floor. Contracts tick down after the Final. Releasing a player leaves 50% of his remaining money on
-  the cap as dead money, split over his remaining years. Personnel → Contracts & Payroll shows cap space, every
-  contract and future commitments. Trades have to fit under the cap too.
+  and years left. **Soft cap of $250M** per team, the same for everyone (NBA-style; `Contracts.SALARY_CAP`). Signing another
+  team's free agent needs room under it. Minimum deals ($1M), re-signing your own expiring players, extensions and rookie/Green Team
+  deals may go over it, up to the **apron** ($380M, a hard ceiling no signing, re-sign, extension or trade may cross). Payroll over the
+  **luxury tax line** ($320M) at season end costs 1.5x the excess in club cash. There is no salary floor. A **signing bonus**
+  (at most half of the deal's total salary) is paid from the club fund and never counts on the cap. A team ending a trade over the
+  cap takes back at most 125% of the salary it sends out. Contracts tick down after the Final. Releasing a player leaves 50% of
+  his remaining money on the cap as dead money, split over his remaining years. Personnel → Contracts & Payroll shows cap space,
+  every contract and future commitments. The $150M hard cap only survives as `LEGACY_SALARY_CAP` to rescale old saves.
 - **Player DNA** (`scripts/core/dna.gd`, player page → DNA tab, fully visible): five motivations - Money,
   Winning, Playing Time, Loyalty, Security - plus Temperament (thick- vs thin-skinned) and Savvy (negotiating
   skill), 1-99. Rolled once per soldier (young players lean money/playing time, veterans winning/security) with one
@@ -283,7 +286,7 @@ Title → **Franchise** (New / Continue / Load) → pick one of 20 teams → fra
   Until free agency opens, each expiring contract stays on the cap as a **cap hold** at his old salary (a $1M payroll
   plus a $20M expiring star is $21M); re-signing him swaps the hold for his new deal (at $25M the payroll is $26M)
   and releasing him clears it.
-  Rookie deals always sign, even over the hard cap, but a team over the cap must cut or trade down before camp (you
+  Rookie deals always sign, even over the soft cap, but a team over the apron must cut or trade down before camp (you
   can't advance past the roster review until you're under; AI teams cut their least valuable players to get there). Rosters max out at 10 (5 starters + 5 backups), plus a 6-man **Green Team** (below).
   In the offseason your roster can be any size (trades, draft picks, extra signings), but **Week 1 needs exactly 10** (and a Green Team of 6 or fewer):
   release down or sign up to it (an urgent "Roster Cuts" / "Roster Spots Open" to-do on Home). After Week 1
@@ -738,7 +741,7 @@ Exit code 0 = pass. The slow part is the stat-sensitivity test, which plays 200 
 - Seasons and schedules (done: 20 teams, 4 divisions, 8-team playoffs)
 - Save / Load (done)
 - Scouting and the end-of-season draft (done)
-- Contracts, hard cap, free agency, retirement, DNA, re-sign negotiation, contract extensions and starter promises (done)
+- Contracts, soft cap with luxury tax and apron, free agency, retirement, DNA, re-sign negotiation, contract extensions and starter promises (done)
 - Trades: in-season (Week 8 deadline), offseason and draft-day, trade block and AI offers (done)
 - Best-of-3 match modes (done; next: more modes and per-mode schemes)
 - Weekly News: your club's beat writer files a generated newspaper article every week and offseason step (done)
