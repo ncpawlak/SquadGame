@@ -51,87 +51,23 @@ func _set_screen(c: Control) -> void:
 func show_title() -> void:
 	UiKit.reset_team()
 	theme = UiKit.theme()
-	var wrap := Control.new()
-	var g := UiKit.gradient_rect(Color("#1a2640").darkened(0.3), UiKit.BG)
-	g.set_anchors_preset(Control.PRESET_FULL_RECT)
-	wrap.add_child(g)
-	var root := CenterContainer.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	wrap.add_child(root)
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 14)
-	col.custom_minimum_size.x = 780
-	root.add_child(col)
-	var title := UiKit.display("SQUAD LEAGUE", 96, Color.WHITE, true)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(title)
-	var bar := Panel.new()
-	var bsb := UiKit.flat(UiKit.ACCENT, 1)
-	bsb.skew = Vector2(UiKit.SKEW * 2.0, 0)
-	bar.add_theme_stylebox_override("panel", bsb)
-	bar.custom_minimum_size = Vector2(220, 5)
-	bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	col.add_child(bar)
-	var sub := UiKit.display("CAREER  ·  FRANCHISE", 28, UiKit.ACCENT)
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(sub)
-	col.add_child(_spacer(24))
-	# Two big buttons; picking one opens its own buttons beside it (new, continue, load).
-	var menu := HBoxContainer.new()
-	menu.add_theme_constant_override("separation", 24)
-	menu.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_child(menu)
-	var main := VBoxContainer.new()
-	main.add_theme_constant_override("separation", 14)
-	menu.add_child(main)
-	var side := VBoxContainer.new()
-	side.add_theme_constant_override("separation", 14)
-	side.custom_minimum_size.x = 300
-	side.alignment = BoxContainer.ALIGNMENT_CENTER
-	menu.add_child(side)
-	var open_side := func(kind: StringName):
-		for c in side.get_children():
-			side.remove_child(c)
-			c.queue_free()
-		var in_career := season != null and season.player_mode
-		var in_franchise := season != null and not season.player_mode
-		if kind == &"career":
-			side.add_child(UiKit.display("CAREER", 20, UiKit.ACCENT, true))
-			side.add_child(_menu_button("New Career", show_player_create, 22, 300))
-			if in_career:
-				side.add_child(_menu_button("Continue", show_hub, 22, 300))
-			side.add_child(_menu_button("Load Career", show_load_menu, 22, 300))
-		else:
-			side.add_child(UiKit.display("FRANCHISE", 20, UiKit.ACCENT, true))
-			side.add_child(_menu_button("New Franchise", show_team_select, 22, 300))
-			if in_franchise:
-				side.add_child(_menu_button("Continue", show_hub, 22, 300))
-			side.add_child(_menu_button("Load Franchise", show_load_menu, 22, 300))
-		var k := 0
-		for c in side.get_children():
-			UiKit.fade_in(c, 0.04 * k, 0.2)
-			k += 1
-	var career_btn := _menu_button("Career", func(): open_side.call(&"career"))
-	var franchise_btn := _menu_button("Franchise", func(): open_side.call(&"franchise"))
-	main.add_child(career_btn)
-	main.add_child(franchise_btn)
-	main.add_child(_menu_button("Exhibition Match", func(): toast("Exhibition mode is coming soon. Use Debug Sim Tools for now.")))
-	main.add_child(_menu_button("Data Edit", show_data_edit))
-	main.add_child(_menu_button("Debug Sim Tools", open_debug))
-	if not OS.has_feature("web"):
-		main.add_child(_menu_button("Quit", func(): get_tree().quit()))
-	# Reopen whichever mode is running so Continue is one click away.
-	if season != null:
-		open_side.call(&"career" if season.player_mode else &"franchise")
-	col.add_child(_spacer(16))
-	var hint := UiKit.label("Arrows / WASD / D-pad to move  -  Enter / A to select", 14, UiKit.MUTED)
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(hint)
-	var i := 0
-	for c in col.get_children():
-		UiKit.fade_in(c, 0.04 * i, 0.3)
-		i += 1
-	_set_screen(wrap)
+	var home := HomeScreen.new()
+	home.app = self
+	_set_screen(home)
+
+
+## Career or Franchise: the mode's preview, Continue / New actions and save slots.
+func show_mode(mode: String) -> void:
+	var m := ModeScreen.new()
+	m.app = self
+	m.mode = mode
+	_set_screen(m)
+
+
+func show_settings() -> void:
+	var s := SettingsScreen.new()
+	s.app = self
+	_set_screen(s)
 
 
 ## New Franchise step 1: choose a start point. Manager continues to team select; Player is not built yet.
@@ -250,7 +186,7 @@ func show_player_create() -> void:
 	if preview_seed == 0:
 		preview_seed = randi_range(1, 999999)
 	var taken := PlayerCareer.taken_callsigns(League.load_fixed(preview_seed))
-	_set_screen(PlayerCreate.make(taken, show_title, _on_player_created))
+	_set_screen(PlayerCreate.make(taken, show_mode.bind("career"), _on_player_created))
 
 
 func _on_player_created(choice: Dictionary) -> void:
@@ -320,7 +256,7 @@ func show_team_select() -> void:
 
 	var head := HBoxContainer.new()
 	root.add_child(head)
-	var back := UiKit.button("< Back", show_title, 18)
+	var back := UiKit.button("< Back", show_mode.bind("franchise"), 18)
 	UiKit.style_skewed(back)
 	back.custom_minimum_size = Vector2(120, 48)
 	back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -590,17 +526,8 @@ func show_data_edit() -> void:
 	_set_screen(de)
 
 
-func show_load_menu() -> void:
-	var root := CenterContainer.new()
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 12)
-	root.add_child(col)
-	col.add_child(UiKit.label("LOAD FRANCHISE", 34, Color.WHITE))
-	for slot in range(SaveSystem.AUTO_SLOT, SaveSystem.SLOTS + 1):
-		col.add_child(FranchisePages.save_slot_tile(slot, false, self, show_load_menu))
-	var back := UiKit.button("< Back", show_title)
-	col.add_child(back)
-	_set_screen(root)
+func show_load_menu(mode := "franchise") -> void:
+	show_mode(mode)
 
 
 ## Franchise settings popup shown when a team is picked: Accept starts the franchise, Cancel returns
