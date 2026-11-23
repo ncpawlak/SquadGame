@@ -89,7 +89,7 @@ func room() -> Control:
 	var d = s.get(&"fantasy_draft")
 	var v := _vbox(12)
 	if d == null:
-		v.add_child(UiKit.label("No fantasy draft is running.", 20, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No fantasy draft is running."))
 		return v
 	if d.is_complete():
 		return _recap(d)
@@ -315,7 +315,7 @@ func _fill_board() -> void:
 		c.queue_free()
 	var list := _board_list()
 	if list.is_empty():
-		_board_box.add_child(UiKit.label("Nobody matches.", 16, UiKit.MUTED))
+		_board_box.add_child(FrontEnd.empty_note("Nobody matches."))
 		return
 	_board_box.add_child(_board_header())
 	for x in list.slice(0, BOARD_ROWS):
@@ -353,7 +353,7 @@ func _add_view_button(row: Control, x: Soldier) -> void:
 func _picks_list(picks: Array, limit: int, with_team := false) -> Control:
 	var box := _vbox(2)
 	if picks.is_empty():
-		box.add_child(UiKit.label("None yet.", 15, UiKit.MUTED))
+		box.add_child(FrontEnd.empty_note("None yet."))
 		return box
 	var user := _season().user_team()
 	var shown: Array = picks.duplicate()

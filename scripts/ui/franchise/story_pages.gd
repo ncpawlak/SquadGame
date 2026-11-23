@@ -119,7 +119,7 @@ static func list_page(season: Season, hub) -> Control:
 		v.add_child(sum_tile)
 	if shown.is_empty():
 		if summaries == 0:
-			v.add_child(UiKit.label("No storylines are running right now.", 17, UiKit.MUTED))
+			v.add_child(FrontEnd.empty_note("No storylines are running right now."))
 		return v
 	for st: Dictionary in shown:
 		var live: bool = st["status"] == Storylines.STATUS_ACTIVE

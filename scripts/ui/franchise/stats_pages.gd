@@ -25,7 +25,7 @@ func leaders() -> Control:
 		return v
 	var pool := _pool(s)
 	if pool.is_empty():
-		v.add_child(UiKit.label("No matches recorded here yet.", 18, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No matches recorded here yet."))
 		return v
 	# A ratio needs half the most games anyone has played, so one hot match is not a leader.
 	var most := 0
@@ -89,7 +89,7 @@ func _team_leaders(s: Season) -> Control:
 	for abbrev in totals:
 		played += int(totals[abbrev]["matches"])
 	if played == 0:
-		v.add_child(UiKit.label("No matches recorded here yet.", 18, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No matches recorded here yet."))
 		return v
 	var user_abbrev := s.user_team().abbrev
 	var flow := HFlowContainer.new()

@@ -48,7 +48,7 @@ func finances() -> Control:
 	var l := rv.ledger_of(s.year, us)
 	v.add_child(_section("%s  -  %d SEASON" % [us.name.to_upper(), s.year]))
 	if l.is_empty():
-		v.add_child(UiKit.label("No ledger yet.", 16, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No ledger yet."))
 		return v
 	var table_rows := rv.table(s)
 	var rank := 0
@@ -362,7 +362,7 @@ func market_buzz() -> Control:
 		log_rows.append([String(e["when"]), String(e["label"]), "%+.1f" % a])
 		colors[log_rows.size() - 1] = {2: UiKit.GOOD if a > 0.0 else UiKit.BAD}
 	if log_rows.is_empty():
-		v.add_child(UiKit.label("Nothing yet this season.", 15, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("Nothing yet this season."))
 	else:
 		v.add_child(UiKit.table(["WHEN", "WHAT", "POINTS"], log_rows, [140, 520, 90], {}, colors))
 

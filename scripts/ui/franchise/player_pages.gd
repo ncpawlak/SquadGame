@@ -627,7 +627,7 @@ func my_player() -> Control:
 	var s := _season()
 	var p := s.player
 	var team := s.user_team()
-	var root := _vbox(16)
+	var root := _vbox(8)
 	root.name = "MyPlayer"
 	root.custom_minimum_size.x = 1100
 	root.add_child(_hero(s, p, team))
@@ -640,12 +640,12 @@ func my_player() -> Control:
 	left.add_child(UiKit.heading("Ratings", 22))
 	var grid := GridContainer.new()
 	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 12)
-	grid.add_theme_constant_override("v_separation", 12)
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 8)
 	left.add_child(grid)
 	for g in Stats.GROUP_ORDER:
 		grid.add_child(_group_row(p, g))
-	var right := _vbox(10)
+	var right := _vbox(4)
 	right.custom_minimum_size.x = 330
 	cols.add_child(right)
 	right.add_child(UiKit.heading("Your week", 22))
@@ -674,14 +674,14 @@ func _hero(s: Season, p: Soldier, team: Team) -> Control:
 	back.set_anchors_preset(Control.PRESET_FULL_RECT)
 	panel.add_child(back)
 	var h := _hbox(24)
-	panel.add_child(_wrap(h, 18))
-	h.add_child(Portrait.new(p, 150, UiKit.ACCENT, team))
+	panel.add_child(_wrap(h, 10))
+	h.add_child(Portrait.new(p, 96, UiKit.ACCENT, team))
 	var mid := _vbox(4)
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mid.alignment = BoxContainer.ALIGNMENT_CENTER
 	h.add_child(mid)
 	mid.add_child(_label(p.full_name().to_upper(), 15, Color(1, 1, 1, 0.75)))
-	mid.add_child(UiKit.display(("\"%s\"" % p.callsign).to_upper(), 52, Color.WHITE, true))
+	mid.add_child(UiKit.display(("\"%s\"" % p.callsign).to_upper(), 40, Color.WHITE, true))
 	var a := Archetypes.find(s.player_archetype)
 	mid.add_child(_label("%s %s  ·  %s  ·  Age %d  ·  Level %d" % [a["name"], Scheme.ROLE_NAMES[Scheme.best_role(p.stats)], team.name, p.age, p.level], 15, Color(1, 1, 1, 0.8)))
 	var badges := _hbox(14)
@@ -697,7 +697,7 @@ func _hero(s: Season, p: Soldier, team: Team) -> Control:
 	var cap := _label("OVERALL", 13, Color(1, 1, 1, 0.7))
 	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ovr.add_child(cap)
-	var big := UiKit.display(str(p.best_ovr()), 96, UiKit.ovr_color(p.best_ovr()), true)
+	var big := UiKit.display(str(p.best_ovr()), 64, UiKit.ovr_color(p.best_ovr()), true)
 	big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ovr.add_child(big)
 	var gear := p.best_ovr() - p.base_ovr()
@@ -745,10 +745,10 @@ func _gauge(caption: String, value: String, v: float, maximum: float, color: Col
 	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.add_theme_stylebox_override("panel", UiKit.flat(UiKit.PANEL, 8, 1, Color(color, 0.35)))
-	var box := _vbox(4)
-	card.add_child(_wrap(box, 12))
+	var box := _vbox(2)
+	card.add_child(_wrap(box, 8))
 	box.add_child(_label(caption, 11, UiKit.MUTED))
-	box.add_child(UiKit.display(value, 24, color, true))
+	box.add_child(UiKit.display(value, 20, color, true))
 	box.add_child(Meter.new(v, maximum, color, 0.0, 8.0))
 	card.tooltip_text = hint
 	return card
@@ -760,24 +760,24 @@ func _group_row(p: Soldier, g: StringName) -> Control:
 	var gr := p.group_rating(g)
 	var b := Button.new()
 	UiKit.style_button(b, UiKit.PANEL_HI, UiKit.ACCENT, 8, false)
-	b.custom_minimum_size = Vector2(430, 120)
+	b.custom_minimum_size = Vector2(430, 86)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var cost := Progression.upgrade_cost(p, g)
 	b.disabled = not Progression.can_place(p, g)
-	var box := _vbox(5)
+	var box := _vbox(3)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.set_anchors_preset(Control.PRESET_FULL_RECT)
 	box.offset_left = 14
 	box.offset_right = -14
-	box.offset_top = 8
-	box.offset_bottom = -8
+	box.offset_top = 6
+	box.offset_bottom = -6
 	b.add_child(box)
 	var line := _hbox(12)
 	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var title := _label(String(Stats.GROUP_LABELS[g]).to_upper(), 16, Color.WHITE if upgradable else UiKit.MUTED)
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	line.add_child(title)
-	var num := UiKit.display(str(gr), 34, UiKit.ovr_color(gr), true)
+	var num := UiKit.display(str(gr), 28, UiKit.ovr_color(gr), true)
 	num.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	line.add_child(num)
 	var spacer := Control.new()
@@ -1008,7 +1008,7 @@ func hof_path() -> Control:
 func milestones() -> Control:
 	var s := _season()
 	var root := _vbox(8)
-	root.custom_minimum_size.x = 900
+	root.custom_minimum_size.x = 1400
 	root.add_child(_label("%d of %d reached" % [s.player_milestones.size(), PlayerLegacy.MILESTONES.size()], 18, UiKit.TEXT))
 	root.add_child(UiKit.heading("Reached", 20))
 	var any := false
@@ -1026,18 +1026,23 @@ func milestones() -> Control:
 	if not any:
 		root.add_child(_label("None yet. Your first game is the first one.", 15, UiKit.MUTED))
 	root.add_child(UiKit.heading("Still to come", 20))
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 40)
+	grid.add_theme_constant_override("v_separation", 2)
+	root.add_child(grid)
 	for m in PlayerLegacy.MILESTONES:
 		if not PlayerLegacy.achieved(s, m["id"]).is_empty():
 			continue
 		var row2 := _hbox(14)
 		var nm2 := _label(String(m["name"]), 18, Color.WHITE)
-		nm2.custom_minimum_size.x = 260
+		nm2.custom_minimum_size.x = 170
 		row2.add_child(nm2)
 		var pr := _label(PlayerLegacy.progress_text(s, m), 14, UiKit.INFO)
 		pr.custom_minimum_size.x = 120
 		row2.add_child(pr)
 		row2.add_child(_label(String(m["desc"]), 14, UiKit.MUTED))
-		root.add_child(row2)
+		grid.add_child(row2)
 	return root
 
 

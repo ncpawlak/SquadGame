@@ -54,7 +54,7 @@ func _champions() -> Control:
 	var snaps: Array = s.history.duplicate()
 	snaps.reverse()
 	if snaps.is_empty():
-		v.add_child(UiKit.label("No champions yet. The first one is crowned when the final is played.", 15, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No champions yet. The first one is crowned when the final is played."))
 		return v
 	v.add_child(pages._section("CHAMPIONS BY YEAR"))
 	var rows: Array = []
@@ -131,7 +131,7 @@ func _awards() -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 12)
 	if s.review_history.is_empty():
-		v.add_child(UiKit.label("No awards yet. They are handed out after the final.", 15, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No awards yet. They are handed out after the final."))
 		return v
 
 	v.add_child(pages._section("MOST DECORATED"))
@@ -300,7 +300,7 @@ func _callsigns() -> Control:
 	list.reverse()
 	v.add_child(pages._section("RETIRED CALLSIGNS"))
 	if list.is_empty():
-		v.add_child(UiKit.label("None yet. They are retired after a career-ending season.", 15, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("None yet. They are retired after a career-ending season."))
 		return v
 	var rows: Array = []
 	var hl := {}
@@ -321,7 +321,7 @@ func callsign_proposals() -> Control:
 	v.add_theme_constant_override("separation", 12)
 	var open_list: Array = s.league.callsign_proposals
 	if open_list.is_empty():
-		v.add_child(UiKit.label("Nothing to decide.", 16, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("Nothing to decide."))
 		return v
 	for e: Dictionary in open_list.duplicate():
 		var card := UiKit.panel()
@@ -378,7 +378,7 @@ func _hall() -> Control:
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(note)
 	if s.hall_of_fame.is_empty():
-		v.add_child(UiKit.label("Nobody has been inducted yet.", 15, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("Nobody has been inducted yet."))
 		return v
 	var years: Array = []
 	for e in s.hall_of_fame:

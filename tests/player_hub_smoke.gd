@@ -101,7 +101,7 @@ func _init() -> void:
 	var before := p.skill_points
 	var stats_before := p.stats.duplicate()
 	for b in hub._content.find_children("*", "Button", true, false):
-		if not b.disabled and b.custom_minimum_size.y == 120:
+		if not b.disabled and b.custom_minimum_size.y == 86:
 			b.pressed.emit()
 			break
 	await process_frame
