@@ -89,7 +89,7 @@ func room() -> Control:
 	var d = s.get(&"fantasy_draft")
 	var v := _vbox(12)
 	if d == null:
-		v.add_child(UiKit.label("No fantasy draft is running.", 20, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No fantasy draft is running."))
 		return v
 	if d.is_complete():
 		return _recap(d)
@@ -183,7 +183,6 @@ func _filter_row() -> Control:
 		_fill_board())
 	r.add_child(le)
 	v.add_child(r)
-	v.add_child(UiKit.label("Click a column header to sort.", 13, UiKit.MUTED))
 	return v
 
 
@@ -316,13 +315,11 @@ func _fill_board() -> void:
 		c.queue_free()
 	var list := _board_list()
 	if list.is_empty():
-		_board_box.add_child(UiKit.label("Nobody matches.", 16, UiKit.MUTED))
+		_board_box.add_child(FrontEnd.empty_note("Nobody matches."))
 		return
 	_board_box.add_child(_board_header())
 	for x in list.slice(0, BOARD_ROWS):
 		_board_box.add_child(_board_row(x))
-	if list.size() > BOARD_ROWS:
-		_board_box.add_child(UiKit.label("Showing the top %d of %d. Search or filter to narrow it." % [BOARD_ROWS, list.size()], 14, UiKit.MUTED))
 
 
 func _update_selection() -> void:
@@ -334,7 +331,7 @@ func _update_selection() -> void:
 		if not mine:
 			_sel_label.text = "Not your pick: sim ahead to your next turn."
 		elif selected == null:
-			_sel_label.text = "Click a player on the board, then Draft Selected Player."
+			_sel_label.text = ""
 		else:
 			_sel_label.text = "Selected: %s  (%s, age %d, OVR %d)" % [selected.full_name(), _role_name(selected), selected.age, selected.best_ovr()]
 
@@ -356,7 +353,7 @@ func _add_view_button(row: Control, x: Soldier) -> void:
 func _picks_list(picks: Array, limit: int, with_team := false) -> Control:
 	var box := _vbox(2)
 	if picks.is_empty():
-		box.add_child(UiKit.label("None yet.", 15, UiKit.MUTED))
+		box.add_child(FrontEnd.empty_note("None yet."))
 		return box
 	var user := _season().user_team()
 	var shown: Array = picks.duplicate()
@@ -479,7 +476,6 @@ func _recap(d) -> Control:
 	var user := s.user_team()
 	var v := _vbox(12)
 	v.add_child(UiKit.label("Fantasy Draft complete", 28, Color.WHITE))
-	v.add_child(_wrap("Every club has its roster. Continue to move on to training camp.", 16, UiKit.MUTED))
 	var cont := UiKit.primary_button("Continue", _continue, 20)
 	cont.name = "FantasyContinue"
 	cont.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
@@ -560,7 +556,6 @@ func set_roster() -> Control:
 	if not roster_set_open(s):
 		v.add_child(UiKit.label("The roster window is closed.", 18, UiKit.MUTED))
 		return v
-	v.add_child(_wrap("Arrange your %d-man roster and %d-man Green Team. Moves are free until the week ends." % [Team.ROSTER_SIZE, Team.GREEN_SIZE], 16, UiKit.MUTED))
 	var cols := _row(24)
 	cols.add_child(_roster_column("ROSTER  %d / %d" % [team.roster.size(), Team.ROSTER_SIZE], team, team.roster, true))
 	cols.add_child(_roster_column("GREEN TEAM  %d / %d" % [team.green_team.size(), Team.GREEN_SIZE], team, team.green_team, false))

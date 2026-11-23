@@ -128,14 +128,15 @@ func _init() -> void:
 	await process_frame
 	await process_frame
 	_check(hub.page_stack.is_empty() or hub.page_stack[-1]["title"] != "Player Progression", "progression closes when no one is left to level up")
-	hub.select_tab(1)
+	hub.select_tab(0)
 	await process_frame
-	var prog_card: Button = null
-	for b in hub._content.find_children("*", "Button", true, false):
-		for l in b.find_children("*", "Label", true, false):
-			if l.text.to_upper() == "PLAYER PROGRESSION":
-				prog_card = b
-	_check(prog_card != null and prog_card.disabled, "progression card is disabled with no one to level up")
+	# The Team tab no longer has a Player Progression button; Home's "Upgrade Players" to-do is the entry point,
+	# and it disappears once nobody can level up.
+	var upgrade_todo: Control = null
+	for l in hub._content.find_children("*", "Label", true, false):
+		if String(l.text).to_upper() == "UPGRADE PLAYERS":
+			upgrade_todo = l
+	_check(upgrade_todo == null, "Upgrade Players to-do is gone when no one can level up")
 	hub.page_stack.clear()
 	hub.refresh()
 	# Auto-progress all.
@@ -424,7 +425,7 @@ func _init() -> void:
 
 
 ## Issue #82: sub-tab bars on Team / Personnel / League, per-tab memory, to-do jumps with Back to Home.
-## Home is three columns: to-dos | fixed week card with its actions under it | news pane.
+## Home is three columns: to-dos | week card with its actions under it | news pane.
 func _home_layout(hub) -> void:
 	var col: Node = hub._content.find_child("MatchColumn", true, false)
 	var card: Node = hub._content.find_child("WeekCard", true, false)
@@ -435,8 +436,8 @@ func _home_layout(hub) -> void:
 	if col == null or card == null or acts == null or feed == null or todo == null:
 		return
 	var top: Node = col.get_parent()
-	_check(todo.get_parent() == top and col.get_parent() == top and todo.get_index() < col.get_index() and feed.get_parent() == col and acts.get_index() < feed.get_index(),
-		"Home columns: to-dos | match, with the news under the match card")
+	_check(todo.get_parent() == top and col.get_parent() == top and feed.get_parent() == top and todo.get_index() < col.get_index() and col.get_index() < feed.get_index(),
+		"Home columns: to-dos | match card with its actions | news")
 	_check(card.get_parent() == col and acts.get_parent() == col and card.get_index() < acts.get_index(), "actions sit under the week card")
 	_check(acts.find_child("PlayButton", true, false) != null and card.find_child("PlayButton", true, false) == null, "Play button moved under the card")
 	_check(card.find_child("WeekPrev", true, false) != null and card.find_child("WeekNext", true, false) != null, "week arrows stay in the card header")
@@ -524,7 +525,9 @@ func _extension_flow(hub) -> void:
 	guy.ext_walked_year = 0
 	hub.open_extensions()
 	await process_frame
-	_check(hub.page_stack[-1]["title"] == "Extensions", "extensions page opens")
+	# Extensions live in the Personnel > Contracts > Re-sign mode now, not a pushed page.
+	_check(hub.tab_index == hub.Tab.PERSONNEL and hub.page_stack.is_empty() and hub.personnel_view == 0
+		and hub._pers_mode.get(0, 0) == 1, "extensions open inside Personnel > Contracts > Re-sign")
 	_check(_find_button(hub, "Negotiate") != null, "extensions page has Negotiate")
 	hub.pages.open_negotiation(guy)
 	await process_frame
@@ -534,7 +537,7 @@ func _extension_flow(hub) -> void:
 	await process_frame
 	_check(_press(hub, "Sleep on it") and talks.is_resting(), "sleep on it pauses extension talks")
 	await process_frame
-	_check(_find_button(hub, "Back to Extensions") != null, "resting room offers a way back")
+	_check(_find_button(hub, "Back to Re-sign") != null, "resting room offers a way back")
 	hub.season.week += 1
 	_check(hub.season.negotiation(user, guy) == talks and talks.can_act(), "talks resume next week")
 	hub.season.week -= 1

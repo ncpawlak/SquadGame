@@ -21,52 +21,35 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 
 	var root := VBoxContainer.new()
 	root.name = "PlayerCreate"
-	root.add_theme_constant_override("separation", 10)
-	var wrap := MarginContainer.new()
-	for side in ["left", "right", "top", "bottom"]:
-		wrap.add_theme_constant_override("margin_" + side, 22)
-	wrap.add_child(root)
+	root.add_theme_constant_override("separation", 8)
+	var shell := FrontEnd.backdrop_wrap(FrontEnd.margin(root, 32, 22))
 
 	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 18)
 	root.add_child(head)
-	var back := UiKit.button("< Back", on_back, 18)
-	UiKit.style_skewed(back)
-	back.custom_minimum_size = Vector2(120, 48)
-	back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	back.set_meta(&"skip_autofocus", true)
-	head.add_child(back)
-	var sp := Control.new()
-	sp.custom_minimum_size.x = 16
-	head.add_child(sp)
-	var tt := VBoxContainer.new()
-	tt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tt.add_child(UiKit.display("CREATE YOUR SOLDIER", 44, Color.WHITE, true))
-	var bar := ColorRect.new()
-	bar.color = UiKit.ACCENT
-	bar.custom_minimum_size = Vector2(90, 4)
-	bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	tt.add_child(bar)
-	tt.add_child(UiKit.label("Pick a face, a name, an archetype and a starting story. Your archetype sets how high each rating can go at the combine; your story sets how fast you grow.", 15, UiKit.MUTED))
-	head.add_child(tt)
+	head.add_child(FrontEnd.back_link(on_back))
+	var tb := FrontEnd.title_block("NEW CAREER  ·  STEP 1 OF 3", "CREATE YOUR SOLDIER", FrontEnd.CAREER, 44)
+	tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(tb)
 
 	var cols := HBoxContainer.new()
-	cols.add_theme_constant_override("separation", 18)
+	cols.add_theme_constant_override("separation", 16)
 	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(cols)
 
 	# --- left: face preview and identity ---------------------------------------------------
-	var left := UiKit.panel(UiKit.PANEL, 12)
-	left.custom_minimum_size.x = 420
+	var left := FrontEnd.glass(16)
+	left.custom_minimum_size.x = 400
 	cols.add_child(left)
 	var lv := VBoxContainer.new()
 	lv.add_theme_constant_override("separation", 8)
 	left.add_child(lv)
 	var pic := CenterContainer.new()
-	pic.custom_minimum_size.y = 250
+	pic.custom_minimum_size.y = 236
 	lv.add_child(pic)
-	var first := _field(lv, "First name", PlayerCareer.MAX_NAME)
-	var last := _field(lv, "Last name", PlayerCareer.MAX_NAME)
-	var call := _field(lv, "Callsign", PlayerCareer.MAX_CALLSIGN)
+	var first := _field(lv, "First name", PlayerCareer.MAX_NAME, "e.g. Ada")
+	var last := _field(lv, "Last name", PlayerCareer.MAX_NAME, "e.g. Stone")
+	var call := _field(lv, "Callsign", PlayerCareer.MAX_CALLSIGN, "up to %d characters" % PlayerCareer.MAX_CALLSIGN)
 	lv.add_child(UiKit.label("Age", 14, UiKit.MUTED))
 	var age_row := HBoxContainer.new()
 	age_row.add_theme_constant_override("separation", 10)
@@ -79,13 +62,13 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 	err.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 	# --- middle: face picker ---------------------------------------------------------------
-	var mid := UiKit.panel(UiKit.PANEL, 12)
+	var mid := FrontEnd.glass(16)
 	mid.custom_minimum_size.x = 360
 	cols.add_child(mid)
 	var mv := VBoxContainer.new()
 	mv.add_theme_constant_override("separation", 8)
 	mid.add_child(mv)
-	mv.add_child(UiKit.display("FACE", 22, UiKit.ACCENT, true))
+	mv.add_child(UiKit.display("FACE", 22, FrontEnd.CAREER, true))
 	var filters := HBoxContainer.new()
 	mv.add_child(filters)
 	var scroll := ScrollContainer.new()
@@ -99,13 +82,13 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 	scroll.add_child(grid)
 
 	# --- right: archetype ------------------------------------------------------------------
-	var right := UiKit.panel(UiKit.PANEL, 12)
+	var right := FrontEnd.glass(16)
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cols.add_child(right)
 	var rv := VBoxContainer.new()
 	rv.add_theme_constant_override("separation", 8)
 	right.add_child(rv)
-	rv.add_child(UiKit.display("ARCHETYPE", 22, UiKit.ACCENT, true))
+	rv.add_child(UiKit.display("ARCHETYPE", 22, FrontEnd.CAREER, true))
 	var roles := HBoxContainer.new()
 	roles.add_theme_constant_override("separation", 8)
 	rv.add_child(roles)
@@ -117,7 +100,7 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 	var blurb := UiKit.label("", 16, UiKit.TEXT)
 	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	rv.add_child(blurb)
-	rv.add_child(UiKit.display("STARTING STORY", 22, UiKit.ACCENT, true))
+	rv.add_child(UiKit.display("STARTING STORY", 22, FrontEnd.CAREER, true))
 	var stories := HFlowContainer.new()
 	stories.name = "Stories"
 	stories.add_theme_constant_override("h_separation", 8)
@@ -141,21 +124,22 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 	err.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	foot.add_child(err)
 	var go := UiKit.primary_button("Continue", func(): pass, 22)
+	go.custom_minimum_size = Vector2(260, 52)
 	foot.add_child(go)
 
 	var fns := {}
 	fns["age"] = func():
 		age_label.text = str(st["age"])
 		var off := Archetypes.age_offset(st["age"])
-		age_hint.text = "Every rating ceiling %s. Younger means rawer now, with more room and more seasons to grow." % ("is full" if off == 0 else "is %d lower" % -off)
+		age_hint.text = ""
 		fns["ceilings"].call()
-	age_row.add_child(UiKit.button("-", func():
+	age_row.add_child(FrontEnd.pick("-", false, func():
 		st["age"] = maxi(Archetypes.AGE_MIN, st["age"] - 1)
-		fns["age"].call(), 16))
+		fns["age"].call(), 24))
 	age_row.add_child(age_label)
-	age_row.add_child(UiKit.button("+", func():
+	age_row.add_child(FrontEnd.pick("+", false, func():
 		st["age"] = mini(Archetypes.AGE_MAX, st["age"] + 1)
-		fns["age"].call(), 16))
+		fns["age"].call(), 24))
 	lv.add_child(age_hint)
 	fns["preview"] = func():
 		for c in pic.get_children():
@@ -210,20 +194,17 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 					col = UiKit.BAD
 				var cell := UiKit.label("%s %d" % [Stats.ABBREV[stat], cc[stat]], 15, col)
 				cell.custom_minimum_size.x = 76
+				cell.tooltip_text = "%s: the highest this can reach at the combine" % Stats.LABELS[stat]
+				cell.mouse_filter = Control.MOUSE_FILTER_PASS
 				row.add_child(cell)
 			ceil_box.add_child(row)
-		ceil_box.add_child(UiKit.label("Green: raised by your archetype.  Red: lowered.  These are the highest ratings the combine can award.", 13, UiKit.MUTED))
-		ceil_box.add_child(UiKit.label("Starting OVR is capped at %d whatever you score." % Archetypes.START_OVR_CAP, 13, UiKit.MUTED))
 	fns["stories"] = func():
 		for c in stories.get_children():
 			c.queue_free()
 		for id in Backstory.ORDER:
-			var b := UiKit.button(Backstory.story_name(id), func():
+			stories.add_child(FrontEnd.pick(Backstory.story_name(id), id == st["story"], func():
 				st["story"] = id
-				fns["stories"].call(), 15)
-			if id == st["story"]:
-				UiKit.style_primary(b)
-			stories.add_child(b)
+				fns["stories"].call(), 18))
 		story_blurb.text = String(Backstory.find(st["story"])["blurb"])
 		for c in story_fx.get_children():
 			c.queue_free()
@@ -239,35 +220,29 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 			c.queue_free()
 		for a in Archetypes.for_role(st["role"]):
 			var id := StringName(a["id"])
-			var b := UiKit.button(String(a["name"]), func():
+			archs.add_child(FrontEnd.pick(String(a["name"]), id == st["arch"], func():
 				st["arch"] = id
 				fns["archs"].call()
 				fns["ceilings"].call()
-				fns["preview"].call(), 15)
-			if id == st["arch"]:
-				UiKit.style_primary(b)
-			archs.add_child(b)
+				fns["preview"].call(), 18))
 	fns["roles"] = func():
 		for c in roles.get_children():
 			c.queue_free()
 		for r in ROLE_ORDER:
 			var role: Scheme.Role = r
-			var b := UiKit.button(String(Scheme.ROLE_NAMES[role]), func():
+			roles.add_child(FrontEnd.pick(String(Scheme.ROLE_NAMES[role]), role == st["role"], func():
 				st["role"] = role
 				st["arch"] = StringName(Archetypes.for_role(role)[0]["id"])
 				fns["roles"].call()
 				fns["archs"].call()
-				fns["ceilings"].call(), 17)
-			if role == st["role"]:
-				UiKit.style_primary(b)
-			roles.add_child(b)
+				fns["ceilings"].call(), 22))
 	for g in ["", "light", "dark", "brown", "asian"]:
-		filters.add_child(UiKit.button("All" if g == "" else String(g).capitalize(), func():
+		filters.add_child(FrontEnd.pick("All" if g == "" else String(g).capitalize(), g == st["group"], func():
 			st["group"] = g
-			fns["heads"].call(), 14))
-	filters.add_child(UiKit.button("Reroll", func():
+			fns["heads"].call(), 15))
+	filters.add_child(FrontEnd.pick("Reroll", false, func():
 		st["morph"] += 1
-		fns["preview"].call(), 14))
+		fns["preview"].call(), 15))
 
 	go.pressed.connect(func():
 		var msg := PlayerCareer.problem(first.text, last.text, call.text, st["head"], st["arch"])
@@ -287,13 +262,13 @@ static func make(taken: Dictionary, on_back: Callable, on_done: Callable) -> Con
 	fns["heads"].call()
 	fns["age"].call()
 	fns["preview"].call()
-	return wrap
+	return shell
 
 
-static func _field(parent: Control, caption: String, limit: int) -> LineEdit:
+static func _field(parent: Control, caption: String, limit: int, placeholder := "") -> LineEdit:
 	parent.add_child(UiKit.label(caption, 14, UiKit.MUTED))
 	var e := LineEdit.new()
 	e.max_length = limit
-	e.custom_minimum_size.y = 40
+	FrontEnd.style_input(e, placeholder)
 	parent.add_child(e)
 	return e

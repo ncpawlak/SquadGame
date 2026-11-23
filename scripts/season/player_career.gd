@@ -5,7 +5,7 @@ extends RefCounted
 
 const START_AGE := 21
 const MAX_NAME := 18
-const MAX_CALLSIGN := 14
+const MAX_CALLSIGN := Callsigns.MAX_LEN
 
 
 ## Cleans a typed name: trimmed, single-spaced and cut to `limit`.

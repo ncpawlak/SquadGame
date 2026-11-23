@@ -22,6 +22,7 @@ func _ready() -> void:
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
 	randomize()
+	DisplayServer.window_set_title(FrontEnd.LEAGUE_NAME)
 	UiKit.install_fonts()
 	theme = UiKit.theme()
 	_free_space_key()
@@ -51,104 +52,40 @@ func _set_screen(c: Control) -> void:
 func show_title() -> void:
 	UiKit.reset_team()
 	theme = UiKit.theme()
-	var wrap := Control.new()
-	var g := UiKit.gradient_rect(Color("#1a2640").darkened(0.3), UiKit.BG)
-	g.set_anchors_preset(Control.PRESET_FULL_RECT)
-	wrap.add_child(g)
-	var root := CenterContainer.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	wrap.add_child(root)
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 14)
-	col.custom_minimum_size.x = 780
-	root.add_child(col)
-	var title := UiKit.display("SQUAD LEAGUE", 96, Color.WHITE, true)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(title)
-	var bar := Panel.new()
-	var bsb := UiKit.flat(UiKit.ACCENT, 1)
-	bsb.skew = Vector2(UiKit.SKEW * 2.0, 0)
-	bar.add_theme_stylebox_override("panel", bsb)
-	bar.custom_minimum_size = Vector2(220, 5)
-	bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	col.add_child(bar)
-	var sub := UiKit.display("CAREER  ·  FRANCHISE", 28, UiKit.ACCENT)
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(sub)
-	col.add_child(_spacer(24))
-	# Two big buttons; picking one opens its own buttons beside it (new, continue, load).
-	var menu := HBoxContainer.new()
-	menu.add_theme_constant_override("separation", 24)
-	menu.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_child(menu)
-	var main := VBoxContainer.new()
-	main.add_theme_constant_override("separation", 14)
-	menu.add_child(main)
-	var side := VBoxContainer.new()
-	side.add_theme_constant_override("separation", 14)
-	side.custom_minimum_size.x = 300
-	side.alignment = BoxContainer.ALIGNMENT_CENTER
-	menu.add_child(side)
-	var open_side := func(kind: StringName):
-		for c in side.get_children():
-			side.remove_child(c)
-			c.queue_free()
-		var in_career := season != null and season.player_mode
-		var in_franchise := season != null and not season.player_mode
-		if kind == &"career":
-			side.add_child(UiKit.display("CAREER", 20, UiKit.ACCENT, true))
-			side.add_child(_menu_button("New Career", show_player_create, 22, 300))
-			if in_career:
-				side.add_child(_menu_button("Continue", show_hub, 22, 300))
-			side.add_child(_menu_button("Load Career", show_load_menu, 22, 300))
-		else:
-			side.add_child(UiKit.display("FRANCHISE", 20, UiKit.ACCENT, true))
-			side.add_child(_menu_button("New Franchise", show_team_select, 22, 300))
-			if in_franchise:
-				side.add_child(_menu_button("Continue", show_hub, 22, 300))
-			side.add_child(_menu_button("Load Franchise", show_load_menu, 22, 300))
-		var k := 0
-		for c in side.get_children():
-			UiKit.fade_in(c, 0.04 * k, 0.2)
-			k += 1
-	var career_btn := _menu_button("Career", func(): open_side.call(&"career"))
-	var franchise_btn := _menu_button("Franchise", func(): open_side.call(&"franchise"))
-	main.add_child(career_btn)
-	main.add_child(franchise_btn)
-	main.add_child(_menu_button("Exhibition Match", func(): toast("Exhibition mode is coming soon. Use Debug Sim Tools for now.")))
-	main.add_child(_menu_button("Data Edit", show_data_edit))
-	main.add_child(_menu_button("Debug Sim Tools", open_debug))
-	if not OS.has_feature("web"):
-		main.add_child(_menu_button("Quit", func(): get_tree().quit()))
-	# Reopen whichever mode is running so Continue is one click away.
-	if season != null:
-		open_side.call(&"career" if season.player_mode else &"franchise")
-	col.add_child(_spacer(16))
-	var hint := UiKit.label("Arrows / WASD / D-pad to move  -  Enter / A to select", 14, UiKit.MUTED)
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(hint)
-	var i := 0
-	for c in col.get_children():
-		UiKit.fade_in(c, 0.04 * i, 0.3)
-		i += 1
-	_set_screen(wrap)
+	var home := HomeScreen.new()
+	home.app = self
+	_set_screen(home)
+
+
+## Career or Franchise: the mode's preview, Continue / New actions and save slots.
+func show_mode(mode: String) -> void:
+	var m := ModeScreen.new()
+	m.app = self
+	m.mode = mode
+	_set_screen(m)
+
+
+func show_settings() -> void:
+	var s := SettingsScreen.new()
+	s.app = self
+	_set_screen(s)
 
 
 ## New Franchise step 1: choose a start point. Manager continues to team select; Player is not built yet.
 func show_mode_select() -> void:
 	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 10)
-	var margin := _margin(root, 22)
+	root.add_theme_constant_override("separation", 8)
+	var margin := _margin(root, 10)
 
 	var head := HBoxContainer.new()
 	root.add_child(head)
 	var back := UiKit.button("< Back", show_title, 18)
 	UiKit.style_skewed(back)
-	back.custom_minimum_size = Vector2(120, 48)
+	back.custom_minimum_size = Vector2(110, 40)
 	back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	back.set_meta(&"skip_autofocus", true)
 	head.add_child(back)
-	head.add_child(_spacer_w(16))
+	head.add_child(_spacer_w(12))
 	var tt := VBoxContainer.new()
 	tt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tt.add_child(UiKit.display("CHOOSE YOUR START", 44, Color.WHITE, true))
@@ -157,7 +94,6 @@ func show_mode_select() -> void:
 	bar.custom_minimum_size = Vector2(90, 4)
 	bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	tt.add_child(bar)
-	tt.add_child(UiKit.label("Pick how you want to build your franchise  -  hover a mode to preview it, click to begin", 15, UiKit.MUTED))
 	head.add_child(tt)
 
 	var center := CenterContainer.new()
@@ -207,7 +143,7 @@ func _mode_card(title: String, tagline: String, desc: String, points: Array, soo
 
 	var col := VBoxContainer.new()
 	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 26)
-	col.add_theme_constant_override("separation", 8)
+	col.add_theme_constant_override("separation", 2)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var top := HBoxContainer.new()
 	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -250,7 +186,7 @@ func show_player_create() -> void:
 	if preview_seed == 0:
 		preview_seed = randi_range(1, 999999)
 	var taken := PlayerCareer.taken_callsigns(League.load_fixed(preview_seed))
-	_set_screen(PlayerCreate.make(taken, show_title, _on_player_created))
+	_set_screen(PlayerCreate.make(taken, show_mode.bind("career"), _on_player_created))
 
 
 func _on_player_created(choice: Dictionary) -> void:
@@ -320,7 +256,7 @@ func show_team_select() -> void:
 
 	var head := HBoxContainer.new()
 	root.add_child(head)
-	var back := UiKit.button("< Back", show_title, 18)
+	var back := UiKit.button("< Back", show_mode.bind("franchise"), 18)
 	UiKit.style_skewed(back)
 	back.custom_minimum_size = Vector2(120, 48)
 	back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -329,30 +265,30 @@ func show_team_select() -> void:
 	head.add_child(_spacer_w(16))
 	var tt := VBoxContainer.new()
 	tt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tt.add_child(UiKit.display("CHOOSE YOUR TEAM", 44, Color.WHITE, true))
+	tt.add_child(UiKit.display("CHOOSE YOUR TEAM", 32, Color.WHITE, true))
 	var bar := ColorRect.new()
 	bar.color = UiKit.ACCENT
 	bar.custom_minimum_size = Vector2(90, 4)
 	bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	tt.add_child(bar)
-	tt.add_child(UiKit.label("%d teams  -  %d divisions  -  %s season  -  hover a team for its scouting report, click to take over" % [
+	tt.add_child(UiKit.label("%d teams  -  %d divisions  -  %s season" % [
 		preview.league.teams.size(), preview.divisions().size(), preview.year], 15, UiKit.MUTED))
 	head.add_child(tt)
 
 	var pane := PanelContainer.new()
-	pane.custom_minimum_size.y = 250
+	pane.custom_minimum_size.y = 0
 	root.add_child(pane)
 
 	var ranked := preview.league.teams.duplicate()
 	ranked.sort_custom(func(a: Team, b: Team): return a.team_ovr() > b.team_ovr())
 	var grid := VBoxContainer.new()
-	grid.add_theme_constant_override("separation", 18)
+	grid.add_theme_constant_override("separation", 10)
 	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(grid)
 	var first: Button = null
 	for d in preview.divisions():
 		var line := HBoxContainer.new()
-		line.add_theme_constant_override("separation", 18)
+		line.add_theme_constant_override("separation", 12)
 		line.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		line.add_child(_division_badge(d))
 		var div_teams: Array = preview.division_teams(d)
@@ -381,10 +317,10 @@ func _division_badge(d: String) -> Control:
 	sb.border_color = UiKit.ACCENT
 	p.add_theme_stylebox_override("panel", sb)
 	p.custom_minimum_size.x = 52
-	var l := UiKit.display("\n".join(d.to_upper().split("")), 17, UiKit.TEXT, true)
+	var l := UiKit.display("\n".join(d.to_upper().split("")), 13, UiKit.TEXT, true)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	l.add_theme_constant_override("line_spacing", -6)
+	l.add_theme_constant_override("line_spacing", -8)
 	p.add_child(l)
 	return p
 
@@ -393,7 +329,7 @@ func _division_badge(d: String) -> Control:
 ## an expectation tag. Muted team tint at rest; full team colour on hover/focus.
 func _team_tile(t: Team, rank: int, count: int) -> Button:
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(0, 150)
+	b.custom_minimum_size = Vector2(0, 76)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	b.clip_text = true
@@ -408,42 +344,27 @@ func _team_tile(t: Team, rank: int, count: int) -> Button:
 	hv.shadow_color = Color(acc, 0.35)
 	hv.shadow_size = 10
 	b.add_theme_stylebox_override("hover", hv)
-	var col := VBoxContainer.new()
-	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 8)
-	col.add_theme_constant_override("separation", 8)
-	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	var nm := UiKit.label(t.name, 18, Color.WHITE)
-	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	nm.clip_text = true
-	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.add_child(nm)
+	# One compact row: logo ring | name + expectation tag | OVR. Keeps every tile inside its own box.
 	var o := t.team_ovr()
-	# Three columns: OVR | ring (dead centre) | tag. The side columns share the width equally.
 	var line := HBoxContainer.new()
-	line.add_theme_constant_override("separation", 0)
+	line.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 8)
+	line.add_theme_constant_override("separation", 8)
 	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var left := VBoxContainer.new()
-	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left.alignment = BoxContainer.ALIGNMENT_CENTER
-	left.add_theme_constant_override("separation", -6)
-	var ovr := UiKit.display(str(o), 40, UiKit.ovr_color(o), true)
-	ovr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	ovr.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-	ovr.add_theme_constant_override("outline_size", 5)
-	left.add_child(ovr)
-	var cap := UiKit.display("OVR", 13, Color(1, 1, 1, 0.6), true)
-	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	left.add_child(cap)
-	_ignore_mouse_tree(left)
-	line.add_child(left)
-	var ring := RingGauge.new(o, 100, UiKit.ovr_color(o), str(o), 104, 4.0)
+	var ring := RingGauge.new(o, 100, UiKit.ovr_color(o), "", 56, 3.0)
 	ring.logo = UiKit.logo_tex(t.abbrev)
 	ring.disc = Color(0.02, 0.03, 0.06, 0.72)
+	ring.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	line.add_child(ring)
-	var side := CenterContainer.new()
-	side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	side.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var mid := VBoxContainer.new()
+	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mid.alignment = BoxContainer.ALIGNMENT_CENTER
+	mid.add_theme_constant_override("separation", 4)
+	mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var nm := UiKit.label(t.name, 15, Color.WHITE)
+	nm.clip_text = true
+	nm.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mid.add_child(nm)
 	var tag: Array = _expectation_tag(rank, count)
 	var chip := PanelContainer.new()
 	var csb := UiKit.flat(Color(0, 0, 0, 0.55), 3, 1, tag[1])
@@ -453,12 +374,27 @@ func _team_tile(t: Team, rank: int, count: int) -> Button:
 	csb.content_margin_bottom = 1
 	chip.add_theme_stylebox_override("panel", csb)
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	chip.add_child(UiKit.display(tag[0], 14, tag[1], true))
-	side.add_child(chip)
-	_ignore_mouse_tree(side)
-	line.add_child(side)
-	col.add_child(line)
-	b.add_child(col)
+	chip.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	chip.add_child(UiKit.display(tag[0], 13, tag[1], true))
+	mid.add_child(chip)
+	_ignore_mouse_tree(mid)
+	line.add_child(mid)
+	var right := VBoxContainer.new()
+	right.alignment = BoxContainer.ALIGNMENT_CENTER
+	right.add_theme_constant_override("separation", -6)
+	right.custom_minimum_size.x = 46
+	right.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ovr := UiKit.display(str(o), 30, UiKit.ovr_color(o), true)
+	ovr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ovr.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	ovr.add_theme_constant_override("outline_size", 5)
+	right.add_child(ovr)
+	var cap := UiKit.display("OVR", 12, Color(1, 1, 1, 0.6), true)
+	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	right.add_child(cap)
+	_ignore_mouse_tree(right)
+	line.add_child(right)
+	b.add_child(line)
 	return b
 
 
@@ -475,14 +411,14 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 	var pm := MarginContainer.new()
 	pm.add_theme_constant_override("margin_left", 22)
 	pm.add_theme_constant_override("margin_right", 22)
-	pm.add_theme_constant_override("margin_top", 16)
-	pm.add_theme_constant_override("margin_bottom", 18)
+	pm.add_theme_constant_override("margin_top", 10)
+	pm.add_theme_constant_override("margin_bottom", 10)
 	pane.add_child(pm)
 	var hb := HBoxContainer.new()
 	hb.add_theme_constant_override("separation", 24)
 	pm.add_child(hb)
 
-	hb.add_child(UiKit.logo_disc(t, 210))
+	hb.add_child(UiKit.logo_disc(t, 120))
 
 	# Identity column: name, OVR and expectations.
 	var id_col := VBoxContainer.new()
@@ -497,14 +433,14 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 		city = t.name.substr(0, cut) if cut > 0 else ""
 		nick = t.name.substr(cut + 1) if cut > 0 else t.name
 	if city != "":
-		var cl := UiKit.display(city.to_upper(), 24, Color(1, 1, 1, 0.75), true)
+		var cl := UiKit.display(city.to_upper(), 18, Color(1, 1, 1, 0.75), true)
 		cl.add_theme_constant_override("line_spacing", -4)
 		id_col.add_child(cl)
-	var nm := UiKit.display(nick.to_upper(), 40, Color.WHITE, true)
+	var nm := UiKit.display(nick.to_upper(), 30, Color.WHITE, true)
 	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	id_col.add_child(nm)
 	id_col.add_child(UiKit.label("%s Division  ·  %s" % [t.division, LeagueData.state_name(t.home_state)], 15, Color(1, 1, 1, 0.7)))
-	id_col.add_child(UiKit.rich("[font_size=46][color=%s]%d[/color][/font_size] OVR   [color=#8b97ab]preseason #%d of %d[/color]" % [
+	id_col.add_child(UiKit.rich("[font_size=34][color=%s]%d[/color][/font_size] OVR   [color=#8b97ab]preseason #%d of %d[/color]" % [
 		UiKit.hex(UiKit.ovr_color(t.team_ovr())), t.team_ovr(), rank, count], 16))
 	id_col.add_child(UiKit.market_meters(t, 13, 80))
 	var space := Contracts.cap_space(t, preview.cap_year())
@@ -518,11 +454,11 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mid.add_theme_constant_override("separation", 6)
 	hb.add_child(mid)
-	var story := UiKit.label(t.backstory, 17, UiKit.TEXT)
+	var story := UiKit.label(t.backstory, 16, UiKit.TEXT)
 	story.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	# Fixed 5-line box so hovering teams with longer stories doesn't resize the pane.
-	story.custom_minimum_size.y = 24 * 5
-	story.max_lines_visible = 5
+	story.custom_minimum_size.y = 22 * 3
+	story.max_lines_visible = 3
 	story.clip_text = true
 	story.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	mid.add_child(story)
@@ -572,7 +508,7 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 	for s: Soldier in best.slice(0, 3):
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
-		row.add_child(Portrait.new(s, 58, t.color2, t))
+		row.add_child(Portrait.new(s, 50, t.color2, t))
 		var info := VBoxContainer.new()
 		info.add_theme_constant_override("separation", 0)
 		info.add_child(UiKit.label(s.full_name(), 17, Color.WHITE))
@@ -590,17 +526,8 @@ func show_data_edit() -> void:
 	_set_screen(de)
 
 
-func show_load_menu() -> void:
-	var root := CenterContainer.new()
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 12)
-	root.add_child(col)
-	col.add_child(UiKit.label("LOAD FRANCHISE", 34, Color.WHITE))
-	for slot in range(SaveSystem.AUTO_SLOT, SaveSystem.SLOTS + 1):
-		col.add_child(FranchisePages.save_slot_tile(slot, false, self, show_load_menu))
-	var back := UiKit.button("< Back", show_title)
-	col.add_child(back)
-	_set_screen(root)
+func show_load_menu(mode := "franchise") -> void:
+	show_mode(mode)
 
 
 ## Franchise settings popup shown when a team is picked: Accept starts the franchise, Cancel returns
@@ -631,7 +558,6 @@ func open_settings_popup(team_index: int, team: Team) -> void:
 	col.add_theme_constant_override("separation", 14)
 	card.add_child(col)
 	col.add_child(UiKit.display("FRANCHISE SETTINGS", 32, Color.WHITE, true))
-	col.add_child(UiKit.label("%s  -  you can change these later in Settings" % team.name, 15, UiKit.MUTED))
 
 	var diff_btn := UiKit.button("", func(): pass, 18)
 	var anim_btn := UiKit.button("", func(): pass, 18)

@@ -119,13 +119,14 @@ static func list_page(season: Season, hub) -> Control:
 		v.add_child(sum_tile)
 	if shown.is_empty():
 		if summaries == 0:
-			v.add_child(UiKit.label("No storylines are running right now.", 17, UiKit.MUTED))
+			v.add_child(FrontEnd.empty_note("No storylines are running right now."))
 		return v
-	v.add_child(UiKit.label("Pick a story to read it, see what it needs and make your call.", 16, UiKit.MUTED))
 	for st: Dictionary in shown:
 		var live: bool = st["status"] == Storylines.STATUS_ACTIVE
 		var sub := "%s  -  %s  -  %s" % [StoryDefs.KIND_LABEL.get(st["kind"], "STORY"), season.storylines.stage_name(st).to_upper(), season.storylines.status_line(st, season)]
 		var badge := "DECISION NEEDED" if Storylines.decision_open(st) else ("" if live else "DONE")
+		if live and badge == "" and st["choice"] != &"" and st["choice"] != StoryDefs.STAY:
+			badge = "CHOICE MADE"
 		var id: int = st["id"]
 		var tile := UiKit.tile(String(st["title"]), sub, Vector2(PAGE_W - 40, 104), PURPLE if live else UiKit.MUTED,
 			func(): hub.open(String(st["title"]), func(): return detail_page(season, id, hub)), badge)
@@ -206,7 +207,9 @@ static func _option_card(season: Season, st: Dictionary, o: Dictionary, open: bo
 		col.add_child(UiKit.action_button("Choose this", func():
 			var err := season.storylines.choose(season, id, option)
 			if err == "":
-				hub.replace(title, func(): return detail_page(season, id, hub))))
+				# Decision made: back to the list, where the story now reads as answered.
+				hub.app.toast("Decision locked in: %s." % String(option).replace("_", " "))
+				hub.go_back()))
 	elif not chosen and st["choice"] != &"":
 		card.modulate = Color(1, 1, 1, 0.5)
 	return card

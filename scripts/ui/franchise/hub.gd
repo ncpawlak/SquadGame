@@ -6,6 +6,8 @@ extends Control
 ## Main tab IDs, in bar order. Always refer to tabs by these, never by raw index.
 enum Tab { HOME, TEAM, PERSONNEL, LEAGUE, CLUB, SETTINGS }
 const TABS := ["Home", "Team", "Personnel", "League", "Club", "Settings"]
+## Top margin of the content area (the page slides up into it).
+const CONTENT_TOP := 8
 const TILE := Vector2(290, 170)
 const SMALL := Vector2(290, 120)
 const TODO_SIZE := Vector2(437, 76)
@@ -79,19 +81,12 @@ func _ready() -> void:
 	_content = MarginContainer.new()
 	_content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	for side in ["left", "right"]:
-		_content.add_theme_constant_override("margin_" + side, 40)
-	_content.add_theme_constant_override("margin_top", 18)
-	_content.add_theme_constant_override("margin_bottom", 8)
+		_content.add_theme_constant_override("margin_" + side, 32)
+	_content.add_theme_constant_override("margin_top", CONTENT_TOP)
+	_content.add_theme_constant_override("margin_bottom", 6)
 	root.add_child(_content)
 
-	var footer := PanelContainer.new()
-	footer.add_theme_stylebox_override("panel", UiKit.flat(Color(0, 0, 0, 0.45), 0))
-	var hints := UiKit.label(
-		"[Arrows/WASD/D-pad] Move     [Enter/A] Select     [Esc/B] Back     [Q/E or LB/RB] Tabs     [1/3 or LT/RT] Sub-tabs     [Space/Y] Advance     [Mouse wheel / drag] Scroll",
-		14, UiKit.MUTED)
-	hints.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	footer.add_child(hints)
-	root.add_child(footer)
+	# The key-hint footer was removed; its text lives in HelpText ("global.key_hints_hub") for a future Help popup.
 
 	refresh()
 	# A franchise that starts or loads mid fantasy draft opens straight into the room.
@@ -102,6 +97,10 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if viewer or simming:
 		return
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F1:
+		open_help()
+		accept_event()
+		return
 	var advance_key: bool = event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_SPACE
 	var advance_pad: bool = event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_Y
 	if advance_key or advance_pad:
@@ -110,6 +109,14 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventKey and event.pressed and event.keycode in [KEY_PAGEUP, KEY_PAGEDOWN] and _scroll:
 		_scroll.scroll_vertical += (-1 if event.keycode == KEY_PAGEUP else 1) * int(_scroll.size.y * 0.8)
 		accept_event()
+
+
+## The Help overlay, opened on the topic that matches the current tab.
+func open_help() -> void:
+	var hint: String = {Tab.TEAM: "team.", Tab.PERSONNEL: "personnel.", Tab.LEAGUE: "league.", Tab.CLUB: "club."}.get(tab_index, "global.")
+	if season.player_mode:
+		hint = "player_pages."
+	HelpPopup.open(self, hint)
 
 
 func _process(delta: float) -> void:
@@ -202,7 +209,7 @@ var _home_focus := -1
 
 
 ## Jump to a main tab's sub-tab (e.g. Team > Lineup). From Home it offers a way straight back.
-func open_subtab(tab: int, view: String) -> void:
+func open_subtab(tab: int, view: String, mode_title := "") -> void:
 	if tab_index == Tab.HOME and page_stack.is_empty():
 		_home_focus = app.focusables(_content).find(get_viewport().gui_get_focus_owner()) if app else -1
 		return_home = true
@@ -213,9 +220,18 @@ func open_subtab(tab: int, view: String) -> void:
 			team_view = maxi(0, TEAM_VIEWS.find(view))
 		Tab.LEAGUE:
 			league_view = maxi(0, LEAGUE_VIEWS.find(view))
+			if mode_title != "":
+				var hit := _pane_lookup(Tab.LEAGUE, mode_title)
+				if hit.x == league_view:
+					_league_mode[hit.x] = hit.y
 		Tab.PERSONNEL:
 			_personnel_key = _personnel_key_now()
-			personnel_view = maxi(0, _personnel_view_names().find(view))
+			_personnel_default()  # resets the modes; the lines below override
+			personnel_view = maxi(0, PERS_VIEWS.find(view))
+			if mode_title != "":
+				var hit := _pane_lookup(Tab.PERSONNEL, mode_title)
+				if hit.x == personnel_view:
+					_pers_mode[hit.x] = hit.y
 	_switch_tab(tab)
 
 
@@ -258,22 +274,13 @@ func _subtab_bar(names: Array, current: int, badges: Array, pick: Callable) -> H
 	var bar := HBoxContainer.new()
 	bar.name = "SubTabs"
 	bar.add_theme_constant_override("separation", 8)
-	var hint := func(t: String) -> Label:
-		var l := UiKit.label(t, 13, UiKit.MUTED)
-		l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		return l
-	bar.add_child(hint.call("1 / LT"))
+	bar.add_child(_key_hint(["LT", "1"]))
 	for i in names.size():
 		var b := Button.new()
 		b.name = "SubTab%s" % String(names[i]).replace(" ", "")
 		b.text = String(names[i]).to_upper()
-		b.add_theme_font_size_override("font_size", 17)
-		b.custom_minimum_size = Vector2(150, 40)
-		if i == current:
-			UiKit.style_primary(b)
-		else:
-			UiKit.style_skewed(b, Color(UiKit.PANEL, 0.75))
-			b.add_theme_color_override("font_color", UiKit.MUTED)
+		b.custom_minimum_size = Vector2(130 if names.size() <= 5 else 104, 36)
+		UiKit.style_tab(b, i == current, 19)
 		b.focus_mode = Control.FOCUS_NONE
 		var idx := i
 		b.pressed.connect(func(): pick.call(idx))
@@ -295,7 +302,7 @@ func _subtab_bar(names: Array, current: int, badges: Array, pick: Callable) -> H
 			b.add_child(chip)
 			UiKit.pulse(chip)
 		bar.add_child(b)
-	bar.add_child(hint.call("3 / RT"))
+	bar.add_child(_key_hint(["RT", "3"]))
 	return bar
 
 
@@ -308,11 +315,20 @@ func open(title: String, build: Callable, no_back := false) -> void:
 ## Replace the top page (e.g. paging between weeks or refreshing after an action) without
 ## growing the back stack. Keeps the scroll position and the focused item.
 func replace(title: String, build: Callable, no_back := false) -> void:
-	# Personnel screens also live inline on the Personnel tab: refresh the pane in place.
-	if page_stack.is_empty() and tab_index == Tab.PERSONNEL and is_instance_valid(_pers_box) and _personnel_view_for(title) >= 0:
-		personnel_view = _personnel_view_for(title)
-		_fill_personnel_box(true)
-		return
+	# Personnel and League screens also live inline on their tabs: refresh the pane in place.
+	if page_stack.is_empty() and (tab_index == Tab.PERSONNEL or tab_index == Tab.LEAGUE):
+		var hit := _pane_lookup(tab_index, title)
+		if hit.x >= 0:
+			if tab_index == Tab.PERSONNEL and is_instance_valid(_pers_box):
+				personnel_view = hit.x
+				_pers_mode[hit.x] = hit.y
+				_fill_personnel_box(true)
+				return
+			if tab_index == Tab.LEAGUE and is_instance_valid(_league_box):
+				league_view = hit.x
+				_league_mode[hit.x] = hit.y
+				_fill_league_box(true)
+				return
 	var focus_index := -1
 	var scroll_pos := 0
 	if _scroll and is_instance_valid(_scroll):
@@ -322,6 +338,27 @@ func replace(title: String, build: Callable, no_back := false) -> void:
 		page_stack.pop_back()
 	page_stack.append({"title": title, "build": build, "no_back": no_back})
 	_show_current(focus_index, scroll_pos, false)
+
+
+## Re-render whatever page or pane is showing (after a sort, toggle or action that does not change which page it is).
+func refresh_current() -> void:
+	if page_stack.is_empty():
+		match tab_index:
+			Tab.PERSONNEL:
+				if is_instance_valid(_pers_box):
+					_fill_personnel_box(true)
+					return
+			Tab.LEAGUE:
+				if is_instance_valid(_league_box):
+					_fill_league_box(true)
+					return
+			Tab.TEAM:
+				if is_instance_valid(_team_box):
+					_fill_team_box(true)
+					return
+		return
+	var top: Dictionary = page_stack[-1]
+	replace(top["title"], top["build"], top.get("no_back", false))
 
 
 ## Refresh a page after an action. Roster and Lineup also live inline on the Team tab: there only
@@ -793,7 +830,7 @@ func _rebuild_and_open(title: String, build: Callable) -> void:
 	open(title, build)
 
 
-## `animate`: fade the new view in and slide it up (off for in-place refreshes).
+## `animate`: fade the new view in (off for in-place refreshes). Only pushed pages also slide up; tab switches just fade.
 func _show_current(focus_index := -1, scroll_pos := 0, animate := true) -> void:
 	for c in _content.get_children():
 		c.queue_free()
@@ -806,23 +843,26 @@ func _show_current(focus_index := -1, scroll_pos := 0, animate := true) -> void:
 		view = _page_frame(top["title"], top["build"].call())
 	_content.add_child(view)
 	if animate:
-		_slide_in(view)
+		_slide_in(view, not page_stack.is_empty())
 	_settle_focus(view, focus_index, scroll_pos)
 
 
 var _slide_tw: Tween
 
 
-func _slide_in(view: Control) -> void:
+func _slide_in(view: Control, slide := true) -> void:
 	if not is_inside_tree() or Fx.is_reduced():
 		return
 	if _slide_tw and _slide_tw.is_valid():
 		_slide_tw.kill()
 	view.modulate.a = 0.0
-	_content.add_theme_constant_override("margin_top", 44)
 	_slide_tw = create_tween().set_parallel()
-	_slide_tw.tween_property(view, "modulate:a", 1.0, 0.22)
-	_slide_tw.tween_method(func(x: float): _content.add_theme_constant_override("margin_top", roundi(x)), 44.0, 18.0, 0.3) \
+	_slide_tw.tween_property(view, "modulate:a", 1.0, 0.18)
+	if not slide:
+		_content.add_theme_constant_override("margin_top", CONTENT_TOP)
+		return
+	_content.add_theme_constant_override("margin_top", CONTENT_TOP + 26)
+	_slide_tw.tween_method(func(x: float): _content.add_theme_constant_override("margin_top", roundi(x)), float(CONTENT_TOP + 26), float(CONTENT_TOP), 0.3) \
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 
@@ -854,33 +894,31 @@ func _settle_focus(view: Control, focus_index: int, scroll_pos: int) -> void:
 
 func _page_frame(title: String, body: Control) -> Control:
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 14)
+	v.add_theme_constant_override("separation", 4)
+	# One slim row: Back, the title, and the breadcrumb (a hover tooltip) instead of the old three-line header.
 	var head := HBoxContainer.new()
-	head.add_theme_constant_override("separation", 20)
+	head.add_theme_constant_override("separation", 14)
 	v.add_child(head)
 	if not page_stack[-1].get("no_back", false):
-		var back := UiKit.button("< Back", go_back, 17)
-		UiKit.style_skewed(back)
+		var back := UiKit.button("< Back", go_back, 18)
 		back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		back.custom_minimum_size.y = 42
+		back.custom_minimum_size.y = 34
 		back.set_meta(&"skip_autofocus", true)
 		head.add_child(back)
 	var crumbs := "%s  /  " % tab_label(tab_index).to_upper()
 	for i in page_stack.size() - 1:
 		crumbs += "%s  /  " % page_stack[i]["title"]
-	var tv := VBoxContainer.new()
-	tv.add_theme_constant_override("separation", 0)
-	tv.add_child(UiKit.label(crumbs.to_upper(), 13, UiKit.MUTED))
-	tv.add_child(UiKit.display(title.to_upper(), 40, Color.WHITE, true))
-	var line := Panel.new()
-	var lsb := UiKit.flat(UiKit.ACCENT, 1)
-	lsb.skew = Vector2(UiKit.SKEW * 2.0, 0)
-	line.add_theme_stylebox_override("panel", lsb)
-	line.custom_minimum_size = Vector2(90, 4)
-	line.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tv.add_child(line)
-	head.add_child(tv)
+	var tl := UiKit.display(title.to_upper(), 30, Color.WHITE, true)
+	tl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	tl.mouse_filter = Control.MOUSE_FILTER_PASS
+	tl.tooltip_text = crumbs.to_upper() + title.to_upper()
+	head.add_child(tl)
+	var crumb_l := UiKit.label(crumbs.to_upper(), 13, UiKit.MUTED)
+	crumb_l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	crumb_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	crumb_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	crumb_l.clip_text = true
+	head.add_child(crumb_l)
 	_scroll = _make_scroll()
 	v.add_child(_scroll)
 	_scroll.add_child(body)
@@ -908,8 +946,8 @@ func _build_header() -> void:
 	var mc := MarginContainer.new()
 	mc.add_theme_constant_override("margin_left", 28)
 	mc.add_theme_constant_override("margin_right", 34)
-	mc.add_theme_constant_override("margin_top", 10)
-	mc.add_theme_constant_override("margin_bottom", 12)
+	mc.add_theme_constant_override("margin_top", 6)
+	mc.add_theme_constant_override("margin_bottom", 8)
 	_header.add_child(mc)
 	if season.player_mode:
 		mc.add_child(player_ui.header_row(_score_bug()))
@@ -918,14 +956,14 @@ func _build_header() -> void:
 	hb.add_theme_constant_override("separation", 20)
 	mc.add_child(hb)
 
-	hb.add_child(UiKit.logo_disc(team, 86))
+	hb.add_child(UiKit.logo_disc(team, 64))
 
 	var info := VBoxContainer.new()
 	info.add_theme_constant_override("separation", 0)
-	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	info.alignment = BoxContainer.ALIGNMENT_CENTER
 	hb.add_child(info)
-	info.add_child(UiKit.display(team.name.to_upper(), 44, Color.WHITE, true))
+	info.add_child(UiKit.display(team.name.to_upper(), 36, Color.WHITE, true))
 	var rank := _rank_of(team)
 	var where := "%s in %s" % [UiKit.ordinal(rank), Season.DIVISION_NAME]
 	if season.has_divisions():
@@ -936,10 +974,23 @@ func _build_header() -> void:
 			if (drows[i] as StandingRow).team == team:
 				drank = i + 1
 		where = "%s in the %s   ·   %s in the league" % [UiKit.ordinal(drank), div, UiKit.ordinal(rank)]
-	info.add_child(UiKit.label("%s   ·   %s   ·   Team OVR %d" % [
-		season.record_text(team), where, team.team_ovr()], 16, Color(1, 1, 1, 0.72)))
-	info.add_child(UiKit.market_meters(team))
+	info.add_child(UiKit.label("%s   ·   %s" % [
+		season.record_text(team), where], 15, Color(1, 1, 1, 0.72)))
+	hb.add_child(_ovr_dial(team.team_ovr(), "Team OVR"))
+	hb.add_child(UiKit.market_meters(team, 13, 110))
+	var gap := Control.new()
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hb.add_child(gap)
 	hb.add_child(_score_bug())
+
+
+## The overall as a ring dial with the number inside (no caption; the tooltip names it).
+func _ovr_dial(ovr: int, tip: String, diameter := 60) -> Control:
+	var dial := RingGauge.new(float(ovr), 100.0, UiKit.ovr_color(ovr), str(ovr), diameter, 6.0)
+	dial.tooltip_text = tip
+	dial.mouse_filter = Control.MOUSE_FILTER_STOP
+	dial.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return dial
 
 
 ## "2026 | WEEK 3 of 12" chip, slanted like a TV score bug.
@@ -947,20 +998,23 @@ func _score_bug() -> Control:
 	var bug := HBoxContainer.new()
 	bug.add_theme_constant_override("separation", 0)
 	bug.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var badge := FrontEnd.league_emblem(46)
+	badge.custom_minimum_size.x = 52
+	bug.add_child(badge)
 	var mk := func(bg: Color, border: Color, text: String, size: int, color: Color) -> PanelContainer:
 		var p := PanelContainer.new()
 		var sb := UiKit.flat(bg, 2, 1, border)
 		sb.skew = Vector2(UiKit.SKEW, 0)
 		sb.content_margin_left = 22
 		sb.content_margin_right = 22
-		sb.content_margin_top = 4
-		sb.content_margin_bottom = 4
+		sb.content_margin_top = 2
+		sb.content_margin_bottom = 2
 		p.add_theme_stylebox_override("panel", sb)
 		p.add_child(UiKit.display(text, size, color))
 		return p
-	bug.add_child(mk.call(Color(0, 0, 0, 0.55), Color(1, 1, 1, 0.12), "%d" % season.year, 24, Color(1, 1, 1, 0.8)))
+	bug.add_child(mk.call(Color(0, 0, 0, 0.55), Color(1, 1, 1, 0.12), "%d" % season.year, 22, Color(1, 1, 1, 0.8)))
 	var a := UiKit.ACCENT
-	bug.add_child(mk.call(Color.from_hsv(a.h, clampf(a.s, 0.0, 0.9), 0.45), a, _phase_text(), 24, Color.WHITE))
+	bug.add_child(mk.call(Color.from_hsv(a.h, clampf(a.s, 0.0, 0.9), 0.45), a, _phase_text(), 22, Color.WHITE))
 	return bug
 
 
@@ -973,29 +1027,42 @@ func _build_tabs() -> void:
 	var tsb := UiKit.flat(Color(0, 0, 0, 0.4), 0)
 	tsb.border_width_bottom = 2
 	tsb.border_color = Color(UiKit.ACCENT, 0.55)
-	tsb.content_margin_top = 8
-	tsb.content_margin_bottom = 8
+	tsb.content_margin_top = 2
+	tsb.content_margin_bottom = 2
 	_tab_wrap.add_theme_stylebox_override("panel", tsb)
-	_tab_bar.add_child(UiKit.label("Q / LB", 13, UiKit.MUTED))
+	_tab_bar.add_child(_key_hint(["LB", "Q"]))
 	for i: int in visible_tabs():
 		var b := Button.new()
 		b.text = tab_label(i).to_upper()
-		b.add_theme_font_size_override("font_size", 20)
-		b.custom_minimum_size = Vector2(170, 42)
-		if i == tab_index:
-			UiKit.style_primary(b)
-		else:
-			UiKit.style_skewed(b, Color(UiKit.PANEL, 0.75))
-			b.add_theme_color_override("font_color", UiKit.MUTED)
+		b.custom_minimum_size = Vector2(150, 40)
+		UiKit.style_tab(b, i == tab_index, 22)
 		b.focus_mode = Control.FOCUS_NONE
 		var idx := i
 		b.pressed.connect(func(): select_tab(idx))
 		_tab_bar.add_child(b)
 		if i == tab_index:
 			if _tab_popped != tab_index:
-				Fx.pop(b, 1.07, 0.25)
+				Fx.pop(b, 1.05, 0.2)
 			_tab_popped = tab_index
-	_tab_bar.add_child(UiKit.label("E / RB", 13, UiKit.MUTED))
+	_tab_bar.add_child(_key_hint(["RB", "E"]))
+	var help := Button.new()
+	help.text = "?"
+	help.custom_minimum_size = Vector2(36, 34)
+	UiKit.style_ghost(help, Color.TRANSPARENT, 20)
+	help.focus_mode = Control.FOCUS_NONE
+	help.tooltip_text = "Help (F1)"
+	help.pressed.connect(open_help)
+	_tab_bar.add_child(help)
+
+
+## Small keycaps showing which buttons switch tabs (the Q glyph is unreadable as plain 13 px text).
+func _key_hint(keys: Array) -> Control:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 4)
+	hb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	for k in keys:
+		hb.add_child(FrontEnd.keycap(String(k)))
+	return hb
 
 
 func _phase_text() -> String:
@@ -1054,56 +1121,44 @@ func _rank_of(team: Team) -> int:
 # --- tab tile layouts ------------------------------------------------------------
 
 func _tab_view(i: int) -> Control:
+	# Team / Personnel / League: a fixed layout. The sub-tab pane fills the height and only its body scrolls
+	# (inside its frame); the live links sit under it as one compact row of chips.
+	var pane_tab := i == Tab.PERSONNEL or i == Tab.LEAGUE or (i == Tab.TEAM and not season.player_mode)
+	if pane_tab:
+		var pv := VBoxContainer.new()
+		pv.add_theme_constant_override("separation", 6)
+		pv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		pv.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		if return_home:
+			pv.add_child(_back_home_button())
+		var top: Control
+		match i:
+			Tab.TEAM:
+				top = _team_top()
+			Tab.PERSONNEL:
+				top = _personnel_top()
+			_:
+				top = _league_top()
+		top.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		pv.add_child(top)
+		return pv
 	_scroll = _make_scroll()
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 12)
+	v.add_theme_constant_override("separation", 10)
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_scroll.add_child(v)
 	if return_home and i != Tab.HOME:
 		v.add_child(_back_home_button())
-	var sections: Array = []
 	match i:
 		Tab.HOME:
 			v.add_child(_home_top())
-			sections = _home_sections()
 		Tab.TEAM:
-			if season.player_mode:
-				player_ui.career_tab(v)
-			else:
-				v.add_child(_team_top())
-				v.add_child(_team_cards())
-				v.add_child(_soon_strip())
-				sections = _team_sections()
-		Tab.PERSONNEL:
-			v.add_child(_personnel_top())
-			v.add_child(_personnel_cards())
-			v.add_child(_personnel_strip())
-			sections = _personnel_sections()
-		Tab.LEAGUE:
-			v.add_child(_league_top())
-			v.add_child(_league_cards())
-			v.add_child(_league_strip())
-			sections = _league_sections()
+			player_ui.career_tab(v)
 		Tab.CLUB:
 			_club_view(v)
-			sections = _club_sections()
 		Tab.SETTINGS:
 			_settings_view(v)
-			sections = _settings_sections()
-	var n := 0
-	for sec in sections:
-		v.add_child(UiKit.heading(sec[0], 22))
-		var flow := HFlowContainer.new()
-		flow.add_theme_constant_override("h_separation", 14)
-		flow.add_theme_constant_override("v_separation", 14)
-		for t in sec[1]:
-			flow.add_child(t)
-			UiKit.fade_in(t, minf(0.5, 0.03 * n), 0.25)
-			n += 1
-		v.add_child(flow)
-		var gap := Control.new()
-		gap.custom_minimum_size.y = 10
-		v.add_child(gap)
 	return _scroll
 
 
@@ -1122,7 +1177,7 @@ func _home_sections() -> Array:
 
 ## A to-do tile in the team trim colour. Done: greyed out with a check. Urgent: orange with a "!" in the corner.
 func _todo(title: String, _body: String, _accent: Color, cb: Callable, done := false, urgent := false) -> Button:
-	var t := UiKit.tile(("\u2713  " if done else "") + title, "", TODO_SIZE, UiKit.MUTED.darkened(0.3) if done else (Color("#f97316") if urgent else UiKit.TRIM), cb)
+	var t := UiKit.row_tile(("\u2713  " if done else "") + title, UiKit.MUTED.darkened(0.3) if done else (Color("#f97316") if urgent else UiKit.TRIM), cb)
 	# A tile that has just turned urgent gives one shake to get noticed.
 	var was_urgent: Variant = Fx.memo("urgent:" + title, urgent)
 	if urgent and was_urgent != true:
@@ -1132,11 +1187,11 @@ func _todo(title: String, _body: String, _accent: Color, cb: Callable, done := f
 	if done:
 		t.modulate = Color(1, 1, 1, 0.45)
 	if urgent:
-		var bang := UiKit.label("!", 30, Color("#f97316"))
+		var bang := UiKit.label("!", 26, Color("#f97316"))
 		bang.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		bang.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		bang.offset_left = -34
-		bang.offset_top = 6
+		bang.offset_left = -28
+		bang.offset_top = 4
 		t.add_child(bang)
 	return t
 
@@ -1269,9 +1324,9 @@ var _home_anchor := ""
 
 
 ## Fixed size of Home's week card; the news pane beside it matches its height.
-const CARD_SIZE := Vector2(700, 460)
+const CARD_SIZE := Vector2(0, 330)
 ## The news pane under the week card: fixed height, same width (both fill the space right of the to-dos); it scrolls inside.
-const FEED_SIZE := Vector2(700, 440)
+const FEED_SIZE := Vector2(380, 0)
 
 
 ## Home: three columns. This week's to-dos (stack freely; the page scrolls when they run long),
@@ -1286,33 +1341,32 @@ func _home_top() -> Control:
 		# Career Home is all about you: no match card or league news, just your dashboard and your own news.
 		return player_ui.home_dashboard(_card_actions(_shown_match(team)))
 	var top := HBoxContainer.new()
-	top.add_theme_constant_override("separation", 18)
-	if season.player_mode:
-		top.add_child(player_ui.home_left())
-	else:
-		var left := VBoxContainer.new()
-		left.name = "TodoColumn"
-		left.add_theme_constant_override("separation", 10)
-		left.add_child(UiKit.heading("This Week", 22))
-		var i := 0
-		for t in _todo_tiles(team):
-			left.add_child(t)
-			UiKit.fade_in(t, 0.05 * i, 0.25)
-			i += 1
-		top.add_child(left)
+	top.add_theme_constant_override("separation", 16)
+	top.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var left := VBoxContainer.new()
+	left.name = "TodoColumn"
+	left.custom_minimum_size.x = 330
+	left.add_theme_constant_override("separation", 5)
+	left.add_child(UiKit.heading("This Week", 20))
+	var i := 0
+	for t in _todo_tiles(team):
+		left.add_child(t)
+		UiKit.fade_in(t, 0.04 * i, 0.22)
+		i += 1
+	top.add_child(left)
 	var right := VBoxContainer.new()
 	right.name = "MatchColumn"
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	right.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	right.add_theme_constant_override("separation", 12)
+	right.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right.add_theme_constant_override("separation", 8)
 	var card := _week_card(team)
 	right.add_child(card)
 	right.add_child(_card_actions(_shown_match(team)))
+	top.add_child(right)
 	var feed := _home_feed()
 	feed.custom_minimum_size = FEED_SIZE
-	feed.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	right.add_child(feed)
-	top.add_child(right)
+	feed.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	top.add_child(feed)
 	return top
 
 
@@ -1361,7 +1415,7 @@ func _week_card(team: Team) -> Control:
 		sb.set("content_margin_" + side, 0)
 	card.add_theme_stylebox_override("panel", sb)
 	card.custom_minimum_size = CARD_SIZE
-	card.size_flags_horizontal = Control.SIZE_FILL
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	card.clip_contents = true
 	var bd: UiKit.Backdrop
@@ -1451,7 +1505,7 @@ func _card_actions(m: ScheduledMatch) -> Control:
 	row.add_theme_constant_override("separation", 10)
 	var big := func(b: Button) -> void:
 		b.add_theme_font_size_override("font_size", 22)
-		b.custom_minimum_size.y = 58
+		b.custom_minimum_size.y = 54
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(b)
 	if m != null and m.is_played():
@@ -1880,7 +1934,7 @@ func _feed_items() -> Array:
 	return out
 
 
-const FEED_FILTERS := [[&"all", "All"], [&"league", "Around the League"], [&"prospect", "Prospect News"]]
+const FEED_FILTERS := [[&"all", "All"], [&"league", "League"], [&"prospect", "Prospects"]]
 var feed_filter: StringName = &"all"
 var feed_pane := 0  # 0 news, 1 playoff picture
 var _feed_box: VBoxContainer
@@ -1970,7 +2024,7 @@ func _fill_feed() -> void:
 				UiKit.fade_in(row, 0.02 * n, 0.22)
 			n += 1
 	if n == 0:
-		list.add_child(UiKit.label("Nothing here yet.", 16, UiKit.MUTED))
+		list.add_child(FrontEnd.empty_note("Nothing here yet."))
 
 
 func _set_feed_filter(key: StringName) -> void:
@@ -2027,20 +2081,19 @@ func open_camp() -> void:
 
 
 func open_draft_recap() -> void:
-	var d := season.draft
-	open("Draft Recap", func(): return pages.draft_recap(d))
+	open_subtab(Tab.PERSONNEL, "Draft", "Draft Recap")
 
 
 func open_resign() -> void:
-	open("Re-sign Players", pages.resign)
+	open_subtab(Tab.PERSONNEL, "Contracts", "Re-sign Players")
 
 
 func open_extensions() -> void:
-	open("Extensions", pages.extensions)
+	open_subtab(Tab.PERSONNEL, "Contracts", "Re-sign Players")
 
 
 func open_free_agents() -> void:
-	open("Free Agents", pages.free_agents)
+	open_subtab(Tab.PERSONNEL, "Free Agency")
 
 
 ## Opens the recap of the latest finished offseason step.
@@ -2081,7 +2134,7 @@ func _storyline_todo() -> Button:
 		st = done_this_year[0]
 	var body := "[color=white]%s[/color]
 %s" % [UiKit.esc(String(st["title"])), UiKit.esc(sl.status_line(st, season))]
-	return _todo("Storylines", body, Color("#a855f7"), open_storylines, st["status"] != Storylines.STATUS_ACTIVE, not pending.is_empty())
+	return _todo("Storylines", body, Color("#a855f7"), open_storylines, pending.is_empty(), not pending.is_empty())
 
 
 func open_storylines() -> void:
@@ -2105,19 +2158,19 @@ func open_callsign_proposals() -> void:
 
 func open_hall() -> void:
 	legacy_pages.tab = "hall"
-	open("Legacy", legacy_pages.legacy)
+	open_subtab(Tab.LEAGUE, "History", "Legacy")
 
 
 func open_legacy() -> void:
-	open("Legacy", legacy_pages.legacy)
+	open_subtab(Tab.LEAGUE, "History", "Legacy")
 
 
 func open_retirements() -> void:
-	open("Retirements", pages.retirements)
+	open_subtab(Tab.LEAGUE, "History", "Retirements")
 
 
 func open_contracts() -> void:
-	open("Contracts & Payroll", pages.contracts)
+	open_subtab(Tab.PERSONNEL, "Contracts", "Contracts & Payroll")
 
 
 ## Home to-dos jump to the matching Personnel sub-tab (Back to Home returns to the list).
@@ -2146,15 +2199,15 @@ func draft_done() -> bool:
 
 
 func open_scouting() -> void:
-	open("Scouting", pages.scouting)
+	open_subtab(Tab.PERSONNEL, "Draft", "Scouting")
 
 
 func open_draft_room() -> void:
-	open("Draft Room", pages.draft_room)
+	open_subtab(Tab.PERSONNEL, "Draft", "Draft Room")
 
 
 func open_mock_draft() -> void:
-	open("Mock Draft", pages.mock_draft)
+	open_subtab(Tab.PERSONNEL, "Draft", "Mock Draft")
 
 
 ## The Team tab is a custom layout (see _tab_view): the Roster / Lineup pane, live cards, a
@@ -2163,7 +2216,7 @@ func _team_sections() -> Array:
 	return []
 
 
-const TEAM_VIEWS := ["Roster", "Lineup", "Green Team"]
+const TEAM_VIEWS := ["Roster", "Lineup", "Green Team", "Team Stats"]
 var team_view := 0  # 0 roster, 1 lineup, 2 green team
 var _team_box: VBoxContainer
 
@@ -2172,7 +2225,7 @@ var _team_box: VBoxContainer
 func _team_top() -> Control:
 	_team_box = VBoxContainer.new()
 	_team_box.name = "TeamPane"
-	_team_box.add_theme_constant_override("separation", 8)
+	_team_box.add_theme_constant_override("separation", 4)
 	_fill_team_box()
 	return _team_box
 
@@ -2219,19 +2272,21 @@ func _fill_team_box(keep := false) -> void:
 	var sb := UiKit.flat(Color(UiKit.PANEL, 0.85), 4, 1, Color(1, 1, 1, 0.08))
 	sb.border_width_top = 3
 	sb.border_color = UiKit.ACCENT
-	sb.set_content_margin_all(16)
+	sb.set_content_margin_all(12)
 	frame.add_theme_stylebox_override("panel", sb)
 	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_team_box.add_child(frame)
 	var sc := ScrollContainer.new()
 	sc.name = "TeamPaneScroll"
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	frame.add_child(sc)
+	_scroll = sc
 	var body: Control
 	match team_view:
 		1: body = pages.lineup()
 		2: body = pages.green_team()
+		3: body = pages.team_stats()
 		_: body = pages.roster()
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sc.add_child(body)
@@ -2273,79 +2328,6 @@ func _team_pane_info(team: Team) -> String:
 		"#ef4444" if n > Team.ROSTER_SIZE else "white", n, Team.ROSTER_SIZE, " [color=#8b97ab]+%d INJ REPL[/color]" % covers if covers > 0 else "", dot,
 		"#ef4444" if g > Team.GREEN_SIZE else "white", g, Team.GREEN_SIZE, dot, age / maxi(1, group.size()), dot,
 		Contracts.money(Contracts.payroll(team, season.cap_year()))]
-
-
-## Under the pane: one live card per Team screen - a headline number, a detail line and an alert
-## chip when something needs doing.
-func _team_cards() -> Control:
-	var team := season.user_team()
-	var row := HBoxContainer.new()
-	row.name = "TeamCards"
-	row.add_theme_constant_override("separation", 14)
-	var cards: Array = []
-	var off := season.phase == Season.PHASE_OFFSEASON
-
-	var up := 0
-	var sp := 0
-	for s in team.roster:
-		sp += s.skill_points
-		if Progression.can_level_up(s):
-			up += 1
-	var prog_card := _stat_card("Player Progression", str(up), "CAN LEVEL UP", "%d skill point%s banked" % [sp, "" if sp == 1 else "s"],
-		UiKit.INFO, func(): open("Player Progression", pages.progression), "LEVEL UP" if up > 0 else "")
-	prog_card.disabled = up == 0
-	if up == 0:
-		prog_card.modulate = Color(1, 1, 1, 0.55)
-	cards.append(prog_card)
-
-	var fat := 0.0
-	var tired := 0
-	for s in team.roster:
-		fat += s.fatigue
-		if s.fatigue >= 50.0 and not s.is_injured():
-			tired += 1
-	var can_train := not off and not season.preseason_camp and season.can_train_user_team() and not season.user_trained()
-	var tstate := "Done this week" if season.user_trained() else ("[color=#38bdf8]Ready to train[/color]" if can_train else "Not available")
-	cards.append(_stat_card("Weekly Training", str(roundi(fat / maxi(1, team.roster.size()))), "AVG FATIGUE",
-		"%s\n%s" % [tstate, ("[color=#f97316]%d tired[/color]" % tired) if tired > 0 else "No one tired"],
-		Color("#22c55e"), func(): open("Weekly Training", pages.training), "TRAIN" if can_train else ""))
-
-	var hurt := team.injured()
-	var hurt_starters := team.starters().filter(func(x: Soldier): return x.is_injured())
-	var names := PackedStringArray(hurt.slice(0, 2).map(func(x: Soldier): return "%s (%dw)" % [x.short_name(), x.injury_weeks]))
-	cards.append(_stat_card("Injuries", str(hurt.size()), "OUT", ", ".join(names) + (" +%d" % (hurt.size() - 2) if hurt.size() > 2 else "") if not hurt.is_empty() else "Fully healthy",
-		UiKit.BAD, func(): open("Injuries", pages.injuries), "STARTER OUT" if not hurt_starters.is_empty() else ""))
-
-	var agg: Dictionary = pages.team_aggregates()
-	var mine: Dictionary = agg[team]
-	if int(mine["gp"]) > 0:
-		var kd := func(r: Dictionary) -> float: return float(r["kills"]) / maxi(1, int(r["deaths"]))
-		var vals: Array = agg.values().filter(func(r: Dictionary): return int(r["gp"]) > 0).map(kd)
-		cards.append(_stat_card("Team Stats", "%.2f" % kd.call(mine), "K/D  #%d" % _rank_in(vals, kd.call(mine), false),
-			"%.1f kills  ·  %.1f deaths / game" % [float(mine["kills"]) / int(mine["gp"]), float(mine["deaths"]) / int(mine["gp"])],
-			Color("#eab308"), func(): open("Team Stats", pages.team_stats)))
-	else:
-		cards.append(_stat_card("Team Stats", "-", "K/D", "No games played yet", Color("#eab308"), func(): open("Team Stats", pages.team_stats)))
-
-	var lines := PackedStringArray()
-	var played: Array = season.matches_for(team).filter(func(m: ScheduledMatch): return m.is_played())
-	if not played.is_empty():
-		var lm: ScheduledMatch = played[-1]
-		var o := lm.opponent_of(team)
-		lines.append("Last: [color=%s]%s[/color] %d-%d %s %s" % [UiKit.hex(UiKit.GOOD if lm.winner() == team else UiKit.BAD), "W" if lm.winner() == team else "L",
-			lm.games_for(team), lm.games_for(o), "vs" if lm.home == team else "@", o.abbrev])
-	var nm := season.next_match_for(team)
-	if nm:
-		lines.append("Next: %s %s %s" % [season.week_label(nm.week), "vs" if nm.home == team else "@", nm.opponent_of(team).abbrev])
-	cards.append(_stat_card("Team Schedule", season.record_text(team), "RECORD", "\n".join(lines) if not lines.is_empty() else "Season complete",
-		Color("#a855f7"), func(): open("Team Schedule", pages.schedule)))
-
-	var n := 0
-	for c in cards:
-		row.add_child(c)
-		UiKit.fade_in(c, 0.04 * n, 0.25)
-		n += 1
-	return row
 
 
 func _stat_card(title: String, big: String, caption: String, detail: String, accent: Color, cb: Callable, alert := "") -> Button:
@@ -2402,33 +2384,13 @@ func _stat_card(title: String, big: String, caption: String, detail: String, acc
 	return b
 
 
-## Not-yet-built Team screens as a thin, dimmed strip.
-func _soon_strip() -> Control:
-	var h := HBoxContainer.new()
-	h.name = "SoonStrip"
-	h.add_theme_constant_override("separation", 10)
-	h.modulate = Color(1, 1, 1, 0.6)
-	var l := UiKit.display("COMING SOON", 15, UiKit.MUTED)
-	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	h.add_child(l)
-	for d in [["Scheme & Strategy", ["Alternate formations", "Aggression / pace sliders", "Per-mode round plans"]],
-			["Coaching Staff", ["Head coach and position coaches", "Training and progression boosts", "Staff contracts"]]]:
-		var title: String = d[0]
-		var bullets: Array = d[1]
-		var b := UiKit.button(title, func(): coming_soon(title, bullets), 14)
-		UiKit.style_skewed(b, Color(UiKit.PANEL, 0.6))
-		h.add_child(b)
-	return h
-
-
 ## The League tab is a custom layout (see _tab_view): the Standings / Scores / Leaders / Playoffs
 ## pane, live cards, a link strip. No tile sections.
 func _league_sections() -> Array:
 	return []
 
 
-const LEAGUE_VIEWS := ["Standings", "Scores", "League Leaders", "Playoff Picture"]
-const LEAGUE_PANE_H := 660
+const LEAGUE_VIEWS := ["Standings", "Scores", "Leaders", "Playoffs", "Teams", "News", "History"]
 var league_view := 0
 var league_week := 0  # Scores view week; 0 = the latest week with results
 var _league_box: VBoxContainer
@@ -2437,7 +2399,7 @@ var _league_box: VBoxContainer
 func _league_top() -> Control:
 	_league_box = VBoxContainer.new()
 	_league_box.name = "LeaguePane"
-	_league_box.add_theme_constant_override("separation", 8)
+	_league_box.add_theme_constant_override("separation", 4)
 	_fill_league_box()
 	return _league_box
 
@@ -2447,10 +2409,37 @@ func _pick_league_view(i: int) -> void:
 	_fill_league_box()
 
 
-func _fill_league_box() -> void:
+## What a League tab can show: [label, page title, builder] per mode (see _personnel_modes).
+func _league_modes(view: int) -> Array:
+	match view:
+		0:
+			return [["Standings", "Standings", _league_standings]]
+		1:
+			return [["Scores", "Scores", _league_scores]]
+		2:
+			return [["Leaders", "League Leaders", stats_pages.leaders], ["All Players", "League Stats", pages.league_stats], ["All Teams", "League Team Stats", pages.league_team_stats]]
+		3:
+			return [["Playoffs", "Playoff Picture", _league_playoffs]]
+		4:
+			return [["Rankings", "Team Rankings", pages.team_rankings], ["All Teams", "Teams", pages.teams]]
+		5:
+			return [["League News", "League News", pages.news], ["Weekly Paper", "News Archive", pages.news_archive]]
+	return [["Legacy", "Legacy", legacy_pages.legacy], ["Season Awards", "Awards & Development", pages.awards], ["Retirements", "Retirements", pages.retirements]]
+
+
+func _fill_league_box(keep := false) -> void:
+	var scroll_pos := 0
+	if keep:
+		var old := _league_box.find_child("LeaguePaneScroll", true, false) as ScrollContainer
+		if old:
+			scroll_pos = old.scroll_vertical
 	for c in _league_box.get_children():
 		_league_box.remove_child(c)
 		c.queue_free()
+	league_view = clampi(league_view, 0, LEAGUE_VIEWS.size() - 1)
+	var modes := _league_modes(league_view)
+	var mode := clampi(int(_league_mode.get(league_view, 0)), 0, modes.size() - 1)
+	_league_mode[league_view] = mode
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
 	head.add_child(_subtab_bar(LEAGUE_VIEWS, league_view, [], _pick_league_view))
@@ -2459,33 +2448,32 @@ func _fill_league_box() -> void:
 	head.add_child(spacer)
 	var info := UiKit.rich("[right]%s[/right]" % _league_pane_info(), 15)
 	info.autowrap_mode = TextServer.AUTOWRAP_OFF
-	info.custom_minimum_size.x = 640
 	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(info)
 	_league_box.add_child(head)
-	var frame := PanelContainer.new()
-	var sb := UiKit.flat(Color(UiKit.PANEL, 0.85), 4, 1, Color(1, 1, 1, 0.08))
-	sb.border_width_top = 3
-	sb.border_color = UiKit.ACCENT
-	sb.set_content_margin_all(16)
-	frame.add_theme_stylebox_override("panel", sb)
-	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var frame := _pane_frame()
 	_league_box.add_child(frame)
+	var inner := VBoxContainer.new()
+	inner.add_theme_constant_override("separation", 6)
+	frame.add_child(inner)
+	if modes.size() > 1:
+		inner.add_child(_mode_bar(modes, mode, func(i: int):
+			_league_mode[league_view] = i
+			_fill_league_box()))
 	var sc := ScrollContainer.new()
 	sc.name = "LeaguePaneScroll"
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	sc.custom_minimum_size.y = LEAGUE_PANE_H
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	sc.follow_focus = true
-	frame.add_child(sc)
-	var body: Control
-	match league_view:
-		0: body = _league_standings()
-		1: body = _league_scores()
-		2: body = stats_pages.leaders()
-		_: body = _league_playoffs()
+	inner.add_child(sc)
+	_scroll = sc
+	var body: Control = modes[mode][2].call()
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sc.add_child(body)
-	UiKit.fade_in(body, 0.0, 0.2)
+	if keep:
+		_restore_pane(sc, scroll_pos, -1, _league_box)
+	else:
+		UiKit.fade_in(body, 0.0, 0.2)
 
 
 func _league_pane_info() -> String:
@@ -2517,8 +2505,8 @@ func _league_standings() -> Control:
 				_fill_league_box(), 15)
 			b.custom_minimum_size.x = 150
 			nav.add_child(b)
-	var key := UiKit.rich("[color=%s]■[/color] [color=#8b97ab]division leader[/color]    [color=%s]■[/color] [color=#8b97ab]wild card[/color]    [color=#8b97ab]%d make the playoffs  ·  seeds if the season ended today[/color]" % [
-		UiKit.hex(UiKit.ACCENT), UiKit.hex(UiKit.INFO), season.playoff_teams], 14)
+	var key := UiKit.rich("[color=%s]■[/color] [color=#8b97ab]division leader[/color]    [color=%s]■[/color] [color=#8b97ab]wild card[/color]" % [
+		UiKit.hex(UiKit.ACCENT), UiKit.hex(UiKit.INFO)], 14)
 	key.autowrap_mode = TextServer.AUTOWRAP_OFF
 	key.fit_content = true
 	key.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2629,8 +2617,6 @@ func _league_scores() -> Control:
 			nav.add_child(lbl)
 	v.add_child(nav)
 	var matches: Array = season.matches_for_week(w)
-	if matches.is_empty():
-		v.add_child(UiKit.label("Matchups not set yet - decided by earlier playoff results.", 16, UiKit.MUTED))
 	for m in matches:
 		v.add_child(pages._score_line(m))
 	var byes: Array = season.bye_teams(w)
@@ -2642,123 +2628,12 @@ func _league_scores() -> Control:
 func _league_playoffs() -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 12)
-	if season.phase == Season.PHASE_REGULAR:
-		v.add_child(UiKit.label("If the season ended today. The better seed is at home; the bracket is fixed (no reseeding).", 15, UiKit.MUTED))
 	v.add_child(pages.bracket_view(false))
 	var more := UiKit.button("Full playoff picture", func(): open("Playoff Picture", pages.playoffs), 14)
 	UiKit.style_skewed(more)
 	more.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	v.add_child(more)
 	return v
-
-
-## Under the pane: live cards for the other League screens.
-func _league_cards() -> Control:
-	var team := season.user_team()
-	var row := HBoxContainer.new()
-	row.name = "LeagueCards"
-	row.add_theme_constant_override("separation", 14)
-	var cards: Array = []
-
-	var teams: Array = season.league.teams.duplicate()
-	teams.sort_custom(func(a: Team, b: Team): return a.team_ovr() > b.team_ovr())
-	var top: Team = teams[0]
-	cards.append(_stat_card("Team Rankings", "#%d" % (teams.find(team) + 1), "YOUR OVR RANK",
-		"You: OVR %d\nTop: %s (%d)" % [team.team_ovr(), top.abbrev, top.team_ovr()], Color("#22c55e"),
-		func(): open("Team Rankings", pages.team_rankings)))
-
-	var totals := pages.season_totals()
-	if totals.is_empty():
-		cards.append(_stat_card("League Stats", "-", "KILLS LEADER", "No games played yet", Color("#0ea5e9"), func(): open("League Stats", pages.league_stats)))
-	else:
-		var best: Dictionary = totals[0]
-		for t in totals:
-			if int(t["kills"]) > int(best["kills"]):
-				best = t
-		cards.append(_stat_card("League Stats", str(best["kills"]), "KILLS LEADER", "[color=white]%s[/color]\n%s  ·  %d games" % [
-			UiKit.esc(best["soldier"].short_name()), best["team"].abbrev, best["matches"]], Color("#0ea5e9"), func(): open("League Stats", pages.league_stats)))
-
-	var heads := pages.headlines(1)
-	cards.append(_stat_card("League News", str(season.news.items.size()), "STORIES", _headline(), Color("#14b8a6"),
-		func(): open("League News", pages.news), "NEW" if not heads.is_empty() and season.phase == Season.PHASE_REGULAR and season.week > 1 else ""))
-
-	if season.review != null and not season.review.awards.is_empty():
-		var mvp: Dictionary = season.review.awards[0]
-		cards.append(_stat_card("Awards", mvp["team"].abbrev, "%d MVP" % season.review.year, "[color=white]%s[/color]" % UiKit.esc(mvp["soldier"].full_name()),
-			Color("#f59e0b"), func(): open("Awards & Development", pages.awards)))
-	else:
-		var fav := {}
-		for t in totals:
-			if int(t["matches"]) < SeasonReview.MIN_MATCHES:
-				continue
-			if fav.is_empty() or float(t["impact"]) / int(t["matches"]) > float(fav["impact"]) / int(fav["matches"]):
-				fav = t
-		if fav.is_empty():
-			cards.append(_stat_card("Awards", "-", "MVP RACE", "Needs %d games played" % SeasonReview.MIN_MATCHES, Color("#f59e0b"), func(): open("Awards & Development", pages.awards)))
-		else:
-			cards.append(_stat_card("Awards", fav["team"].abbrev, "MVP FAVOURITE", "[color=white]%s[/color]\n%d match MVPs  ·  %d games" % [
-				UiKit.esc(fav["soldier"].short_name()), fav["mvps"], fav["matches"]], Color("#f59e0b"), func(): open("Awards & Development", pages.awards)))
-
-	var fas: Array = season.league.free_agents
-	var bfa: Soldier = null
-	for s in fas:
-		if bfa == null or s.best_ovr() > bfa.best_ovr():
-			bfa = s
-	var open_fa := season.free_agency_open()
-	cards.append(_stat_card("Free Agents", str(fas.size()), "AVAILABLE", ("Best: [color=white]%s[/color] (%d)\n" % [UiKit.esc(bfa.short_name()), bfa.best_ovr()] if bfa else "")
-		+ ("Bidding open" if open_fa else "Bidding opens after re-signing"), Color("#14b8a6"), open_free_agents, "BIDDING" if open_fa else ""))
-
-	var n := 0
-	for c in cards:
-		row.add_child(c)
-		UiKit.fade_in(c, 0.04 * n, 0.25)
-		n += 1
-	return row
-
-
-## The remaining League screens as a second row of cards.
-func _league_strip() -> Control:
-	var team := season.user_team()
-	var cards: Array = []
-	var wk := clampi(season.week, 1, season.total_weeks())
-	var games: Array = season.matches_for_week(wk)
-	var played := games.filter(func(m: ScheduledMatch): return m.is_played()).size()
-	var nm := season.next_match_for(team)
-	var next_txt := ("Next: %s %s (%s)" % ["vs" if nm.home == team else "@", nm.opponent_of(team).abbrev, season.week_label(nm.week)]) if nm else "No games left"
-	cards.append(_stat_card("League Schedule", str(wk), ("OF %d" % season.regular_weeks) if wk <= season.regular_weeks else season.week_label(wk).to_upper(),
-		"%s\n%d of %d matches played this week" % [next_txt, played, games.size()],
-		Color("#6366f1"), func(): open("League Schedule", func(): return pages.scores(wk))))
-
-	var kills := {}
-	for t in pages.season_totals():
-		kills[t["team"]] = int(kills.get(t["team"], 0)) + int(t["kills"])
-	if kills.is_empty():
-		cards.append(_stat_card("Team Stats", "-", "KILLS RANK", "No games played yet", Color("#3b82f6"), func(): open("League Team Stats", pages.league_team_stats)))
-	else:
-		var order: Array = kills.keys()
-		order.sort_custom(func(a: Team, b: Team): return kills[a] > kills[b])
-		cards.append(_stat_card("Team Stats", "#%d" % (order.find(team) + 1), "KILLS RANK", "You: %d kills\nTop: %s (%d)" % [int(kills.get(team, 0)), order[0].abbrev, kills[order[0]]],
-			Color("#3b82f6"), func(): open("League Team Stats", pages.league_team_stats)))
-
-	cards.append(_stat_card("Teams", str(season.league.teams.size()), "TEAMS", "Every roster, logo and record\n%d make the playoffs" % season.playoff_teams,
-		Color("#a855f7"), func(): open("Teams", pages.teams)))
-
-	var rets: Array = season.retirements
-	var last: Dictionary = rets[-1] if not rets.is_empty() else {}
-	cards.append(_stat_card("Retirements", str(rets.size()), "RETIRED", ("Latest: [color=white]%s[/color] at %d" % [UiKit.esc(last["soldier"].short_name()), last["age"]]) if not last.is_empty() else "Nobody has retired yet",
-		Color("#94a3b8"), open_retirements))
-
-	var champ: SeasonSnapshot = season.history[-1] if not season.history.is_empty() else null
-	cards.append(_stat_card("Legacy", str(season.history.size()), "SEASONS", ("%d champion: [color=white]%s[/color]" % [champ.year, UiKit.esc(champ.champion.name)]) if champ != null and champ.champion != null else "Champions and awards history",
-		Color("#eab308"), open_legacy))
-	return _card_row("LeagueMore", cards, 5)
-
-
-## A dimmed card for a screen that is not built yet.
-func _soon_card(title: String, detail: String, bullets: Array) -> Button:
-	var c := _stat_card(title, "SOON", "", detail, UiKit.MUTED, func(): coming_soon(title, bullets))
-	c.modulate = Color(1, 1, 1, 0.6)
-	return c
 
 
 ## A row of cards, padded with empty slots to `cols` so it lines up with the row above.
@@ -2784,44 +2659,79 @@ func _personnel_sections() -> Array:
 	return []
 
 
-const PERS_PANE_H := 660
+const PERS_VIEWS := ["Contracts", "Trades", "Free Agency", "Draft"]
+## Sub-view (mode) shown inside each Personnel / League tab: view index -> mode index.
+var _pers_mode := {}
+var _league_mode := {}
 var personnel_view := 0
 var _personnel_key := ""  # phase the view was picked for; a new phase re-picks the default
 var _pers_box: VBoxContainer
 
 
-## Page titles of the pane's views (the pages refresh themselves with hub.replace(title, ...)).
-## The Draft Room joins only while the draft is running.
 func _personnel_views() -> Array:
-	var v := ["Contracts & Payroll", "Trades"]
-	if _draft_live():
-		v.append("Draft Room")
-	return v
+	return PERS_VIEWS
 
 
 func _personnel_view_names() -> Array:
-	var v := ["Contracts", "Trades"]
-	if _draft_live():
-		v.append("Draft Room")
-	return v
+	return PERS_VIEWS
 
 
 func _draft_live() -> bool:
 	return season.draft.is_started() and not draft_done()
 
 
-## Pane view a refreshing page title belongs to (-1: not a pane page). The Trades view is built
-## from the Trade Offers and Trade Block pages, which refresh under their own titles.
-func _personnel_view_for(title: String) -> int:
-	if title in ["Trade Offers", "Trade Block"]:
-		return 1
-	return _personnel_views().find(title)
+## The draft whose recap the Draft tab shows: this year's once it is complete, else the latest past one (null: none yet).
+func _recap_draft() -> Draft:
+	if season.draft.is_complete():
+		return season.draft
+	return season.past_drafts[-1] if not season.past_drafts.is_empty() else null
 
 
-## The view that matters most right now: the draft on draft day, trades in season, contracts otherwise.
+## What a Personnel tab can show: [label, page title (what the page refreshes itself under), builder] per mode.
+## One mode means no toggle row. The pages refresh with hub.replace(title, ...), which finds them again by title.
+func _personnel_modes(view: int) -> Array:
+	match view:
+		0:
+			return [["Contracts", "Contracts & Payroll", pages.contracts], ["Re-sign", "Re-sign Players", pages.resign]]
+		1:
+			return [["Offers & Block", "Trades", pages.trade_hub], ["Trade Log", "Trade Log", pages.trade_log]]
+		2:
+			return [["Free Agency", "Free Agents", pages.free_agents]]
+	var out: Array = [["Scouting", "Scouting", pages.scouting], ["Mock Draft", "Mock Draft", pages.mock_draft]]
+	if _draft_live():
+		out.append(["Draft Room", "Draft Room", pages.draft_room])
+	var rd := _recap_draft()
+	if rd != null:
+		out.append(["Recap", "Draft Recap", func(): return pages.draft_recap(rd)])
+	return out
+
+
+## (view, mode) a refreshing page title belongs to inside a pane tab; (-1, -1) when it is not a pane page.
+func _pane_lookup(tab: int, title: String) -> Vector2i:
+	if tab == Tab.PERSONNEL and title in ["Trade Offers", "Trade Block"]:
+		return Vector2i(1, 0)
+	var n: int = PERS_VIEWS.size() if tab == Tab.PERSONNEL else LEAGUE_VIEWS.size()
+	for v in n:
+		var modes: Array = _personnel_modes(v) if tab == Tab.PERSONNEL else _league_modes(v)
+		for m in modes.size():
+			if modes[m][1] == title:
+				return Vector2i(v, m)
+	return Vector2i(-1, -1)
+
+
+## The view that matters most right now (also picks its mode): the draft on draft day, free agency in its window,
+## re-signing after the Final, trades in season, contracts otherwise.
 func _personnel_default() -> int:
+	_pers_mode.clear()
 	if season.phase == Season.PHASE_OFFSEASON:
-		return 2 if season.offseason_stage == Season.OFF_DRAFT and _draft_live() else 0
+		if season.offseason_stage == Season.OFF_DRAFT and _draft_live():
+			_pers_mode[3] = 2
+			return 3
+		if season.offseason_stage == Season.OFF_FREE_AGENCY:
+			return 2
+		if season.offseason_stage == Season.OFF_RESIGN or season.can_resign():
+			_pers_mode[0] = 1
+		return 0
 	if season.preseason_camp:
 		return 0
 	return 1
@@ -2838,7 +2748,7 @@ func _personnel_top() -> Control:
 		personnel_view = _personnel_default()
 	_pers_box = VBoxContainer.new()
 	_pers_box.name = "PersonnelPane"
-	_pers_box.add_theme_constant_override("separation", 8)
+	_pers_box.add_theme_constant_override("separation", 4)
 	_fill_personnel_box()
 	return _pers_box
 
@@ -2848,17 +2758,32 @@ func _pick_personnel_view(i: int) -> void:
 	_fill_personnel_box()
 
 
-## Sub-tab badges: Contracts "!" when over the cap or roster limit, Trades the pending offer
-## count, Draft Room "!" while the user is on the clock.
+## Sub-tab badges: Contracts "!" when over the cap or roster limit, Trades the pending offer count,
+## Draft "!" while the user is on the clock.
 func _personnel_badges() -> Array:
 	var team := season.user_team()
 	var cap_issue := Contracts.cap_space(team, season.cap_year()) < 0 or team.is_over_roster_limit()
 	var offers := season.trades.offers.size()
-	var out: Array = ["!" if cap_issue else "", str(offers) if offers > 0 else ""]
-	if _draft_live():
-		var d := season.draft
-		out.append("!" if not d.is_complete() and d.on_the_clock() == team else "")
-	return out
+	var d := season.draft
+	var on_clock := _draft_live() and not d.is_complete() and d.on_the_clock() == team
+	return ["!" if cap_issue else "", str(offers) if offers > 0 else "", "", "!" if on_clock else ""]
+
+
+## One row of text toggles for a tab's sub-views. `pick` gets the mode index.
+func _mode_bar(modes: Array, current: int, pick: Callable) -> Control:
+	var bar := HBoxContainer.new()
+	bar.name = "ModeBar"
+	bar.add_theme_constant_override("separation", 4)
+	for i in modes.size():
+		var idx := i
+		var b := Button.new()
+		b.text = String(modes[i][0]).to_upper()
+		b.custom_minimum_size = Vector2(0, 32)
+		b.focus_mode = Control.FOCUS_ALL
+		UiKit.style_tab(b, i == current, 16)
+		b.pressed.connect(func(): pick.call(idx))
+		bar.add_child(b)
+	return bar
 
 
 ## `keep`: an in-place refresh (sort, offer, pick) - keep the pane's scroll and focus.
@@ -2873,38 +2798,37 @@ func _fill_personnel_box(keep := false) -> void:
 	for c in _pers_box.get_children():
 		_pers_box.remove_child(c)
 		c.queue_free()
-	var names := _personnel_view_names()
-	personnel_view = clampi(personnel_view, 0, names.size() - 1)
+	personnel_view = clampi(personnel_view, 0, PERS_VIEWS.size() - 1)
+	var modes := _personnel_modes(personnel_view)
+	var mode := clampi(int(_pers_mode.get(personnel_view, 0)), 0, modes.size() - 1)
+	_pers_mode[personnel_view] = mode
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
-	head.add_child(_subtab_bar(names, personnel_view, _personnel_badges(), _pick_personnel_view))
+	head.add_child(_subtab_bar(PERS_VIEWS, personnel_view, _personnel_badges(), _pick_personnel_view))
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(spacer)
 	var info := UiKit.rich("[right]%s[/right]" % _personnel_pane_info(), 15)
 	info.autowrap_mode = TextServer.AUTOWRAP_OFF
-	info.custom_minimum_size.x = 640
 	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(info)
 	_pers_box.add_child(head)
-	var frame := PanelContainer.new()
-	var sb := UiKit.flat(Color(UiKit.PANEL, 0.85), 4, 1, Color(1, 1, 1, 0.08))
-	sb.border_width_top = 3
-	sb.border_color = UiKit.ACCENT
-	sb.set_content_margin_all(16)
-	frame.add_theme_stylebox_override("panel", sb)
-	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var frame := _pane_frame()
 	_pers_box.add_child(frame)
+	var inner := VBoxContainer.new()
+	inner.add_theme_constant_override("separation", 6)
+	frame.add_child(inner)
+	if modes.size() > 1:
+		inner.add_child(_mode_bar(modes, mode, func(i: int):
+			_pers_mode[personnel_view] = i
+			_fill_personnel_box()))
 	var sc := ScrollContainer.new()
 	sc.name = "PersonnelPaneScroll"
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	sc.custom_minimum_size.y = PERS_PANE_H
-	frame.add_child(sc)
-	var body: Control
-	match personnel_view:
-		0: body = pages.contracts()
-		1: body = pages.trade_hub()
-		_: body = pages.draft_room()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	inner.add_child(sc)
+	_scroll = sc
+	var body: Control = modes[mode][2].call()
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sc.add_child(body)
 	if keep:
@@ -2912,6 +2836,19 @@ func _fill_personnel_box(keep := false) -> void:
 	else:
 		UiKit.fade_in(body, 0.0, 0.2)
 		sc.follow_focus = true
+
+
+## The framed panel a pane tab's body sits in.
+func _pane_frame() -> PanelContainer:
+	var frame := PanelContainer.new()
+	var sb := UiKit.flat(Color(UiKit.PANEL, 0.85), 4, 1, Color(1, 1, 1, 0.08))
+	sb.border_width_top = 3
+	sb.border_color = UiKit.ACCENT
+	sb.set_content_margin_all(12)
+	frame.add_theme_stylebox_override("panel", sb)
+	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	return frame
 
 
 func _personnel_pane_info() -> String:
@@ -2923,91 +2860,6 @@ func _personnel_pane_info() -> String:
 		Contracts.money(Contracts.payroll(team, cy)), Contracts.money(Contracts.SALARY_CAP), dot,
 		UiKit.hex(UiKit.GOOD if space >= 0 else UiKit.BAD), Contracts.money(space), dot,
 		UiKit.hex(UiKit.BAD if team.is_over_roster_limit() else Color.WHITE), team.roster.size(), Team.ROSTER_SIZE]
-
-
-## Under the pane: live cards for the other Personnel screens.
-func _personnel_cards() -> Control:
-	var team := season.user_team()
-	var row := HBoxContainer.new()
-	row.name = "PersonnelCards"
-	row.add_theme_constant_override("separation", 14)
-	var cards: Array = []
-
-	var fa_stage := season.phase == Season.PHASE_OFFSEASON and season.offseason_stage == Season.OFF_FREE_AGENCY
-	var bids: int = season.fa.offers_by(team).size()
-	var fa_detail := ("Day %d of %d" % [season.fa_day, Season.FA_DAYS]) if fa_stage else \
-		("Opens after re-signing" if not season.free_agency_open() else "Bidding open")
-	if bids > 0:
-		fa_detail += "\n%d offer%s out" % [bids, "" if bids == 1 else "s"]
-	cards.append(_stat_card("Free Agency", str(season.league.free_agents.size()), "AVAILABLE", fa_detail,
-		Color("#f97316"), open_free_agents, "FA DAY %d" % season.fa_day if fa_stage else ""))
-
-	# In season the contracts that expire are the ones in their final year.
-	var off := season.phase == Season.PHASE_OFFSEASON
-	var exp: Array = Contracts.expiring(team) if off else team.roster.filter(func(x: Soldier): return x.contract != null and x.contract.years == 1 and not x.has_extension())
-	cards.append(_stat_card("Re-sign Players", str(exp.size()), "EXPIRING" if off else "IN FINAL YEAR", "Window open" if season.can_resign() else "Window opens after the Final",
-		Color("#22c55e"), open_resign, "RE-SIGN" if season.can_resign() and not exp.is_empty() else ""))
-
-	var d := season.draft
-	var order: Array = season.mock_pick_order()
-	var mine: Array = []
-	for i in range(d.next_pick if d.is_started() else 0, order.size()):
-		if order[i] == team:
-			mine.append(i + 1)
-	if d.is_complete() or mine.is_empty():
-		cards.append(_stat_card("Mock Draft", "-", "YOUR NEXT PICK", "Draft complete" if d.is_complete() else "No picks left", UiKit.INFO, open_mock_draft))
-	else:
-		var per := maxi(1, order.size() / Draft.ROUNDS)
-		cards.append(_stat_card("Mock Draft", "#%d" % mine[0], "YOUR NEXT PICK", "Round %d  ·  %d pick%s left\n%s" % [
-			(mine[0] - 1) / per + 1, mine.size(), "" if mine.size() == 1 else "s", "Real order" if d.is_started() else "From current standings"],
-			UiKit.INFO, open_mock_draft, "ON THE CLOCK" if d.is_started() and d.on_the_clock() == team else ""))
-
-	var pts := d.scout_points
-	cards.append(_stat_card("Scouting", str(pts), "SCOUT POINTS", "%d of %d prospects scouted\n+%d per week" % [_scouted_count(), Draft.CLASS_SIZE, season.scout_points_per_week()],
-		Color("#06b6d4"), open_scouting, "SPEND" if pts > 0 and not d.is_started() else ""))
-
-	var n := 0
-	for c in cards:
-		row.add_child(c)
-		UiKit.fade_in(c, 0.04 * n, 0.25)
-		n += 1
-	return row
-
-
-## The remaining Personnel screens as a second row of cards.
-func _personnel_strip() -> Control:
-	var team := season.user_team()
-	var cards: Array = []
-	var hist: Array = season.trades.history
-	var mine := hist.filter(func(e): return e["a"] == team or e["b"] == team).size()
-	var lt: Dictionary = hist[-1] if not hist.is_empty() else {}
-	cards.append(_stat_card("Trade Log", str(hist.size()), "LEAGUE TRADES", ("%d involving you\nLatest: %s - %s" % [mine, lt["a"].abbrev, lt["b"].abbrev]) if not lt.is_empty() else "No trades yet",
-		Color("#f97316"), func(): open("Trade Log", pages.trade_log)))
-
-	var d: Draft = season.draft if season.draft.is_complete() else (season.past_drafts[-1] if not season.past_drafts.is_empty() else null)
-	if d == null:
-		cards.append(_stat_card("Draft Recap", "-", "NO DRAFT YET", "Every pick and grade after the first draft", UiKit.INFO, func(): coming_soon("Draft Recap", ["Available once the first draft is done"])))
-	else:
-		var picks: Array = d.picks()
-		var ours: Array = picks.filter(func(p: Prospect): return p.drafted_by == team)
-		var top: Prospect = picks[0]
-		cards.append(_stat_card("Draft Recap", str(ours.size()), "%d PICKS MADE" % d.year, "#1: [color=white]%s[/color] (%s)" % [UiKit.esc(top.soldier.short_name()), top.drafted_by.abbrev]
-			+ ("\nYour first: %s" % UiKit.esc(ours[0].soldier.short_name()) if not ours.is_empty() else ""), UiKit.INFO, func(): open("Draft Recap", func(): return pages.draft_recap(d))))
-
-	var nr := season.newsroom
-	var la := nr.latest()
-	cards.append(_stat_card("Weekly News", str(nr.count()), "ISSUES", ("[color=white]%s[/color]\n%s" % [UiKit.esc(String(la["headline"])), UiKit.esc(String(la["paper"]))]) if not la.is_empty()
-		else "No issues yet", Color("#e2e8f0"), func(): open("News Archive", pages.news_archive), "NEW" if nr.unread() > 0 else ""))
-
-	var ext_team := season.user_team()
-	var ext_list := season.extension_candidates(ext_team)
-	var agreed := ext_list.filter(func(x: Soldier): return x.has_extension()).size()
-	var ext_detail := "Window open until the playoffs" if season.extension_open() else "Opens in the regular season"
-	if season.extension_open() and not ext_list.is_empty():
-		ext_detail = "%d agreed  ·  %d to go\nWindow closes at the playoffs" % [agreed, ext_list.size() - agreed]
-	cards.append(_stat_card("Extensions", str(ext_list.size()) if season.extension_open() else "-", "IN FINAL YEAR", ext_detail,
-		Color("#a855f7"), open_extensions, "NEGOTIATE" if season.extension_open() and ext_list.size() > agreed else ""))
-	return _card_row("PersonnelMore", cards, 4)
 
 
 ## The Club tab is a custom layout (see _tab_view): the club's money, its market and buzz and its
@@ -3079,53 +2931,74 @@ func _settings_sections() -> Array:
 
 func _settings_view(v: VBoxContainer) -> void:
 	var offseason := season.phase == Season.PHASE_OFFSEASON
+	var career := season.player_mode
+	var noun := "Career" if career else "Franchise"
 	var used := 0
-	for s in range(1, SaveSystem.SLOTS + 1):
-		if SaveSystem.has_slot(s):
+	for sl in range(1, SaveSystem.SLOTS + 1):
+		if SaveSystem.has_slot(sl):
 			used += 1
 	var auto := SaveSystem.slot_info(SaveSystem.AUTO_SLOT)
 	var latest := {}
-	for s in range(0, SaveSystem.SLOTS + 1):
-		var info := SaveSystem.slot_info(s)
+	for sl in range(0, SaveSystem.SLOTS + 1):
+		var info := SaveSystem.slot_info(sl)
 		if not info.is_empty() and str(info.get("saved_at", "")) > str(latest.get("saved_at", "")):
 			latest = info
-	var sim := _stat_card("Sim Options", "OFF" if offseason else "W%d" % season.week, "SEASON %d" % season.year,
-		"Sim a week, to the playoffs, or the whole season", UiKit.TRIM, func(): open("Sim Options", pages.sim_options))
-	var save := _stat_card("Save Franchise", "%d/%d" % [used, SaveSystem.SLOTS], "SLOTS USED",
-		("Autosave: [color=white]%s %s[/color]" % [auto.get("year", ""), auto.get("week", "")]) if not auto.is_empty() else "The autosave updates every week",
-		UiKit.TRIM, func(): open("Save Franchise", func(): return pages.save_load(true)))
-	var load_c := _stat_card("Load Franchise", str(used + (0 if auto.is_empty() else 1)), "SAVES",
-		("Latest: [color=white]%s[/color] · %s %s" % [UiKit.esc(str(latest.get("label", "")) if str(latest.get("label", "")) != "" else "Slot %d" % int(latest.get("slot", 0))), latest.get("abbrev", ""), latest.get("week", "")]) if not latest.is_empty() else "No saves yet",
-		UiKit.TRIM, func(): open("Load Franchise", func(): return pages.save_load(false)))
-	var td := Trades.difficulty()
-	var trade_card := _stat_card("Trade Difficulty", String(Trades.DIFFICULTY_NAMES[td]).to_upper(), "TRADES",
-		"Click to switch. [color=white]Easy[/color]: the AI can be fleeced. [color=white]Normal[/color]: fair swaps. [color=white]Hard[/color]: the AI wants an edge", UiKit.TRIM,
-		func():
-			season.settings.trade_difficulty = (Trades.difficulty() + 1) % Trades.DIFFICULTY_NAMES.size()
-			season.settings.apply()
-			refresh())
-	var fs := _soon_card("Franchise Settings", "Difficulty, injuries, cap", ["Sim difficulty", "Injuries on/off and frequency", "Salary cap rules"])
-	v.add_child(UiKit.heading("FRANCHISE", 22))
-	v.add_child(_card_row("SettingsFranchise", [sim, save, load_c, fs], 4))
-	var gap0 := Control.new()
-	gap0.custom_minimum_size.y = 10
-	v.add_child(gap0)
-	v.add_child(UiKit.heading("GAMEPLAY", 22))
-	v.add_child(_card_row("SettingsGameplay", [trade_card], 4))
-	var gap := Control.new()
-	gap.custom_minimum_size.y = 10
-	v.add_child(gap)
-	var dbg := _stat_card("Debug Sim Tools", "M1", "SANDBOX", "Single matches, batch sims, raw ratings", UiKit.TRIM, app.open_debug)
-	var menu := _stat_card("Main Menu", "◂", "TITLE", "Back to the title screen. Your franchise stays loaded", UiKit.TRIM, app.show_title)
-	v.add_child(UiKit.heading("SYSTEM", 22))
-	var reduced := Fx.is_reduced()
-	var anim := _stat_card("Animations", "REDUCED" if reduced else "ON", "INTERFACE",
-		"Reduce animations is [color=white]%s[/color]. Click to turn it %s" % ["on" if reduced else "off", "off" if reduced else "on"], UiKit.TRIM,
+	var root := HBoxContainer.new()
+	root.add_theme_constant_override("separation", 70)
+	root.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	v.add_child(root)
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 4)
+	list.custom_minimum_size.x = 620
+	root.add_child(list)
+	var right := CenterContainer.new()
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root.add_child(right)
+	var card := VBoxContainer.new()
+	card.custom_minimum_size.x = 440
+	card.add_theme_constant_override("separation", 10)
+	right.add_child(card)
+	var d_title := UiKit.display("", 48, Color.WHITE, true)
+	var d_body := UiKit.label("", 19, Color("#b4bfd0"))
+	d_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	d_body.custom_minimum_size.x = 440
+	card.add_child(UiKit.display("ABOUT THIS OPTION", 17, UiKit.MUTED))
+	card.add_child(d_title)
+	card.add_child(d_body)
+	var add := func(title: String, value: String, desc: String, cb: Callable) -> MenuText:
+		var b := MenuText.new(title, 38, UiKit.ACCENT, "", 620)
+		if value != "":
+			b.set_value(value, 24)
+		b.pressed.connect(cb)
+		b.focus_entered.connect(func():
+			d_title.text = title.to_upper()
+			d_body.text = desc)
+		list.add_child(b)
+		return b
+	var first: MenuText = add.call("Sim Options", "OFF" if offseason else "W%d" % season.week,
+		"Sim a week, to the playoffs, or the whole season.", func(): open("Sim Options", pages.sim_options))
+	add.call("Save " + noun, "%d/%d" % [used, SaveSystem.SLOTS],
+		("Autosave: %s %s. The autosave updates every week." % [auto.get("year", ""), auto.get("week", "")]) if not auto.is_empty() else "Write your game to a slot. The autosave updates every week.",
+		func(): open("Save " + noun, func(): return pages.save_load(true)))
+	add.call("Load " + noun, str(used + (0 if auto.is_empty() else 1)),
+		("Latest: %s, %s %s." % [str(latest.get("label", "")) if str(latest.get("label", "")) != "" else "Slot %d" % int(latest.get("slot", 0)), latest.get("abbrev", ""), latest.get("week", "")]) if not latest.is_empty() else "No saves yet.",
+		func(): open("Load " + noun, func(): return pages.save_load(false)))
+	if not career:
+		add.call("Trade Difficulty", String(Trades.DIFFICULTY_NAMES[Trades.difficulty()]).to_upper(),
+			"How hard the AI bargains. Easy: it can be fleeced. Normal: fair swaps. Hard: it wants an edge. Press to switch.",
+			func():
+				season.settings.trade_difficulty = (Trades.difficulty() + 1) % Trades.DIFFICULTY_NAMES.size()
+				season.settings.apply()
+				refresh())
+	add.call("Animations", "REDUCED" if Fx.is_reduced() else "ON",
+		"Reduced skips menu motion and count-ups. Press to switch.",
 		func():
 			season.settings.reduce_animations = not Fx.is_reduced()
 			season.settings.apply()
 			refresh())
-	v.add_child(_card_row("SettingsSystem", [dbg, menu, anim], 4))
+	add.call("Debug Sim Tools", "", "Single matches, batch sims and a raw ratings sandbox.", app.open_debug)
+	add.call("Main Menu", "", "Back to the title screen. Your %s stays loaded." % noun.to_lower(), app.show_title)
+	first.focus_entered.emit()
 
 
 func open_standings() -> void:
@@ -3273,54 +3146,6 @@ func _mini_standings() -> String:
 		var c := "white" if row.team.user_controlled else "#8b97ab"
 		lines.append("[color=%s]%d. %s%s  %d-%d[/color]" % [c, i + 1, UiKit.logo_bb(row.team, 18), row.team.abbrev, row.wins, row.losses])
 	return "[font_size=15]%s[/font_size]" % "\n".join(lines)
-
-
-func _headline() -> String:
-	var news := pages.headlines(1)
-	if news.is_empty():
-		var wire: Array = season.news.latest(1)
-		if not wire.is_empty():
-			return String(wire[0]["headline"])
-	return news[0] if not news.is_empty() else "Preseason: %d teams chase the %s title." % [season.league.teams.size(), Season.DIVISION_NAME]
-
-
-func _leader_blurb() -> String:
-	var top := pages.season_totals()
-	if top.is_empty():
-		return "Kills, assists and damage leaders."
-	# Rate stats need a real sample: at least half the games of the busiest player.
-	var most := 0
-	for t in top:
-		most = maxi(most, int(t["matches"]))
-	var qualified := top.filter(func(t): return int(t["matches"]) * 2 >= most)
-	var cats: Array = [
-		["K", top, func(t): return float(t["kills"]), func(t): return str(t["kills"])],
-		["A", top, func(t): return float(t["assists"]), func(t): return str(t["assists"])],
-		["CAP", top, func(t): return float(t["caps"]), func(t): return str(t["caps"])],
-		["K/D", qualified, func(t): return float(t["kills"]) / maxi(1, int(t["deaths"])), func(t): return "%.2f" % (float(t["kills"]) / maxi(1, int(t["deaths"])))],
-		["HIT%", qualified, func(t): return float(t["hits"]) / maxi(1, int(t["shots"])), func(t): return "%d%%" % roundi(100.0 * t["hits"] / maxi(1, int(t["shots"])))],
-	]
-	var lines: Array[String] = []
-	for c in cats:
-		var pool: Array = c[1]
-		if pool.is_empty():
-			continue
-		var f: Callable = c[2]
-		var best: Dictionary = pool[0]
-		for t in pool:
-			if f.call(t) > f.call(best):
-				best = t
-		var so: Soldier = best["soldier"]
-		lines.append("[color=#8b97ab]%s[/color]  [color=white]%s[/color] %s  [color=#eab308]%s[/color]" % [
-			c[0], UiKit.esc(so.callsign), best["team"].abbrev, c[3].call(best)])
-	return "[font_size=15]%s[/font_size]" % "\n".join(lines)
-
-
-func _awards_blurb() -> String:
-	if season.review != null and not season.review.awards.is_empty():
-		var mvp: Dictionary = season.review.awards[0]
-		return "%d MVP:\n[color=white]%s[/color] (%s)" % [season.review.year, UiKit.esc(mvp["soldier"].full_name()), mvp["team"].abbrev]
-	return "MVP race, position awards, dev star changes and aging."
 
 
 func _playoff_blurb() -> String:

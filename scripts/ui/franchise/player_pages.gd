@@ -53,22 +53,24 @@ func header_row(extra: Control) -> HBoxContainer:
 	var team := s.user_team()
 	var p := s.player
 	var hb := _hbox(20)
-	hb.add_child(Portrait.new(p, 96, UiKit.ACCENT, team))
+	hb.add_child(Portrait.new(p, 68, UiKit.ACCENT, team))
 	var info := _vbox(0)
-	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	info.alignment = BoxContainer.ALIGNMENT_CENTER
 	hb.add_child(info)
-	info.add_child(UiKit.display(("\"%s\"  %s" % [p.callsign, p.last_name]).to_upper(), 44, Color.WHITE, true))
+	info.add_child(UiKit.display(("\"%s\"  %s" % [p.callsign, p.last_name]).to_upper(), 36, Color.WHITE, true))
 	var role := Scheme.best_role(p.stats)
-	info.add_child(_label("%s %s   ·   OVR %d   ·   Age %d   ·   %s" % [
-		Archetypes.find(s.player_archetype)["name"], Scheme.ROLE_NAMES[role], p.best_ovr(), p.age, team.name], 16, Color(1, 1, 1, 0.72)))
-	if p.backstory != &"":
-		info.add_child(_label("Story: %s" % Backstory.story_name(p.backstory), 14, UiKit.MUTED))
+	info.add_child(_label("%s %s   ·   Age %d   ·   %s" % [
+		Archetypes.find(s.player_archetype)["name"], Scheme.ROLE_NAMES[role], p.age, team.name] 		+ (("   ·   Story: %s" % Backstory.story_name(p.backstory)) if p.backstory != &"" else ""), 15, Color(1, 1, 1, 0.72)))
 	if PlayerLegacy.retired(s):
 		info.add_child(_label("RETIRED  ·  %s" % _verdict_text(s), 15, UiKit.GOLD))
 	else:
 		var st := PlayerCoach.status(s)
 		info.add_child(_label("%s   ·   %s" % [s.record_text(team), STATUS_NAMES[st["where"]]], 15, STATUS_COLORS[st["where"]]))
+	hb.add_child(hub._ovr_dial(p.best_ovr(), "Overall"))
+	var gap := Control.new()
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hb.add_child(gap)
 	hb.add_child(extra)
 	return hb
 
@@ -108,6 +110,7 @@ func home_dashboard(actions: Control) -> Control:
 	var s := _season()
 	var top := _hbox(18)
 	top.name = "CareerDashboard"
+	top.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	if PlayerLegacy.retired(s):
 		var col := _vbox(10)
 		col.custom_minimum_size.x = COL_W
@@ -190,9 +193,9 @@ func _banner() -> Control:
 ## Two-by-two gauges for the home page: XP, the next star, fatigue and wear.
 func _vitals_grid(p: Soldier) -> Control:
 	var g := GridContainer.new()
-	g.columns = 2
-	g.add_theme_constant_override("h_separation", 10)
-	g.add_theme_constant_override("v_separation", 10)
+	g.columns = 4
+	g.add_theme_constant_override("h_separation", 8)
+	g.add_theme_constant_override("v_separation", 8)
 	g.custom_minimum_size.x = COL_W
 	var xp: Array = Progression.xp_progress(p)
 	g.add_child(_gauge("XP", "%d / %d" % [xp[0], xp[1]], float(xp[0]), float(xp[1]), UiKit.INFO, "%d skill points" % p.skill_points))
@@ -215,11 +218,9 @@ func _next_game_card() -> Control:
 	card.add_child(_wrap(v, 14))
 	if s.phase == Season.PHASE_OFFSEASON:
 		v.add_child(UiKit.display("OFFSEASON", 26, UiKit.GOLD, true))
-		v.add_child(_label("Set your camp plan, raise a cap and get ready for the next season.", 14, UiKit.MUTED))
 		return card
 	if s.preseason_camp:
 		v.add_child(UiKit.display("PRESEASON CAMP", 26, UiKit.GOLD, true))
-		v.add_child(_label("Set your camp plan, then close camp to start Week 1.", 14, UiKit.MUTED))
 		return card
 	var m := s.next_match_for(team)
 	if m == null:
@@ -245,11 +246,13 @@ func _news_pane() -> Control:
 	var box := _vbox(8)
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.custom_minimum_size = Vector2(430, 0)
+	box.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(UiKit.heading("Your News", 20))
 	var frame := PanelContainer.new()
 	frame.add_theme_stylebox_override("panel", UiKit.flat(Color(UiKit.PANEL, 0.85), 8, 1, Color(1, 1, 1, 0.08)))
-	frame.custom_minimum_size = Vector2(430, 700)
+	frame.custom_minimum_size = Vector2(430, 0)
 	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(frame)
 	var sc := ScrollContainer.new()
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -275,7 +278,7 @@ func _news_pane() -> Control:
 		n += 1
 	items.sort_custom(func(a, b): return (int(a["year"]) * 1000 + int(a["week"])) * 10000 + int(a["n"]) > (int(b["year"]) * 1000 + int(b["week"])) * 10000 + int(b["n"]))
 	if items.is_empty():
-		list.add_child(_label("Nothing yet. Your story starts here: play, train and make some noise.", 14, UiKit.MUTED))
+		list.add_child(_label("Nothing yet.", 14, UiKit.MUTED))
 	var shown := 0
 	for it in items:
 		if shown >= 40:
@@ -352,7 +355,7 @@ func _last_game_card() -> Control:
 	var card := _card(UiKit.MUTED)
 	var entries := s.player_log
 	if entries.is_empty():
-		card.add_child(_wrap(_label("No games yet. Your first one is this week.", 15, UiKit.MUTED)))
+		card.add_child(_wrap(_label("No games yet.", 15, UiKit.MUTED)))
 		return card
 	var e: Dictionary = entries[-1]
 	var h := _hbox(16)
@@ -407,21 +410,21 @@ func _todos() -> Array:
 			out.append(_todo("Raise a cap", "No group can take a raise at your age", UiKit.TRIM, func(): open_cap_raise()))
 	if s.phase == Season.PHASE_OFFSEASON or s.preseason_camp:
 		if not p.camp_plan_confirmed:
-			out.append(_todo("Set your camp plan", "8 points: practice, study, outing, brand", UiKit.GOLD, func(): open_plan(true), true))
+			out.append(_todo("Set your camp plan", "", UiKit.GOLD, func(): open_plan(true), true))
 		else:
 			out.append(_todo("Camp plan", _plan_summary(p.camp_plan, true), UiKit.TRIM, func(): open_plan(true)))
 	elif not p.plan_confirmed:
-		out.append(_todo("Set your weekly plan", "Your points are wasted until you do", UiKit.GOLD, func(): open_plan(false), true))
+		out.append(_todo("Set your weekly plan", "", UiKit.GOLD, func(): open_plan(false), true))
 	else:
 		out.append(_todo("Weekly plan", _plan_summary(p.plan, true), UiKit.TRIM, func(): open_plan(false)))
 	if s.phase != Season.PHASE_OFFSEASON and not s.preseason_camp and WarmUp.opponent(s) != null:
 		var w_err := WarmUp.error(s)
 		if w_err == "":
-			out.append(_todo("Warm up", "Run a drill for a match-only bonus (up to +%d)" % WarmUp.MAX_BONUS, UiKit.GOLD, func(): open_warmup(), true))
+			out.append(_todo("Warm up", "", UiKit.GOLD, func(): open_warmup(), true))
 		elif not p.warmup.is_empty() and int(p.warmup.get("key", 0)) == WarmUp.week_key(s):
 			out.append(_todo("Warm-up", "%s: %s" % [String(Stats.GROUP_LABELS[p.warmup["group"]]), ("+%d this match" % int(p.warmup["bonus"])) if int(p.warmup["bonus"]) > 0 else "no bonus"], UiKit.TRIM, func(): open_warmup()))
 	if PlayerRequest.error(s) == "" and not PlayerRequest.reasons(s).is_empty():
-		out.append(_todo("Trade request", "You have a case to ask for a move", UiKit.TRIM, func(): open_request()))
+		out.append(_todo("Trade request", "", UiKit.TRIM, func(): open_request()))
 	if not p.stories.is_empty():
 		out.append(_todo("Stories", "%d decision%s waiting" % [p.stories.size(), "" if p.stories.size() == 1 else "s"], UiKit.GOLD, func(): open_stories(), true))
 	if not p.offers.is_empty():
@@ -433,15 +436,16 @@ func _todos() -> Array:
 	var notes := s.player_notes
 	if not notes.is_empty():
 		out.append(_todo("Coach", String(notes[-1]["text"]), UiKit.GOLD, func(): open_game_log()))
-	out.append(_todo("Game Log", "Every game and your grade", UiKit.TRIM, func(): open_game_log()))
+	out.append(_todo("Game Log", "", UiKit.TRIM, func(): open_game_log()))
 	out.append(_todo("Milestones", "%d reached" % s.player_milestones.size(), UiKit.TRIM, func(): open_milestones()))
 	if s.phase == Season.PHASE_OFFSEASON:
-		out.append(_todo("Retire?", "The season is over: you can hang it up", UiKit.GOLD, func(): open_retire()))
+		out.append(_todo("Retire?", "", UiKit.GOLD, func(): open_retire()))
 	return out
 
 
 func _todo(title: String, sub: String, accent: Color, cb: Callable, urgent := false) -> Button:
-	var b := UiKit.tile(title, sub, Vector2(COL_W, 76), Color("#f97316") if urgent else accent, cb)
+	var b := UiKit.row_tile(title, Color("#f97316") if urgent else accent, cb, 46, sub)
+	b.tooltip_text = sub
 	return b
 
 
@@ -467,21 +471,19 @@ func career_tab(v: VBoxContainer) -> void:
 	var flow := HFlowContainer.new()
 	flow.add_theme_constant_override("h_separation", 14)
 	flow.add_theme_constant_override("v_separation", 14)
-	flow.add_child(UiKit.tile("My Player", "Ratings, skill points and training\nOVR %d  ·  %d SP" % [p.best_ovr(), p.skill_points], hub.TILE, UiKit.ACCENT, func(): open_my_player()))
+	flow.add_child(UiKit.tile("My Player", "OVR %d  ·  %d SP" % [p.best_ovr(), p.skill_points], hub.TILE, UiKit.ACCENT, func(): open_my_player()))
 	var sm := PlayerGrade.summary(PlayerGrade.log_for(s))
-	flow.add_child(UiKit.tile("Game Log", "Grade for every game\n%d played  ·  avg %s" % [sm["games"], sm["letter"]], hub.TILE, UiKit.ACCENT, func(): open_game_log()))
+	flow.add_child(UiKit.tile("Game Log", "%d played  ·  avg %s" % [sm["games"], sm["letter"]], hub.TILE, UiKit.ACCENT, func(): open_game_log()))
 	var cs := "No contract" if p.contract == null else "%s  ·  %d yr" % [Contracts.money(p.contract.salary), p.contract.years]
 	flow.add_child(UiKit.tile("Contract", "%s\nGreen Team deal" % cs if p.contract != null and p.contract.green else cs, hub.TILE, UiKit.ACCENT, func(): open_contract()))
 	var tr := PlayerLegacy.trajectory(s)
 	var pace_text := "on pace" if tr["on_pace"] and tr["has_pace"] else "below pace"
-	flow.add_child(UiKit.tile("Hall of Fame Path", "Your score and what drives it\n%d / %d  ·  %s" % [roundi(float(tr["score"])), roundi(float(tr["threshold"])), pace_text], hub.TILE, UiKit.GOLD, func(): open_hof_path()))
-	flow.add_child(UiKit.tile("Milestones", "Goals along the way\n%d of %d reached" % [s.player_milestones.size(), PlayerLegacy.MILESTONES.size()], hub.TILE, UiKit.ACCENT, func(): open_milestones()))
-	flow.add_child(UiKit.tile("Career Recap", "Every season so far\nand the Hall's verdict", hub.TILE, UiKit.ACCENT, func(): open_recap()))
+	flow.add_child(UiKit.tile("Hall of Fame Path", "%d / %d  ·  %s" % [roundi(float(tr["score"])), roundi(float(tr["threshold"])), pace_text], hub.TILE, UiKit.GOLD, func(): open_hof_path()))
+	flow.add_child(UiKit.tile("Milestones", "%d of %d reached" % [s.player_milestones.size(), PlayerLegacy.MILESTONES.size()], hub.TILE, UiKit.ACCENT, func(): open_milestones()))
+	flow.add_child(UiKit.tile("Career Recap", "", hub.TILE, UiKit.ACCENT, func(): open_recap()))
 	if not PlayerLegacy.retired(s):
-		flow.add_child(UiKit.tile("Retire", "Hang it up and wait for the Hall's vote\nOffseason only", hub.TILE, UiKit.MUTED, func(): open_retire()))
+		flow.add_child(UiKit.tile("Retire", "Offseason only", hub.TILE, UiKit.MUTED, func(): open_retire()))
 	v.add_child(flow)
-	var note := _label("The club picks the lineup. Play well, train hard and the coach will move you up.", 15, UiKit.MUTED)
-	v.add_child(note)
 
 
 # --- pages ----------------------------------------------------------------------------------------
@@ -625,7 +627,7 @@ func my_player() -> Control:
 	var s := _season()
 	var p := s.player
 	var team := s.user_team()
-	var root := _vbox(16)
+	var root := _vbox(8)
 	root.name = "MyPlayer"
 	root.custom_minimum_size.x = 1100
 	root.add_child(_hero(s, p, team))
@@ -636,15 +638,14 @@ func my_player() -> Control:
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cols.add_child(left)
 	left.add_child(UiKit.heading("Ratings", 22))
-	left.add_child(_label("Click a group to spend skill points. The pale bar is how far that group can grow (its cap).", 13, UiKit.MUTED))
 	var grid := GridContainer.new()
 	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 12)
-	grid.add_theme_constant_override("v_separation", 12)
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 8)
 	left.add_child(grid)
 	for g in Stats.GROUP_ORDER:
 		grid.add_child(_group_row(p, g))
-	var right := _vbox(10)
+	var right := _vbox(4)
 	right.custom_minimum_size.x = 330
 	cols.add_child(right)
 	right.add_child(UiKit.heading("Your week", 22))
@@ -652,10 +653,6 @@ func my_player() -> Control:
 	right.add_child(_label(_plan_summary(p.plan, p.plan_confirmed), 13, UiKit.MUTED))
 	right.add_child(UiKit.button("Loadout and gear", func(): open_loadout(), 16))
 	right.add_child(UiKit.heading("Wear and tear", 18))
-	var wear := _label("Wear %d  ·  %s. Age, games, fatigue and injuries raise it. Spa, camp rehab and the Sports Science Lab lower it." % [roundi(p.wear), Wear.tier_name(p.wear)], 13, UiKit.MUTED)
-	wear.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	wear.custom_minimum_size.x = 320
-	right.add_child(wear)
 	for g in Stats.GROUP_ORDER:
 		var row := _hbox(8)
 		var gname := _label(String(Stats.GROUP_LABELS[g]), 13, UiKit.TEXT)
@@ -677,14 +674,14 @@ func _hero(s: Season, p: Soldier, team: Team) -> Control:
 	back.set_anchors_preset(Control.PRESET_FULL_RECT)
 	panel.add_child(back)
 	var h := _hbox(24)
-	panel.add_child(_wrap(h, 18))
-	h.add_child(Portrait.new(p, 150, UiKit.ACCENT, team))
+	panel.add_child(_wrap(h, 10))
+	h.add_child(Portrait.new(p, 96, UiKit.ACCENT, team))
 	var mid := _vbox(4)
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mid.alignment = BoxContainer.ALIGNMENT_CENTER
 	h.add_child(mid)
 	mid.add_child(_label(p.full_name().to_upper(), 15, Color(1, 1, 1, 0.75)))
-	mid.add_child(UiKit.display(("\"%s\"" % p.callsign).to_upper(), 52, Color.WHITE, true))
+	mid.add_child(UiKit.display(("\"%s\"" % p.callsign).to_upper(), 40, Color.WHITE, true))
 	var a := Archetypes.find(s.player_archetype)
 	mid.add_child(_label("%s %s  ·  %s  ·  Age %d  ·  Level %d" % [a["name"], Scheme.ROLE_NAMES[Scheme.best_role(p.stats)], team.name, p.age, p.level], 15, Color(1, 1, 1, 0.8)))
 	var badges := _hbox(14)
@@ -700,7 +697,7 @@ func _hero(s: Season, p: Soldier, team: Team) -> Control:
 	var cap := _label("OVERALL", 13, Color(1, 1, 1, 0.7))
 	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ovr.add_child(cap)
-	var big := UiKit.display(str(p.best_ovr()), 96, UiKit.ovr_color(p.best_ovr()), true)
+	var big := UiKit.display(str(p.best_ovr()), 64, UiKit.ovr_color(p.best_ovr()), true)
 	big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ovr.add_child(big)
 	var gear := p.best_ovr() - p.base_ovr()
@@ -748,15 +745,12 @@ func _gauge(caption: String, value: String, v: float, maximum: float, color: Col
 	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.add_theme_stylebox_override("panel", UiKit.flat(UiKit.PANEL, 8, 1, Color(color, 0.35)))
-	var box := _vbox(4)
-	card.add_child(_wrap(box, 12))
+	var box := _vbox(2)
+	card.add_child(_wrap(box, 8))
 	box.add_child(_label(caption, 11, UiKit.MUTED))
-	box.add_child(UiKit.display(value, 24, color, true))
+	box.add_child(UiKit.display(value, 20, color, true))
 	box.add_child(Meter.new(v, maximum, color, 0.0, 8.0))
-	var hl := _label(hint, 11, UiKit.MUTED)
-	hl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hl.custom_minimum_size.x = 150
-	box.add_child(hl)
+	card.tooltip_text = hint
 	return card
 
 
@@ -766,24 +760,24 @@ func _group_row(p: Soldier, g: StringName) -> Control:
 	var gr := p.group_rating(g)
 	var b := Button.new()
 	UiKit.style_button(b, UiKit.PANEL_HI, UiKit.ACCENT, 8, false)
-	b.custom_minimum_size = Vector2(430, 120)
+	b.custom_minimum_size = Vector2(430, 86)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var cost := Progression.upgrade_cost(p, g)
 	b.disabled = not Progression.can_place(p, g)
-	var box := _vbox(5)
+	var box := _vbox(3)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.set_anchors_preset(Control.PRESET_FULL_RECT)
 	box.offset_left = 14
 	box.offset_right = -14
-	box.offset_top = 8
-	box.offset_bottom = -8
+	box.offset_top = 6
+	box.offset_bottom = -6
 	b.add_child(box)
 	var line := _hbox(12)
 	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var title := _label(String(Stats.GROUP_LABELS[g]).to_upper(), 16, Color.WHITE if upgradable else UiKit.MUTED)
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	line.add_child(title)
-	var num := UiKit.display(str(gr), 34, UiKit.ovr_color(gr), true)
+	var num := UiKit.display(str(gr), 28, UiKit.ovr_color(gr), true)
 	num.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	line.add_child(num)
 	var spacer := Control.new()
@@ -864,7 +858,6 @@ func contract() -> Control:
 	var bonus := roundi((WeeklyPlan.market_mult(p.brand) - 1.0) * 100.0)
 	root.add_child(_label("Brand %d (%s): worth +%d%% on your market value and re-sign price." % [roundi(p.brand), WeeklyPlan.tier_name(p.brand), bonus], 16, UiKit.INFO))
 	root.add_child(_label("Market value %s  ·  re-sign ask %s" % [Contracts.money(Contracts.market_value(p)), Contracts.money(Contracts.resign_asking(p, Contracts.preferred_years(p)))], 15, UiKit.MUTED))
-	root.add_child(_label("Contract talks and your agent come in a later update. Until then your club re-signs you when your deal ends.", 15, UiKit.MUTED))
 	return root
 
 
@@ -945,11 +938,11 @@ func _retired_left(col: VBoxContainer) -> Control:
 	v.add_child(msg)
 	col.add_child(card)
 	col.add_child(UiKit.heading("Your Career", 22))
-	col.add_child(_todo("Career Recap", "Every season and the Hall's verdict", UiKit.TRIM, func(): open_recap()))
+	col.add_child(_todo("Career Recap", "", UiKit.TRIM, func(): open_recap()))
 	if PlayerLegacy.verdict(s) == &"waiting":
 		col.add_child(_todo("Wait for the Hall of Fame vote", "Play the league forward to %d" % PlayerLegacy.vote_year(s), UiKit.GOLD, func(): hub.wait_for_vote(), true))
 	col.add_child(_todo("Milestones", "%d reached" % s.player_milestones.size(), UiKit.TRIM, func(): open_milestones()))
-	col.add_child(_todo("Back to title", "Start another career from New Franchise", UiKit.MUTED, func(): hub.app.show_title()))
+	col.add_child(_todo("Back to title", "", UiKit.MUTED, func(): hub.app.show_title()))
 	return col
 
 
@@ -987,10 +980,10 @@ func hof_path() -> Control:
 	root.add_child(top)
 	root.add_child(_bar(float(t["score"]) / float(t["threshold"]), UiKit.GOLD, 600.0, 16.0))
 	var parts := [
-		["Production", "production", HallOfFame.PRODUCTION_POINTS, "Career kills, assists, damage, MVPs, clutches and kills per death, ranked against every career in the league."],
-		["Awards", "awards", HallOfFame.AWARDS_CAP, "Season MVPs (%d each), other awards (%d) and All-League picks (%d)." % [roundi(HallOfFame.MVP_POINTS), roundi(HallOfFame.AWARD_POINTS), roundi(HallOfFame.ALL_LEAGUE_POINTS)]],
-		["Titles", "titles", HallOfFame.TITLES_CAP, "%d points for each season you play for the champion (at least %d games)." % [roundi(HallOfFame.TITLE_POINTS), HallOfFame.MIN_TITLE_MATCHES]],
-		["Peak", "peak", HallOfFame.PEAK_POINTS, "Your best single season of kills, ranked against every season in the league."],
+		["Production", "production", HallOfFame.PRODUCTION_POINTS],
+		["Awards", "awards", HallOfFame.AWARDS_CAP],
+		["Titles", "titles", HallOfFame.TITLES_CAP],
+		["Peak", "peak", HallOfFame.PEAK_POINTS],
 	]
 	for part in parts:
 		var row := _hbox(16)
@@ -1001,10 +994,7 @@ func hof_path() -> Control:
 		var val := _label("%d / %d" % [roundi(float(t[part[1]])), roundi(float(part[2]))], 18, Color.WHITE)
 		val.custom_minimum_size.x = 90
 		row.add_child(val)
-		var d := _label(String(part[3]), 14, UiKit.MUTED)
-		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		d.custom_minimum_size.x = 420
-		row.add_child(d)
+		# The criteria blurb for each part (part[3]) is stashed in HelpText.
 		root.add_child(row)
 	root.add_child(UiKit.heading("Honors", 20))
 	var honors: Array = t["honors"]
@@ -1012,14 +1002,13 @@ func hof_path() -> Control:
 		root.add_child(_label("None yet.", 15, UiKit.MUTED))
 	else:
 		root.add_child(_label(", ".join(honors), 15, UiKit.TEXT))
-	root.add_child(_label("When you retire the Hall waits %d seasons, then votes. At most %d are inducted a year, and you need %d." % [HallOfFame.WAIT_SEASONS, HallOfFame.CLASS_MAX, roundi(HallOfFame.THRESHOLD)], 14, UiKit.MUTED))
 	return root
 
 
 func milestones() -> Control:
 	var s := _season()
 	var root := _vbox(8)
-	root.custom_minimum_size.x = 900
+	root.custom_minimum_size.x = 1400
 	root.add_child(_label("%d of %d reached" % [s.player_milestones.size(), PlayerLegacy.MILESTONES.size()], 18, UiKit.TEXT))
 	root.add_child(UiKit.heading("Reached", 20))
 	var any := false
@@ -1037,18 +1026,23 @@ func milestones() -> Control:
 	if not any:
 		root.add_child(_label("None yet. Your first game is the first one.", 15, UiKit.MUTED))
 	root.add_child(UiKit.heading("Still to come", 20))
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 40)
+	grid.add_theme_constant_override("v_separation", 2)
+	root.add_child(grid)
 	for m in PlayerLegacy.MILESTONES:
 		if not PlayerLegacy.achieved(s, m["id"]).is_empty():
 			continue
 		var row2 := _hbox(14)
 		var nm2 := _label(String(m["name"]), 18, Color.WHITE)
-		nm2.custom_minimum_size.x = 260
+		nm2.custom_minimum_size.x = 170
 		row2.add_child(nm2)
 		var pr := _label(PlayerLegacy.progress_text(s, m), 14, UiKit.INFO)
 		pr.custom_minimum_size.x = 120
 		row2.add_child(pr)
 		row2.add_child(_label(String(m["desc"]), 14, UiKit.MUTED))
-		root.add_child(row2)
+		grid.add_child(row2)
 	return root
 
 

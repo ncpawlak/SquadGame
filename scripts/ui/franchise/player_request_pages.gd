@@ -45,7 +45,6 @@ func _fill(box: VBoxContainer, fns: Dictionary) -> void:
 	var s := _season()
 	var p := s.player
 	box.add_child(UiKit.display("TRADE REQUEST", 30, Color.WHITE, true))
-	box.add_child(_wrap("Ask the club to shop you. You need a real reason, and the club will not let a core player go unless he is unhappy. Every team that wants you makes an offer from its own players and picks, and you take the one you like. If it says no you lose a little morale and wait a few weeks. You can change clubs once a season, only while the trade window is open (%s)." % s.trades.window_text(s)))
 	if String(fns["answer"]) != "":
 		box.add_child(UiKit.label(String(fns["answer"]), 18, UiKit.GOLD))
 	box.add_child(UiKit.label("Now with %s" % s.user_team().name, 18, Color.WHITE))

@@ -846,11 +846,6 @@ func start_next_season() -> void:
 	retirements.append_array(unsigned)
 	RetiredCallsigns.process(self, unsigned)
 	RetiredCallsigns.resolve_all(self)
-	var arng := RandomNumberGenerator.new()
-	arng.seed = _mix([league.league_seed, year, 0xA6E])
-	Soldier.log_year = year + 1
-	Soldier.log_when = "Preseason"
-	aging_report = Aging.age_league(league, arng)
 	var irng := RandomNumberGenerator.new()
 	irng.seed = _mix([league.league_seed, year, 0x1A57])
 	facilities.institute(self, irng)
@@ -1552,6 +1547,13 @@ func _advance() -> void:
 		HallOfFame.run(self)
 		if player_mode and player != null:
 			PlayerLegacy.update(self)
+		# Everyone turns a year older (and takes any age decline) the moment the offseason opens, so a
+		# free agent signed now is not hit by a regression at the start of next season.
+		var arng := RandomNumberGenerator.new()
+		arng.seed = _mix([league.league_seed, year, 0xA6E])
+		Soldier.log_year = year + 1
+		Soldier.log_when = "Offseason"
+		aging_report = Aging.age_league(league, arng)
 		news.end_season(self)
 		news.luxury_tax(self, revenue.charge_tax(self))
 		news.board_review(self, revenue.board_review(self))

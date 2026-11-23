@@ -11,20 +11,10 @@ const SUSPENSE_PICKS := 3
 
 static func _frame(title: String, subtitle: String) -> Array:
 	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 8)
-	var wrap := MarginContainer.new()
-	for side in ["left", "right", "top", "bottom"]:
-		wrap.add_theme_constant_override("margin_" + side, 30)
-	wrap.add_child(root)
-	root.add_child(UiKit.display(title, 44, Color.WHITE, true))
-	var bar := ColorRect.new()
-	bar.color = UiKit.ACCENT
-	bar.custom_minimum_size = Vector2(90, 4)
-	bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	root.add_child(bar)
-	if subtitle != "":
-		root.add_child(UiKit.label(subtitle, 15, UiKit.MUTED))
-	return [wrap, root]
+	root.add_theme_constant_override("separation", 14)
+	var shell := FrontEnd.backdrop_wrap(FrontEnd.margin(root, 40, 28))
+	root.add_child(FrontEnd.title_block("NEW CAREER  ·  STEP 3 OF 3", title))
+	return [shell, root]
 
 
 static func _who(season: Season) -> String:
@@ -37,26 +27,27 @@ static func _who(season: Season) -> String:
 
 static func report(season: Season, on_enter: Callable) -> Control:
 	var r := PlayerDraft.report(season)
-	var f := _frame("DRAFT REPORT", "What the league's scouts see of you. Their read is fuzzier than the truth.")
+	var f := _frame("DRAFT REPORT", "")
 	var root: VBoxContainer = f[1]
 	root.name = "DraftReport"
-	root.add_child(UiKit.label(_who(season), 18, UiKit.ACCENT))
+	root.add_child(UiKit.display(_who(season), 22, FrontEnd.CAREER))
 	var cols := HBoxContainer.new()
-	cols.add_theme_constant_override("separation", 20)
+	cols.add_theme_constant_override("separation", 16)
+	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(cols)
 
-	var left := UiKit.panel(UiKit.PANEL, 12)
-	left.custom_minimum_size.x = 470
+	var left := FrontEnd.glass(22)
+	left.custom_minimum_size.x = 520
 	cols.add_child(left)
 	var lv := VBoxContainer.new()
-	lv.add_theme_constant_override("separation", 6)
+	lv.add_theme_constant_override("separation", 12)
 	left.add_child(lv)
-	lv.add_child(UiKit.display("PROJECTED", 22, UiKit.ACCENT, true))
-	lv.add_child(UiKit.display(String(r["round_text"]).to_upper(), 54, Color.WHITE, true))
+	lv.add_child(UiKit.display("PROJECTED", 22, FrontEnd.CAREER, true))
+	lv.add_child(UiKit.display(String(r["round_text"]).to_upper(), 72, Color.WHITE, true))
 	if r["likely_undrafted"]:
 		lv.add_child(UiKit.label("Scouts expect you to go undrafted.", 18, UiKit.BAD))
 	else:
-		lv.add_child(UiKit.label("Most likely pick %d  (range %d - %d of %d)" % [r["rank"], r["lo"], mini(int(r["hi"]), int(r["picks"])), r["picks"]], 18, UiKit.TEXT))
+		lv.add_child(UiKit.label("Most likely pick %d  (range %d - %d of %d)" % [r["rank"], r["lo"], mini(int(r["hi"]), int(r["picks"])), r["picks"]], 24, UiKit.TEXT))
 	lv.add_child(UiKit.label("Class rank: %d of %d     Area scout grade: %s" % [r["rank"], r["class_size"], r["area_grade"]], 16, UiKit.MUTED))
 	if r["mock_team"] != null:
 		lv.add_child(UiKit.label("Mock draft: pick %d to the %s" % [r["mock_pick"], r["mock_team"].name], 16, UiKit.GOLD))
@@ -67,30 +58,28 @@ static func report(season: Season, on_enter: Callable) -> Control:
 	lv.add_child(pad)
 	var ovr: Vector2i = season.player_combine.ovr_range()
 	lv.add_child(UiKit.label("Your combine range: OVR %d - %d" % [ovr.x, ovr.y], 16, UiKit.TEXT))
-	lv.add_child(UiKit.label("The draft has %d picks. Every drafted player starts on his club's Green Team." % r["picks"], 14, UiKit.MUTED))
 
-	var right := UiKit.panel(UiKit.PANEL, 12)
+	var right := FrontEnd.glass(22)
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cols.add_child(right)
 	var rv := VBoxContainer.new()
-	rv.add_theme_constant_override("separation", 6)
+	rv.add_theme_constant_override("separation", 18)
 	right.add_child(rv)
-	rv.add_child(UiKit.display("HOW SCOUTS RATE YOU", 22, UiKit.ACCENT, true))
-	rv.add_child(UiKit.label("Each line is where you rank in this class, as a range.", 14, UiKit.MUTED))
+	rv.add_child(UiKit.display("HOW SCOUTS RATE YOU", 22, FrontEnd.CAREER, true))
 	for g in Stats.UPGRADABLE_GROUPS:
 		if not r["windows"].has(g):
 			continue
 		var row := HBoxContainer.new()
-		var gl := UiKit.label(String(Stats.GROUP_LABELS[g]), 16, UiKit.GOLD)
-		gl.custom_minimum_size.x = 120
+		var gl := UiKit.label(String(Stats.GROUP_LABELS[g]), 22, UiKit.GOLD)
+		gl.custom_minimum_size.x = 170
 		row.add_child(gl)
-		row.add_child(UiKit.label(Draft.window_text(g, r["windows"][g]), 16, UiKit.TEXT))
+		row.add_child(UiKit.label(Draft.window_text(g, r["windows"][g]), 22, UiKit.TEXT))
 		rv.add_child(row)
 
-	var pad2 := Control.new()
-	pad2.custom_minimum_size.y = 6
-	root.add_child(pad2)
-	root.add_child(UiKit.primary_button("Enter the draft", on_enter, 24))
+	var go := UiKit.primary_button("Enter the draft", on_enter, 24)
+	go.custom_minimum_size = Vector2(320, 56)
+	go.size_flags_horizontal = Control.SIZE_SHRINK_END
+	root.add_child(go)
 	return f[0]
 
 
@@ -98,7 +87,7 @@ static func report(season: Season, on_enter: Callable) -> Control:
 
 ## The live reveal of `res` (PlayerDraft.run's result): picks appear one at a time, slower just before yours.
 static func night(season: Season, res: Dictionary, on_done: Callable) -> Control:
-	var f := _frame("DRAFT NIGHT", "%d picks. Your name is in there somewhere." % res["picks"].size())
+	var f := _frame("DRAFT NIGHT", "")
 	var root: VBoxContainer = f[1]
 	root.name = "DraftNight"
 	var picks: Array = res["picks"]
@@ -106,13 +95,16 @@ static func night(season: Season, res: Dictionary, on_done: Callable) -> Control
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	root.add_child(scroll)
+	var glass := FrontEnd.glass(16)
+	glass.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	glass.add_child(scroll)
+	root.add_child(glass)
 	var list := VBoxContainer.new()
 	list.add_theme_constant_override("separation", 3)
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(list)
-	var foot := VBoxContainer.new()
-	foot.add_theme_constant_override("separation", 8)
+	var foot := HBoxContainer.new()
+	foot.add_theme_constant_override("separation", 20)
 	root.add_child(foot)
 
 	var st := {"i": 0, "done": false}
@@ -155,8 +147,12 @@ static func night(season: Season, res: Dictionary, on_done: Callable) -> Control
 		foot.add_child(UiKit.display("SELECTED" if mine > 0 else "UNDRAFTED", 40, UiKit.GOLD if mine > 0 else UiKit.BAD, true))
 		var msg := UiKit.label(PlayerDraft.story(season), 18, UiKit.TEXT)
 		msg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		msg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		msg.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		foot.add_child(msg)
-		foot.add_child(UiKit.primary_button("Continue", on_done, 22))
+		var go := UiKit.primary_button("Continue", on_done, 22)
+		go.custom_minimum_size = Vector2(240, 52)
+		foot.add_child(go)
 
 	var step := func():
 		if st["done"]:
@@ -184,17 +180,17 @@ static func night(season: Season, res: Dictionary, on_done: Callable) -> Control
 # --- undrafted offers ------------------------------------------------------------------------
 
 static func offers(season: Season, on_signed: Callable) -> Control:
-	var f := _frame("UNDRAFTED", "No team called your name, but some want you on their Green Team. Pick one.")
+	var f := _frame("UNDRAFTED", "")
 	var root: VBoxContainer = f[1]
 	root.name = "DraftOffers"
-	root.add_child(UiKit.label(_who(season), 18, UiKit.ACCENT))
+	root.add_child(UiKit.display(_who(season), 22, FrontEnd.CAREER))
 	var salary := Contracts.green_salary_for(season.player)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 18)
 	root.add_child(row)
 	for t in PlayerDraft.undrafted_offers(season):
-		var card := UiKit.panel(UiKit.PANEL, 12)
-		card.custom_minimum_size = Vector2(300, 220)
+		var card := FrontEnd.glass(20)
+		card.custom_minimum_size = Vector2(320, 240)
 		var v := VBoxContainer.new()
 		v.add_theme_constant_override("separation", 6)
 		card.add_child(v)
@@ -213,16 +209,34 @@ static func offers(season: Season, on_signed: Callable) -> Control:
 # --- landing --------------------------------------------------------
 
 static func landing(season: Season, on_continue: Callable) -> Control:
-	var f := _frame("YOUR CAREER BEGINS", "")
-	var root: VBoxContainer = f[1]
-	root.name = "DraftLanding"
 	var team := season.player_team
-	root.add_child(UiKit.label(_who(season), 20, UiKit.ACCENT))
-	root.add_child(UiKit.team_logo(team, 96))
-	root.add_child(UiKit.display(team.name.to_upper(), 36, Color.WHITE, true))
 	var s := season.player
+	var root := HBoxContainer.new()
+	root.name = "DraftLanding"
+	root.add_theme_constant_override("separation", 70)
+	var shell := FrontEnd.backdrop_wrap(FrontEnd.margin(root, 80, 60))
+	var crest := FrontEnd.team_accent(team.abbrev)
+	var art := FrontEnd.disc_art(crest, UiKit.logo_tex(team.abbrev), 380, false)
+	art.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	root.add_child(art)
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	col.add_theme_constant_override("separation", 6)
+	root.add_child(col)
+	col.add_child(UiKit.display("YOUR CAREER BEGINS", 24, FrontEnd.CAREER))
+	col.add_child(UiKit.display(team.name.to_upper(), 76, Color.WHITE, true))
+	col.add_child(UiKit.display(_who(season), 24, UiKit.TEXT))
 	var how := "Drafted with pick %d" % season.player_pick if season.player_pick > 0 else "Signed as an undrafted free agent"
-	root.add_child(UiKit.label("%s. Green Team deal: %s." % [how, Contracts.money(s.contract.salary)], 18, UiKit.TEXT))
-	root.add_child(UiKit.label("You start on the Green Team and earn your way onto the roster.", 16, UiKit.MUTED))
-	root.add_child(UiKit.primary_button("Begin your rookie season", on_continue, 24))
-	return f[0]
+	var pad := Control.new()
+	pad.custom_minimum_size.y = 10
+	col.add_child(pad)
+	col.add_child(UiKit.label("%s  ·  Green Team deal: %s" % [how, Contracts.money(s.contract.salary)], 20, UiKit.MUTED))
+	var pad2 := Control.new()
+	pad2.custom_minimum_size.y = 30
+	col.add_child(pad2)
+	var go := UiKit.primary_button("Begin your rookie season", on_continue, 24)
+	go.custom_minimum_size = Vector2(380, 58)
+	go.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	col.add_child(go)
+	return shell

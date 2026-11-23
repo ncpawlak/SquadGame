@@ -65,7 +65,6 @@ func loadout_page() -> Control:
 
 func _fill_loadout(box: VBoxContainer, st: Dictionary, fns: Dictionary) -> void:
 	var p := _season().player
-	box.add_child(_wrap("Gear comes from your sponsor deals, or from items you bought after a deal ended. Mix brands freely, one item per slot. It adds to your ratings, and taking it off takes the bonus away again. It never counts toward Hall of Fame milestones. Wearing several pieces of one brand wakes its set bonus, which grows with your influence with that brand.", 15))
 	var base := p.base_ovr()
 	var eff := p.best_ovr()
 	box.add_child(_label("Base OVR %d   ·   gear %+d   ·   effective OVR %d" % [base, eff - base, eff], 20, Color.WHITE))
@@ -163,21 +162,28 @@ func _service_effect(id: StringName, lv: Dictionary) -> String:
 func _fill_assets(box: VBoxContainer, fns: Dictionary) -> void:
 	var s := _season()
 	var p := s.player
-	box.add_child(_wrap("Spend what you earn. A coach and an agent cost a retainer every week in season, and let you go if you cannot pay it. Property pays steady rent. A business can lose money in a bad year, but pays more on average.", 15))
 	box.add_child(_label("Cash: %s   ·   salary %s a year   ·   retainers %s a year   ·   rent %s a year" % [Sponsors.money_text(p.cash), Sponsors.money_text(PlayerPay.yearly(p)), Sponsors.money_text(Assets.upkeep_yearly(p)), Sponsors.money_text(Assets.rent_yearly(p))], 16, Color.WHITE))
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 16)
+	grid.add_theme_constant_override("v_separation", 10)
+	box.add_child(grid)
 	for id in Assets.SERVICES:
 		var n := Assets.level(p, id)
-		box.add_child(UiKit.heading(Assets.title(id), 18))
+		var sec := _vbox(4)
+		sec.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		grid.add_child(sec)
+		sec.add_child(UiKit.heading(Assets.title(id), 18))
 		var levels: Array = Assets.LEVELS[id]
 		if n > 0:
 			var cur: Dictionary = levels[n - 1]
-			box.add_child(_label("%s  ·  %s  ·  retainer %s a year" % [cur["name"], _service_effect(id, cur), Sponsors.money_text(int(cur["upkeep"]))], 15, UiKit.TEXT))
+			sec.add_child(_label("%s  ·  %s  ·  retainer %s a year" % [cur["name"], _service_effect(id, cur), Sponsors.money_text(int(cur["upkeep"]))], 15, UiKit.TEXT))
 		else:
-			box.add_child(_label("None.", 14, UiKit.MUTED))
+			sec.add_child(_label("None.", 14, UiKit.MUTED))
 		var row := _hbox(10)
 		if n < levels.size():
 			var nxt: Dictionary = levels[n]
-			var buy := UiKit.button("Hire %s (%s, retainer %s)  %s" % [nxt["name"], Sponsors.money_text(Assets.cost_of(p, id)), Sponsors.money_text(int(nxt["upkeep"])), _service_effect(id, nxt)], func():
+			var buy := UiKit.button("Hire %s  (%s, retainer %s)  %s" % [nxt["name"], Sponsors.money_text(Assets.cost_of(p, id)), Sponsors.money_text(int(nxt["upkeep"])), _service_effect(id, nxt)], func():
 				var e := Assets.buy(s, id)
 				hub.app.toast(e if e != "" else "Done.")
 				fns["render"].call(), 14)
@@ -187,16 +193,19 @@ func _fill_assets(box: VBoxContainer, fns: Dictionary) -> void:
 			row.add_child(UiKit.button("Let them go", func():
 				Assets.sell(s, id)
 				fns["render"].call(), 14))
-		box.add_child(row)
+		sec.add_child(row)
 	for id in Assets.HOLDINGS:
 		var h: Dictionary = Assets.HOLDING[id]
-		box.add_child(UiKit.heading("Rental property" if id == Assets.PROPERTY else "Businesses", 18))
+		var sec := _vbox(4)
+		sec.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		grid.add_child(sec)
+		sec.add_child(UiKit.heading("Rental property" if id == Assets.PROPERTY else "Businesses", 18))
 		var what := ""
 		if id == Assets.PROPERTY:
 			what = "%s rent a year each" % Sponsors.money_text(roundi(float(h["price"]) * float(h["yield"])))
 		else:
 			what = "profit between %d%% and %d%% of its price a year, %d%% on average" % [roundi(float(h["low"]) * 100.0), roundi(float(h["high"]) * 100.0), roundi(float(h["yield"]) * 100.0)]
-		box.add_child(_label("Own %d of %d  ·  %s" % [Assets.count(p, id), int(h["max"]), what], 15, UiKit.TEXT))
+		sec.add_child(_label("Own %d of %d  ·  %s" % [Assets.count(p, id), int(h["max"]), what], 15, UiKit.TEXT))
 		var hrow := _hbox(10)
 		var hb := UiKit.button("Buy one (%s)" % Sponsors.money_text(int(h["price"])), func():
 			var e := Assets.buy(s, id)
@@ -208,8 +217,7 @@ func _fill_assets(box: VBoxContainer, fns: Dictionary) -> void:
 			hrow.add_child(UiKit.button("Sell one (%s)" % Sponsors.money_text(roundi(float(h["price"]) * Assets.SELL_SHARE)), func():
 				Assets.sell(s, id)
 				fns["render"].call(), 14))
-		box.add_child(hrow)
-	box.add_child(UiKit.button("Back", func(): hub.go_back(), 16))
+		sec.add_child(hrow)
 
 
 func _slots_text(slots: Array) -> String:
@@ -505,7 +513,6 @@ func _tab_shop(box: VBoxContainer, s: Season, p: Soldier, fns: Dictionary) -> vo
 		v.add_child(buy)
 		flow.add_child(card)
 	box.add_child(UiKit.heading("A foot in the door", 18))
-	box.add_child(_wrap("Buy one item from a brand that has not signed you, at %dx the price. Wearing it builds influence, and it is already paid for when they sign you." % int(Sponsors.PREBUY_MULT), 13))
 	var pre := Sponsors.prebuy_brands(s)
 	if pre.is_empty():
 		box.add_child(_label("No brand to approach right now.", 14, UiKit.MUTED))
@@ -552,7 +559,6 @@ func stories_page() -> Control:
 func _fill_stories(box: VBoxContainer, fns: Dictionary) -> void:
 	var s := _season()
 	var p := s.player
-	box.add_child(_wrap("Things that happen on the way: a decision here can change your morale, brand and skill points. Automatic stories (group training, a breakthrough game, a comeback) show up as coach notes.", 15))
 	if p.stories.is_empty():
 		box.add_child(_label("Nothing waiting.", 16, UiKit.MUTED))
 	for st in p.stories.duplicate():

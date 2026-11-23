@@ -94,12 +94,29 @@ static func slot_info(slot: int) -> Dictionary:
 		var parsed = str_to_var(FileAccess.get_file_as_string(meta_path(slot)))
 		if parsed is Dictionary:
 			info = parsed
+	if not info.has("mode"):
+		# Saves from before headers carried a mode: read it from the file once and remember it.
+		info["mode"] = _detect_mode(slot)
+		var mf := FileAccess.open(meta_path(slot), FileAccess.WRITE)
+		if mf != null:
+			mf.store_string(var_to_str(info))
+			mf.close()
 	var f := FileAccess.open(slot_path(slot), FileAccess.READ)
 	if f != null:
 		info["size"] = f.get_length()
 		f.close()
 	info["slot"] = slot
 	return info
+
+
+## "career" when the saved Season has player_mode on, else "franchise" (the field is absent in old franchise saves).
+static func _detect_mode(slot: int) -> String:
+	var f := FileAccess.open_compressed(slot_path(slot), FileAccess.READ, COMPRESSION)
+	if f == null:
+		return "franchise"
+	var text := f.get_as_text()
+	f.close()
+	return "career" if text.contains("\"player_mode\": true") else "franchise"
 
 
 static func has_slot(slot: int) -> bool:
@@ -125,7 +142,13 @@ static func _header(season, label: String) -> Dictionary:
 		when = "Offseason"
 	elif season.has_method("week_label"):
 		when = season.week_label(season.week)
+	var is_career: bool = season.get("player_mode") == true
+	var who := ""
+	if is_career and season.get("player") != null:
+		who = season.player.display_name()
 	return {
+		"mode": "career" if is_career else "franchise",
+		"player": who,
 		"version": VERSION,
 		"saved_at": Time.get_datetime_string_from_system(),
 		"team": team_name,

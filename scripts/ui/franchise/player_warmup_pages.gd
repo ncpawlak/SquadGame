@@ -53,7 +53,6 @@ func _fill_hub(box: VBoxContainer, fns: Dictionary) -> void:
 	var p := s.player
 	box.add_child(UiKit.display("WARM-UP", 30, Color.WHITE, true))
 	var opp := WarmUp.opponent(s)
-	box.add_child(_wrap("Run one group's drill before the match. Your score becomes a bonus to every rating in that group for this match only; it is gone afterwards and never shows on your roster ratings. A bad run costs nothing, you just get no bonus. Up to +%d for a perfect run." % WarmUp.MAX_BONUS))
 	var err := WarmUp.error(s)
 	if opp != null:
 		box.add_child(UiKit.label("This week: %s" % opp.name, 18, UiKit.GOLD))
