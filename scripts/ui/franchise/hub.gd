@@ -830,7 +830,7 @@ func _rebuild_and_open(title: String, build: Callable) -> void:
 	open(title, build)
 
 
-## `animate`: fade the new view in and slide it up (off for in-place refreshes).
+## `animate`: fade the new view in (off for in-place refreshes). Only pushed pages also slide up; tab switches just fade.
 func _show_current(focus_index := -1, scroll_pos := 0, animate := true) -> void:
 	for c in _content.get_children():
 		c.queue_free()
@@ -843,22 +843,25 @@ func _show_current(focus_index := -1, scroll_pos := 0, animate := true) -> void:
 		view = _page_frame(top["title"], top["build"].call())
 	_content.add_child(view)
 	if animate:
-		_slide_in(view)
+		_slide_in(view, not page_stack.is_empty())
 	_settle_focus(view, focus_index, scroll_pos)
 
 
 var _slide_tw: Tween
 
 
-func _slide_in(view: Control) -> void:
+func _slide_in(view: Control, slide := true) -> void:
 	if not is_inside_tree() or Fx.is_reduced():
 		return
 	if _slide_tw and _slide_tw.is_valid():
 		_slide_tw.kill()
 	view.modulate.a = 0.0
-	_content.add_theme_constant_override("margin_top", CONTENT_TOP + 26)
 	_slide_tw = create_tween().set_parallel()
-	_slide_tw.tween_property(view, "modulate:a", 1.0, 0.22)
+	_slide_tw.tween_property(view, "modulate:a", 1.0, 0.18)
+	if not slide:
+		_content.add_theme_constant_override("margin_top", CONTENT_TOP)
+		return
+	_content.add_theme_constant_override("margin_top", CONTENT_TOP + 26)
 	_slide_tw.tween_method(func(x: float): _content.add_theme_constant_override("margin_top", roundi(x)), float(CONTENT_TOP + 26), float(CONTENT_TOP), 0.3) \
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
