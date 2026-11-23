@@ -8,6 +8,10 @@ const OFFSEASON_MAX := 13
 ## Green Team (development roster) slots; it may run over during the offseason (draft picks) but
 ## must be back to this before Week 1. See GreenTeam.
 const GREEN_SIZE := 6
+## How much each group counts toward team_ovr().
+const TEAM_OVR_W_STARTERS := 0.75
+const TEAM_OVR_W_BENCH := 0.17
+const TEAM_OVR_W_GREEN := 0.08
 ## Future weight by dev stars (1..4) in keep_value: faster developers reach their ceiling sooner.
 const KEEP_DEV_W := [0.35, 0.55, 0.75, 0.9]
 ## Flat bonus by dev stars (1..4) for young players on top of the raw gap (scaled by age weight).
@@ -420,10 +424,29 @@ func _search(vals: Array, same_as_prev: Array[bool], n: int, depth: int, picked:
 func team_ovr() -> int:
 	if roster.is_empty():
 		return 0
-	var total := 0
+	# Starting five count most; the rest of the roster and the Green Team count far less.
+	var starting: Array[Soldier] = starters()
+	if starting.is_empty():
+		var sorted := roster.duplicate()
+		sorted.sort_custom(func(x: Soldier, y: Soldier): return x.best_ovr() > y.best_ovr())
+		for i in mini(5, sorted.size()):
+			starting.append(sorted[i])
+	var rest: Array[Soldier] = []
 	for s in roster:
-		total += s.best_ovr()
-	return roundi(float(total) / roster.size())
+		if not starting.has(s):
+			rest.append(s)
+	var sum := 0.0
+	var weight := 0.0
+	for group in [[starting, TEAM_OVR_W_STARTERS], [rest, TEAM_OVR_W_BENCH], [green_team, TEAM_OVR_W_GREEN]]:
+		var members: Array = group[0]
+		if members.is_empty():
+			continue
+		var total := 0
+		for s in members:
+			total += s.best_ovr()
+		sum += float(total) / members.size() * float(group[1])
+		weight += float(group[1])
+	return roundi(sum / weight)
 
 
 ## Average positional OVR of the starting five.

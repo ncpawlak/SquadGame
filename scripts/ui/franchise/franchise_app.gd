@@ -74,18 +74,18 @@ func show_settings() -> void:
 ## New Franchise step 1: choose a start point. Manager continues to team select; Player is not built yet.
 func show_mode_select() -> void:
 	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 10)
-	var margin := _margin(root, 22)
+	root.add_theme_constant_override("separation", 8)
+	var margin := _margin(root, 10)
 
 	var head := HBoxContainer.new()
 	root.add_child(head)
 	var back := UiKit.button("< Back", show_title, 18)
 	UiKit.style_skewed(back)
-	back.custom_minimum_size = Vector2(120, 48)
+	back.custom_minimum_size = Vector2(110, 40)
 	back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	back.set_meta(&"skip_autofocus", true)
 	head.add_child(back)
-	head.add_child(_spacer_w(16))
+	head.add_child(_spacer_w(12))
 	var tt := VBoxContainer.new()
 	tt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tt.add_child(UiKit.display("CHOOSE YOUR START", 44, Color.WHITE, true))
@@ -143,7 +143,7 @@ func _mode_card(title: String, tagline: String, desc: String, points: Array, soo
 
 	var col := VBoxContainer.new()
 	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 26)
-	col.add_theme_constant_override("separation", 8)
+	col.add_theme_constant_override("separation", 2)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var top := HBoxContainer.new()
 	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -265,7 +265,7 @@ func show_team_select() -> void:
 	head.add_child(_spacer_w(16))
 	var tt := VBoxContainer.new()
 	tt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tt.add_child(UiKit.display("CHOOSE YOUR TEAM", 44, Color.WHITE, true))
+	tt.add_child(UiKit.display("CHOOSE YOUR TEAM", 32, Color.WHITE, true))
 	var bar := ColorRect.new()
 	bar.color = UiKit.ACCENT
 	bar.custom_minimum_size = Vector2(90, 4)
@@ -276,19 +276,19 @@ func show_team_select() -> void:
 	head.add_child(tt)
 
 	var pane := PanelContainer.new()
-	pane.custom_minimum_size.y = 250
+	pane.custom_minimum_size.y = 0
 	root.add_child(pane)
 
 	var ranked := preview.league.teams.duplicate()
 	ranked.sort_custom(func(a: Team, b: Team): return a.team_ovr() > b.team_ovr())
 	var grid := VBoxContainer.new()
-	grid.add_theme_constant_override("separation", 18)
+	grid.add_theme_constant_override("separation", 10)
 	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(grid)
 	var first: Button = null
 	for d in preview.divisions():
 		var line := HBoxContainer.new()
-		line.add_theme_constant_override("separation", 18)
+		line.add_theme_constant_override("separation", 12)
 		line.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		line.add_child(_division_badge(d))
 		var div_teams: Array = preview.division_teams(d)
@@ -329,7 +329,7 @@ func _division_badge(d: String) -> Control:
 ## an expectation tag. Muted team tint at rest; full team colour on hover/focus.
 func _team_tile(t: Team, rank: int, count: int) -> Button:
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(0, 150)
+	b.custom_minimum_size = Vector2(0, 90)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	b.clip_text = true
@@ -349,7 +349,7 @@ func _team_tile(t: Team, rank: int, count: int) -> Button:
 	col.add_theme_constant_override("separation", 8)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	var nm := UiKit.label(t.name, 18, Color.WHITE)
+	var nm := UiKit.label(t.name, 16, Color.WHITE)
 	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	nm.clip_text = true
 	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -363,7 +363,7 @@ func _team_tile(t: Team, rank: int, count: int) -> Button:
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	left.alignment = BoxContainer.ALIGNMENT_CENTER
 	left.add_theme_constant_override("separation", -6)
-	var ovr := UiKit.display(str(o), 40, UiKit.ovr_color(o), true)
+	var ovr := UiKit.display(str(o), 32, UiKit.ovr_color(o), true)
 	ovr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ovr.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	ovr.add_theme_constant_override("outline_size", 5)
@@ -373,7 +373,7 @@ func _team_tile(t: Team, rank: int, count: int) -> Button:
 	left.add_child(cap)
 	_ignore_mouse_tree(left)
 	line.add_child(left)
-	var ring := RingGauge.new(o, 100, UiKit.ovr_color(o), str(o), 104, 4.0)
+	var ring := RingGauge.new(o, 100, UiKit.ovr_color(o), str(o), 60, 3.0)
 	ring.logo = UiKit.logo_tex(t.abbrev)
 	ring.disc = Color(0.02, 0.03, 0.06, 0.72)
 	line.add_child(ring)
@@ -411,14 +411,14 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 	var pm := MarginContainer.new()
 	pm.add_theme_constant_override("margin_left", 22)
 	pm.add_theme_constant_override("margin_right", 22)
-	pm.add_theme_constant_override("margin_top", 16)
-	pm.add_theme_constant_override("margin_bottom", 18)
+	pm.add_theme_constant_override("margin_top", 10)
+	pm.add_theme_constant_override("margin_bottom", 10)
 	pane.add_child(pm)
 	var hb := HBoxContainer.new()
 	hb.add_theme_constant_override("separation", 24)
 	pm.add_child(hb)
 
-	hb.add_child(UiKit.logo_disc(t, 210))
+	hb.add_child(UiKit.logo_disc(t, 120))
 
 	# Identity column: name, OVR and expectations.
 	var id_col := VBoxContainer.new()
@@ -433,14 +433,14 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 		city = t.name.substr(0, cut) if cut > 0 else ""
 		nick = t.name.substr(cut + 1) if cut > 0 else t.name
 	if city != "":
-		var cl := UiKit.display(city.to_upper(), 24, Color(1, 1, 1, 0.75), true)
+		var cl := UiKit.display(city.to_upper(), 18, Color(1, 1, 1, 0.75), true)
 		cl.add_theme_constant_override("line_spacing", -4)
 		id_col.add_child(cl)
-	var nm := UiKit.display(nick.to_upper(), 40, Color.WHITE, true)
+	var nm := UiKit.display(nick.to_upper(), 30, Color.WHITE, true)
 	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	id_col.add_child(nm)
 	id_col.add_child(UiKit.label("%s Division  ·  %s" % [t.division, LeagueData.state_name(t.home_state)], 15, Color(1, 1, 1, 0.7)))
-	id_col.add_child(UiKit.rich("[font_size=46][color=%s]%d[/color][/font_size] OVR   [color=#8b97ab]preseason #%d of %d[/color]" % [
+	id_col.add_child(UiKit.rich("[font_size=34][color=%s]%d[/color][/font_size] OVR   [color=#8b97ab]preseason #%d of %d[/color]" % [
 		UiKit.hex(UiKit.ovr_color(t.team_ovr())), t.team_ovr(), rank, count], 16))
 	id_col.add_child(UiKit.market_meters(t, 13, 80))
 	var space := Contracts.cap_space(t, preview.cap_year())
@@ -454,11 +454,11 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mid.add_theme_constant_override("separation", 6)
 	hb.add_child(mid)
-	var story := UiKit.label(t.backstory, 17, UiKit.TEXT)
+	var story := UiKit.label(t.backstory, 16, UiKit.TEXT)
 	story.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	# Fixed 5-line box so hovering teams with longer stories doesn't resize the pane.
-	story.custom_minimum_size.y = 24 * 5
-	story.max_lines_visible = 5
+	story.custom_minimum_size.y = 22 * 3
+	story.max_lines_visible = 3
 	story.clip_text = true
 	story.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	mid.add_child(story)
@@ -508,7 +508,7 @@ func _fill_team_pane(pane: PanelContainer, preview: Season, t: Team, rank: int, 
 	for s: Soldier in best.slice(0, 3):
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
-		row.add_child(Portrait.new(s, 58, t.color2, t))
+		row.add_child(Portrait.new(s, 50, t.color2, t))
 		var info := VBoxContainer.new()
 		info.add_theme_constant_override("separation", 0)
 		info.add_child(UiKit.label(s.full_name(), 17, Color.WHITE))
