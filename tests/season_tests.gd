@@ -1103,7 +1103,7 @@ func test_prospect_news() -> void:
 func _xp_total(so: Soldier) -> int:
 	var t := so.xp
 	for lv in range(1, so.level):
-		t += Progression.xp_to_next(lv)
+		t += Progression.xp_to_next(so)
 	return t
 
 
