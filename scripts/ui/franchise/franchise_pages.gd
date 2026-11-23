@@ -217,9 +217,14 @@ func week_results(label: String, played: Array) -> Control:
 			mine = m
 	if mine:
 		v.add_child(match_summary(mine, team))
+		var wp := _row(16)
+		wp.alignment = BoxContainer.ALIGNMENT_CENTER
+		wp.add_child(_box_pane(mine, mine.away, "AWAY"))
+		wp.add_child(_box_pane(mine, mine.home, "HOME"))
+		v.add_child(wp)
 		v.add_child(_pbp_button(mine))
 	elif played.is_empty():
-		v.add_child(UiKit.label("Nothing to play.", 18, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("Nothing to play."))
 	else:
 		v.add_child(UiKit.label("Bye week - your squad trained.", 22, Color.WHITE))
 	if not s.last_injuries.is_empty():
@@ -406,24 +411,32 @@ func _ignore_mouse(c: Control) -> void:
 
 func preview(m: ScheduledMatch) -> Control:
 	var s := _season()
-	var v := _vbox(16)
-	v.add_child(UiKit.label("%s  -  %s" % [s.week_label(m.week).to_upper(), "at %s (%s)" % [m.field().venue, m.home.name]], 16, UiKit.MUTED))
+	var v := _vbox(8)
+	var meta := _row(14)
+	meta.add_child(UiKit.label("%s  -  %s" % [s.week_label(m.week).to_upper(), "at %s (%s)" % [m.field().venue, m.home.name]], 16, UiKit.MUTED))
+	v.add_child(meta)
 	_add_weather_chip(v, m)
-	var h := _row(24)
-	for t in [m.away, m.home]:
+	var h := _row(18)
+	h.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var side := func(t: Team) -> Control:
 		var col := _vbox(6)
-		col.custom_minimum_size.x = 520
-		col.add_child(UiKit.team_logo(t, 96))
-		col.add_child(UiKit.display(t.name.to_upper(), 30, Color.WHITE))
-		col.add_child(UiKit.label("Record %s   -   OVR %d" % [s.record_text(t), t.team_ovr()], 16, UiKit.MUTED))
+		col.custom_minimum_size.x = 410
+		var head := _row(12)
+		head.add_child(UiKit.team_logo(t, 64))
+		var hv := _vbox(0)
+		hv.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		hv.add_child(UiKit.display(t.name.to_upper(), 28, Color.WHITE))
+		hv.add_child(UiKit.label("Record %s   -   OVR %d" % [s.record_text(t), t.team_ovr()], 15, UiKit.MUTED))
 		var opp: Team = m.home if t == m.away else m.away
 		var edge: float = t.scheme.edge_vs(opp.scheme)
 		var sl := UiKit.label("Scheme: %s%s" % [t.scheme.display_name,
-			("   (%s vs %s)" % ["edge" if edge > 0 else "disadvantage", opp.scheme.display_name]) if edge != 0.0 else ""],
-			16, UiKit.GOOD if edge > 0 else (UiKit.BAD if edge < 0 else UiKit.MUTED))
-		sl.tooltip_text = t.scheme.blurb()
+			("   (%s)" % ("edge" if edge > 0 else "disadvantage")) if edge != 0.0 else ""],
+			15, UiKit.GOOD if edge > 0 else (UiKit.BAD if edge < 0 else UiKit.MUTED))
+		sl.tooltip_text = "%s vs %s\n%s" % [t.scheme.display_name, opp.scheme.display_name, t.scheme.blurb()]
 		sl.mouse_filter = Control.MOUSE_FILTER_PASS
-		col.add_child(sl)
+		hv.add_child(sl)
+		head.add_child(hv)
+		col.add_child(head)
 		var rows: Array = []
 		var colors := {}
 		var starters: Array = []
@@ -433,33 +446,63 @@ func preview(m: ScheduledMatch) -> Control:
 			colors[rows.size()] = {2: UiKit.ovr_color(ovr)}
 			rows.append([sid, so.full_name(), ovr])
 			starters.append(so)
-		col.add_child(UiKit.table(["SLOT", "STARTER", "OVR"], rows, [60, 240, 60], {}, colors, func(i: int): open_player(starters[i])))
-		h.add_child(col)
-	v.add_child(h)
-	v.add_child(_section("%s  vs  %s  -  SEASON TEAM STATS PER GAME (LEAGUE RANK)" % [m.away.abbrev, m.home.abbrev]))
-	var cmp := _vbox(6)
-	cmp.custom_minimum_size.x = 1064
-	cmp.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		col.add_child(UiKit.table(["SLOT", "STARTER", "OVR"], rows, [56, 230, 56], {}, colors, func(i: int): open_player(starters[i])))
+		return col
+	h.add_child(side.call(m.away))
+	var cmp := _vbox(8)
+	cmp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cmp.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var cap := UiKit.label("%s  vs  %s  -  PER GAME (LEAGUE RANK)" % [m.away.abbrev, m.home.abbrev], 14, UiKit.MUTED)
+	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cmp.add_child(cap)
 	for row in hub.compare_rows(m.away, m.home):
 		cmp.add_child(hub.compare_bar(row, UiKit.accent_of(m.away), UiKit.accent_of(m.home)))
-	v.add_child(cmp)
+	h.add_child(cmp)
+	h.add_child(side.call(m.home))
+	v.add_child(h)
 	if not m.is_played() and m.week == s.week and m.involves(s.user_team()):
 		var play := UiKit.primary_button("Play %s  >>" % s.week_label(m.week), hub.advance, 22)
-		play.custom_minimum_size = Vector2(300, 56)
+		play.custom_minimum_size = Vector2(300, 52)
+		play.size_flags_horizontal = Control.SIZE_SHRINK_END
 		v.add_child(play)
 	return v
 
 
 ## Full recap: the summary (score, games, both fives), play-by-play button, then full box scores.
+var _recap_full := false
+
+
 func recap(m: ScheduledMatch) -> Control:
 	var r := m.result
-	var v := _vbox(16)
+	var v := _vbox(8)
 	var user := _season().user_team()
 	v.add_child(match_summary(m, user if m.involves(user) else null))
 	_add_weather_chip(v, m)
 	for rec: Dictionary in m.records:
 		v.add_child(UiKit.label(_record_banner(rec), 16, UiKit.ACCENT))
-	v.add_child(_pbp_button(m))
+	var modes := _row(6)
+	for o in [[false, "Summary"], [true, "Full Box Score"]]:
+		var want: bool = o[0]
+		var b := Button.new()
+		b.text = String(o[1]).to_upper()
+		b.custom_minimum_size = Vector2(0, 32)
+		UiKit.style_tab(b, _recap_full == want, 16)
+		b.pressed.connect(func():
+			_recap_full = want
+			hub.refresh_current())
+		modes.add_child(b)
+	var sp := Control.new()
+	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	modes.add_child(sp)
+	modes.add_child(_pbp_button(m))
+	v.add_child(modes)
+	if not _recap_full:
+		var panes := _row(16)
+		panes.alignment = BoxContainer.ALIGNMENT_CENTER
+		panes.add_child(_box_pane(m, m.away, "AWAY"))
+		panes.add_child(_box_pane(m, m.home, "HOME"))
+		v.add_child(panes)
+		return v
 	for t in [m.away, m.home]:
 		v.add_child(_section("%s BOX SCORE" % t.name.to_upper()))
 		var rows: Array = []
@@ -501,8 +544,7 @@ func _record_banner(rec: Dictionary) -> String:
 
 func _pbp_button(m: ScheduledMatch) -> Button:
 	var b := UiKit.button("Play-by-Play  >>", func(): hub.open("Play-by-Play", func(): return play_by_play(m)), 17)
-	b.custom_minimum_size = Vector2(240, 46)
-	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	b.custom_minimum_size = Vector2(220, 36)
 	return b
 
 
@@ -511,14 +553,14 @@ func _pbp_button(m: ScheduledMatch) -> Button:
 func match_summary(m: ScheduledMatch, persp: Team = null) -> Control:
 	var r := m.result
 	var s := _season()
-	var v := _vbox(14)
+	var v := _vbox(8)
 	var top_text := "%s   -   FINAL" % s.week_label(m.week).to_upper()
 	if persp != null:
 		var won := m.winner() == persp
 		top_text = "[color=%s][b]%s[/b][/color]   [color=#8b97ab]%s[/color]" % [UiKit.hex(UiKit.GOOD if won else UiKit.BAD), "VICTORY" if won else "DEFEAT", top_text]
 	else:
 		top_text = "[color=#8b97ab]%s[/color]" % top_text
-	var verdict := UiKit.rich("[center][font_size=22]%s[/font_size][/center]" % top_text, 18)
+	var verdict := UiKit.rich("[center][font_size=20]%s[/font_size][/center]" % top_text, 18)
 	v.add_child(verdict)
 	if persp != null:
 		Fx.stamp(verdict, 0.9, 1.25)
@@ -526,8 +568,7 @@ func match_summary(m: ScheduledMatch, persp: Team = null) -> Control:
 	var csb := UiKit.flat(UiKit.PANEL, 2, 1, Color(1, 1, 1, 0.1))
 	csb.set_content_margin_all(0)
 	card.add_theme_stylebox_override("panel", csb)
-	card.custom_minimum_size.x = 1320
-	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.clip_contents = true
 	var bd := UiKit.backdrop(UiKit.banner_of(m.away), UiKit.banner_of(m.home), true, UiKit.ACCENT)
 	bd.two_tone = true
@@ -536,17 +577,17 @@ func match_summary(m: ScheduledMatch, persp: Team = null) -> Control:
 	var head := _row(26)
 	head.alignment = BoxContainer.ALIGNMENT_CENTER
 	head.add_child(_summary_side(m, m.away, "AWAY"))
-	var sc := UiKit.display("%d  -  %d" % [m.games_for(m.away), m.games_for(m.home)], 84, Color.WHITE, true)
+	var sc := UiKit.display("%d  -  %d" % [m.games_for(m.away), m.games_for(m.home)], 60, Color.WHITE, true)
 	sc.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	sc.size_flags_vertical = Control.SIZE_FILL
-	sc.custom_minimum_size.x = 260
+	sc.custom_minimum_size.x = 220
 	sc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	Fx.count_pair(sc, m.games_for(m.away), m.games_for(m.home), "%d  -  %d", 0.7, 0.25)
 	head.add_child(sc)
 	head.add_child(_summary_side(m, m.home, "HOME"))
 	var hm := MarginContainer.new()
-	hm.add_theme_constant_override("margin_top", 16)
-	hm.add_theme_constant_override("margin_bottom", 16)
+	hm.add_theme_constant_override("margin_top", 8)
+	hm.add_theme_constant_override("margin_bottom", 8)
 	hm.add_child(head)
 	card.add_child(hm)
 	v.add_child(card)
@@ -560,7 +601,7 @@ func match_summary(m: ScheduledMatch, persp: Team = null) -> Control:
 		Fx.reveal(p, 0.5 + 0.18 * float(g["number"] - 1))
 		var col := _vbox(4)
 		col.add_child(UiKit.label("GAME %d  -  %s" % [g["number"], MatchEngine.mode_name(g["mode"]).to_upper()], 13, UiKit.MUTED))
-		col.add_child(UiKit.label("%s %s %s" % [m.away.abbrev, MatchResult.game_score_text(g, r.teams[0] != m.away), m.home.abbrev], 26, Color.WHITE))
+		col.add_child(UiKit.label("%s %s %s" % [m.away.abbrev, MatchResult.game_score_text(g, r.teams[0] != m.away), m.home.abbrev], 22, Color.WHITE))
 		var sub := "%s win  -  %s" % [winner_team.abbrev, MatchEngine._fmt_secs(g["duration_s"])]
 		if g["mode"] == MatchEngine.MODE_KOTH:
 			sub = "%s win  -  hold time  -  %s" % [winner_team.abbrev, MatchEngine._fmt_secs(g["duration_s"])]
@@ -575,22 +616,17 @@ func match_summary(m: ScheduledMatch, persp: Team = null) -> Control:
 		p.add_child(col)
 		strip.add_child(p)
 	v.add_child(strip)
-	var panes := _row(20)
-	panes.alignment = BoxContainer.ALIGNMENT_CENTER
-	panes.add_child(_box_pane(m, m.away, "AWAY"))
-	panes.add_child(_box_pane(m, m.home, "HOME"))
-	v.add_child(panes)
 	return v
 
 
 func _summary_side(m: ScheduledMatch, t: Team, tag: String) -> Control:
-	var col := _vbox(2)
+	var col := _vbox(0)
 	col.custom_minimum_size.x = 300
-	var logo := UiKit.team_logo(t, 84)
+	var logo := UiKit.team_logo(t, 52)
 	logo.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	col.add_child(logo)
 	var won := m.winner() == t
-	var n := UiKit.display(t.name.to_upper(), 28, Color.WHITE if won else Color(1, 1, 1, 0.6))
+	var n := UiKit.display(t.name.to_upper(), 24, Color.WHITE if won else Color(1, 1, 1, 0.6))
 	n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(n)
 	var rec := UiKit.label("%s   ·   %s" % [tag, _season().record_text(t)], 15, Color(1, 1, 1, 0.7))
@@ -612,20 +648,21 @@ func _box_pane(m: ScheduledMatch, t: Team, tag: String) -> Control:
 	sb.border_color = UiKit.accent_of(t) if not t.user_controlled else UiKit.ACCENT
 	sb.content_margin_left = 14
 	sb.content_margin_right = 14
-	sb.content_margin_top = 12
-	sb.content_margin_bottom = 12
+	sb.content_margin_top = 8
+	sb.content_margin_bottom = 8
 	p.add_theme_stylebox_override("panel", sb)
 	p.custom_minimum_size.x = 650
-	var col := _vbox(4)
+	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var col := _vbox(2)
 	p.add_child(col)
 	var head := _row(10)
-	head.add_child(UiKit.team_logo(t, 40))
+	head.add_child(UiKit.team_logo(t, 32))
 	var hv := _vbox(0)
 	hv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hv.add_child(UiKit.display(t.name.to_upper(), 22, Color.WHITE))
+	hv.add_child(UiKit.display(t.name.to_upper(), 20, Color.WHITE))
 	hv.add_child(UiKit.label("%s   -   %s" % [tag, "WIN" if won else "LOSS"], 13, UiKit.GOOD if won else UiKit.BAD))
 	head.add_child(hv)
-	var gw := UiKit.label(str(m.games_for(t)), 34, UiKit.GOOD if won else UiKit.MUTED)
+	var gw := UiKit.label(str(m.games_for(t)), 28, UiKit.GOOD if won else UiKit.MUTED)
 	gw.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	head.add_child(gw)
 	col.add_child(head)
@@ -649,13 +686,13 @@ func _box_pane(m: ScheduledMatch, t: Team, tag: String) -> Control:
 		var so := _soldier(sid)
 		var row := _row(4)
 		if so != null:
-			row.add_child(Portrait.new(so, 44, t.color, t))
+			row.add_child(Portrait.new(so, 34, t.color, t))
 		else:
 			var gap := Control.new()
-			gap.custom_minimum_size.x = 44
+			gap.custom_minimum_size.x = 34
 			row.add_child(gap)
 		var nv := _vbox(0)
-		nv.custom_minimum_size.x = 214
+		nv.custom_minimum_size.x = 224
 		nv.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var nl := UiKit.label(so.tag() if so else "?", 17, UiKit.ACCENT if sid == r.mvp_id else Color.WHITE)
 		nl.clip_text = true
@@ -682,7 +719,7 @@ func _box_pane(m: ScheduledMatch, t: Team, tag: String) -> Control:
 			row.add_child(sl)
 		if so != null:
 			var pick := so
-			col.add_child(_click_wrap(row, func(): open_player(pick), 52))
+			col.add_child(_click_wrap(row, func(): open_player(pick), 42))
 		else:
 			col.add_child(row)
 	return p
@@ -2226,7 +2263,7 @@ func _player_contract(s: Soldier, team: Team) -> Control:
 		return v
 	var c := s.contract
 	if c == null:
-		v.add_child(UiKit.label("No contract.", 18, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No contract."))
 		return v
 	var cy := season.cap_year()
 	var dm := Contracts.dead_money_if_released(s)
@@ -2315,7 +2352,7 @@ func _player_next_gen(s: Soldier) -> Control:
 	var line := StatRegistry.line_for(s, scope, _stats_phase, hub.season.year)
 	v.add_child(_section("NEXT GEN  -  %s" % ("%d SEASON" % hub.season.year if _stats_season else "CAREER")))
 	if int(line.get("matches", 0)) <= 0:
-		v.add_child(UiKit.label("No matches here yet.", 16, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No matches here yet."))
 		return v
 	v.add_child(UiKit.table(["STAT", "VALUE"], StatRegistry.telemetry_rows(line), [320, 120]))
 	return v
@@ -2338,7 +2375,7 @@ func _player_conditions(s: Soldier) -> Control:
 	for surface in ArenaMap.SURFACES:
 		add.call("On %s" % surface, StatRegistry.surface_line(s, surface))
 	if rows.is_empty():
-		v.add_child(UiKit.label("No matches recorded with weather yet.", 16, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No matches recorded with weather yet."))
 		return v
 	v.add_child(UiKit.table(["CONDITION", "M", "K", "D", "K/D", "DMG/M"], rows, [200, 50, 60, 60, 70, 80]))
 	for e: Dictionary in StatRegistry.weather_edges(s):
@@ -2376,7 +2413,7 @@ func _player_game_log(s: Soldier) -> Control:
 			rows.append(cells)
 	v.add_child(_section("%d SEASON  -  MATCH BY MATCH" % season.year))
 	if rows.is_empty():
-		v.add_child(UiKit.label("No matches played this season yet.", 16, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No matches played this season yet."))
 		return v
 	var hl := {}
 	var tot := StatRegistry.line_for(s, StatRegistry.SCOPE_SEASON, _stats_phase, season.year)
@@ -2458,7 +2495,7 @@ func _chemistry_box(s: Soldier, team: Team) -> Control:
 		if o != null:
 			rows.add_child(_chemistry_row(s, o, p, starters))
 	if rows.get_child_count() == 0:
-		rows.add_child(UiKit.label("No bonds yet.", 15, UiKit.MUTED))
+		rows.add_child(FrontEnd.empty_note("No bonds yet."))
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = Vector2(0, 340)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -2575,7 +2612,7 @@ func _dna_color(v: float) -> Color:
 func _player_progression(s: Soldier) -> Control:
 	var v := _vbox(10)
 	if s.history.is_empty():
-		v.add_child(UiKit.label("No rating changes yet.", 16, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No rating changes yet."))
 		return v
 	var shown_year := -1
 	for i in range(s.history.size() - 1, -1, -1):
@@ -2773,12 +2810,6 @@ func lineup() -> Control:
 					show.call(team.scheme, false))
 			list.add_child(row)
 		side.add_child(list)
-	var o := UiKit.panel(UiKit.PANEL_HI, 10)
-	var ob := _vbox(4)
-	ob.add_child(UiKit.label("TEAM OVR", 12, UiKit.MUTED))
-	ob.add_child(UiKit.label(str(team.team_ovr()), 44, UiKit.ovr_color(team.team_ovr())))
-	o.add_child(ob)
-	side.add_child(o)
 	var best := UiKit.button("Generate Best Lineup", func():
 		team.auto_lineup()
 		_lineup_slot = &""
@@ -2804,16 +2835,16 @@ func lineup() -> Control:
 			refresh.call(), 15))
 	h.add_child(side)
 
-	var v := _vbox(14)
+	var v := _vbox(8)
 	v.add_child(h)
 	v.add_child(_section("BENCH"))
 	var bench := HFlowContainer.new()
-	bench.add_theme_constant_override("h_separation", 12)
-	bench.add_theme_constant_override("v_separation", 12)
+	bench.add_theme_constant_override("h_separation", 10)
+	bench.add_theme_constant_override("v_separation", 8)
 	for s in team.bench():
-		bench.add_child(_lineup_card(team, s, &"", refresh))
+		bench.add_child(_bench_chip(team, s, refresh))
 	if team.bench().is_empty():
-		bench.add_child(UiKit.label("No bench players.", 15, UiKit.MUTED))
+		bench.add_child(FrontEnd.empty_note("No bench players."))
 	v.add_child(bench)
 	return v
 
@@ -2872,6 +2903,43 @@ func _chemistry_lines(field: Panel, sch: Scheme, assigned: Dictionary) -> void:
 			field.add_child(line)
 
 
+## Compact bench entry: portrait, callsign, OVR and POT in one short tile.
+func _bench_chip(team: Team, s: Soldier, refresh: Callable) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(272, 58)
+	var selected := s == _lineup_bench
+	UiKit.style_button(b, UiKit.ACCENT.darkened(0.55) if selected else UiKit.PANEL, UiKit.ACCENT, 10)
+	b.pressed.connect(func(): _lineup_click(team, s, &"", refresh))
+	var row := _row(8)
+	row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 8
+	row.offset_right = -8
+	row.offset_top = 4
+	row.offset_bottom = -4
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(row)
+	row.add_child(Portrait.new(s, 44, UiKit.BAD if s.is_injured() else team.color, team))
+	var col := _vbox(0)
+	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(UiKit.label(s.tag(), 17, Color.WHITE))
+	var role := Scheme.best_role(s.stats)
+	var st := ("INJURED %dw" % s.injury_weeks) if s.is_injured() else "%s - FAT %d" % [Scheme.ROLE_NAMES[role].to_upper(), roundi(s.fatigue)]
+	col.add_child(UiKit.label(st, 11, UiKit.BAD if s.is_injured() else fatigue_color(s.fatigue)))
+	row.add_child(col)
+	var gap := Control.new()
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(gap)
+	var o := s.ovr_at_role(role)
+	var nums := UiKit.rich("[color=%s]%d[/color]  %s" % [UiKit.hex(UiKit.ovr_color(o)), o, pot_dev_bb(s, 14)], 20)
+	nums.autowrap_mode = TextServer.AUTOWRAP_OFF
+	nums.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	nums.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(nums)
+	return b
+
+
 ## Player card: portrait, callsign, name, OVR (at the slot, or best position on the bench), POT.
 func _lineup_card(team: Team, s: Soldier, slot: StringName, refresh: Callable) -> Button:
 	var b := Button.new()
@@ -2912,7 +2980,7 @@ func _lineup_card(team: Team, s: Soldier, slot: StringName, refresh: Callable) -
 	var role := team.scheme.role_for_slot(slot) if slot != &"" else Scheme.best_role(s.stats)
 	var o := s.ovr_at_role(role)
 	var nums := UiKit.rich("[center][font_size=12][color=#8b97ab]OVR[/color][/font_size] [color=%s]%d[/color]%s   [font_size=12][color=#8b97ab]POT[/color][/font_size] %s[/center]" % [
-		UiKit.hex(UiKit.ovr_color(o)), o, delta_bb(s.morale_ovr_delta(role), 12), pot_dev_bb(s, 14)], 20)
+		UiKit.hex(UiKit.ovr_color(o)), o, delta_bb(s.morale_ovr_delta(role), 12), pot_dev_bb(s, 13)], 18)
 	nums.autowrap_mode = TextServer.AUTOWRAP_OFF
 	box.add_child(nums)
 	var st := UiKit.label(("INJURED %dw" % s.injury_weeks) if s.is_injured() else ("%s · FAT %d" % [Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), roundi(s.fatigue)]),
@@ -3561,7 +3629,7 @@ func injuries() -> Control:
 			colors[rows.size()] = {4: UiKit.BAD}
 			rows.append([t.abbrev, so.full_name(), so.age, so.injury_name, "%d wk" % so.injury_weeks, so.stats[Stats.INJURY], so.stats[Stats.TOUGHNESS]])
 	if rows.is_empty():
-		v.add_child(UiKit.label("No current injuries.", 18, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No current injuries."))
 	else:
 		v.add_child(UiKit.table(["TEAM", "NAME", "AGE", "INJURY", "OUT", "INJ", "TGH"], rows, [60, 220, 50, 220, 70, 50, 50], hl, colors, func(i: int): open_player(hurt[i])))
 	v.add_child(_section("THIS SEASON"))
@@ -3574,7 +3642,7 @@ func injuries() -> Control:
 		var t: Team = e["team"]
 		log_rows.append([s.week_label(e["week"]), t.abbrev, so.full_name(), e["name"], "%d wk" % e["weeks"]])
 	if log_rows.is_empty():
-		v.add_child(UiKit.label("No injuries yet this season.", 16, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No injuries yet this season."))
 	else:
 		v.add_child(UiKit.table(["WHEN", "TEAM", "NAME", "INJURY", "OUT"], log_rows, [110, 60, 220, 220, 70], {}, {}, func(i: int): open_player(logged[i])))
 	return v
@@ -3599,7 +3667,7 @@ func team_stats() -> Control:
 	var v := _vbox()
 	var lines := season_totals().filter(func(t): return t["team"] == team)
 	if lines.is_empty():
-		v.add_child(UiKit.label("No matches played yet this season.", 18, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No matches played yet this season."))
 		return v
 	v.add_child(_stats_table(lines, false, &"team_stats", func(): hub.page_refresh("Team Stats", team_stats)))
 	return v
@@ -3610,7 +3678,7 @@ func league_stats() -> Control:
 	var v := _vbox()
 	var lines := season_totals()
 	if lines.is_empty():
-		v.add_child(UiKit.label("No matches played yet this season.", 18, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No matches played yet this season."))
 		return v
 	v.add_child(_stats_table(lines, true, &"league_stats", func(): hub.refresh_current()))
 	return v
@@ -3978,7 +4046,7 @@ func news() -> Control:
 			v.add_child(rp)
 		v.add_child(_section("RESULTS"))
 	if items.is_empty():
-		v.add_child(UiKit.label("No news yet. Play some matches.", 18, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No news yet. Play some matches."))
 	for h in items:
 		var p := UiKit.panel(UiKit.PANEL, 8)
 		p.add_child(UiKit.rich(h, 17))
@@ -5736,7 +5804,7 @@ func awards() -> Control:
 				Soldier.dev_stars(c["from"]), Soldier.dev_stars(c["to"]), ", ".join(c["reasons"])])
 			targets.append(so)
 		if rows.is_empty():
-			v.add_child(UiKit.label("No changes.", 15, UiKit.MUTED))
+			v.add_child(FrontEnd.empty_note("No changes."))
 		else:
 			var dev_table := _soldier_table(["SOLDIER", "TEAM", "AGE", "FROM", "TO", "WHY"], rows, [220, 70, 50, 70, 70, 400], targets, colors)
 			v.add_child(dev_table)
@@ -5889,7 +5957,7 @@ func free_agents() -> Control:
 	var list: Array = s.league.free_agents.filter(func(x: Soldier): return fa_role_filter < 0 or Scheme.best_role(x.stats) == fa_role_filter)
 	list = _sorted(list, &"fa", null)
 	if list.is_empty():
-		v.add_child(UiKit.label("No free agents.", 16, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No free agents."))
 		return v
 	var pane := _player_pane()
 	v.add_child(pane)
@@ -5953,7 +6021,7 @@ func offer() -> Control:
 	var season := _season()
 	var user := season.user_team()
 	var s := _offer_soldier
-	var v := _vbox(14)
+	var v := _vbox(8)
 	if s == null:
 		return v
 	if not season.league.free_agents.has(s):
@@ -5969,7 +6037,16 @@ func offer() -> Control:
 		Contracts.money(Contracts.market_value(s)), season.fa.offers_for(s).size(), "" if season.fa.offers_for(s).size() == 1 else "s"], 16))
 	top.get_child(1).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.add_child(top)
-	v.add_child(_position_compare(s, user))
+	var cols := _row(24)
+	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var left := _vbox(6)
+	left.custom_minimum_size.x = 640
+	cols.add_child(left)
+	var right := _vbox(10)
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cols.add_child(right)
+	v.add_child(cols)
+	right.add_child(_position_compare(s, user, 5))
 	var rebuild := func(): hub.replace("Offer: " + s.full_name(), offer)
 	var step := maxi(50, roundi(Contracts.asking(s, _offer_years) * 0.05 / 50.0) * 50)
 	var sal_row := _row(12)
@@ -5989,7 +6066,7 @@ func offer() -> Control:
 	sal_row.add_child(UiKit.button("Match asking", func():
 		_offer_salary = Contracts.asking(s, _offer_years)
 		rebuild.call(), 14))
-	v.add_child(sal_row)
+	left.add_child(sal_row)
 	var yr_row := _row(12)
 	var yr_l := UiKit.label("YEARS", 15, UiKit.MUTED)
 	yr_l.custom_minimum_size.x = 90
@@ -6004,9 +6081,11 @@ func offer() -> Control:
 	yr_row.add_child(UiKit.button("  +  ", func():
 		_offer_years = mini(Contracts.MAX_YEARS, _offer_years + 1)
 		rebuild.call(), 18))
-	yr_row.add_child(UiKit.label("asking at %d yr%s: %s (longer or shorter than he wants costs more)" % [
-		_offer_years, "" if _offer_years == 1 else "s", Contracts.money(Contracts.asking(s, _offer_years))], 14, UiKit.MUTED))
-	v.add_child(yr_row)
+	var ynote := UiKit.label("asks %s at %d yr%s" % [Contracts.money(Contracts.asking(s, _offer_years)), _offer_years, "" if _offer_years == 1 else "s"], 14, UiKit.MUTED)
+	ynote.tooltip_text = "Longer or shorter than he wants costs more."
+	ynote.mouse_filter = Control.MOUSE_FILTER_PASS
+	yr_row.add_child(ynote)
+	left.add_child(yr_row)
 	var pr_row := _row(12)
 	var pr_l := UiKit.label("PROMISE", 15, UiKit.MUTED)
 	pr_l.custom_minimum_size.x = 90
@@ -6014,22 +6093,26 @@ func offer() -> Control:
 	pr_row.add_child(_promise_toggle(_offer_promise, func():
 		_offer_promise = not _offer_promise
 		rebuild.call()))
-	v.add_child(pr_row)
-	v.add_child(_bonus_row(season, user, _offer_bonus, Contracts.max_bonus(_offer_salary, _offer_years), season.fa.committed_bonus(user, s),
+	left.add_child(pr_row)
+	left.add_child(_bonus_row(season, user, _offer_bonus, Contracts.max_bonus(_offer_salary, _offer_years), season.fa.committed_bonus(user, s),
 		roundi(FreeAgency.yearly_value(s, 0, _offer_years, _offer_bonus)), func(b: int):
 			_offer_bonus = b
 			rebuild.call(), maxi(500, roundi(Contracts.asking(s, _offer_years) * 0.25 / 50.0) * 50)))
 	var w: Array = FreeAgency.weights(s)
-	v.add_child(UiKit.rich("HE WEIGHS   money [color=white]%d%%[/color]   -   winning [color=white]%d%%[/color]   -   playing time [color=white]%d%%[/color]   -   [color=%s]%s[/color]%s" % [
+	var weighs := UiKit.rich("HE WEIGHS   money [color=white]%d%%[/color]   -   winning [color=white]%d%%[/color]   -   playing time [color=white]%d%%[/color]   -   [color=%s]%s[/color]%s" % [
 		roundi(w[0] * 100), roundi(w[1] * 100), roundi(w[2] * 100), UiKit.hex(UiKit.INFO), s.get_dna().headline(),
-		("   -   former %s player" % s.former_team) if s.former_team != "" else ""], 15))
+		("   -   former %s player" % s.former_team) if s.former_team != "" else ""], 15)
+	weighs.custom_minimum_size.x = 600
+	left.add_child(weighs)
 	var it: Array = FreeAgency.interest(user, s, _offer_salary, _offer_years, _offer_promise, _offer_bonus)
 	var role_text := "would START for you" if FreeAgency.would_start(user, s) else "would be a backup for you"
-	v.add_child(UiKit.rich("INTEREST   [font_size=24][color=%s]%s[/color][/font_size]   -   he %s   -   your team OVR %d   -   total value %s" % [
-		UiKit.hex(it[1]), it[0], role_text, user.team_ovr(), Contracts.money(_offer_salary * _offer_years + _offer_bonus)], 16))
+	var interest := UiKit.rich("INTEREST   [font_size=24][color=%s]%s[/color][/font_size]   -   he %s   -   your team OVR %d   -   total value %s" % [
+		UiKit.hex(it[1]), it[0], role_text, user.team_ovr(), Contracts.money(_offer_salary * _offer_years + _offer_bonus)], 16)
+	interest.custom_minimum_size.x = 600
+	left.add_child(interest)
 	var err := season.fa.offer_error(season, user, s, _offer_salary, _offer_years, _offer_promise, _offer_bonus)
 	if err != "":
-		v.add_child(UiKit.label(err, 15, UiKit.BAD))
+		left.add_child(UiKit.label(err, 15, UiKit.BAD))
 	var actions := _row()
 	var mine := season.fa.offer_of(user, s)
 	var submit := UiKit.button("Update Offer" if not mine.is_empty() else "Submit Offer", func():
@@ -6055,12 +6138,12 @@ func offer() -> Control:
 			hub.app.toast("Offer withdrawn.")
 			rebuild.call(), 16))
 	actions.add_child(UiKit.button("Full Ratings", func(): open_player(s), 16))
-	v.add_child(actions)
+	left.add_child(actions)
 	if not mine.is_empty():
-		v.add_child(UiKit.label("Pending: %s x %d yr%s%s%s." % [Contracts.money(mine["salary"]), mine["years"], "" if mine["years"] == 1 else "s",
+		left.add_child(UiKit.label("Pending: %s x %d yr%s%s%s." % [Contracts.money(mine["salary"]), mine["years"], "" if mine["years"] == 1 else "s",
 			" + %s bonus" % Contracts.money(int(mine.get("bonus", 0))) if int(mine.get("bonus", 0)) > 0 else "",
 			" + starter promise" if mine.get("promise", false) else ""], 15, UiKit.INFO))
-	v.add_child(_offer_board(s))
+	right.add_child(_offer_board(s))
 	return v
 
 
@@ -6078,7 +6161,7 @@ func _offer_board(s: Soldier) -> Control:
 	v.name = "OfferBoard"
 	v.add_child(UiKit.label("CURRENT OFFERS (%d)" % bids.size(), 15, UiKit.MUTED))
 	if bids.is_empty():
-		v.add_child(UiKit.label("No team has made an offer yet.", 15, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No team has made an offer yet."))
 		return v
 	const BAR_MAX := 1.3
 	const BAR_W := 320.0
@@ -6121,7 +6204,7 @@ func _offer_board(s: Soldier) -> Control:
 
 
 ## Your roster players at a free agent's position, compared at that position's OVR.
-func _position_compare(fa_s: Soldier, user: Team) -> Control:
+func _position_compare(fa_s: Soldier, user: Team, max_rows := 99) -> Control:
 	var role := Scheme.best_role(fa_s.stats)
 	var v := _vbox(6)
 	var mine: Array = user.roster.filter(func(x: Soldier): return Scheme.best_role(x.stats) == role)
@@ -6131,6 +6214,8 @@ func _position_compare(fa_s: Soldier, user: Team) -> Control:
 	if mine.is_empty():
 		v.add_child(UiKit.label("You have no %ss on the roster." % Scheme.ROLE_NAMES[role], 15, UiKit.MUTED))
 		return v
+	if mine.size() > max_rows:
+		mine = mine.slice(0, max_rows)
 	var rows: Array = []
 	var colors := {}
 	for i in mine.size():
@@ -6143,7 +6228,7 @@ func _position_compare(fa_s: Soldier, user: Team) -> Control:
 			("EXPIRING" if so.contract.is_expiring() else "%d yr" % so.contract.years) if so.contract != null else "-"])
 		colors[i] = {2: UiKit.ovr_color(o), 3: UiKit.GOOD if fa_ovr > o else (UiKit.BAD if fa_ovr < o else UiKit.MUTED), 4: potential_color(so.potential_grade())}
 	v.add_child(UiKit.table(["SOLDIER", "AGE", "OVR", "FA +/-", "POT", "SLOT", "SALARY", "YEARS"], rows,
-		[260, 50, 50, 70, 50, 110, 90, 90], {}, colors, func(i: int): open_player(mine[i])))
+		[200, 44, 44, 64, 50, 90, 90, 70], {}, colors, func(i: int): open_player(mine[i])))
 	return v
 
 
@@ -6280,7 +6365,7 @@ func resign() -> Control:
 	v.add_child(UiKit.rich("[font_size=22][color=white]%s[/color][/font_size]   room under the %d apron: [color=white]%s[/color]   (payroll includes [color=white]%s[/color] in cap holds)" % [
 		"RE-SIGN WINDOW OPEN" if s.can_resign() else "RE-SIGN WINDOW CLOSED", s.cap_year(), Contracts.money(Contracts.apron_room(user, s.cap_year())), Contracts.money(holds)], 16))
 	if expiring.is_empty():
-		v.add_child(UiKit.label("No expiring contracts.", 16, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No expiring contracts."))
 	var refresh := func(): hub.replace("Re-sign Players", resign)
 	var ordered: Array = expiring.filter(func(x: Soldier): return not x.callup_pending)
 	var callups: Array = expiring.filter(func(x: Soldier): return x.callup_pending)
@@ -6376,7 +6461,7 @@ func extensions() -> Control:
 	v.add_child(UiKit.rich("[font_size=22][color=white]EXTENSION WINDOW OPEN[/color][/font_size]   room under the %d apron (with agreed extensions): [color=white]%s[/color]" % [
 		ny, Contracts.money(Contracts.next_apron_room(user, s.year))], 16))
 	if list.is_empty():
-		v.add_child(UiKit.label("Nobody on your roster is in the last year of his deal.", 16, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("Nobody on your roster is in the last year of his deal."))
 	for so in list:
 		var ref: Soldier = so
 		var row := _row(10)
@@ -6472,10 +6557,10 @@ func negotiate() -> Control:
 	var season := _season()
 	var user := season.user_team()
 	var s := _neg_soldier
-	var v := _vbox(14)
+	var v := _vbox(8)
 	var n: Negotiation = season.negotiation(user, s) if s != null else null
 	if n == null:
-		v.add_child(UiKit.label("No talks in progress.", 20, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No talks in progress."))
 		return v
 	var rebuild := func(): hub.replace("Negotiate: " + s.full_name(), negotiate)
 	if n.tactic_error(_neg_pitch) != "":
@@ -6492,7 +6577,7 @@ func negotiate() -> Control:
 	var body := _row(28)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	v.add_child(body)
-	var left := _vbox(12)
+	var left := _vbox(6)
 	left.custom_minimum_size.x = 760
 	body.add_child(left)
 	if n.can_act():
@@ -6507,7 +6592,6 @@ func negotiate() -> Control:
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	body.add_child(right)
 	right.add_child(_neg_hero(n, s, terms))
-	right.add_child(UiKit.display("THE TABLE", 26))
 	right.add_child(_neg_chat(n, s))
 	return v
 
@@ -6515,7 +6599,7 @@ func negotiate() -> Control:
 ## The talks as a text thread: his lines on the left, yours on the right, newest at the bottom.
 func _neg_chat(n: Negotiation, s: Soldier) -> Control:
 	var sc := ScrollContainer.new()
-	sc.custom_minimum_size = Vector2(0, 560)
+	sc.custom_minimum_size = Vector2(0, 260)
 	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	var thread := _vbox(10)
@@ -6563,21 +6647,21 @@ func _neg_chat(n: Negotiation, s: Soldier) -> Control:
 func _neg_header(n: Negotiation, s: Soldier, user: Team) -> Control:
 	var d := s.get_dna()
 	var top := _row(20)
-	top.add_child(Portrait.new(s, 104, user.color, user))
-	var head := _vbox(4)
+	top.add_child(Portrait.new(s, 84, user.color, user))
+	var head := _vbox(0)
 	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_child(UiKit.rich("[font_size=34][color=white]%s[/color][/font_size]   [color=%s]%s[/color]" % [
+	head.add_child(UiKit.rich("[font_size=28][color=white]%s[/color][/font_size]   [color=%s]%s[/color]" % [
 		UiKit.esc(s.display_name()), UiKit.hex(UiKit.INFO), "EXTENSION TALKS" if n.extension else ""], 20))
 	head.add_child(UiKit.rich("age %d  -  %s  -  OVR [color=%s]%d[/color]  -  POT %s" % [
-		s.age, Scheme.ROLE_NAMES[Scheme.best_role(s.stats)], UiKit.hex(UiKit.ovr_color(s.best_ovr())), s.best_ovr(), pot_dev_bb(s)], 20))
+		s.age, Scheme.ROLE_NAMES[Scheme.best_role(s.stats)], UiKit.hex(UiKit.ovr_color(s.best_ovr())), s.best_ovr(), pot_dev_bb(s)], 17))
 	var home := Dna.hometown_pull(s, user)
 	var bonds := n.bond_pull()
 	head.add_child(UiKit.rich("[color=%s]%s[/color]  -  %s  -  %s%s%s" % [UiKit.hex(UiKit.INFO), d.headline(), d.temperament_label(), d.savvy_label(),
 		"  -  from %s%s" % [LeagueData.state_name(s.home_state), " (home club)" if home > 0.0 and s.home_state == user.home_state else (" (near home)" if home > 0.0 else "")] if s.home_state != "" else "",
-		"  -  bonds pull %d%%" % roundi(bonds * 100) if bonds > 0.0 else ""], 18))
+		"  -  bonds pull %d%%" % roundi(bonds * 100) if bonds > 0.0 else ""], 16))
 	head.add_child(UiKit.rich("[color=#8b97ab]Market value %s  -  current deal %s  -  room under the %d apron%s: %s[/color]" % [
 		Contracts.money(Contracts.market_value(s)), Contracts.money(s.contract.salary) if s.contract != null else "-",
-		n.deal_year(), "" if n.extension else " (his hold freed)", Contracts.money(n.cap_room())], 17))
+		n.deal_year(), "" if n.extension else " (his hold freed)", Contracts.money(n.cap_room())], 15))
 	top.add_child(head)
 	return top
 
@@ -6585,8 +6669,8 @@ func _neg_header(n: Negotiation, s: Soldier, user: Team) -> Control:
 ## What he wants and, while talks are open, your odds with the offer as it stands. Sits at the top
 ## of the right column, level with the offer controls.
 func _neg_hero(n: Negotiation, s: Soldier, terms: Dictionary) -> Control:
-	var p := UiKit.panel(UiKit.PANEL_HI, 12)
-	var box := _vbox(8)
+	var p := UiKit.panel(UiKit.PANEL_HI, 8)
+	var box := _vbox(4)
 	p.add_child(box)
 	if not n.can_act():
 		var signed_text := ""
@@ -6610,19 +6694,19 @@ func _neg_hero(n: Negotiation, s: Soldier, terms: Dictionary) -> Control:
 	want.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(want)
 	want.add_child(UiKit.label("HE WANTS", 17, UiKit.MUTED))
-	want.add_child(UiKit.display("%s / yr" % Contracts.money(n.demand(_neg_years)), 44, Color.WHITE, true))
+	want.add_child(UiKit.display("%s / yr" % Contracts.money(n.demand(_neg_years)), 34, Color.WHITE, true))
 	want.add_child(UiKit.label("for %d year%s" % [_neg_years, "" if _neg_years == 1 else "s"], 19, UiKit.MUTED))
 	var odds := _vbox(0)
 	odds.custom_minimum_size.x = 300
 	top.add_child(odds)
 	odds.add_child(UiKit.label("CHANCE HE SIGNS", 17, UiKit.MUTED))
-	odds.add_child(UiKit.display(_pct(chance), 60, col, true))
+	odds.add_child(UiKit.display(_pct(chance), 44, col, true))
 	odds.add_child(UiKit.label("As a final offer: %s" % _pct(pv["final"]), 20, _chance_color(pv["final"])))
 	var bar := ProgressBar.new()
 	bar.max_value = 1.0
 	bar.value = chance
 	bar.show_percentage = false
-	bar.custom_minimum_size = Vector2(0, 16)
+	bar.custom_minimum_size = Vector2(0, 10)
 	bar.add_theme_stylebox_override("background", UiKit.flat(UiKit.LINE, 5))
 	var fill := UiKit.flat(col, 5)
 	fill.content_margin_top = 0
@@ -6664,7 +6748,6 @@ static func _chance_color(c: float) -> Color:
 func _neg_offer_builder(left: VBoxContainer, n: Negotiation, s: Soldier, user: Team, terms: Dictionary, rebuild: Callable) -> void:
 	var season := _season()
 	var want := n.demand(_neg_years)
-	left.add_child(UiKit.display("YOUR OFFER", 26))
 	var step := maxi(50, roundi(want * 0.03 / 50.0) * 50)
 	left.add_child(_neg_stepper(Contracts.money(_neg_salary) + " / yr", func():
 		_neg_salary = maxi(Contracts.MIN_SALARY, _neg_salary - step)
@@ -6685,26 +6768,26 @@ func _neg_offer_builder(left: VBoxContainer, n: Negotiation, s: Soldier, user: T
 		rebuild.call(), "worth +%s / yr to him  -  club fund %s, max %s" % [
 			Contracts.money(roundi(n.term_value(&"bonus", _neg_years, terms))), Contracts.money(roundi(season.revenue.cash_of(user))),
 			Contracts.money(Contracts.max_bonus(_neg_salary, _neg_years))]))
-	var ntc := _row(14)
-	ntc.add_child(_neg_toggle("No-trade clause", _neg_ntc, func():
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 10)
+	flow.add_theme_constant_override("v_separation", 4)
+	var ntc := _neg_toggle("No-trade clause  +%s" % Contracts.money(roundi(n.term_value(&"no_trade", _neg_years, terms))), _neg_ntc, func():
 		_neg_ntc = not _neg_ntc
-		rebuild.call()))
-	ntc.add_child(UiKit.label("worth +%s / yr to him" % Contracts.money(roundi(n.term_value(&"no_trade", _neg_years, terms))), 17, UiKit.MUTED))
-	left.add_child(ntc)
-	var pr := _row(14)
-	pr.add_child(_neg_toggle("Starter promise", _neg_promise, func():
+		rebuild.call())
+	flow.add_child(ntc)
+	var pr := _neg_toggle("Starter promise  +%s" % Contracts.money(roundi(n.term_value(&"promise", _neg_years, terms))), _neg_promise, func():
 		_neg_promise = not _neg_promise
-		rebuild.call()))
-	pr.add_child(UiKit.label("worth +%s / yr to him  -  he must start %d%% of next season" % [Contracts.money(roundi(n.term_value(&"promise", _neg_years, terms))), roundi(Soldier.PROMISE_SHARE * 100)], 17, UiKit.MUTED))
-	left.add_child(pr)
+		rebuild.call())
+	pr.tooltip_text = "He must start %d%% of next season." % roundi(Soldier.PROMISE_SHARE * 100)
+	flow.add_child(pr)
 	var pal := n.keep_target()
 	if pal != null:
-		var kp := _row(14)
-		kp.add_child(_neg_toggle("Keep %s (%s)" % [pal.short_name(), Relationships.LEVEL_NAMES[season.relationships.level(s, pal)]], _neg_keep, func():
+		var kp := _neg_toggle("Keep %s  +%s" % [pal.short_name(), Contracts.money(roundi(n.term_value(&"keep", _neg_years, terms)))], _neg_keep, func():
 			_neg_keep = not _neg_keep
-			rebuild.call()))
-		kp.add_child(UiKit.label("worth +%s / yr to him  -  no trading or cutting %s" % [Contracts.money(roundi(n.term_value(&"keep", _neg_years, terms))), pal.short_name()], 17, UiKit.MUTED))
-		left.add_child(kp)
+			rebuild.call())
+		kp.tooltip_text = "No trading or cutting %s (%s)." % [pal.short_name(), Relationships.LEVEL_NAMES[season.relationships.level(s, pal)]]
+		flow.add_child(kp)
+	left.add_child(flow)
 	# --- the pitch
 	var sell := n.arguments_in(Negotiation.SELL).size()
 	var hard := n.arguments_in(Negotiation.HARDBALL).size()
@@ -6714,16 +6797,23 @@ func _neg_offer_builder(left: VBoxContainer, n: Negotiation, s: Soldier, user: T
 		tabs.add_child(_seg(tab[1], _neg_tab == id, func():
 			_neg_tab = id
 			rebuild.call(), 21))
-	left.add_child(UiKit.display("ADD ONE PITCH", 26))
 	left.add_child(tabs)
+	var psc := ScrollContainer.new()
+	psc.custom_minimum_size = Vector2(0, 150)
+	psc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	psc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	var pbox := _vbox(4)
+	pbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	psc.add_child(pbox)
+	left.add_child(psc)
 	if _neg_tab == &"tactics":
-		_neg_tactics(left, n, rebuild)
+		_neg_tactics(pbox, n, rebuild)
 	else:
 		var args := n.arguments_in(_neg_tab)
 		if args.is_empty():
-			left.add_child(UiKit.label("The numbers don't give you anything to argue with here.", 18, UiKit.MUTED))
+			pbox.add_child(UiKit.label("The numbers don't give you anything to argue with here.", 18, UiKit.MUTED))
 		for a in args:
-			left.add_child(_neg_pitch_row(n, a, rebuild))
+			pbox.add_child(_neg_pitch_row(n, a, rebuild))
 	# --- buttons
 	var err := n.offer_error(_neg_salary, _neg_years, terms, _neg_pitch)
 	if err != "":
@@ -6767,8 +6857,8 @@ func _neg_offer_builder(left: VBoxContainer, n: Negotiation, s: Soldier, user: T
 ## "-  value  +  note" row.
 func _neg_stepper(text: String, dec: Callable, inc: Callable, note: String) -> Control:
 	var r := _row(12)
-	r.add_child(UiKit.button("  -  ", dec, 22))
-	var l := UiKit.label(text, 30, Color.WHITE)
+	r.add_child(UiKit.button("  -  ", dec, 20))
+	var l := UiKit.label(text, 26, Color.WHITE)
 	l.custom_minimum_size.x = 230
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	r.add_child(l)
@@ -6835,8 +6925,8 @@ func _neg_tactics(box: VBoxContainer, n: Negotiation, rebuild: Callable) -> void
 
 ## Term toggle button for the negotiation room: "[x] Name" in a bigger face.
 func _neg_toggle(text: String, on: bool, cb: Callable) -> Button:
-	var b := UiKit.button(("[x] " if on else "[  ] ") + text, cb, 21)
-	b.custom_minimum_size.x = 290
+	var b := UiKit.button(("[x] " if on else "[  ] ") + text, cb, 18)
+	b.custom_minimum_size.x = 0
 	if on:
 		UiKit.style_primary(b)
 	return b
@@ -6864,9 +6954,12 @@ func _bonus_row(season: Season, user: Team, bonus: int, max_b: int, pending: int
 	bv.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	row.add_child(bv)
 	row.add_child(UiKit.button("  +  ", func(): set_bonus.call(mini(maxi(top, 0), bonus + step)), 18))
-	row.add_child(UiKit.label("+%s / yr to him  -  paid from the club fund when he signs, off the cap  -  max %s (half the salary)  -  fund %s%s" % [
-		Contracts.money(per_year), Contracts.money(max_b), Contracts.money(roundi(season.revenue.cash_of(user))),
-		" (%s promised in other offers)" % Contracts.money(pending) if pending > 0 else ""], 14, UiKit.MUTED))
+	var note := UiKit.label("+%s / yr to him  -  max %s  -  fund %s" % [
+		Contracts.money(per_year), Contracts.money(max_b), Contracts.money(roundi(season.revenue.cash_of(user)))], 14, UiKit.MUTED)
+	note.tooltip_text = "Paid from the club fund when he signs, off the cap. Max is half the salary.%s" % (
+		" %s is promised in other offers." % Contracts.money(pending) if pending > 0 else "")
+	note.mouse_filter = Control.MOUSE_FILTER_PASS
+	row.add_child(note)
 	return row
 
 
@@ -6896,7 +6989,7 @@ func retirements() -> Control:
 	v.add_child(toggle)
 	var list: Array = s.retirements.filter(func(r): return not retire_scope_team or r["team"] == user)
 	if list.is_empty():
-		v.add_child(UiKit.label("No retirements yet. They happen after the Final.", 16, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No retirements yet. They happen after the Final."))
 		return v
 	var years: Array = []
 	for r in list:
@@ -7043,7 +7136,7 @@ func trade_center() -> Control:
 	var ai := _trade_partner
 	_trade_give = _trade_give.filter(func(a): return _owns(user, a))
 	_trade_get = _trade_get.filter(func(a): return _owns(ai, a))
-	var v := _vbox(12)
+	var v := _vbox(6)
 	var top := _row(10)
 	top.add_child(UiKit.label("PARTNER", 15, UiKit.MUTED))
 	top.add_child(UiKit.button("  <  ", func(): _cycle_partner(-1), 18))
@@ -7065,8 +7158,11 @@ func trade_center() -> Control:
 	top.add_child(pat)
 	v.add_child(top)
 	var open := tr.window_open(s)
-	v.add_child(UiKit.rich("TRADE WINDOW  [color=%s]%s[/color]   -   max %d assets a side   -   a team ending over the cap takes back at most %d%% of the salary it sends out; nobody may cross the apron" % [
-		"#22c55e" if open else "#ef4444", tr.window_text(s), Trades.MAX_ASSETS, roundi(Trades.SALARY_MATCH * 100.0)], 15))
+	var win := UiKit.rich("TRADE WINDOW  [color=%s]%s[/color]   -   max %d assets a side" % [
+		"#22c55e" if open else "#ef4444", tr.window_text(s), Trades.MAX_ASSETS], 15)
+	win.tooltip_text = "A team ending over the cap takes back at most %d%% of the salary it sends out; nobody may cross the apron." % roundi(Trades.SALARY_MATCH * 100.0)
+	win.mouse_filter = Control.MOUSE_FILTER_PASS
+	v.add_child(win)
 	var sides := _row(16)
 	sides.add_child(_trade_side("YOU GIVE", user, _trade_give))
 	sides.add_child(_trade_side("YOU GET", ai, _trade_get))
@@ -7141,7 +7237,13 @@ func trade_center() -> Control:
 	var lists := _row(16)
 	lists.add_child(_asset_list("YOUR ROSTER & PICKS", user, true))
 	lists.add_child(_asset_list("%s ROSTER & PICKS" % ai.name.to_upper(), ai, false))
-	v.add_child(lists)
+	var lsc := ScrollContainer.new()
+	lsc.custom_minimum_size = Vector2(0, 300)
+	lsc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	lsc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	lists.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lsc.add_child(lists)
+	v.add_child(lsc)
 	return v
 
 
@@ -7232,8 +7334,8 @@ func _interest_bar(it: float) -> Control:
 func _trade_side(title: String, team: Team, list: Array) -> Control:
 	var p := UiKit.panel(UiKit.PANEL, 10)
 	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	p.custom_minimum_size.y = 150
-	var v := _vbox(6)
+	p.custom_minimum_size.y = 96
+	var v := _vbox(4)
 	p.add_child(v)
 	var head := _row(8)
 	head.add_child(UiKit.label("%s  (%d/%d)" % [title, list.size(), Trades.MAX_ASSETS], 16, UiKit.ACCENT))
@@ -7456,7 +7558,7 @@ func league_block() -> Control:
 	var v := _vbox(8)
 	var list := _league_block()
 	if list.is_empty():
-		v.add_child(UiKit.label("No other team is shopping anyone right now.", 16, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No other team is shopping anyone right now."))
 	for e in list:
 		var t: Team = e[0]
 		var p: Soldier = e[1]
@@ -7524,7 +7626,7 @@ func trade_offers() -> Control:
 	var tr := s.trades
 	var v := _vbox(12)
 	if tr.offers.is_empty():
-		v.add_child(UiKit.label("No offers right now. Put players on the trade block to draw interest.", 16, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No offers right now. Put players on the trade block to draw interest."))
 	for o in tr.offers.duplicate():
 		var offer: Dictionary = o
 		var team: Team = offer["team"]
@@ -7675,7 +7777,7 @@ func trade_log() -> Control:
 	var v := _vbox(10)
 	var hist: Array = s.trades.history
 	if hist.is_empty():
-		v.add_child(UiKit.label("No trades yet.", 17, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No trades yet."))
 	for i in range(hist.size() - 1, -1, -1):
 		var p := UiKit.panel(UiKit.PANEL, 8)
 		p.add_child(UiKit.rich(trade_headline(hist[i]), 16))
@@ -7753,7 +7855,7 @@ func news_article(i: int) -> Control:
 	v.custom_minimum_size.x = NEWS_MAIN_W + NEWS_SIDE_W + 40
 	outer.add_child(v)
 	if a.is_empty():
-		v.add_child(UiKit.label("No issues yet. The first one comes out after your first week.", 17, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No issues yet. The first one comes out after your first week."))
 		return outer
 	# Masthead.
 	var mast := _row(14)
@@ -7953,7 +8055,7 @@ func news_archive() -> Control:
 	var nr := _season().newsroom
 	var v := _vbox(8)
 	if nr.count() == 0:
-		v.add_child(UiKit.label("No issues yet. The first one comes out after your first week.", 17, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("No issues yet. The first one comes out after your first week."))
 		return v
 	var year := -1
 	for i in range(nr.count() - 1, -1, -1):
@@ -7988,7 +8090,7 @@ func offseason_recap(step := "") -> Control:
 	var steps := s.news.digest_steps(s)
 	var v := _vbox(12)
 	if steps.is_empty():
-		v.add_child(UiKit.label("Nothing to recap yet. Recaps appear after each offseason step.", 17, UiKit.MUTED))
+		v.add_child(FrontEnd.empty_note("Nothing to recap yet. Recaps appear after each offseason step."))
 		return v
 	if not steps.has(step):
 		step = _recap_step if steps.has(_recap_step) else steps[-1]
