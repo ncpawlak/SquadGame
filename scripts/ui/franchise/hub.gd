@@ -97,6 +97,10 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if viewer or simming:
 		return
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F1:
+		open_help()
+		accept_event()
+		return
 	var advance_key: bool = event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_SPACE
 	var advance_pad: bool = event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_Y
 	if advance_key or advance_pad:
@@ -105,6 +109,14 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventKey and event.pressed and event.keycode in [KEY_PAGEUP, KEY_PAGEDOWN] and _scroll:
 		_scroll.scroll_vertical += (-1 if event.keycode == KEY_PAGEUP else 1) * int(_scroll.size.y * 0.8)
 		accept_event()
+
+
+## The Help overlay, opened on the topic that matches the current tab.
+func open_help() -> void:
+	var hint: String = {Tab.TEAM: "team.", Tab.PERSONNEL: "personnel.", Tab.LEAGUE: "league.", Tab.CLUB: "club."}.get(tab_index, "global.")
+	if season.player_mode:
+		hint = "player_pages."
+	HelpPopup.open(self, hint)
 
 
 func _process(delta: float) -> void:
@@ -1030,6 +1042,14 @@ func _build_tabs() -> void:
 				Fx.pop(b, 1.05, 0.2)
 			_tab_popped = tab_index
 	_tab_bar.add_child(_key_hint(["RB", "E"]))
+	var help := Button.new()
+	help.text = "?"
+	help.custom_minimum_size = Vector2(36, 34)
+	UiKit.style_ghost(help, Color.TRANSPARENT, 20)
+	help.focus_mode = Control.FOCUS_NONE
+	help.tooltip_text = "Help (F1)"
+	help.pressed.connect(open_help)
+	_tab_bar.add_child(help)
 
 
 ## Small keycaps showing which buttons switch tabs (the Q glyph is unreadable as plain 13 px text).

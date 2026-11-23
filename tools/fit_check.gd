@@ -1,4 +1,5 @@
 ## Fit check: opens every tab/sub-tab/mode at 1600x900, saves a screenshot of each and lists scroll containers that overflow.
+## Optional 2nd arg WxH sets the window size (default 1600x900), e.g. 1920x1200 (16:10) or 2560x1080 (21:9).
 ## Only pane bodies (lists inside a sub-tab) may scroll. Run windowed:  godot --path . --windowed --script res://tools/fit_check.gd -- <out dir>
 extends SceneTree
 # Opens every tab / sub-tab / mode, screenshots it, and lists scroll containers whose content overflows.
@@ -10,7 +11,8 @@ func _init() -> void:
 	root.add_child(app)
 	for i in 30: await process_frame
 	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-	DisplayServer.window_set_size(Vector2i(1600, 900))
+	var wh := OS.get_cmdline_user_args()[1].split("x") if OS.get_cmdline_user_args().size() > 1 else PackedStringArray(["1600", "900"])
+	DisplayServer.window_set_size(Vector2i(int(wh[0]), int(wh[1])))
 	for i in 30: await process_frame
 	var season := Season.new_franchise(777, 3)
 	for i in 4: season.sim_week()
