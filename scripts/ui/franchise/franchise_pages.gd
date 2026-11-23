@@ -1422,10 +1422,10 @@ func _player_pane() -> PanelContainer:
 	var sb := UiKit.flat(UiKit.PANEL, 12, 1, UiKit.LINE)
 	sb.content_margin_left = 22
 	sb.content_margin_right = 22
-	sb.content_margin_top = 16
-	sb.content_margin_bottom = 16
+	sb.content_margin_top = 8
+	sb.content_margin_bottom = 8
 	pane.add_theme_stylebox_override("panel", sb)
-	pane.custom_minimum_size.y = 248
+	pane.custom_minimum_size.y = 150
 	return pane
 
 
@@ -1438,13 +1438,13 @@ func _fill_pane(pane: Control, s: Soldier, team: Team) -> void:
 	var color := team.color if team != null else UiKit.MUTED
 	var h := _row(26)
 	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	h.add_child(Portrait.new(s, 212, color, team))
-	var mid := _vbox(6)
+	h.add_child(Portrait.new(s, 128, color, team))
+	var mid := _vbox(2)
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mid.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	mid.add_child(UiKit.label(s.full_name().to_upper(), 16, UiKit.ACCENT))
-	mid.add_child(UiKit.label(("\"%s\"" % s.callsign.to_upper()) if s.callsign != "" else s.last_name.to_upper(), 40, Color.WHITE))
+	mid.add_child(UiKit.label(s.full_name().to_upper(), 15, UiKit.ACCENT))
+	mid.add_child(UiKit.label(("\"%s\"" % s.callsign.to_upper()) if s.callsign != "" else s.last_name.to_upper(), 32, Color.WHITE))
 	var slot := team.slot_of(s) if team != null else &""
 	var where := ("Green Team" if team.green_team.has(s) else ("Starting " + team.scheme.label_for_slot(slot) if slot != &"" else "Bench")) if team != null else "Free agent"
 	mid.add_child(UiKit.label("%s   ·   AGE %d   ·   %s" % [Scheme.ROLE_NAMES[Scheme.best_role(s.stats)].to_upper(), s.age, where.to_upper()], 15, UiKit.MUTED))
@@ -1465,9 +1465,9 @@ func _fill_pane(pane: Control, s: Soldier, team: Team) -> void:
 		("OUT %d WK" % s.injury_weeks) if s.is_injured() else "HEALTHY"], false))
 	mid.add_child(facts)
 	h.add_child(mid)
-	h.add_child(_ring_block("FATIGUE", s.fatigue, 100.0, fatigue_color(s.fatigue), str(roundi(s.fatigue)), Conditioning.status(s.fatigue)))
-	h.add_child(_ring_block("MORALE", s.morale, 100.0, morale_color(s.morale), str(roundi(s.morale)), Soldier.morale_label(s.morale)))
-	var groups := _vbox(4)
+	h.add_child(_ring_block("FATIGUE", s.fatigue, 100.0, fatigue_color(s.fatigue), str(roundi(s.fatigue)), Conditioning.status(s.fatigue), 64))
+	h.add_child(_ring_block("MORALE", s.morale, 100.0, morale_color(s.morale), str(roundi(s.morale)), Soldier.morale_label(s.morale), 64))
+	var groups := _vbox(1)
 	groups.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	groups.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for g in Stats.GROUP_ORDER:

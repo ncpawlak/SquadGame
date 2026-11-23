@@ -132,9 +132,9 @@ func _init() -> void:
 	await process_frame
 	var prog_card: Button = null
 	for b in hub._content.find_children("*", "Button", true, false):
-		for l in b.find_children("*", "Label", true, false):
-			if l.text.to_upper() == "PLAYER PROGRESSION":
-				prog_card = b
+		# The Team tab's live links are text chips ("PLAYER PROGRESSION  3").
+		if b.text.to_upper().begins_with("PLAYER PROGRESSION"):
+			prog_card = b
 	_check(prog_card != null and prog_card.disabled, "progression card is disabled with no one to level up")
 	hub.page_stack.clear()
 	hub.refresh()
@@ -424,7 +424,7 @@ func _init() -> void:
 
 
 ## Issue #82: sub-tab bars on Team / Personnel / League, per-tab memory, to-do jumps with Back to Home.
-## Home is three columns: to-dos | fixed week card with its actions under it | news pane.
+## Home is three columns: to-dos | week card with its actions under it | news pane.
 func _home_layout(hub) -> void:
 	var col: Node = hub._content.find_child("MatchColumn", true, false)
 	var card: Node = hub._content.find_child("WeekCard", true, false)
@@ -435,8 +435,8 @@ func _home_layout(hub) -> void:
 	if col == null or card == null or acts == null or feed == null or todo == null:
 		return
 	var top: Node = col.get_parent()
-	_check(todo.get_parent() == top and col.get_parent() == top and todo.get_index() < col.get_index() and feed.get_parent() == col and acts.get_index() < feed.get_index(),
-		"Home columns: to-dos | match, with the news under the match card")
+	_check(todo.get_parent() == top and col.get_parent() == top and feed.get_parent() == top and todo.get_index() < col.get_index() and col.get_index() < feed.get_index(),
+		"Home columns: to-dos | match card with its actions | news")
 	_check(card.get_parent() == col and acts.get_parent() == col and card.get_index() < acts.get_index(), "actions sit under the week card")
 	_check(acts.find_child("PlayButton", true, false) != null and card.find_child("PlayButton", true, false) == null, "Play button moved under the card")
 	_check(card.find_child("WeekPrev", true, false) != null and card.find_child("WeekNext", true, false) != null, "week arrows stay in the card header")

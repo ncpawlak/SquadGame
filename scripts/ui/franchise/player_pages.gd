@@ -53,17 +53,15 @@ func header_row(extra: Control) -> HBoxContainer:
 	var team := s.user_team()
 	var p := s.player
 	var hb := _hbox(20)
-	hb.add_child(Portrait.new(p, 96, UiKit.ACCENT, team))
+	hb.add_child(Portrait.new(p, 68, UiKit.ACCENT, team))
 	var info := _vbox(0)
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info.alignment = BoxContainer.ALIGNMENT_CENTER
 	hb.add_child(info)
-	info.add_child(UiKit.display(("\"%s\"  %s" % [p.callsign, p.last_name]).to_upper(), 44, Color.WHITE, true))
+	info.add_child(UiKit.display(("\"%s\"  %s" % [p.callsign, p.last_name]).to_upper(), 36, Color.WHITE, true))
 	var role := Scheme.best_role(p.stats)
 	info.add_child(_label("%s %s   ·   OVR %d   ·   Age %d   ·   %s" % [
-		Archetypes.find(s.player_archetype)["name"], Scheme.ROLE_NAMES[role], p.best_ovr(), p.age, team.name], 16, Color(1, 1, 1, 0.72)))
-	if p.backstory != &"":
-		info.add_child(_label("Story: %s" % Backstory.story_name(p.backstory), 14, UiKit.MUTED))
+		Archetypes.find(s.player_archetype)["name"], Scheme.ROLE_NAMES[role], p.best_ovr(), p.age, team.name] 		+ (("   ·   Story: %s" % Backstory.story_name(p.backstory)) if p.backstory != &"" else ""), 15, Color(1, 1, 1, 0.72)))
 	if PlayerLegacy.retired(s):
 		info.add_child(_label("RETIRED  ·  %s" % _verdict_text(s), 15, UiKit.GOLD))
 	else:
@@ -108,6 +106,7 @@ func home_dashboard(actions: Control) -> Control:
 	var s := _season()
 	var top := _hbox(18)
 	top.name = "CareerDashboard"
+	top.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	if PlayerLegacy.retired(s):
 		var col := _vbox(10)
 		col.custom_minimum_size.x = COL_W
@@ -190,9 +189,9 @@ func _banner() -> Control:
 ## Two-by-two gauges for the home page: XP, the next star, fatigue and wear.
 func _vitals_grid(p: Soldier) -> Control:
 	var g := GridContainer.new()
-	g.columns = 2
-	g.add_theme_constant_override("h_separation", 10)
-	g.add_theme_constant_override("v_separation", 10)
+	g.columns = 4
+	g.add_theme_constant_override("h_separation", 8)
+	g.add_theme_constant_override("v_separation", 8)
 	g.custom_minimum_size.x = COL_W
 	var xp: Array = Progression.xp_progress(p)
 	g.add_child(_gauge("XP", "%d / %d" % [xp[0], xp[1]], float(xp[0]), float(xp[1]), UiKit.INFO, "%d skill points" % p.skill_points))
@@ -245,11 +244,13 @@ func _news_pane() -> Control:
 	var box := _vbox(8)
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.custom_minimum_size = Vector2(430, 0)
+	box.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(UiKit.heading("Your News", 20))
 	var frame := PanelContainer.new()
 	frame.add_theme_stylebox_override("panel", UiKit.flat(Color(UiKit.PANEL, 0.85), 8, 1, Color(1, 1, 1, 0.08)))
-	frame.custom_minimum_size = Vector2(430, 700)
+	frame.custom_minimum_size = Vector2(430, 0)
 	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(frame)
 	var sc := ScrollContainer.new()
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -441,7 +442,8 @@ func _todos() -> Array:
 
 
 func _todo(title: String, sub: String, accent: Color, cb: Callable, urgent := false) -> Button:
-	var b := UiKit.tile(title, sub, Vector2(COL_W, 76), Color("#f97316") if urgent else accent, cb)
+	var b := UiKit.row_tile(title, Color("#f97316") if urgent else accent, cb, 46, sub)
+	b.tooltip_text = sub
 	return b
 
 
@@ -753,10 +755,7 @@ func _gauge(caption: String, value: String, v: float, maximum: float, color: Col
 	box.add_child(_label(caption, 11, UiKit.MUTED))
 	box.add_child(UiKit.display(value, 24, color, true))
 	box.add_child(Meter.new(v, maximum, color, 0.0, 8.0))
-	var hl := _label(hint, 11, UiKit.MUTED)
-	hl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hl.custom_minimum_size.x = 150
-	box.add_child(hl)
+	card.tooltip_text = hint
 	return card
 
 

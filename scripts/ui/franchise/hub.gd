@@ -6,6 +6,8 @@ extends Control
 ## Main tab IDs, in bar order. Always refer to tabs by these, never by raw index.
 enum Tab { HOME, TEAM, PERSONNEL, LEAGUE, CLUB, SETTINGS }
 const TABS := ["Home", "Team", "Personnel", "League", "Club", "Settings"]
+## Top margin of the content area (the page slides up into it).
+const CONTENT_TOP := 8
 const TILE := Vector2(290, 170)
 const SMALL := Vector2(290, 120)
 const TODO_SIZE := Vector2(437, 76)
@@ -79,16 +81,19 @@ func _ready() -> void:
 	_content = MarginContainer.new()
 	_content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	for side in ["left", "right"]:
-		_content.add_theme_constant_override("margin_" + side, 40)
-	_content.add_theme_constant_override("margin_top", 18)
-	_content.add_theme_constant_override("margin_bottom", 8)
+		_content.add_theme_constant_override("margin_" + side, 32)
+	_content.add_theme_constant_override("margin_top", CONTENT_TOP)
+	_content.add_theme_constant_override("margin_bottom", 6)
 	root.add_child(_content)
 
 	var footer := PanelContainer.new()
-	footer.add_theme_stylebox_override("panel", UiKit.flat(Color(0, 0, 0, 0.45), 0))
+	var fsb := UiKit.flat(Color(0, 0, 0, 0.45), 0)
+	fsb.content_margin_top = 2
+	fsb.content_margin_bottom = 3
+	footer.add_theme_stylebox_override("panel", fsb)
 	var hints := UiKit.label(
-		"[Arrows/WASD/D-pad] Move     [Enter/A] Select     [Esc/B] Back     [Q/E or LB/RB] Tabs     [1/3 or LT/RT] Sub-tabs     [Space/Y] Advance     [Mouse wheel / drag] Scroll",
-		14, UiKit.MUTED)
+		"[Arrows/WASD/D-pad] Move     [Enter/A] Select     [Esc/B] Back     [Q/E or LB/RB] Tabs     [1/3 or LT/RT] Sub-tabs     [Space/Y] Advance",
+		13, UiKit.MUTED)
 	hints.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	footer.add_child(hints)
 	root.add_child(footer)
@@ -258,22 +263,13 @@ func _subtab_bar(names: Array, current: int, badges: Array, pick: Callable) -> H
 	var bar := HBoxContainer.new()
 	bar.name = "SubTabs"
 	bar.add_theme_constant_override("separation", 8)
-	var hint := func(t: String) -> Label:
-		var l := UiKit.label(t, 13, UiKit.MUTED)
-		l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		return l
-	bar.add_child(hint.call("1 / LT"))
+	bar.add_child(_key_hint(["LT", "1"]))
 	for i in names.size():
 		var b := Button.new()
 		b.name = "SubTab%s" % String(names[i]).replace(" ", "")
 		b.text = String(names[i]).to_upper()
-		b.add_theme_font_size_override("font_size", 17)
-		b.custom_minimum_size = Vector2(150, 40)
-		if i == current:
-			UiKit.style_primary(b)
-		else:
-			UiKit.style_skewed(b, Color(UiKit.PANEL, 0.75))
-			b.add_theme_color_override("font_color", UiKit.MUTED)
+		b.custom_minimum_size = Vector2(130, 36)
+		UiKit.style_tab(b, i == current, 19)
 		b.focus_mode = Control.FOCUS_NONE
 		var idx := i
 		b.pressed.connect(func(): pick.call(idx))
@@ -295,7 +291,7 @@ func _subtab_bar(names: Array, current: int, badges: Array, pick: Callable) -> H
 			b.add_child(chip)
 			UiKit.pulse(chip)
 		bar.add_child(b)
-	bar.add_child(hint.call("3 / RT"))
+	bar.add_child(_key_hint(["RT", "3"]))
 	return bar
 
 
@@ -819,10 +815,10 @@ func _slide_in(view: Control) -> void:
 	if _slide_tw and _slide_tw.is_valid():
 		_slide_tw.kill()
 	view.modulate.a = 0.0
-	_content.add_theme_constant_override("margin_top", 44)
+	_content.add_theme_constant_override("margin_top", CONTENT_TOP + 26)
 	_slide_tw = create_tween().set_parallel()
 	_slide_tw.tween_property(view, "modulate:a", 1.0, 0.22)
-	_slide_tw.tween_method(func(x: float): _content.add_theme_constant_override("margin_top", roundi(x)), 44.0, 18.0, 0.3) \
+	_slide_tw.tween_method(func(x: float): _content.add_theme_constant_override("margin_top", roundi(x)), float(CONTENT_TOP + 26), float(CONTENT_TOP), 0.3) \
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 
@@ -854,15 +850,15 @@ func _settle_focus(view: Control, focus_index: int, scroll_pos: int) -> void:
 
 func _page_frame(title: String, body: Control) -> Control:
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 14)
+	v.add_theme_constant_override("separation", 8)
 	var head := HBoxContainer.new()
-	head.add_theme_constant_override("separation", 20)
+	head.add_theme_constant_override("separation", 16)
 	v.add_child(head)
 	if not page_stack[-1].get("no_back", false):
 		var back := UiKit.button("< Back", go_back, 17)
 		UiKit.style_skewed(back)
 		back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		back.custom_minimum_size.y = 42
+		back.custom_minimum_size.y = 38
 		back.set_meta(&"skip_autofocus", true)
 		head.add_child(back)
 	var crumbs := "%s  /  " % tab_label(tab_index).to_upper()
@@ -871,12 +867,12 @@ func _page_frame(title: String, body: Control) -> Control:
 	var tv := VBoxContainer.new()
 	tv.add_theme_constant_override("separation", 0)
 	tv.add_child(UiKit.label(crumbs.to_upper(), 13, UiKit.MUTED))
-	tv.add_child(UiKit.display(title.to_upper(), 40, Color.WHITE, true))
+	tv.add_child(UiKit.display(title.to_upper(), 32, Color.WHITE, true))
 	var line := Panel.new()
 	var lsb := UiKit.flat(UiKit.ACCENT, 1)
 	lsb.skew = Vector2(UiKit.SKEW * 2.0, 0)
 	line.add_theme_stylebox_override("panel", lsb)
-	line.custom_minimum_size = Vector2(90, 4)
+	line.custom_minimum_size = Vector2(90, 3)
 	line.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tv.add_child(line)
@@ -908,8 +904,8 @@ func _build_header() -> void:
 	var mc := MarginContainer.new()
 	mc.add_theme_constant_override("margin_left", 28)
 	mc.add_theme_constant_override("margin_right", 34)
-	mc.add_theme_constant_override("margin_top", 10)
-	mc.add_theme_constant_override("margin_bottom", 12)
+	mc.add_theme_constant_override("margin_top", 6)
+	mc.add_theme_constant_override("margin_bottom", 8)
 	_header.add_child(mc)
 	if season.player_mode:
 		mc.add_child(player_ui.header_row(_score_bug()))
@@ -918,14 +914,14 @@ func _build_header() -> void:
 	hb.add_theme_constant_override("separation", 20)
 	mc.add_child(hb)
 
-	hb.add_child(UiKit.logo_disc(team, 86))
+	hb.add_child(UiKit.logo_disc(team, 64))
 
 	var info := VBoxContainer.new()
 	info.add_theme_constant_override("separation", 0)
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info.alignment = BoxContainer.ALIGNMENT_CENTER
 	hb.add_child(info)
-	info.add_child(UiKit.display(team.name.to_upper(), 44, Color.WHITE, true))
+	info.add_child(UiKit.display(team.name.to_upper(), 36, Color.WHITE, true))
 	var rank := _rank_of(team)
 	var where := "%s in %s" % [UiKit.ordinal(rank), Season.DIVISION_NAME]
 	if season.has_divisions():
@@ -937,8 +933,8 @@ func _build_header() -> void:
 				drank = i + 1
 		where = "%s in the %s   ·   %s in the league" % [UiKit.ordinal(drank), div, UiKit.ordinal(rank)]
 	info.add_child(UiKit.label("%s   ·   %s   ·   Team OVR %d" % [
-		season.record_text(team), where, team.team_ovr()], 16, Color(1, 1, 1, 0.72)))
-	info.add_child(UiKit.market_meters(team))
+		season.record_text(team), where, team.team_ovr()], 15, Color(1, 1, 1, 0.72)))
+	hb.add_child(UiKit.market_meters(team, 13, 110))
 	hb.add_child(_score_bug())
 
 
@@ -953,14 +949,14 @@ func _score_bug() -> Control:
 		sb.skew = Vector2(UiKit.SKEW, 0)
 		sb.content_margin_left = 22
 		sb.content_margin_right = 22
-		sb.content_margin_top = 4
-		sb.content_margin_bottom = 4
+		sb.content_margin_top = 2
+		sb.content_margin_bottom = 2
 		p.add_theme_stylebox_override("panel", sb)
 		p.add_child(UiKit.display(text, size, color))
 		return p
-	bug.add_child(mk.call(Color(0, 0, 0, 0.55), Color(1, 1, 1, 0.12), "%d" % season.year, 24, Color(1, 1, 1, 0.8)))
+	bug.add_child(mk.call(Color(0, 0, 0, 0.55), Color(1, 1, 1, 0.12), "%d" % season.year, 22, Color(1, 1, 1, 0.8)))
 	var a := UiKit.ACCENT
-	bug.add_child(mk.call(Color.from_hsv(a.h, clampf(a.s, 0.0, 0.9), 0.45), a, _phase_text(), 24, Color.WHITE))
+	bug.add_child(mk.call(Color.from_hsv(a.h, clampf(a.s, 0.0, 0.9), 0.45), a, _phase_text(), 22, Color.WHITE))
 	return bug
 
 
@@ -973,29 +969,34 @@ func _build_tabs() -> void:
 	var tsb := UiKit.flat(Color(0, 0, 0, 0.4), 0)
 	tsb.border_width_bottom = 2
 	tsb.border_color = Color(UiKit.ACCENT, 0.55)
-	tsb.content_margin_top = 8
-	tsb.content_margin_bottom = 8
+	tsb.content_margin_top = 2
+	tsb.content_margin_bottom = 2
 	_tab_wrap.add_theme_stylebox_override("panel", tsb)
-	_tab_bar.add_child(UiKit.label("Q / LB", 13, UiKit.MUTED))
+	_tab_bar.add_child(_key_hint(["LB", "Q"]))
 	for i: int in visible_tabs():
 		var b := Button.new()
 		b.text = tab_label(i).to_upper()
-		b.add_theme_font_size_override("font_size", 20)
-		b.custom_minimum_size = Vector2(170, 42)
-		if i == tab_index:
-			UiKit.style_primary(b)
-		else:
-			UiKit.style_skewed(b, Color(UiKit.PANEL, 0.75))
-			b.add_theme_color_override("font_color", UiKit.MUTED)
+		b.custom_minimum_size = Vector2(150, 40)
+		UiKit.style_tab(b, i == tab_index, 22)
 		b.focus_mode = Control.FOCUS_NONE
 		var idx := i
 		b.pressed.connect(func(): select_tab(idx))
 		_tab_bar.add_child(b)
 		if i == tab_index:
 			if _tab_popped != tab_index:
-				Fx.pop(b, 1.07, 0.25)
+				Fx.pop(b, 1.05, 0.2)
 			_tab_popped = tab_index
-	_tab_bar.add_child(UiKit.label("E / RB", 13, UiKit.MUTED))
+	_tab_bar.add_child(_key_hint(["RB", "E"]))
+
+
+## Small keycaps showing which buttons switch tabs (the Q glyph is unreadable as plain 13 px text).
+func _key_hint(keys: Array) -> Control:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 4)
+	hb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	for k in keys:
+		hb.add_child(FrontEnd.keycap(String(k)))
+	return hb
 
 
 func _phase_text() -> String:
@@ -1054,57 +1055,109 @@ func _rank_of(team: Team) -> int:
 # --- tab tile layouts ------------------------------------------------------------
 
 func _tab_view(i: int) -> Control:
+	# Team / Personnel / League: a fixed layout. The sub-tab pane fills the height and only its body scrolls
+	# (inside its frame); the live links sit under it as one compact row of chips.
+	var pane_tab := i == Tab.PERSONNEL or i == Tab.LEAGUE or (i == Tab.TEAM and not season.player_mode)
+	if pane_tab:
+		var pv := VBoxContainer.new()
+		pv.add_theme_constant_override("separation", 6)
+		pv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		pv.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		if return_home:
+			pv.add_child(_back_home_button())
+		var top: Control
+		var rows: Array = []
+		# The pane is built normally; only the live links under it are built as chips.
+		match i:
+			Tab.TEAM:
+				top = _team_top()
+				_chip_mode = true
+				rows = [_team_cards()]
+			Tab.PERSONNEL:
+				top = _personnel_top()
+				_chip_mode = true
+				rows = [_personnel_cards(), _personnel_strip()]
+			_:
+				top = _league_top()
+				_chip_mode = true
+				rows = [_league_cards(), _league_strip()]
+		_chip_mode = false
+		top.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		pv.add_child(top)
+		pv.add_child(_chip_bar(rows))
+		return pv
 	_scroll = _make_scroll()
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 12)
+	v.add_theme_constant_override("separation", 10)
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_scroll.add_child(v)
 	if return_home and i != Tab.HOME:
 		v.add_child(_back_home_button())
-	var sections: Array = []
 	match i:
 		Tab.HOME:
 			v.add_child(_home_top())
-			sections = _home_sections()
 		Tab.TEAM:
-			if season.player_mode:
-				player_ui.career_tab(v)
-			else:
-				v.add_child(_team_top())
-				v.add_child(_team_cards())
-				v.add_child(_soon_strip())
-				sections = _team_sections()
-		Tab.PERSONNEL:
-			v.add_child(_personnel_top())
-			v.add_child(_personnel_cards())
-			v.add_child(_personnel_strip())
-			sections = _personnel_sections()
-		Tab.LEAGUE:
-			v.add_child(_league_top())
-			v.add_child(_league_cards())
-			v.add_child(_league_strip())
-			sections = _league_sections()
+			player_ui.career_tab(v)
 		Tab.CLUB:
 			_club_view(v)
-			sections = _club_sections()
 		Tab.SETTINGS:
 			_settings_view(v)
-			sections = _settings_sections()
-	var n := 0
-	for sec in sections:
-		v.add_child(UiKit.heading(sec[0], 22))
-		var flow := HFlowContainer.new()
-		flow.add_theme_constant_override("h_separation", 14)
-		flow.add_theme_constant_override("v_separation", 14)
-		for t in sec[1]:
-			flow.add_child(t)
-			UiKit.fade_in(t, minf(0.5, 0.03 * n), 0.25)
-			n += 1
-		v.add_child(flow)
-		var gap := Control.new()
-		gap.custom_minimum_size.y = 10
-		v.add_child(gap)
 	return _scroll
+
+
+## True while a tab builds its cards as compact chips (see _stat_card).
+var _chip_mode := false
+
+
+## The live links under a pane as one flowing row of text chips (pulled out of the card rows the builders return).
+func _chip_bar(rows: Array) -> Control:
+	var wrap := VBoxContainer.new()
+	wrap.name = "QuickLinks"
+	wrap.add_theme_constant_override("separation", 2)
+	var line := ColorRect.new()
+	line.color = Color(1, 1, 1, 0.08)
+	line.custom_minimum_size.y = 1
+	wrap.add_child(line)
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 2)
+	flow.add_theme_constant_override("v_separation", 0)
+	wrap.add_child(flow)
+	var n := 0
+	for r in rows:
+		for c in r.get_children():
+			if c is Button:
+				r.remove_child(c)
+				flow.add_child(c)
+				n += 1
+		r.queue_free()
+	return wrap
+
+
+## One quick link: "TEAM RANKINGS  #5" as text, the card's detail line as its tooltip, a pulsing dot when it needs you.
+func _chip_card(title: String, big: String, caption: String, detail: String, cb: Callable, alert: String) -> Button:
+	var b := Button.new()
+	b.text = title.to_upper() + (("   " + big) if big != "-" and big != "" else "")
+	UiKit.style_ghost(b, UiKit.TRIM, 16)
+	b.custom_minimum_size.y = 36
+	b.pressed.connect(cb)
+	var rx := RegEx.new()
+	rx.compile("\\[[^\\]]*\\]")
+	var tip := rx.sub(detail, "", true)
+	b.tooltip_text = ("%s\n%s" % [caption, tip]).strip_edges() if caption != "" else tip
+	if alert != "":
+		var dot := Panel.new()
+		dot.add_theme_stylebox_override("panel", UiKit.flat(Color("#f97316"), 5))
+		dot.custom_minimum_size = Vector2(9, 9)
+		dot.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		dot.offset_left = -14
+		dot.offset_right = -5
+		dot.offset_top = 3
+		dot.offset_bottom = 12
+		dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(dot)
+		UiKit.pulse(dot)
+	return b
 
 
 ## Done this week -> the results; otherwise the intensity screen (Confirm & Train).
@@ -1122,7 +1175,7 @@ func _home_sections() -> Array:
 
 ## A to-do tile in the team trim colour. Done: greyed out with a check. Urgent: orange with a "!" in the corner.
 func _todo(title: String, _body: String, _accent: Color, cb: Callable, done := false, urgent := false) -> Button:
-	var t := UiKit.tile(("\u2713  " if done else "") + title, "", TODO_SIZE, UiKit.MUTED.darkened(0.3) if done else (Color("#f97316") if urgent else UiKit.TRIM), cb)
+	var t := UiKit.row_tile(("\u2713  " if done else "") + title, UiKit.MUTED.darkened(0.3) if done else (Color("#f97316") if urgent else UiKit.TRIM), cb)
 	# A tile that has just turned urgent gives one shake to get noticed.
 	var was_urgent: Variant = Fx.memo("urgent:" + title, urgent)
 	if urgent and was_urgent != true:
@@ -1132,11 +1185,11 @@ func _todo(title: String, _body: String, _accent: Color, cb: Callable, done := f
 	if done:
 		t.modulate = Color(1, 1, 1, 0.45)
 	if urgent:
-		var bang := UiKit.label("!", 30, Color("#f97316"))
+		var bang := UiKit.label("!", 26, Color("#f97316"))
 		bang.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		bang.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		bang.offset_left = -34
-		bang.offset_top = 6
+		bang.offset_left = -28
+		bang.offset_top = 4
 		t.add_child(bang)
 	return t
 
@@ -1269,9 +1322,9 @@ var _home_anchor := ""
 
 
 ## Fixed size of Home's week card; the news pane beside it matches its height.
-const CARD_SIZE := Vector2(700, 460)
+const CARD_SIZE := Vector2(0, 380)
 ## The news pane under the week card: fixed height, same width (both fill the space right of the to-dos); it scrolls inside.
-const FEED_SIZE := Vector2(700, 440)
+const FEED_SIZE := Vector2(410, 0)
 
 
 ## Home: three columns. This week's to-dos (stack freely; the page scrolls when they run long),
@@ -1286,33 +1339,33 @@ func _home_top() -> Control:
 		# Career Home is all about you: no match card or league news, just your dashboard and your own news.
 		return player_ui.home_dashboard(_card_actions(_shown_match(team)))
 	var top := HBoxContainer.new()
-	top.add_theme_constant_override("separation", 18)
-	if season.player_mode:
-		top.add_child(player_ui.home_left())
-	else:
-		var left := VBoxContainer.new()
-		left.name = "TodoColumn"
-		left.add_theme_constant_override("separation", 10)
-		left.add_child(UiKit.heading("This Week", 22))
-		var i := 0
-		for t in _todo_tiles(team):
-			left.add_child(t)
-			UiKit.fade_in(t, 0.05 * i, 0.25)
-			i += 1
-		top.add_child(left)
+	top.add_theme_constant_override("separation", 16)
+	top.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var left := VBoxContainer.new()
+	left.name = "TodoColumn"
+	left.custom_minimum_size.x = 330
+	left.add_theme_constant_override("separation", 5)
+	left.add_child(UiKit.heading("This Week", 20))
+	var i := 0
+	for t in _todo_tiles(team):
+		left.add_child(t)
+		UiKit.fade_in(t, 0.04 * i, 0.22)
+		i += 1
+	top.add_child(left)
 	var right := VBoxContainer.new()
 	right.name = "MatchColumn"
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	right.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	right.add_theme_constant_override("separation", 12)
+	right.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right.add_theme_constant_override("separation", 8)
 	var card := _week_card(team)
+	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	right.add_child(card)
 	right.add_child(_card_actions(_shown_match(team)))
+	top.add_child(right)
 	var feed := _home_feed()
 	feed.custom_minimum_size = FEED_SIZE
-	feed.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	right.add_child(feed)
-	top.add_child(right)
+	feed.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	top.add_child(feed)
 	return top
 
 
@@ -1361,8 +1414,8 @@ func _week_card(team: Team) -> Control:
 		sb.set("content_margin_" + side, 0)
 	card.add_theme_stylebox_override("panel", sb)
 	card.custom_minimum_size = CARD_SIZE
-	card.size_flags_horizontal = Control.SIZE_FILL
-	card.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	card.clip_contents = true
 	var bd: UiKit.Backdrop
 	if opp != null:
@@ -1451,7 +1504,7 @@ func _card_actions(m: ScheduledMatch) -> Control:
 	row.add_theme_constant_override("separation", 10)
 	var big := func(b: Button) -> void:
 		b.add_theme_font_size_override("font_size", 22)
-		b.custom_minimum_size.y = 58
+		b.custom_minimum_size.y = 54
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(b)
 	if m != null and m.is_played():
@@ -1880,7 +1933,7 @@ func _feed_items() -> Array:
 	return out
 
 
-const FEED_FILTERS := [[&"all", "All"], [&"league", "Around the League"], [&"prospect", "Prospect News"]]
+const FEED_FILTERS := [[&"all", "All"], [&"league", "League"], [&"prospect", "Prospects"]]
 var feed_filter: StringName = &"all"
 var feed_pane := 0  # 0 news, 1 playoff picture
 var _feed_box: VBoxContainer
@@ -2172,7 +2225,7 @@ var _team_box: VBoxContainer
 func _team_top() -> Control:
 	_team_box = VBoxContainer.new()
 	_team_box.name = "TeamPane"
-	_team_box.add_theme_constant_override("separation", 8)
+	_team_box.add_theme_constant_override("separation", 4)
 	_fill_team_box()
 	return _team_box
 
@@ -2219,15 +2272,16 @@ func _fill_team_box(keep := false) -> void:
 	var sb := UiKit.flat(Color(UiKit.PANEL, 0.85), 4, 1, Color(1, 1, 1, 0.08))
 	sb.border_width_top = 3
 	sb.border_color = UiKit.ACCENT
-	sb.set_content_margin_all(16)
+	sb.set_content_margin_all(12)
 	frame.add_theme_stylebox_override("panel", sb)
 	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_team_box.add_child(frame)
 	var sc := ScrollContainer.new()
 	sc.name = "TeamPaneScroll"
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	frame.add_child(sc)
+	_scroll = sc
 	var body: Control
 	match team_view:
 		1: body = pages.lineup()
@@ -2349,6 +2403,8 @@ func _team_cards() -> Control:
 
 
 func _stat_card(title: String, big: String, caption: String, detail: String, accent: Color, cb: Callable, alert := "") -> Button:
+	if _chip_mode:
+		return _chip_card(title, big, caption, detail, cb, alert)
 	# Every card wears the team trim; colour only means something on the alert chip.
 	var chip_color := UiKit.GOLD
 	accent = UiKit.MUTED if accent == UiKit.MUTED else UiKit.TRIM
@@ -2437,7 +2493,7 @@ var _league_box: VBoxContainer
 func _league_top() -> Control:
 	_league_box = VBoxContainer.new()
 	_league_box.name = "LeaguePane"
-	_league_box.add_theme_constant_override("separation", 8)
+	_league_box.add_theme_constant_override("separation", 4)
 	_fill_league_box()
 	return _league_box
 
@@ -2467,16 +2523,17 @@ func _fill_league_box() -> void:
 	var sb := UiKit.flat(Color(UiKit.PANEL, 0.85), 4, 1, Color(1, 1, 1, 0.08))
 	sb.border_width_top = 3
 	sb.border_color = UiKit.ACCENT
-	sb.set_content_margin_all(16)
+	sb.set_content_margin_all(12)
 	frame.add_theme_stylebox_override("panel", sb)
 	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_league_box.add_child(frame)
 	var sc := ScrollContainer.new()
 	sc.name = "LeaguePaneScroll"
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	sc.custom_minimum_size.y = LEAGUE_PANE_H
 	sc.follow_focus = true
 	frame.add_child(sc)
+	_scroll = sc
 	var body: Control
 	match league_view:
 		0: body = _league_standings()
@@ -2838,7 +2895,7 @@ func _personnel_top() -> Control:
 		personnel_view = _personnel_default()
 	_pers_box = VBoxContainer.new()
 	_pers_box.name = "PersonnelPane"
-	_pers_box.add_theme_constant_override("separation", 8)
+	_pers_box.add_theme_constant_override("separation", 4)
 	_fill_personnel_box()
 	return _pers_box
 
@@ -2891,15 +2948,16 @@ func _fill_personnel_box(keep := false) -> void:
 	var sb := UiKit.flat(Color(UiKit.PANEL, 0.85), 4, 1, Color(1, 1, 1, 0.08))
 	sb.border_width_top = 3
 	sb.border_color = UiKit.ACCENT
-	sb.set_content_margin_all(16)
+	sb.set_content_margin_all(12)
 	frame.add_theme_stylebox_override("panel", sb)
 	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_pers_box.add_child(frame)
 	var sc := ScrollContainer.new()
 	sc.name = "PersonnelPaneScroll"
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	sc.custom_minimum_size.y = PERS_PANE_H
 	frame.add_child(sc)
+	_scroll = sc
 	var body: Control
 	match personnel_view:
 		0: body = pages.contracts()
@@ -3079,53 +3137,74 @@ func _settings_sections() -> Array:
 
 func _settings_view(v: VBoxContainer) -> void:
 	var offseason := season.phase == Season.PHASE_OFFSEASON
+	var career := season.player_mode
+	var noun := "Career" if career else "Franchise"
 	var used := 0
-	for s in range(1, SaveSystem.SLOTS + 1):
-		if SaveSystem.has_slot(s):
+	for sl in range(1, SaveSystem.SLOTS + 1):
+		if SaveSystem.has_slot(sl):
 			used += 1
 	var auto := SaveSystem.slot_info(SaveSystem.AUTO_SLOT)
 	var latest := {}
-	for s in range(0, SaveSystem.SLOTS + 1):
-		var info := SaveSystem.slot_info(s)
+	for sl in range(0, SaveSystem.SLOTS + 1):
+		var info := SaveSystem.slot_info(sl)
 		if not info.is_empty() and str(info.get("saved_at", "")) > str(latest.get("saved_at", "")):
 			latest = info
-	var sim := _stat_card("Sim Options", "OFF" if offseason else "W%d" % season.week, "SEASON %d" % season.year,
-		"Sim a week, to the playoffs, or the whole season", UiKit.TRIM, func(): open("Sim Options", pages.sim_options))
-	var save := _stat_card("Save Franchise", "%d/%d" % [used, SaveSystem.SLOTS], "SLOTS USED",
-		("Autosave: [color=white]%s %s[/color]" % [auto.get("year", ""), auto.get("week", "")]) if not auto.is_empty() else "The autosave updates every week",
-		UiKit.TRIM, func(): open("Save Franchise", func(): return pages.save_load(true)))
-	var load_c := _stat_card("Load Franchise", str(used + (0 if auto.is_empty() else 1)), "SAVES",
-		("Latest: [color=white]%s[/color] · %s %s" % [UiKit.esc(str(latest.get("label", "")) if str(latest.get("label", "")) != "" else "Slot %d" % int(latest.get("slot", 0))), latest.get("abbrev", ""), latest.get("week", "")]) if not latest.is_empty() else "No saves yet",
-		UiKit.TRIM, func(): open("Load Franchise", func(): return pages.save_load(false)))
-	var td := Trades.difficulty()
-	var trade_card := _stat_card("Trade Difficulty", String(Trades.DIFFICULTY_NAMES[td]).to_upper(), "TRADES",
-		"Click to switch. [color=white]Easy[/color]: the AI can be fleeced. [color=white]Normal[/color]: fair swaps. [color=white]Hard[/color]: the AI wants an edge", UiKit.TRIM,
-		func():
-			season.settings.trade_difficulty = (Trades.difficulty() + 1) % Trades.DIFFICULTY_NAMES.size()
-			season.settings.apply()
-			refresh())
-	var fs := _soon_card("Franchise Settings", "Difficulty, injuries, cap", ["Sim difficulty", "Injuries on/off and frequency", "Salary cap rules"])
-	v.add_child(UiKit.heading("FRANCHISE", 22))
-	v.add_child(_card_row("SettingsFranchise", [sim, save, load_c, fs], 4))
-	var gap0 := Control.new()
-	gap0.custom_minimum_size.y = 10
-	v.add_child(gap0)
-	v.add_child(UiKit.heading("GAMEPLAY", 22))
-	v.add_child(_card_row("SettingsGameplay", [trade_card], 4))
-	var gap := Control.new()
-	gap.custom_minimum_size.y = 10
-	v.add_child(gap)
-	var dbg := _stat_card("Debug Sim Tools", "M1", "SANDBOX", "Single matches, batch sims, raw ratings", UiKit.TRIM, app.open_debug)
-	var menu := _stat_card("Main Menu", "◂", "TITLE", "Back to the title screen. Your franchise stays loaded", UiKit.TRIM, app.show_title)
-	v.add_child(UiKit.heading("SYSTEM", 22))
-	var reduced := Fx.is_reduced()
-	var anim := _stat_card("Animations", "REDUCED" if reduced else "ON", "INTERFACE",
-		"Reduce animations is [color=white]%s[/color]. Click to turn it %s" % ["on" if reduced else "off", "off" if reduced else "on"], UiKit.TRIM,
+	var root := HBoxContainer.new()
+	root.add_theme_constant_override("separation", 70)
+	root.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	v.add_child(root)
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 4)
+	list.custom_minimum_size.x = 620
+	root.add_child(list)
+	var right := CenterContainer.new()
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root.add_child(right)
+	var card := VBoxContainer.new()
+	card.custom_minimum_size.x = 440
+	card.add_theme_constant_override("separation", 10)
+	right.add_child(card)
+	var d_title := UiKit.display("", 48, Color.WHITE, true)
+	var d_body := UiKit.label("", 19, Color("#b4bfd0"))
+	d_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	d_body.custom_minimum_size.x = 440
+	card.add_child(UiKit.display("ABOUT THIS OPTION", 17, UiKit.MUTED))
+	card.add_child(d_title)
+	card.add_child(d_body)
+	var add := func(title: String, value: String, desc: String, cb: Callable) -> MenuText:
+		var b := MenuText.new(title, 38, UiKit.ACCENT, "", 620)
+		if value != "":
+			b.set_value(value, 24)
+		b.pressed.connect(cb)
+		b.focus_entered.connect(func():
+			d_title.text = title.to_upper()
+			d_body.text = desc)
+		list.add_child(b)
+		return b
+	var first: MenuText = add.call("Sim Options", "OFF" if offseason else "W%d" % season.week,
+		"Sim a week, to the playoffs, or the whole season.", func(): open("Sim Options", pages.sim_options))
+	add.call("Save " + noun, "%d/%d" % [used, SaveSystem.SLOTS],
+		("Autosave: %s %s. The autosave updates every week." % [auto.get("year", ""), auto.get("week", "")]) if not auto.is_empty() else "Write your game to a slot. The autosave updates every week.",
+		func(): open("Save " + noun, func(): return pages.save_load(true)))
+	add.call("Load " + noun, str(used + (0 if auto.is_empty() else 1)),
+		("Latest: %s, %s %s." % [str(latest.get("label", "")) if str(latest.get("label", "")) != "" else "Slot %d" % int(latest.get("slot", 0)), latest.get("abbrev", ""), latest.get("week", "")]) if not latest.is_empty() else "No saves yet.",
+		func(): open("Load " + noun, func(): return pages.save_load(false)))
+	if not career:
+		add.call("Trade Difficulty", String(Trades.DIFFICULTY_NAMES[Trades.difficulty()]).to_upper(),
+			"How hard the AI bargains. Easy: it can be fleeced. Normal: fair swaps. Hard: it wants an edge. Press to switch.",
+			func():
+				season.settings.trade_difficulty = (Trades.difficulty() + 1) % Trades.DIFFICULTY_NAMES.size()
+				season.settings.apply()
+				refresh())
+	add.call("Animations", "REDUCED" if Fx.is_reduced() else "ON",
+		"Reduced skips menu motion and count-ups. Press to switch.",
 		func():
 			season.settings.reduce_animations = not Fx.is_reduced()
 			season.settings.apply()
 			refresh())
-	v.add_child(_card_row("SettingsSystem", [dbg, menu, anim], 4))
+	add.call("Debug Sim Tools", "", "Single matches, batch sims and a raw ratings sandbox.", app.open_debug)
+	add.call("Main Menu", "", "Back to the title screen. Your %s stays loaded." % noun.to_lower(), app.show_title)
+	first.focus_entered.emit()
 
 
 func open_standings() -> void:

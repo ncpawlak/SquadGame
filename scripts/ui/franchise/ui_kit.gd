@@ -340,16 +340,65 @@ static func style_primary(b: Button, color := Color.TRANSPARENT, skewed := true)
 	_hook_pop(b)
 
 
-## Slanted secondary button (week arrows, Sim To, Back).
-static func style_skewed(b: Button, base := PANEL_HI) -> void:
-	style_button(b, base, ACCENT, 3)
-	for k in ["normal", "hover", "pressed", "focus", "disabled"]:
-		var s: StyleBoxFlat = b.get_theme_stylebox(k)
+## Text-only button (the game's standard): no plate or outline at rest. Hover / focus slides in a slanted accent
+## wash with an accent slash on its left edge and lights the text up. `base` is ignored (kept for old call sites).
+static func style_skewed(b: Button, _base := PANEL_HI) -> void:
+	style_ghost(b, ACCENT)
+
+
+static func style_ghost(b: Button, accent := Color.TRANSPARENT, size := 0) -> void:
+	if accent.a == 0.0:
+		accent = ACCENT
+	var mk := func(bg: Color, slash: float) -> StyleBoxFlat:
+		var s := flat(bg, 3)
 		s.skew = Vector2(SKEW, 0)
-		s.content_margin_left = 22
-		s.content_margin_right = 22
+		s.content_margin_left = 20
+		s.content_margin_right = 20
+		s.content_margin_top = 6
+		s.content_margin_bottom = 6
+		if slash > 0.0:
+			s.border_width_left = 4
+			s.border_color = Color(accent, slash)
+		return s
+	b.add_theme_stylebox_override("normal", mk.call(Color(0, 0, 0, 0), 0.0))
+	b.add_theme_stylebox_override("hover", mk.call(Color(accent, 0.14), 1.0))
+	b.add_theme_stylebox_override("focus", mk.call(Color(accent, 0.14), 1.0))
+	b.add_theme_stylebox_override("pressed", mk.call(Color(accent, 0.28), 1.0))
+	b.add_theme_stylebox_override("disabled", mk.call(Color(0, 0, 0, 0), 0.0))
+	b.add_theme_color_override("font_color", Color(1, 1, 1, 0.72))
+	for k in ["font_hover_color", "font_focus_color", "font_pressed_color"]:
+		b.add_theme_color_override(k, Color.WHITE)
+	b.add_theme_color_override("font_disabled_color", Color(MUTED, 0.5))
 	install_fonts()
 	b.add_theme_font_override("font", font_display)
+	if size > 0:
+		b.add_theme_font_size_override("font_size", size)
+	b.focus_mode = Control.FOCUS_ALL
+
+
+## Text tab for the hub's tab and sub-tab bars: muted text, white with an accent underline when selected.
+static func style_tab(b: Button, selected: bool, size := 20) -> void:
+	var mk := func(bg: Color, line: float) -> StyleBoxFlat:
+		var s := flat(bg, 0)
+		s.content_margin_left = 18
+		s.content_margin_right = 18
+		s.content_margin_top = 6
+		s.content_margin_bottom = 6
+		if line > 0.0:
+			s.border_width_bottom = 3
+			s.border_color = Color(ACCENT, line)
+		return s
+	b.add_theme_stylebox_override("normal", mk.call(Color(ACCENT, 0.10) if selected else Color(0, 0, 0, 0), 1.0 if selected else 0.0))
+	b.add_theme_stylebox_override("hover", mk.call(Color(1, 1, 1, 0.06), 0.55 if not selected else 1.0))
+	b.add_theme_stylebox_override("pressed", mk.call(Color(ACCENT, 0.2), 1.0))
+	b.add_theme_stylebox_override("focus", mk.call(Color(1, 1, 1, 0.06), 0.55 if not selected else 1.0))
+	b.add_theme_color_override("font_color", Color.WHITE if selected else Color(MUTED, 0.95))
+	b.add_theme_color_override("font_hover_color", Color.WHITE)
+	b.add_theme_color_override("font_pressed_color", Color.WHITE)
+	b.add_theme_color_override("font_focus_color", Color.WHITE)
+	install_fonts()
+	b.add_theme_font_override("font", font_display)
+	b.add_theme_font_size_override("font_size", size)
 
 
 ## Standard button: slanted broadcast secondary (dark plate, accent rim on hover/focus).
@@ -442,6 +491,42 @@ static func tile(title: String, subtitle: String, size: Vector2, accent: Color, 
 	sub.add_theme_color_override("default_color", MUTED)
 	sub.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(sub)
+	return b
+
+
+## Compact list row: accent strip on the left, title, optional muted detail on the right. For lists that must fit on one screen.
+static func row_tile(title: String, accent: Color, cb: Callable, h := 46, detail := "") -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(0, h)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.clip_contents = true
+	style_button(b, Color(PANEL, 0.85), accent, 6)
+	b.pressed.connect(cb)
+	var strip := ColorRect.new()
+	strip.color = accent
+	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	strip.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+	strip.offset_right = 4
+	b.add_child(strip)
+	var row := HBoxContainer.new()
+	row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 18
+	row.offset_right = -14
+	row.add_theme_constant_override("separation", 12)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(row)
+	var l := display(title.to_upper(), 20, Color.WHITE)
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(l)
+	if detail != "":
+		var d := label(detail, 14, MUTED)
+		d.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		d.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		d.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		d.clip_text = true
+		d.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		row.add_child(d)
 	return b
 
 
