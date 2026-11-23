@@ -317,10 +317,10 @@ func _division_badge(d: String) -> Control:
 	sb.border_color = UiKit.ACCENT
 	p.add_theme_stylebox_override("panel", sb)
 	p.custom_minimum_size.x = 52
-	var l := UiKit.display("\n".join(d.to_upper().split("")), 17, UiKit.TEXT, true)
+	var l := UiKit.display("\n".join(d.to_upper().split("")), 13, UiKit.TEXT, true)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	l.add_theme_constant_override("line_spacing", -6)
+	l.add_theme_constant_override("line_spacing", -8)
 	p.add_child(l)
 	return p
 
@@ -329,7 +329,7 @@ func _division_badge(d: String) -> Control:
 ## an expectation tag. Muted team tint at rest; full team colour on hover/focus.
 func _team_tile(t: Team, rank: int, count: int) -> Button:
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(0, 90)
+	b.custom_minimum_size = Vector2(0, 76)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	b.clip_text = true
@@ -344,42 +344,27 @@ func _team_tile(t: Team, rank: int, count: int) -> Button:
 	hv.shadow_color = Color(acc, 0.35)
 	hv.shadow_size = 10
 	b.add_theme_stylebox_override("hover", hv)
-	var col := VBoxContainer.new()
-	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 8)
-	col.add_theme_constant_override("separation", 8)
-	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	var nm := UiKit.label(t.name, 16, Color.WHITE)
-	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	nm.clip_text = true
-	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.add_child(nm)
+	# One compact row: logo ring | name + expectation tag | OVR. Keeps every tile inside its own box.
 	var o := t.team_ovr()
-	# Three columns: OVR | ring (dead centre) | tag. The side columns share the width equally.
 	var line := HBoxContainer.new()
-	line.add_theme_constant_override("separation", 0)
+	line.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 8)
+	line.add_theme_constant_override("separation", 8)
 	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var left := VBoxContainer.new()
-	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left.alignment = BoxContainer.ALIGNMENT_CENTER
-	left.add_theme_constant_override("separation", -6)
-	var ovr := UiKit.display(str(o), 32, UiKit.ovr_color(o), true)
-	ovr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	ovr.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-	ovr.add_theme_constant_override("outline_size", 5)
-	left.add_child(ovr)
-	var cap := UiKit.display("OVR", 13, Color(1, 1, 1, 0.6), true)
-	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	left.add_child(cap)
-	_ignore_mouse_tree(left)
-	line.add_child(left)
-	var ring := RingGauge.new(o, 100, UiKit.ovr_color(o), str(o), 60, 3.0)
+	var ring := RingGauge.new(o, 100, UiKit.ovr_color(o), "", 56, 3.0)
 	ring.logo = UiKit.logo_tex(t.abbrev)
 	ring.disc = Color(0.02, 0.03, 0.06, 0.72)
+	ring.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	line.add_child(ring)
-	var side := CenterContainer.new()
-	side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	side.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var mid := VBoxContainer.new()
+	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mid.alignment = BoxContainer.ALIGNMENT_CENTER
+	mid.add_theme_constant_override("separation", 4)
+	mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var nm := UiKit.label(t.name, 15, Color.WHITE)
+	nm.clip_text = true
+	nm.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mid.add_child(nm)
 	var tag: Array = _expectation_tag(rank, count)
 	var chip := PanelContainer.new()
 	var csb := UiKit.flat(Color(0, 0, 0, 0.55), 3, 1, tag[1])
@@ -389,12 +374,27 @@ func _team_tile(t: Team, rank: int, count: int) -> Button:
 	csb.content_margin_bottom = 1
 	chip.add_theme_stylebox_override("panel", csb)
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	chip.add_child(UiKit.display(tag[0], 14, tag[1], true))
-	side.add_child(chip)
-	_ignore_mouse_tree(side)
-	line.add_child(side)
-	col.add_child(line)
-	b.add_child(col)
+	chip.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	chip.add_child(UiKit.display(tag[0], 13, tag[1], true))
+	mid.add_child(chip)
+	_ignore_mouse_tree(mid)
+	line.add_child(mid)
+	var right := VBoxContainer.new()
+	right.alignment = BoxContainer.ALIGNMENT_CENTER
+	right.add_theme_constant_override("separation", -6)
+	right.custom_minimum_size.x = 46
+	right.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ovr := UiKit.display(str(o), 30, UiKit.ovr_color(o), true)
+	ovr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ovr.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	ovr.add_theme_constant_override("outline_size", 5)
+	right.add_child(ovr)
+	var cap := UiKit.display("OVR", 12, Color(1, 1, 1, 0.6), true)
+	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	right.add_child(cap)
+	_ignore_mouse_tree(right)
+	line.add_child(right)
+	b.add_child(line)
 	return b
 
 
