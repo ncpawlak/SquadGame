@@ -1,4 +1,7 @@
-# SquadGame
+# Pro Squad League (PSL)
+
+> Codename and repository: **SquadGame**. The game is called **Pro Squad League**, PSL for short. The league emblem lives at
+> `assets/branding/psl_logo.png` (generate it from the source art with `python tools/prep_psl_logo.py <source image>`).
 
 A squad-based 5v5 shooter that runs like a pro sports franchise: teams, rosters, soldier stats and
 progression. Built in **Godot 4.7** (GDScript). It's currently a headless-friendly sim with a debug UI. Visual combat comes later.

@@ -879,33 +879,31 @@ func _settle_focus(view: Control, focus_index: int, scroll_pos: int) -> void:
 
 func _page_frame(title: String, body: Control) -> Control:
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 8)
+	v.add_theme_constant_override("separation", 4)
+	# One slim row: Back, the title, and the breadcrumb (a hover tooltip) instead of the old three-line header.
 	var head := HBoxContainer.new()
-	head.add_theme_constant_override("separation", 16)
+	head.add_theme_constant_override("separation", 14)
 	v.add_child(head)
 	if not page_stack[-1].get("no_back", false):
-		var back := UiKit.button("< Back", go_back, 17)
-		UiKit.style_skewed(back)
+		var back := UiKit.button("< Back", go_back, 18)
 		back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		back.custom_minimum_size.y = 38
+		back.custom_minimum_size.y = 34
 		back.set_meta(&"skip_autofocus", true)
 		head.add_child(back)
 	var crumbs := "%s  /  " % tab_label(tab_index).to_upper()
 	for i in page_stack.size() - 1:
 		crumbs += "%s  /  " % page_stack[i]["title"]
-	var tv := VBoxContainer.new()
-	tv.add_theme_constant_override("separation", 0)
-	tv.add_child(UiKit.label(crumbs.to_upper(), 13, UiKit.MUTED))
-	tv.add_child(UiKit.display(title.to_upper(), 32, Color.WHITE, true))
-	var line := Panel.new()
-	var lsb := UiKit.flat(UiKit.ACCENT, 1)
-	lsb.skew = Vector2(UiKit.SKEW * 2.0, 0)
-	line.add_theme_stylebox_override("panel", lsb)
-	line.custom_minimum_size = Vector2(90, 3)
-	line.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tv.add_child(line)
-	head.add_child(tv)
+	var tl := UiKit.display(title.to_upper(), 30, Color.WHITE, true)
+	tl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	tl.mouse_filter = Control.MOUSE_FILTER_PASS
+	tl.tooltip_text = crumbs.to_upper() + title.to_upper()
+	head.add_child(tl)
+	var crumb_l := UiKit.label(crumbs.to_upper(), 13, UiKit.MUTED)
+	crumb_l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	crumb_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	crumb_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	crumb_l.clip_text = true
+	head.add_child(crumb_l)
 	_scroll = _make_scroll()
 	v.add_child(_scroll)
 	_scroll.add_child(body)
@@ -985,6 +983,9 @@ func _score_bug() -> Control:
 	var bug := HBoxContainer.new()
 	bug.add_theme_constant_override("separation", 0)
 	bug.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var badge := FrontEnd.league_emblem(46)
+	badge.custom_minimum_size.x = 52
+	bug.add_child(badge)
 	var mk := func(bg: Color, border: Color, text: String, size: int, color: Color) -> PanelContainer:
 		var p := PanelContainer.new()
 		var sb := UiKit.flat(bg, 2, 1, border)
@@ -2000,7 +2001,7 @@ func _fill_feed() -> void:
 				UiKit.fade_in(row, 0.02 * n, 0.22)
 			n += 1
 	if n == 0:
-		list.add_child(UiKit.label("Nothing here yet.", 16, UiKit.MUTED))
+		list.add_child(FrontEnd.empty_note("Nothing here yet."))
 
 
 func _set_feed_filter(key: StringName) -> void:

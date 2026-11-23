@@ -22,6 +22,7 @@ func _ready() -> void:
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
 	randomize()
+	DisplayServer.window_set_title(FrontEnd.LEAGUE_NAME)
 	UiKit.install_fonts()
 	theme = UiKit.theme()
 	_free_space_key()

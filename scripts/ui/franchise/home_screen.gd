@@ -30,16 +30,13 @@ func _ready() -> void:
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
 	margin.add_theme_constant_override("margin_left", 96)
 	margin.add_theme_constant_override("margin_right", 96)
-	margin.add_theme_constant_override("margin_top", 56)
+	margin.add_theme_constant_override("margin_top", 40)
 	margin.add_theme_constant_override("margin_bottom", 40)
 	add_child(margin)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
 	margin.add_child(col)
-	col.add_child(FrontEnd.wordmark(46))
-	var tagline := UiKit.label("CAREER  ·  FRANCHISE  ·  EXHIBITION", 15, UiKit.MUTED)
-	tagline.custom_minimum_size.x = 400
-	col.add_child(tagline)
+	col.add_child(FrontEnd.wordmark(48))
 	var grow := Control.new()
 	grow.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.add_child(grow)
