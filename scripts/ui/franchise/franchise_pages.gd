@@ -4354,7 +4354,7 @@ const AREA_COLORS := {"A": Color("#22c55e"), "B+": Color("#38bdf8"), "B": Color(
 
 ## Scouting toolbar: the once-a-season region scout, auto-scout and the draft shortcuts in one panel.
 func _scout_toolbar(d: Draft) -> Control:
-	var pn := UiKit.panel(UiKit.PANEL, 10)
+	var pn := UiKit.panel(UiKit.PANEL, 4)
 	var h := _row(28)
 	var reg := _vbox(4)
 	var rr := _row(6)
@@ -4612,12 +4612,12 @@ func _scout_banner(d: Draft) -> Control:
 	var h := _row(20)
 	var left := _vbox(2)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left.add_child(UiKit.display("%d DRAFT CLASS" % d.year, 26, UiKit.TEXT))
+	left.add_child(UiKit.display("%d DRAFT CLASS" % d.year, 22, UiKit.TEXT))
 	# The "scout a prospect to sharpen his grades..." subtitle and the "How scouting works" toggle were removed (HelpText).
 	h.add_child(left)
-	var pts := UiKit.panel(UiKit.PANEL_HI, 10)
+	var pts := UiKit.panel(UiKit.PANEL_HI, 6)
 	var pv := _row(10)
-	var big := UiKit.label(str(d.scout_points), 26, UiKit.INFO)
+	var big := UiKit.label(str(d.scout_points), 22, UiKit.INFO)
 	big.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	pv.add_child(big)
 	var sub := UiKit.label("SCOUT POINTS  (+%d / week)" % _season().scout_points_per_week(), 13, UiKit.MUTED)
@@ -5061,7 +5061,7 @@ func _story_panel(n: Dictionary, clickable: bool, compact := false) -> Control:
 		return pn
 	var b := Button.new()
 	UiKit.style_button(b, UiKit.PANEL, UiKit.ACCENT, 8)
-	b.custom_minimum_size = Vector2(0, 92) if compact else Vector2(1000, 64)
+	b.custom_minimum_size = Vector2(0, 62) if compact else Vector2(1000, 64)
 	var r := UiKit.rich(txt, 16)
 	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	r.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -6015,18 +6015,18 @@ func _cap_banner(user: Team) -> Control:
 	var payroll := Contracts.payroll(user, s.cap_year())
 	var committed := s.fa.committed(user)
 	var spendable := Contracts.SALARY_CAP - payroll - committed
-	var p := UiKit.panel(UiKit.PANEL_HI, 10)
-	var h := _row(40)
+	var p := UiKit.panel(UiKit.PANEL_HI, 6)
+	var h := _row(32)
 	p.add_child(h)
 	var left := _vbox(0)
 	left.add_child(UiKit.label("AVAILABLE TO SPEND", 15, UiKit.MUTED))
-	left.add_child(UiKit.label(Contracts.money(spendable), 44, UiKit.GOOD if spendable > 0 else UiKit.BAD))
+	left.add_child(UiKit.label(Contracts.money(spendable), 30, UiKit.GOOD if spendable > 0 else UiKit.BAD))
 	h.add_child(left)
 	var math := UiKit.rich("[color=#8b97ab]Salary cap[/color]  [color=white]%s[/color]
 [color=#8b97ab]Current salaries[/color]  [color=white]- %s[/color]
 [color=#8b97ab]Pending offers[/color]  [color=#38bdf8]- %s[/color]" % [
-		Contracts.money(Contracts.SALARY_CAP), Contracts.money(payroll), Contracts.money(committed)], 17)
-	math.custom_minimum_size.x = 320
+		Contracts.money(Contracts.SALARY_CAP), Contracts.money(payroll), Contracts.money(committed)], 14)
+	math.custom_minimum_size.x = 260
 	math.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	h.add_child(math)
 	var note := UiKit.label("An offer must fit in this amount (minimum deals always fit).
